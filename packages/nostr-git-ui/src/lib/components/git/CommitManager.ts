@@ -74,6 +74,10 @@ export class CommitManager {
   private hasMoreCommits: boolean = false;
   private currentBranch?: string; // The branch currently being used for commits
   private currentMainBranch?: string; // The main branch for fallback
+  private historySnapshotOid?: string;
+  private historySnapshotBranch?: string;
+  private historySnapshotRepoKey?: string;
+  private loadSequence = 0;
 
   // Loading state
   private loadingIds: {
@@ -121,7 +125,10 @@ export class CommitManager {
    * Set the current repository identifiers
    */
   setRepoKeys(keys: { canonicalKey?: string; workerRepoId?: string }) {
-    if (keys.canonicalKey) this.canonicalKey = keys.canonicalKey;
+    if (keys.canonicalKey && keys.canonicalKey !== this.canonicalKey) {
+      this.clearHistorySnapshot();
+      this.canonicalKey = keys.canonicalKey;
+    }
     if (keys.workerRepoId) this.workerRepoId = keys.workerRepoId;
   }
 
@@ -177,10 +184,50 @@ export class CommitManager {
    * This is useful when switching branches to ensure subsequent operations use the correct branch
    */
   setCurrentBranch(branch: string, mainBranch?: string): void {
+    if (
+      this.currentBranch &&
+      normalizeGitRefName(this.currentBranch) !== normalizeGitRefName(branch)
+    ) {
+      this.clearHistorySnapshot();
+      this.loadSequence++;
+    }
     this.currentBranch = branch;
     if (mainBranch) {
       this.currentMainBranch = mainBranch;
     }
+  }
+
+  private clearHistorySnapshot(): void {
+    this.historySnapshotOid = undefined;
+    this.historySnapshotBranch = undefined;
+    this.historySnapshotRepoKey = undefined;
+  }
+
+  private pinHistorySnapshot(
+    repoKey: string,
+    branch: string,
+    observedOid?: string
+  ): string | undefined {
+    const oid = String(observedOid || "")
+      .trim()
+      .toLowerCase();
+    const normalizedBranch = normalizeGitRefName(branch);
+    if (!/^[0-9a-f]{40}$/.test(oid)) return this.historySnapshotOid;
+    if (
+      this.historySnapshotOid &&
+      (this.historySnapshotRepoKey !== repoKey || this.historySnapshotBranch !== normalizedBranch)
+    ) {
+      this.clearHistorySnapshot();
+    }
+    if (this.historySnapshotOid && this.historySnapshotOid !== oid) {
+      throw new Error(
+        `Repository history snapshot changed from ${this.historySnapshotOid} to ${oid}; reload the commit list`
+      );
+    }
+    this.historySnapshotOid = oid;
+    this.historySnapshotBranch = normalizedBranch;
+    this.historySnapshotRepoKey = repoKey;
+    return oid;
   }
 
   /**
@@ -285,6 +332,8 @@ export class CommitManager {
    * Refresh commits (reload current page)
    */
   async refreshCommits(): Promise<CommitLoadResult> {
+    this.clearHistorySnapshot();
+    this.loadSequence++;
     // Clear cache if enabled
     if (this.config.enableCaching && this.cacheManager) {
       // Clear commit history cache to force fresh load
@@ -300,8 +349,11 @@ export class CommitManager {
   async loadCommits(
     repoId?: string,
     branch?: string,
-    mainBranch?: string
+    mainBranch?: string,
+    allowSnapshotRestart: boolean = true
   ): Promise<CommitLoadResult> {
+    const loadSequence = ++this.loadSequence;
+    const requestedPage = this.currentPage;
     const effectiveRepoId = repoId || this.workerRepoId;
 
     // Use stored values as fallbacks when parameters not provided
@@ -337,6 +389,18 @@ export class CommitManager {
     if (branch) {
       this.currentBranch = branch;
     }
+    const branchName =
+      normalizeGitRefName(effectiveBranch ?? effectiveMainBranch) ||
+      normalizeGitRefName(effectiveMainBranch) ||
+      "main";
+    const snapshotRepoKey = this.canonicalKey || effectiveRepoId;
+    if (
+      this.historySnapshotOid &&
+      (this.historySnapshotRepoKey !== snapshotRepoKey || this.historySnapshotBranch !== branchName)
+    ) {
+      this.clearHistorySnapshot();
+    }
+    const requestedSnapshot = this.historySnapshotOid;
 
     try {
       // Clear any previous error
@@ -348,11 +412,7 @@ export class CommitManager {
 
       // Try cache first if enabled
       const cacheEnabled = !!(this.config.enableCaching && this.cacheManager && this.canonicalKey);
-      // Ensure branchName is normalized while preserving branch paths (e.g. fix/ipk-builds)
-      const branchName =
-        normalizeGitRefName(effectiveBranch ?? effectiveMainBranch) ||
-        normalizeGitRefName(effectiveMainBranch) ||
-        "main";
+      // branchName is normalized while preserving branch paths (e.g. fix/ipk-builds).
       console.log(
         "[CommitManager] branchName resolved to:",
         branchName,
@@ -361,17 +421,20 @@ export class CommitManager {
         "mainBranch:",
         mainBranch
       );
-      const pageKey = cacheEnabled
-        ? `${this.canonicalKey}:${branchName}:p${this.currentPage}:s${this.commitsPerPage}`
-        : undefined;
+      const pageKey =
+        cacheEnabled && requestedSnapshot
+          ? `${this.canonicalKey}:${requestedSnapshot}:p${requestedPage}:s${this.commitsPerPage}`
+          : undefined;
       console.log("[CommitManager] pageKey:", pageKey, "cacheEnabled:", cacheEnabled);
       type CommitPageCacheEntry = {
         commits: any[];
         total?: number;
+        hasMore: boolean;
         page: number;
         pageSize: number;
         branch: string;
         repoKey: string;
+        commitHash: string;
       };
       if (cacheEnabled && pageKey) {
         console.log(`[CommitManager] Checking cache for key: ${pageKey}`);
@@ -379,6 +442,9 @@ export class CommitManager {
           this.COMMIT_CACHE_NAME,
           pageKey
         );
+        if (loadSequence !== this.loadSequence) {
+          return { success: false, error: "Stale commit history load ignored" };
+        }
         if (cached) {
           console.log(
             `[CommitManager] Cache hit for ${pageKey}: repoKey=${cached.repoKey}, branch=${cached.branch}, commits=${cached.commits?.length}`
@@ -386,13 +452,16 @@ export class CommitManager {
         } else {
           console.log(`[CommitManager] Cache miss for ${pageKey}`);
         }
-        if (cached && cached.repoKey === this.canonicalKey && cached.branch === branchName) {
+        if (
+          cached &&
+          cached.repoKey === this.canonicalKey &&
+          cached.branch === branchName &&
+          cached.commitHash === requestedSnapshot
+        ) {
           // Apply cached state
           this.commits = cached.commits;
           this.totalCommits = cached.total;
-          this.hasMoreCommits = cached.total
-            ? this.currentPage * this.commitsPerPage < cached.total
-            : cached.commits.length === this.commitsPerPage; // heuristic if no total
+          this.hasMoreCommits = cached.hasMore;
 
           console.log(
             `[CommitManager] Using cached commits: ${this.commits.length} for branch ${branchName}`
@@ -411,7 +480,7 @@ export class CommitManager {
       }
 
       // Calculate the depth needed for current page
-      const requiredDepth = this.commitsPerPage * this.currentPage;
+      const requiredDepth = this.commitsPerPage * requestedPage;
 
       // Double-check repoId before worker call (defensive)
       if (!effectiveRepoId || effectiveRepoId.trim() === "") {
@@ -428,6 +497,7 @@ export class CommitManager {
         error?: string;
         fromVendor?: boolean;
         hasMore?: boolean;
+        commitHash?: string;
       };
 
       if (this.vendorReadRouter && this.repoEventSnapshot) {
@@ -443,8 +513,9 @@ export class CommitManager {
             repoKey: this.canonicalKey,
             cloneUrls,
             branch: branchName,
+            commitHash: requestedSnapshot,
             depth: requiredDepth,
-            page: this.currentPage,
+            page: requestedPage,
             perPage: this.commitsPerPage,
           });
 
@@ -470,6 +541,7 @@ export class CommitManager {
             })),
             fromVendor: vendorResult.fromVendor,
             hasMore: vendorResult.hasMore,
+            commitHash: vendorResult.commitHash,
           };
           console.log(
             `[CommitManager] VendorReadRouter returned ${commitsResult.commits?.length || 0} commits, fromVendor=${vendorResult.fromVendor}`
@@ -533,8 +605,19 @@ export class CommitManager {
       }
 
       if (commitsResult.success) {
+        if (loadSequence !== this.loadSequence) {
+          return { success: false, error: "Stale commit history load ignored" };
+        }
+        const snapshotOid = this.pinHistorySnapshot(
+          snapshotRepoKey,
+          branchName,
+          commitsResult.commitHash
+        );
+        if (requestedSnapshot && snapshotOid !== requestedSnapshot) {
+          throw new Error(`Pinned repository history ${requestedSnapshot} is unavailable`);
+        }
         const allCommits = commitsResult.commits || [];
-        const startIndex = (this.currentPage - 1) * this.commitsPerPage;
+        const startIndex = (requestedPage - 1) * this.commitsPerPage;
         const endIndex = startIndex + this.commitsPerPage;
 
         const pageCommits = commitsResult.fromVendor
@@ -542,9 +625,9 @@ export class CommitManager {
           : allCommits.slice(startIndex, endIndex);
 
         // If it's the first page, replace the commits, otherwise append
-        this.commits = this.currentPage === 1 ? pageCommits : [...this.commits, ...pageCommits];
+        this.commits = requestedPage === 1 ? pageCommits : [...this.commits, ...pageCommits];
         console.log(
-          `[CommitManager] Stored ${this.commits.length} commits (page ${this.currentPage}, branch: ${this.currentBranch})`
+          `[CommitManager] Stored ${this.commits.length} commits (page ${requestedPage}, branch: ${this.currentBranch})`
         );
 
         this.hasMoreCommits = commitsResult.fromVendor
@@ -554,7 +637,7 @@ export class CommitManager {
             : endIndex < allCommits.length;
 
         // Only fetch total count on first load and cache it
-        if (this.currentPage === 1 && this.totalCommits === undefined) {
+        if (requestedPage === 1 && this.totalCommits === undefined) {
           if (commitsResult.fromVendor) {
             this.totalCommits = startIndex + this.commits.length;
             if (this.hasMoreCommits) {
@@ -564,6 +647,10 @@ export class CommitManager {
             }
           } else if (allCommits.length < requiredDepth) {
             // If we got fewer commits than requested, we have all of them
+            this.totalCommits = allCommits.length;
+          } else if (snapshotOid) {
+            // The immutable history response already provides hasMore. A
+            // branch-based count could come from a newer divergent snapshot.
             this.totalCommits = allCommits.length;
           } else if (this.vendorReadRouter && this.repoEventSnapshot) {
             // Use unified getCommitCount that handles vendor API gracefully
@@ -614,10 +701,27 @@ export class CommitManager {
           }
         }
 
+        if (cacheEnabled && snapshotOid) {
+          const resolvedPageKey = `${this.canonicalKey}:${snapshotOid}:p${requestedPage}:s${this.commitsPerPage}`;
+          await this.cacheManager!.set(this.COMMIT_CACHE_NAME, resolvedPageKey, {
+            commits: this.commits,
+            total: this.totalCommits,
+            hasMore: this.hasMoreCommits,
+            page: requestedPage,
+            pageSize: this.commitsPerPage,
+            branch: branchName,
+            repoKey: this.canonicalKey!,
+            commitHash: snapshotOid,
+          } satisfies CommitPageCacheEntry);
+          if (loadSequence !== this.loadSequence) {
+            return { success: false, error: "Stale commit history load ignored" };
+          }
+        }
+
         // Update loading message to success
         if (this.loadingIds.commits) {
           const message =
-            this.currentPage === 1
+            requestedPage === 1
               ? `Loaded ${pageCommits.length} commits`
               : `Loaded ${pageCommits.length} more commits`;
 
@@ -643,6 +747,19 @@ export class CommitManager {
         throw err;
       }
     } catch (error) {
+      if (loadSequence !== this.loadSequence) {
+        return { success: false, error: "Stale commit history load ignored" };
+      }
+      if (requestedSnapshot && allowSnapshotRestart) {
+        // Never append data from another tip. Discard the old pages and restart
+        // page one atomically if no forward remote can serve the pinned OID.
+        this.clearHistorySnapshot();
+        this.commits = [];
+        this.totalCommits = undefined;
+        this.hasMoreCommits = false;
+        this.currentPage = 1;
+        return this.loadCommits(effectiveRepoId, branchName, effectiveMainBranch, false);
+      }
       console.error("Failed to load commits:", error);
 
       if (this.loadingIds.commits) {
@@ -768,6 +885,7 @@ export class CommitManager {
    * @param clearBranch If true, also clears the stored branch (default: false to preserve branch across pagination resets)
    */
   reset(clearBranch: boolean = false): void {
+    this.loadSequence++;
     this.commits = [];
     this.totalCommits = undefined;
     this.currentPage = 1;
@@ -775,6 +893,7 @@ export class CommitManager {
 
     // Optionally clear stored branch (useful when explicitly switching branches)
     if (clearBranch) {
+      this.clearHistorySnapshot();
       this.currentBranch = undefined;
       // Note: We keep currentMainBranch as it rarely changes
     }

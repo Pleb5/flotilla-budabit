@@ -42,6 +42,7 @@ export * from "./natural-pr-review.js"
 export * from "./natural-read-transport.js"
 export * from "./natural-read-types.js"
 export * from "./natural-read-provider.js"
+export * from "./diff-engine.js"
 
 export { type ImportConfig, DEFAULT_IMPORT_CONFIG, createImportConfig } from "./import-config.js"
 export { ImportAbortedError, ImportAbortController } from "./abort-controller.js"

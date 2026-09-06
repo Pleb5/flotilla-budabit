@@ -22,10 +22,7 @@ import { nip19 } from "nostr-tools";
 
 import type { Token } from "$lib/stores/tokens";
 import { tryTokensForHost, getTokensForHost } from "$lib/utils/tokenHelpers";
-import {
-  classifyRemoteReadFailure,
-  type RemoteReadFailureKind,
-} from "$lib/utils/cloneUrlIssues";
+import { classifyRemoteReadFailure, type RemoteReadFailureKind } from "$lib/utils/cloneUrlIssues";
 import { WorkerManager } from "./WorkerManager";
 import { isDisplayableGitRef, normalizeGitRefName } from "./branch-ref";
 
@@ -103,6 +100,7 @@ export interface VendorDirectoryResult {
   files: VendorFileInfo[];
   path: string;
   ref: string;
+  commitHash?: string;
   fromVendor: boolean;
   source?: ReadSourceMetadata;
 }
@@ -111,6 +109,7 @@ export interface VendorFileContentResult {
   content: string;
   path: string;
   ref: string;
+  commitHash?: string;
   encoding?: string;
   size: number;
   fromVendor: boolean;
@@ -139,6 +138,7 @@ export interface VendorCommit {
 export interface VendorCommitResult {
   commits: VendorCommit[];
   ref: string;
+  commitHash?: string;
   fromVendor: boolean;
   hasMore?: boolean;
   source?: ReadSourceMetadata;
@@ -283,7 +283,7 @@ export class VendorReadRouter {
     return {
       url: remoteUrl,
       enabled: true,
-      timeoutMs: 15_000,
+      timeoutMs: 0,
       ...(this.gitNaturalCorsProxy !== undefined ? { corsProxy: this.gitNaturalCorsProxy } : {}),
     };
   }
@@ -347,6 +347,7 @@ export class VendorReadRouter {
       })),
       path: result.path || "",
       ref: normalizeGitRefName(result.ref),
+      commitHash: result.commitHash,
       fromVendor: false,
       source: this.naturalReadSource(result.source, "listDirectory", attemptedUrls, startedAt),
     };
@@ -362,6 +363,7 @@ export class VendorReadRouter {
       content,
       path: result.path,
       ref: normalizeGitRefName(result.ref),
+      commitHash: result.commitHash,
       encoding: result.encoding,
       size: typeof result.size === "number" ? result.size : this.base64ByteLength(content),
       fromVendor: false,
@@ -394,8 +396,9 @@ export class VendorReadRouter {
     return {
       commits,
       ref: normalizeGitRefName(result.ref),
+      commitHash: result.commitHash,
       fromVendor: false,
-      hasMore: commits.length >= depth,
+      hasMore: result.hasMore ?? commits.length >= depth,
       source: this.naturalReadSource(result.source, "listCommits", attemptedUrls, startedAt),
     };
   }
@@ -622,7 +625,7 @@ export class VendorReadRouter {
       failures.length > 0 ||
       (activeFallbackUrl !== undefined && activeFallbackUrl !== declaredPrimaryUrl)
     ) {
-      this.onReadFallback?.({operation, failures, activeFallbackUrl});
+      this.onReadFallback?.({ operation, failures, activeFallbackUrl });
     }
     for (const attempt of failures) {
       const classification = classifyRemoteReadFailure(
@@ -728,6 +731,7 @@ export class VendorReadRouter {
         const routedResult = await withUrlFallback<VendorDirectoryResult>(
           naturalUrls,
           async (remoteUrl: string) => {
+            let resolvedCommitHash = params.commitHash;
             try {
               const natural = await params.workerManager.gitNaturalListDirectory({
                 ...this.naturalRequestBase(remoteUrl),
@@ -740,17 +744,29 @@ export class VendorReadRouter {
               if (!this.isMissingFilterCapability(error)) throw error;
             }
 
+            if (
+              !resolvedCommitHash &&
+              typeof params.workerManager.gitNaturalResolveRef === "function"
+            ) {
+              const resolved = await params.workerManager.gitNaturalResolveRef({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+              });
+              resolvedCommitHash = resolved.commitHash;
+            }
+
             const vendor = this.preferVendorReads ? this.getSupportedVendor(remoteUrl) : null;
             if (vendor) {
               try {
                 const result = await this.vendorListDirectory({
                   vendor,
                   remoteUrl,
-                  branch: params.commitHash || branch,
+                  branch: resolvedCommitHash || branch,
                   path,
                 });
                 return {
                   ...result,
+                  commitHash: resolvedCommitHash,
                   fromVendor: true,
                   source: this.readSource({
                     kind: "provider-rest",
@@ -768,11 +784,11 @@ export class VendorReadRouter {
               } catch {}
             }
 
-            const filesRaw = params.commitHash
+            const filesRaw = resolvedCommitHash
               ? await params.workerManager.listTreeAtCommit({
                   repoEvent: params.repoEvent,
                   repoKey: params.repoKey,
-                  commit: params.commitHash,
+                  commit: resolvedCommitHash,
                   path,
                   cloneUrls: [remoteUrl],
                   strictCloneUrls: true,
@@ -798,6 +814,7 @@ export class VendorReadRouter {
               })),
               path,
               ref: normalizeGitRefName(branch),
+              commitHash: resolvedCommitHash,
               fromVendor: false,
               source: this.readSource({
                 kind: "worker-clone",
@@ -938,7 +955,7 @@ export class VendorReadRouter {
         oid: f.oid || f.sha,
       }));
 
-      const result = {
+      const result: VendorDirectoryResult = {
         files,
         path,
         ref: normalizeGitRefName(branch),
@@ -1018,6 +1035,7 @@ export class VendorReadRouter {
         const routedResult = await withUrlFallback<VendorFileContentResult>(
           naturalUrls,
           async (remoteUrl: string) => {
+            let resolvedCommitHash = params.commitHash;
             try {
               const natural = await params.workerManager.gitNaturalGetFileContent({
                 ...this.naturalRequestBase(remoteUrl),
@@ -1030,17 +1048,29 @@ export class VendorReadRouter {
               if (!this.isMissingFilterCapability(error)) throw error;
             }
 
+            if (
+              !resolvedCommitHash &&
+              typeof params.workerManager.gitNaturalResolveRef === "function"
+            ) {
+              const resolved = await params.workerManager.gitNaturalResolveRef({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+              });
+              resolvedCommitHash = resolved.commitHash;
+            }
+
             const vendor = this.preferVendorReads ? this.getSupportedVendor(remoteUrl) : null;
             if (vendor) {
               try {
                 const result = await this.vendorGetFileContent({
                   vendor,
                   remoteUrl,
-                  branch: params.commitHash || branch,
+                  branch: resolvedCommitHash || branch,
                   path: params.path,
                 });
                 return {
                   ...result,
+                  commitHash: resolvedCommitHash,
                   fromVendor: true,
                   source: this.readSource({
                     kind: "provider-rest",
@@ -1063,7 +1093,7 @@ export class VendorReadRouter {
               repoKey: params.repoKey,
               branch,
               path: params.path,
-              commit: params.commitHash,
+              commit: resolvedCommitHash,
               cloneUrls: [remoteUrl],
               strictCloneUrls: true,
             });
@@ -1072,6 +1102,7 @@ export class VendorReadRouter {
               content,
               path: params.path,
               ref: normalizeGitRefName(branch),
+              commitHash: resolvedCommitHash,
               encoding: "utf-8",
               size: content.length,
               fromVendor: false,
@@ -1206,7 +1237,7 @@ export class VendorReadRouter {
       });
       const content = typeof contentRaw === "string" ? contentRaw : String(contentRaw ?? "");
 
-      const result = {
+      const result: VendorFileContentResult = {
         content,
         path: params.path,
         ref: normalizeGitRefName(branch),
@@ -1298,12 +1329,7 @@ export class VendorReadRouter {
 
         if (naturalResult.success && naturalResult.result) {
           const failures = this.logGitNaturalFallback("listRefs", naturalResult.attempts);
-          this.reportGitNaturalFailures(
-            "listRefs",
-            failures,
-            naturalResult.usedUrl,
-            remotes[0]
-          );
+          this.reportGitNaturalFailures("listRefs", failures, naturalResult.usedUrl, remotes[0]);
           if (naturalResult.usedUrl) {
             this.reportCloneUrlSuccess(naturalResult.usedUrl);
           }
@@ -1577,6 +1603,7 @@ export class VendorReadRouter {
     repoKey?: string;
     cloneUrls: string[];
     branch: string;
+    commitHash?: string;
     depth?: number;
     page?: number;
     perPage?: number;
@@ -1603,15 +1630,28 @@ export class VendorReadRouter {
         const routedResult = await withUrlFallback<VendorCommitResult>(
           naturalUrls,
           async (remoteUrl: string) => {
+            let resolvedCommitHash = params.commitHash;
             try {
               const natural = await params.workerManager.gitNaturalListCommits({
                 ...this.naturalRequestBase(remoteUrl),
                 ref: branch,
+                commitHash: params.commitHash,
                 depth,
               });
               return this.naturalListCommitsToVendor(natural, [remoteUrl], startedAt, depth);
             } catch (error) {
               if (!this.isMissingFilterCapability(error)) throw error;
+            }
+
+            if (
+              !resolvedCommitHash &&
+              typeof params.workerManager.gitNaturalResolveRef === "function"
+            ) {
+              const resolved = await params.workerManager.gitNaturalResolveRef({
+                ...this.naturalRequestBase(remoteUrl),
+                ref: branch,
+              });
+              resolvedCommitHash = resolved.commitHash;
             }
 
             const vendor = this.preferVendorReads ? this.getSupportedVendor(remoteUrl) : null;
@@ -1620,12 +1660,13 @@ export class VendorReadRouter {
                 const result = await this.vendorListCommits({
                   vendor,
                   remoteUrl,
-                  branch,
+                  branch: resolvedCommitHash || branch,
                   page,
                   perPage,
                 });
                 return {
                   ...result,
+                  commitHash: resolvedCommitHash,
                   fromVendor: true,
                   source: this.readSource({
                     kind: "provider-rest",
@@ -1694,11 +1735,19 @@ export class VendorReadRouter {
             if (!cloneResult.headCommit) {
               throw new Error(`Strict fetch from ${remoteUrl} did not return a branch OID`);
             }
+            if (
+              resolvedCommitHash &&
+              cloneResult.headCommit.toLowerCase() !== resolvedCommitHash.toLowerCase()
+            ) {
+              throw new Error(
+                `Pinned repository snapshot ${resolvedCommitHash} is unavailable at ${remoteUrl}`
+              );
+            }
             const commitsResult = await params.workerManager.getCommitHistory({
               repoId: params.repoKey,
               branch,
               depth,
-              startOid: cloneResult.headCommit,
+              startOid: resolvedCommitHash || cloneResult.headCommit,
             });
             if (commitsResult?.success === false) {
               throw new Error(commitsResult.error || "Git worker commit history fallback failed");
@@ -1729,6 +1778,7 @@ export class VendorReadRouter {
             return {
               commits,
               ref: normalizeGitRefName(branch),
+              commitHash: resolvedCommitHash || cloneResult.headCommit,
               fromVendor: false,
               hasMore: commits.length >= depth,
               source: this.readSource({
@@ -1750,12 +1800,7 @@ export class VendorReadRouter {
 
         if (routedResult.success && routedResult.result) {
           const failures = this.logGitNaturalFallback("listCommits", routedResult.attempts);
-          this.reportGitNaturalFailures(
-            "listCommits",
-            failures,
-            routedResult.usedUrl,
-            remotes[0]
-          );
+          this.reportGitNaturalFailures("listCommits", failures, routedResult.usedUrl, remotes[0]);
           if (routedResult.usedUrl) {
             this.reportCloneUrlSuccess(routedResult.usedUrl);
           }
@@ -1865,7 +1910,7 @@ export class VendorReadRouter {
       if (
         pendingVendorFailures.some((attempt) => this.isBenignEmptyRepoCommitError(attempt.error))
       ) {
-        const result = {
+        const result: VendorCommitResult = {
           commits: [],
           ref: normalizeGitRefName(branch),
           fromVendor: false,
@@ -1923,7 +1968,7 @@ export class VendorReadRouter {
       if (
         pendingVendorFailures.some((attempt) => this.isBenignEmptyRepoCommitError(attempt.error))
       ) {
-        const result = {
+        const result: VendorCommitResult = {
           commits: [],
           ref: normalizeGitRefName(branch),
           fromVendor: false,
@@ -2008,7 +2053,7 @@ export class VendorReadRouter {
       ),
     }));
 
-    const result = {
+    const result: VendorCommitResult = {
       commits,
       ref: normalizeGitRefName(branch),
       fromVendor: false,

@@ -78,13 +78,26 @@ export interface GetGitNaturalPRReviewDataOptions {
   mergeBase?: string
   targetCommitOid?: string
   sourceReadScope?: string
+  /** Maximum unique commits loaded per side before returning an unresolved result. */
   maxCommits?: number
+  /** Maximum commits requested in one frontier expansion. */
+  historyBatchSize?: number
   corsProxy?: string | null
   onAttempts?: (attempts: GitNaturalPRReviewAttempts) => void
   reader: GitNaturalPRReviewReader
 }
 
-const DEFAULT_PR_NATURAL_MAX_COMMITS = 100
+const DEFAULT_PR_NATURAL_MAX_COMMITS = 5_000
+const DEFAULT_PR_NATURAL_HISTORY_BATCH_SIZE = 100
+
+interface ExpandedNaturalHistory {
+  commits: GitNaturalCommit[]
+  graph: Map<string, GitNaturalCommit>
+  unresolvedParentOids: string[]
+  complete: boolean
+  attempts: UrlAttemptResult<GitNaturalListCommitsResult>[]
+  usedUrl?: string
+}
 
 export async function getGitNaturalPRReviewData(
   options: GetGitNaturalPRReviewDataOptions,
@@ -97,11 +110,16 @@ export async function getGitNaturalPRReviewData(
   if (sourceUrls.length === 0) return null
 
   const maxCommits = Math.max(1, options.maxCommits ?? DEFAULT_PR_NATURAL_MAX_COMMITS)
-  const sourceHistory = await tryListCommits(options.reader, sourceUrls, {
+  const historyBatchSize = Math.max(
+    1,
+    Math.min(maxCommits, options.historyBatchSize ?? DEFAULT_PR_NATURAL_HISTORY_BATCH_SIZE),
+  )
+  const sourceHistory = await expandNaturalHistory(options.reader, sourceUrls, {
     repoId: options.repoId,
     readScope: options.sourceReadScope,
     commitHash: tipCommitOid,
-    depth: maxCommits,
+    maxCommits,
+    batchSize: historyBatchSize,
     corsProxy: options.corsProxy,
   })
   const sourceAttempts = summarizeAttempts(sourceHistory.attempts)
@@ -111,11 +129,11 @@ export async function getGitNaturalPRReviewData(
       sourceAttempts: [...sourceAttempts],
       targetAttempts: [...targetAttempts],
     })
-  if (!sourceHistory.result?.commits?.length) {
+  if (!sourceHistory.complete || sourceHistory.commits.length === 0) {
     reportAttempts()
     return null
   }
-  let usedCloneUrl = latestAttemptUrl(sourceHistory)
+  let usedCloneUrl = sourceHistory.usedUrl
 
   const providedMergeBase = normalizeFullOid(options.mergeBase)
   let targetCommit = normalizeFullOid(options.targetCommitOid)
@@ -131,31 +149,36 @@ export async function getGitNaturalPRReviewData(
     targetCommit = target.result?.commitHash
   }
 
-  let targetHistory: ReadFallbackResult<GitNaturalListCommitsResult> | null = null
+  let targetHistory: ExpandedNaturalHistory | null = null
   let computedMergeBase: string | undefined
   if (targetCommit) {
-    targetHistory = await tryListCommits(
+    targetHistory = await expandNaturalHistory(
       options.reader,
       targetUrls.length > 0 ? targetUrls : sourceUrls,
       {
         repoId: options.repoId,
         ...(targetUrls.length === 0 ? {readScope: options.sourceReadScope} : {}),
         commitHash: targetCommit,
-        depth: maxCommits,
+        maxCommits,
+        batchSize: historyBatchSize,
         corsProxy: options.corsProxy,
       },
     )
     if (targetUrls.length > 0) {
       targetAttempts.push(...summarizeAttempts(targetHistory.attempts))
-      usedTargetCloneUrl = latestAttemptUrl(targetHistory) || usedTargetCloneUrl
+      usedTargetCloneUrl = targetHistory.usedUrl || usedTargetCloneUrl
     } else {
       sourceAttempts.push(...summarizeAttempts(targetHistory.attempts))
-      usedCloneUrl = latestAttemptUrl(targetHistory) || usedCloneUrl
+      usedCloneUrl = targetHistory.usedUrl || usedCloneUrl
     }
-    computedMergeBase = targetHistory.result
+    if (!targetHistory.complete) {
+      reportAttempts()
+      return null
+    }
+    computedMergeBase = targetHistory.commits.length
       ? findBestCommonCommit(
-          sourceHistory.result.commits,
-          targetHistory.result.commits,
+          sourceHistory.commits,
+          targetHistory.commits,
           tipCommitOid,
           targetCommit,
         )
@@ -197,19 +220,20 @@ export async function getGitNaturalPRReviewData(
     return null
   }
 
-  const sourceReachable = commitsUntilBase(sourceHistory.result.commits, baseOid, tipCommitOid)
-  const targetReachable = targetHistory?.result
-    ? commitsUntilBase(targetHistory.result.commits, baseOid, targetCommit || baseOid)
-    : []
-  if (!sourceReachable || (targetHistory?.result && !targetReachable)) {
+  const sourceIds = collectReachableOids(sourceHistory.graph, tipCommitOid)
+  const targetIds = targetHistory
+    ? collectReachableOids(targetHistory.graph, targetCommit || baseOid)
+    : collectReachableOids(sourceHistory.graph, baseOid)
+  if (!sourceIds || !targetIds || !sourceIds.has(baseOid) || !targetIds.has(baseOid)) {
     reportAttempts()
     return null
   }
-  const resolvedTargetReachable = targetReachable || []
-  const sourceIds = new Set(sourceReachable.map(commit => commit.oid))
-  const targetIds = new Set(resolvedTargetReachable.map(commit => commit.oid))
-  const commits = sourceReachable.filter(commit => !targetIds.has(commit.oid))
-  const targetCommits = resolvedTargetReachable.filter(commit => !sourceIds.has(commit.oid))
+  const commits = sourceHistory.commits
+    .filter(commit => sourceIds.has(commit.hash) && !targetIds.has(commit.hash))
+    .map(naturalCommitToReviewCommit)
+  const targetCommits = (targetHistory?.commits || []).filter(
+    commit => targetIds.has(commit.hash) && !sourceIds.has(commit.hash),
+  )
   const claimedMergeBaseMismatch = Boolean(providedMergeBase && providedMergeBase !== baseOid)
 
   return {
@@ -221,7 +245,7 @@ export async function getGitNaturalPRReviewData(
     ...(providedMergeBase ? {claimedMergeBase: providedMergeBase} : {}),
     ...(claimedMergeBaseMismatch ? {claimedMergeBaseMismatch: true} : {}),
     aheadCount: commits.length,
-    ...(targetHistory?.result ? {behindCount: targetCommits.length} : {}),
+    ...(targetHistory ? {behindCount: targetCommits.length} : {}),
     commits,
     commitOids: commits.map(commit => commit.oid),
     changes: diff.result.changes,
@@ -270,7 +294,7 @@ async function tryResolveRef(
   return withUrlFallback(
     urls,
     (url, signal) => reader.resolveRef({url, ref: params.ref, corsProxy: params.corsProxy, signal}),
-    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 15000},
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0},
   )
 }
 
@@ -295,8 +319,94 @@ async function tryListCommits(
         corsProxy: params.corsProxy,
         signal,
       }),
-    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 15000},
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0},
   )
+}
+
+async function expandNaturalHistory(
+  reader: GitNaturalPRReviewReader,
+  urls: string[],
+  params: {
+    repoId: string
+    readScope?: string
+    commitHash: string
+    maxCommits: number
+    batchSize: number
+    corsProxy?: string | null
+  },
+): Promise<ExpandedNaturalHistory> {
+  const graph = new Map<string, GitNaturalCommit>()
+  const commits: GitNaturalCommit[] = []
+  const attempts: UrlAttemptResult<GitNaturalListCommitsResult>[] = []
+  const pending = [params.commitHash]
+  const requestedFrontiers = new Set<string>()
+  let usedUrl: string | undefined
+
+  while (pending.length > 0 && graph.size < params.maxCommits) {
+    const frontier = pending.shift()!
+    if (graph.has(frontier) || requestedFrontiers.has(frontier)) continue
+    requestedFrontiers.add(frontier)
+
+    const remaining = params.maxCommits - graph.size
+    const result = await tryListCommits(reader, urls, {
+      repoId: params.repoId,
+      readScope: params.readScope,
+      commitHash: frontier,
+      depth: Math.min(params.batchSize, remaining),
+      corsProxy: params.corsProxy,
+    })
+    attempts.push(...result.attempts)
+    usedUrl = result.usedUrl || latestAttemptUrl(result) || usedUrl
+    if (!result.result?.commits?.length) {
+      return {
+        commits,
+        graph,
+        unresolvedParentOids: uniqueOids([frontier, ...pending]),
+        complete: false,
+        attempts,
+        usedUrl,
+      }
+    }
+
+    for (const commit of result.result.commits) {
+      const oid = normalizeFullOid(commit.hash)
+      if (!oid || graph.has(oid)) continue
+      graph.set(oid, commit)
+      commits.push(commit)
+    }
+    if (!graph.has(frontier)) {
+      return {
+        commits,
+        graph,
+        unresolvedParentOids: uniqueOids([frontier, ...pending]),
+        complete: false,
+        attempts,
+        usedUrl,
+      }
+    }
+
+    const reportedFrontier = result.result.unresolvedParentOids || []
+    const discoveredFrontier = result.result.commits.flatMap(commit => commit.parents || [])
+    for (const parent of [...reportedFrontier, ...discoveredFrontier]) {
+      const oid = normalizeFullOid(parent)
+      if (oid && !graph.has(oid) && !requestedFrontiers.has(oid) && !pending.includes(oid)) {
+        pending.push(oid)
+      }
+    }
+  }
+
+  const unresolvedParentOids = uniqueOids([
+    ...pending,
+    ...commits.flatMap(commit => commit.parents || []).filter(parent => !graph.has(parent)),
+  ])
+  return {
+    commits,
+    graph,
+    unresolvedParentOids,
+    complete: unresolvedParentOids.length === 0,
+    attempts,
+    usedUrl,
+  }
 }
 
 async function tryGetDiffBetween(
@@ -329,39 +439,37 @@ function latestAttemptUrl(result: ReadFallbackResult): string | undefined {
 }
 
 function summarizeAttempts<T>(attempts: UrlAttemptResult<T>[]): GitNaturalPRReviewUrlAttempt[] {
-  return attempts.map(({url, success, error, errorCode, durationMs}) => ({
+  return attempts.map(({url, success, error, errorCode, status, durationMs}) => ({
     url,
     success,
     ...(error ? {error} : {}),
     ...(errorCode ? {errorCode} : {}),
+    ...(status !== undefined ? {status} : {}),
     ...(durationMs !== undefined ? {durationMs} : {}),
   }))
 }
 
-function commitsUntilBase(
-  commits: GitNaturalCommit[],
-  baseOid: string,
+function collectReachableOids(
+  graph: Map<string, GitNaturalCommit>,
   tipOid: string,
-): GitNaturalPRReviewData["commits"] | null {
-  const graph = new Map(commits.map(commit => [commit.hash, commit]))
+): Set<string> | null {
   const reachable = new Set<string>()
   const pending = [tipOid]
-  let reachedBase = tipOid === baseOid
   while (pending.length > 0) {
     const oid = pending.pop()!
-    if (oid === baseOid) {
-      reachedBase = true
-      continue
-    }
     if (reachable.has(oid)) continue
     const commit = graph.get(oid)
     if (!commit) return null
     reachable.add(oid)
     pending.push(...(commit.parents || []))
   }
-  if (!reachedBase) return null
+  return reachable
+}
 
-  return commits.filter(commit => reachable.has(commit.hash)).map(naturalCommitToReviewCommit)
+function uniqueOids(oids: string[]): string[] {
+  return Array.from(
+    new Set(oids.map(normalizeFullOid).filter((oid): oid is string => Boolean(oid))),
+  )
 }
 
 function naturalCommitToReviewCommit(

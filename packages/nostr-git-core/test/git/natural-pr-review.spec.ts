@@ -117,6 +117,61 @@ describe("getGitNaturalPRReviewData", () => {
     )
   })
 
+  it("chooses a deterministic best base for a criss-cross graph", async () => {
+    const root = "1".repeat(40)
+    const firstBase = "2".repeat(40)
+    const secondBase = "3".repeat(40)
+    const sourceMerge = "4".repeat(40)
+    const targetMerge = "5".repeat(40)
+    const sourceTip = "6".repeat(40)
+    const targetTip = "7".repeat(40)
+    const reader = createReader({
+      histories: new Map([
+        [
+          sourceTip,
+          [
+            commit(sourceTip, [sourceMerge]),
+            commit(sourceMerge, [firstBase, secondBase]),
+            commit(firstBase, [root]),
+            commit(secondBase, [root]),
+            commit(root),
+          ],
+        ],
+        [
+          targetTip,
+          [
+            commit(targetTip, [targetMerge]),
+            commit(targetMerge, [secondBase, firstBase]),
+            commit(secondBase, [root]),
+            commit(firstBase, [root]),
+            commit(root),
+          ],
+        ],
+      ]),
+      refs: new Map([[TARGET_URL, targetTip]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "criss-cross",
+      tipCommitOid: sourceTip,
+      targetBranch: "main",
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      reader,
+    })
+
+    expect(review).toMatchObject({
+      baseOid: firstBase,
+      aheadCount: 2,
+      behindCount: 2,
+      commitOids: [sourceTip, sourceMerge],
+    })
+    expect(reader.getDiffBetween).toHaveBeenCalledWith(
+      expect.objectContaining({baseCommitHash: firstBase, headCommitHash: sourceTip}),
+    )
+  })
+
   it("uses an explicit target commit without resolving a cached branch ref", async () => {
     const reader = createReader({
       histories: new Map([
@@ -165,6 +220,107 @@ describe("getGitNaturalPRReviewData", () => {
 
     expect(review?.aheadCount).toBe(2)
     expect(review?.commitOids).toEqual([HEAD, side])
+  })
+
+  it("subtracts target reachability from a source merge with pre-base side ancestry", async () => {
+    const root = "1".repeat(40)
+    const sideRoot = "2".repeat(40)
+    const sideTip = "3".repeat(40)
+    const reader = createReader({
+      histories: new Map([
+        [
+          HEAD,
+          [
+            commit(HEAD, [BASE, sideTip]),
+            commit(BASE, [root]),
+            commit(sideTip, [sideRoot]),
+            commit(sideRoot, [root]),
+            commit(root),
+          ],
+        ],
+        [TARGET, [commit(TARGET, [BASE]), commit(BASE, [root]), commit(root)]],
+      ]),
+      refs: new Map([[TARGET_URL, TARGET]]),
+      diffs: new Map([[SOURCE_URL, []]]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "pre-base-side-ancestry",
+      tipCommitOid: HEAD,
+      targetBranch: "main",
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      reader,
+    })
+
+    expect(review).toMatchObject({mergeBase: BASE, aheadCount: 3, behindCount: 1})
+    expect(review?.commitOids).toEqual([HEAD, sideTip, sideRoot])
+  })
+
+  it("iteratively expands a merge base beyond the former 100-commit boundary", async () => {
+    const sourceCommitCount = 125
+    const graph = new Map<string, GitNaturalCommit>()
+    const base = numberedOid(1)
+    graph.set(base, commit(base))
+    let parent = base
+    for (let index = 0; index < sourceCommitCount; index += 1) {
+      const next = numberedOid(index + 2)
+      graph.set(next, commit(next, [parent]))
+      parent = next
+    }
+    const sourceTip = parent
+    const targetTip = numberedOid(10_000)
+    graph.set(targetTip, commit(targetTip, [base]))
+
+    const reader: GitNaturalPRReviewReader & Record<string, any> = {
+      resolveRef: vi.fn(),
+      listCommits: vi.fn(async ({url, commitHash, depth}) => {
+        const commits: GitNaturalCommit[] = []
+        let current: string | undefined = commitHash
+        while (current && commits.length < depth) {
+          const next = graph.get(current)
+          if (!next) throw new Error(`history not found for ${url}: ${current}`)
+          commits.push(next)
+          current = next.parents[0]
+        }
+        return {
+          ref: commitHash,
+          commitHash,
+          commits,
+          hasMore: Boolean(current),
+          unresolvedParentOids: current ? [current] : [],
+          source: sourceMetadata(url, "listCommits"),
+        }
+      }),
+      getDiffBetween: vi.fn(async ({url, baseCommitHash, headCommitHash}) => ({
+        baseCommitHash,
+        headCommitHash,
+        changes: [],
+        source: sourceMetadata(url, "getDiffBetween"),
+      })),
+    }
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "deep-pr-history",
+      tipCommitOid: sourceTip,
+      targetCommitOid: targetTip,
+      targetBranch: "main",
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      reader,
+    })
+
+    expect(review).toMatchObject({
+      success: true,
+      mergeBase: base,
+      aheadCount: sourceCommitCount,
+      behindCount: 1,
+    })
+    expect(review?.commitOids[0]).toBe(sourceTip)
+    expect(review?.commitOids.at(-1)).toBe(numberedOid(2))
+    expect(
+      reader.listCommits.mock.calls.filter(([request]: any[]) => request.url === SOURCE_URL),
+    ).toHaveLength(2)
   })
 
   it("excludes an older common ancestor dominated by a nonlinear common ancestor", async () => {
@@ -358,6 +514,40 @@ describe("getGitNaturalPRReviewData", () => {
     })
   })
 
+  it("preserves HTTP status in PR-scoped fallback evidence", async () => {
+    const onAttempts = vi.fn()
+    const reader = createReader({
+      histories: new Map([[HEAD, [commit(HEAD, [BASE]), commit(BASE)]]]),
+      diffError: new GitNaturalReadError("http-error", "HTTP 502 Bad Gateway", {
+        status: 502,
+        remoteUrl: SOURCE_URL,
+      }),
+    })
+
+    await expect(
+      getGitNaturalPRReviewData({
+        repoId: "pr-http-evidence",
+        tipCommitOid: HEAD,
+        sourceUrls: [SOURCE_URL],
+        mergeBase: BASE,
+        reader,
+        onAttempts,
+      }),
+    ).resolves.toBeNull()
+
+    expect(onAttempts).toHaveBeenCalledWith({
+      sourceAttempts: expect.arrayContaining([
+        expect.objectContaining({
+          url: SOURCE_URL,
+          success: false,
+          errorCode: "http-error",
+          status: 502,
+        }),
+      ]),
+      targetAttempts: [],
+    })
+  })
+
   it("attributes the furthest source and target operations when diff falls back roles", async () => {
     const sourceUrls = [
       "https://source-primary.example/repo.git",
@@ -521,6 +711,10 @@ function commit(hash: string, parents: string[] = []): GitNaturalCommit {
     committer: {name: "Committer", email: "c@example.com", timestamp: 1, timezone: "+0000"},
     message: `commit ${hash.slice(0, 1)}`,
   }
+}
+
+function numberedOid(value: number): string {
+  return value.toString(16).padStart(40, "0")
 }
 
 function sourceMetadata(url: string, operation: "resolveRef" | "listCommits" | "getDiffBetween") {

@@ -10,6 +10,7 @@ import {
   orderReadUrlsByPreference,
   withUrlFallback,
 } from "@nostr-git/core"
+import {EMPTY_GIT_TREE_COMMIT_HASH} from "@nostr-git/core/git"
 
 function getRestApiBaseUrl(provider: string, host?: string): string | undefined {
   const hostname = String(host || "")
@@ -152,7 +153,7 @@ export async function getCommitDetailsViaGitNatural(
           url,
           commitHash: commitId,
           enabled: true,
-          timeoutMs: 15_000,
+          timeoutMs: 0,
           operationId: options.operationId,
         })
         const commit = commitResult?.commit
@@ -162,19 +163,7 @@ export async function getCommitDetailsViaGitNatural(
         meta = naturalCommitToMeta(commit, commitId)
         lastMeta = meta
         lastMetaUrl = url
-        const firstParent = meta.parents[0]
-        if (!firstParent) {
-          return {
-            success: true,
-            meta,
-            changes: [],
-            diffAvailable: false,
-            warning:
-              "Commit metadata loaded from Git natural. Root commit diff is not available yet.",
-            source: "git-natural",
-            remoteUrl: url,
-          }
-        }
+        const firstParent = meta.parents[0] || EMPTY_GIT_TREE_COMMIT_HASH
 
         throwIfAborted(options.signal)
         const diffResult = await workerManager.gitNaturalGetDiffBetween({

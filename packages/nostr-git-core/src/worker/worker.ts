@@ -116,7 +116,6 @@
 
 import {expose} from "comlink"
 import httpWeb from "isomorphic-git/http/web"
-import {diffArrays} from "diff"
 
 import type {GitProvider} from "../git/provider.js"
 import {createGitProvider} from "../git/factory-browser.js"
@@ -166,10 +165,7 @@ import {
   assertDirectNostrGitProviderEnabled,
   assertGitVendorEnabled,
 } from "../git/provider-policy.js"
-import {
-  assertGitRemoteUrlEnabled,
-  type GitVendor,
-} from "../git/vendor-providers.js"
+import {assertGitRemoteUrlEnabled, type GitVendor} from "../git/vendor-providers.js"
 
 import type {AuthConfig} from "./workers/auth.js"
 import {getAuthCallback, getConfiguredAuthHosts, setAuthConfig} from "./workers/auth.js"
@@ -184,6 +180,13 @@ import {
   type GitNaturalListCommitsResult,
   type GitNaturalResolveRefResult,
 } from "../git/natural-read-provider.js"
+import {
+  describeGitTreeChanges,
+  renderGitDiffChanges,
+  requiredGitDiffBlobOids,
+  type GitDiffChange,
+  type GitDiffTreeEntry,
+} from "../git/diff-engine.js"
 import {getGitNaturalPRReviewData} from "../git/natural-pr-review.js"
 import {cacheObservedGitNaturalBlob} from "../git/natural-read-observed-cache.js"
 import type {GitNaturalCommit} from "../git/natural-read-types.js"
@@ -326,7 +329,6 @@ async function runGitNaturalWorkerRead<T>(
       gitNaturalError?: ReturnType<typeof serializeGitNaturalReadError>
     }
 > {
-  const timeoutMs = opts.timeoutMs ?? 15000
   const controller = new AbortController()
   if (opts.operationId) {
     gitNaturalReadControllers.get(opts.operationId)?.abort()
@@ -334,70 +336,22 @@ async function runGitNaturalWorkerRead<T>(
     if (cancelledGitNaturalReadIds.delete(opts.operationId)) controller.abort()
   }
   const readPromise = read(controller.signal)
-  const timeoutError = new GitNaturalReadError(
-    "transient-network-failure",
-    `Git natural read timed out after ${timeoutMs}ms for ${opts.url}`,
-    {remoteUrl: opts.url},
-  )
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  const timedRead =
-    timeoutMs > 0
-      ? Promise.race([
-          readPromise,
-          new Promise<never>((_resolve, reject) => {
-            timeout = setTimeout(() => {
-              controller.abort()
-              reject(timeoutError)
-            }, timeoutMs)
-          }),
-        ])
-      : readPromise
 
   try {
-    return toPlain(await timedRead)
+    // A natural read can span several progressing HTTP requests. Request-level
+    // timeout and cancellation settlement are enforced by the transport.
+    return toPlain(await readPromise)
   } catch (error) {
-    let normalizedError = error
-    if (error === timeoutError) {
-      const settled = await waitForWorkerReadSettlement(readPromise, 1000)
-      normalizedError = settled
-        ? timeoutError
-        : new GitNaturalReadError(
-            "cancellation-unconfirmed",
-            `Git natural read did not settle after timeout cancellation for ${opts.url}`,
-            {remoteUrl: opts.url},
-          )
-    }
     return toPlain({
       success: false as const,
-      error: normalizedError instanceof Error ? normalizedError.message : String(normalizedError),
-      gitNaturalError: serializeGitNaturalReadError(normalizedError),
+      error: error instanceof Error ? error.message : String(error),
+      gitNaturalError: serializeGitNaturalReadError(error),
     })
   } finally {
-    if (timeout !== undefined) clearTimeout(timeout)
     if (opts.operationId && gitNaturalReadControllers.get(opts.operationId) === controller) {
       gitNaturalReadControllers.delete(opts.operationId)
       cancelledGitNaturalReadIds.delete(opts.operationId)
     }
-  }
-}
-
-async function waitForWorkerReadSettlement(
-  promise: Promise<unknown>,
-  timeoutMs: number,
-): Promise<boolean> {
-  let timeout: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      promise.then(
-        () => true,
-        () => true,
-      ),
-      new Promise<false>(resolve => {
-        timeout = setTimeout(() => resolve(false), timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timeout !== undefined) clearTimeout(timeout)
   }
 }
 
@@ -642,7 +596,7 @@ async function tryGitNaturalCommitsAheadOfTip(params: {
         sourceBranch: best.branch,
       }
     },
-    {repoId: params.key, readScope: params.sourceReadScope, perUrlTimeoutMs: 20000},
+    {repoId: params.key, readScope: params.sourceReadScope, perUrlTimeoutMs: 0},
   )
   appendUrlAttempts(params.attempts?.sourceAttempts || [], result.attempts)
 
@@ -724,7 +678,7 @@ async function tryGitNaturalResolveRefFromUrls(params: {
       const provider = getGitNaturalReadProvider(corsProxy)
       return await provider.resolveRef({url, ref: params.ref, corsProxy, signal})
     },
-    {repoId: params.key, readScope: params.readScope, perUrlTimeoutMs: 15000},
+    {repoId: params.key, readScope: params.readScope, perUrlTimeoutMs: 0},
   )
   return result
 }
@@ -753,7 +707,7 @@ async function tryGitNaturalListCommitsFromUrls(params: {
         signal,
       })
     },
-    {repoId: params.key, readScope: params.readScope, perUrlTimeoutMs: 15000},
+    {repoId: params.key, readScope: params.readScope, perUrlTimeoutMs: 0},
   )
   return result
 }
@@ -797,43 +751,69 @@ function firstCommonNaturalCommit(
   return sourceCommits.find(commit => targetHashes.has(commit.hash))?.hash
 }
 
-function buildModifiedFileDiffHunks(
-  oldText: string,
-  newText: string,
-): Array<{
-  oldStart: number
-  oldLines: number
-  newStart: number
-  newLines: number
-  patches: Array<{line: string; type: "+" | "-" | " "}>
-}> {
-  const oldLines = oldText.split("\n")
-  const newLines = newText.split("\n")
-  const chunks = diffArrays(oldLines, newLines)
-  const patches: Array<{line: string; type: "+" | "-" | " "}> = []
-
-  for (const chunk of chunks) {
-    const lines = chunk.value || []
-    if (chunk.added) {
-      for (const line of lines) patches.push({line, type: "+"})
-    } else if (chunk.removed) {
-      for (const line of lines) patches.push({line, type: "-"})
-    } else {
-      for (const line of lines) patches.push({line, type: " "})
-    }
-  }
-
-  if (patches.length === 0) return []
-
-  return [
-    {
-      oldStart: 1,
-      oldLines: oldLines.length,
-      newStart: 1,
-      newLines: newLines.length,
-      patches,
+async function collectCloneTreeEntries(
+  dir: string,
+  ref: string,
+): Promise<Map<string, GitDiffTreeEntry>> {
+  const entries = await (git as any).walk({
+    dir,
+    trees: [(git as any).TREE({ref})],
+    map: async (filepath: string, [entry]: any[]) => {
+      if (filepath === "." || !entry) return
+      const type = await entry.type()
+      if (type !== "blob" && type !== "commit") return
+      const oid = await entry.oid()
+      if (!oid) throw new Error(`Git tree entry ${filepath} has no object ID`)
+      const rawMode = await entry.mode()
+      return {
+        path: filepath,
+        oid: String(oid).toLowerCase(),
+        mode: normalizeTreeEntryMode(rawMode),
+        type: type === "commit" ? ("submodule" as const) : ("blob" as const),
+      }
     },
-  ]
+  })
+  return new Map(
+    entries.filter(Boolean).map((entry: GitDiffTreeEntry) => [entry.path, entry] as const),
+  )
+}
+
+const CLONE_DIFF_BLOB_READ_CONCURRENCY = 8
+
+async function collectCloneBackedDiffChanges(
+  dir: string,
+  baseRef: string | undefined,
+  headRef: string,
+): Promise<GitDiffChange[]> {
+  const [baseEntries, headEntries] = await Promise.all([
+    baseRef ? collectCloneTreeEntries(dir, baseRef) : Promise.resolve(new Map()),
+    collectCloneTreeEntries(dir, headRef),
+  ])
+  const descriptors = describeGitTreeChanges(baseEntries, headEntries)
+  const blobs = new Map<string, Uint8Array>()
+  const requiredOids = requiredGitDiffBlobOids(descriptors)
+  let nextOid = 0
+  await Promise.all(
+    Array.from(
+      {length: Math.min(CLONE_DIFF_BLOB_READ_CONCURRENCY, requiredOids.length)},
+      async () => {
+        while (nextOid < requiredOids.length) {
+          const oid = requiredOids[nextOid++]
+          const result = await (git as any).readBlob({dir, oid})
+          const blob = result?.blob as Uint8Array | undefined
+          if (!blob) throw new Error(`Git blob ${oid} could not be read`)
+          cacheObservedGitNaturalBlob(oid, blob)
+          blobs.set(oid.toLowerCase(), blob)
+        }
+      },
+    ),
+  )
+  return renderGitDiffChanges(descriptors, blobs)
+}
+
+function normalizeTreeEntryMode(mode: unknown): string {
+  if (typeof mode === "number" && Number.isFinite(mode)) return mode.toString(8)
+  return String(mode ?? "").replace(/^0o/i, "")
 }
 
 /**
@@ -1908,11 +1888,8 @@ const api = {
       analyzePRMergeUtil(git, opts, {
         rootDir,
         parseRepoId,
-        resolveBranchName: async (
-          dir: string,
-          requested?: string,
-          options?: {strict?: boolean},
-        ) => resolveRobustBranchUtil(git, dir, requested, options),
+        resolveBranchName: async (dir: string, requested?: string, options?: {strict?: boolean}) =>
+          resolveRobustBranchUtil(git, dir, requested, options),
         getAuthCallback,
         corsProxy: resolveDefaultCorsProxy(),
       }),
@@ -1934,70 +1911,69 @@ const api = {
       onProgress: (step: string, pct: number) => sendProgress(step),
     }
     const {getTokensForHost} = await import("./workers/auth.js")
-    const result = await withRepoOperationLock(repoId, () => mergePRAndPushUtil(git, optsWithProgress, {
-      rootDir,
-      parseRepoId,
-      resolveBranchName: async (
-        dir: string,
-        requested?: string,
-        options?: {strict?: boolean},
-      ) => resolveRobustBranchUtil(git, dir, requested, options),
-      ensureFullClone: async (args: {
-        repoId: string
-        branch?: string
-        depth?: number
-        cloneUrls?: string[]
-        trackReadPreference?: boolean
-      }) =>
-        ensureFullCloneUtil(
-          git,
-          args,
-          {
-            rootDir,
-            parseRepoId,
-            repoDataLevels,
-            clonedRepos,
-            isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
-            resolveBranchName: async (
-              dir: string,
-              requested?: string,
-              options?: {strict?: boolean},
-            ) => resolveRobustBranchUtil(git, dir, requested, options),
-            cacheManager,
-          },
-          makeProgress(args.repoId, "clone-progress"),
-        ),
-      getAuthCallback,
-      getConfiguredAuthHosts,
-      pushToRemote: async opts => {
-        const r = await api.pushToRemote({...opts, skipRepoLock: true})
-        return r
-      },
-      safePushToRemote: async args => {
-        const r = await api.safePushToRemote({
-          ...args,
-          provider: args.provider as any,
-          preflight: args.preflight,
-          skipRepoLock: true,
-        })
-        return {
-          success: r?.success,
-          error: r?.error,
-          requiresConfirmation: r?.requiresConfirmation,
-          warning: r?.warning,
-          reason: r?.reason,
-        }
-      },
-      getTokensForRemote: async (url: string) => {
-        try {
-          const hostname = new URL(url).hostname
-          const tokens = await getTokensForHost(hostname)
-          return tokens.map(t => ({token: t.token}))
-        } catch {
-          return []
-        }
-      },
-    }))
+    const result = await withRepoOperationLock(repoId, () =>
+      mergePRAndPushUtil(git, optsWithProgress, {
+        rootDir,
+        parseRepoId,
+        resolveBranchName: async (dir: string, requested?: string, options?: {strict?: boolean}) =>
+          resolveRobustBranchUtil(git, dir, requested, options),
+        ensureFullClone: async (args: {
+          repoId: string
+          branch?: string
+          depth?: number
+          cloneUrls?: string[]
+          trackReadPreference?: boolean
+        }) =>
+          ensureFullCloneUtil(
+            git,
+            args,
+            {
+              rootDir,
+              parseRepoId,
+              repoDataLevels,
+              clonedRepos,
+              isRepoCloned: async (g: GitProvider, dir: string) => isRepoClonedFs(g, dir),
+              resolveBranchName: async (
+                dir: string,
+                requested?: string,
+                options?: {strict?: boolean},
+              ) => resolveRobustBranchUtil(git, dir, requested, options),
+              cacheManager,
+            },
+            makeProgress(args.repoId, "clone-progress"),
+          ),
+        getAuthCallback,
+        getConfiguredAuthHosts,
+        pushToRemote: async opts => {
+          const r = await api.pushToRemote({...opts, skipRepoLock: true})
+          return r
+        },
+        safePushToRemote: async args => {
+          const r = await api.safePushToRemote({
+            ...args,
+            provider: args.provider as any,
+            preflight: args.preflight,
+            skipRepoLock: true,
+          })
+          return {
+            success: r?.success,
+            error: r?.error,
+            requiresConfirmation: r?.requiresConfirmation,
+            warning: r?.warning,
+            reason: r?.reason,
+          }
+        },
+        getTokensForRemote: async (url: string) => {
+          try {
+            const hostname = new URL(url).hostname
+            const tokens = await getTokensForHost(hostname)
+            return tokens.map(t => ({token: t.token}))
+          } catch {
+            return []
+          }
+        },
+      }),
+    )
     sendProgress("Merge complete")
     return toPlain(result)
   },
@@ -2790,20 +2766,20 @@ const api = {
         operation: "push",
       })
       const failure = toPlain({
-          success: false,
-          repoId,
-          remoteUrl,
-          ...formatted,
-          ...(workflowFailureReason ? {reason: workflowFailureReason} : {}),
-          error: message,
-          details: {
-            pushedRefs: [],
-            failedRefs: requestedRefs.map(ref => ({ref, error: message})),
-            warnings: workflowFailureReason
-              ? ["Source contains .github/workflows files; GitHub tokens need Workflow permission."]
-              : [],
-          },
-        })
+        success: false,
+        repoId,
+        remoteUrl,
+        ...formatted,
+        ...(workflowFailureReason ? {reason: workflowFailureReason} : {}),
+        error: message,
+        details: {
+          pushedRefs: [],
+          failedRefs: requestedRefs.map(ref => ({ref, error: message})),
+          warnings: workflowFailureReason
+            ? ["Source contains .github/workflows files; GitHub tokens need Workflow permission."]
+            : [],
+        },
+      })
       if (operation && isEmptyReceivePackParseError(error)) {
         operation.finishUnknown(error, [failure])
         return failure
@@ -4097,13 +4073,7 @@ const api = {
         }
         usedTargetCloneUrl = fetchResult.usedUrl
       }
-      const result = await getMergeBaseBetweenData(
-        git,
-        dir,
-        headOid,
-        opts.targetBranch,
-        undefined,
-      )
+      const result = await getMergeBaseBetweenData(git, dir, headOid, opts.targetBranch, undefined)
       return toPlain({...result, usedTargetCloneUrl, targetAttempts, sourceAttempts})
     } catch (error: any) {
       return toPlain({
@@ -4554,9 +4524,7 @@ const api = {
                 const api = getGitServiceApi(provider.vendor, "", provider.getApiUrl(""))
                 const commitData = await api.getCommit(owner, repo, commitId)
 
-                console.log(
-                  `[getCommitDetails] REST API metadata loaded for commit ${commitId}`,
-                )
+                console.log(`[getCommitDetails] REST API metadata loaded for commit ${commitId}`)
 
                 restMeta = {
                   sha: commitData.sha,
@@ -4690,166 +4658,11 @@ const api = {
         parents: commit.commit.parent || [],
       }
 
-      const collectCommitChanges = async () => {
-        const changes: Array<{
-          path: string
-          status: "added" | "modified" | "deleted" | "renamed"
-          diffHunks: Array<{
-            oldStart: number
-            oldLines: number
-            newStart: number
-            newLines: number
-            patches: Array<{line: string; type: "+" | "-" | " "}>
-          }>
-        }> = []
-
-        // If this is not the initial commit, compare with parent
-        if (commit.commit.parent && commit.commit.parent.length > 0) {
-          const parentCommit = commit.commit.parent[0]
-
-          // Get the list of changed files
-          const changedFiles = await (git as any).walk({
-            dir,
-            trees: [(git as any).TREE({ref: parentCommit}), (git as any).TREE({ref: commit.oid})],
-            map: async function (filepath: string, [A, B]: any[]) {
-              // Skip directories
-              if (filepath === ".") return
-              // Only process file blobs; ignore trees (directories) and other types
-              try {
-                const at = A ? await A.type() : undefined
-                const bt = B ? await B.type() : undefined
-                const isABlob = at === "blob"
-                const isBBlob = bt === "blob"
-                if (!isABlob && !isBBlob) {
-                  return
-                }
-              } catch (e) {
-                console.warn(`Type detection failed for ${filepath}:`, e)
-                // Continue but log the issue
-              }
-
-              const Aoid = await A?.oid()
-              const Boid = await B?.oid()
-
-              // Determine file status
-              let status: "added" | "modified" | "deleted" | "renamed" = "modified"
-              if (Aoid === undefined && Boid !== undefined) {
-                status = "added"
-              } else if (Aoid !== undefined && Boid === undefined) {
-                status = "deleted"
-              } else if (Aoid !== Boid) {
-                status = "modified"
-              } else {
-                return // No change
-              }
-
-              // Get diff for this file
-              let diffHunks: Array<{
-                oldStart: number
-                oldLines: number
-                newStart: number
-                newLines: number
-                patches: Array<{line: string; type: "+" | "-" | " "}>
-              }> = []
-
-              try {
-                if (status === "added") {
-                  const blob = await B!.content()
-                  cacheObservedGitNaturalBlob(Boid, blob)
-                  const lines = new TextDecoder().decode(blob).split("\n")
-                  diffHunks = [
-                    {
-                      oldStart: 0,
-                      oldLines: 0,
-                      newStart: 1,
-                      newLines: lines.length,
-                      patches: lines.map((line: string) => ({line, type: "+" as const})),
-                    },
-                  ]
-                } else if (status === "deleted") {
-                  const blob = await A!.content()
-                  cacheObservedGitNaturalBlob(Aoid, blob)
-                  const lines = new TextDecoder().decode(blob).split("\n")
-                  diffHunks = [
-                    {
-                      oldStart: 1,
-                      oldLines: lines.length,
-                      newStart: 0,
-                      newLines: 0,
-                      patches: lines.map((line: string) => ({line, type: "-" as const})),
-                    },
-                  ]
-                } else {
-                  // For modified files, compute aligned diff with LCS/Myers
-                  const oldBlob = await A!.content()
-                  const newBlob = await B!.content()
-                  cacheObservedGitNaturalBlob(Aoid, oldBlob)
-                  cacheObservedGitNaturalBlob(Boid, newBlob)
-                  const oldText = new TextDecoder().decode(oldBlob)
-                  const newText = new TextDecoder().decode(newBlob)
-                  diffHunks = buildModifiedFileDiffHunks(oldText, newText)
-                }
-              } catch (diffError) {
-                console.warn(`Failed to generate diff for ${filepath}:`, diffError)
-                diffHunks = []
-              }
-
-              return {path: filepath, status, diffHunks}
-            },
-          })
-
-          changes.push(...changedFiles.filter(Boolean))
-        } else {
-          // Initial commit - show all files as added
-          const files = await (git as any).walk({
-            dir,
-            trees: [(git as any).TREE({ref: commitId})],
-            map: async function (filepath: string, [A]: any[]) {
-              if (filepath === ".") return
-              const oid = await A?.oid()
-              if (!oid) return
-
-              try {
-                // When reading by OID, don't pass filepath - it's already resolved
-                const content = await (git as any).readBlob({dir, oid})
-                cacheObservedGitNaturalBlob(oid, content.blob)
-                const lines = new TextDecoder().decode(content.blob).split("\n")
-                return {
-                  path: filepath,
-                  status: "added" as const,
-                  diffHunks: [
-                    {
-                      oldStart: 0,
-                      oldLines: 0,
-                      newStart: 1,
-                      newLines: lines.length,
-                      patches: lines.map((line: string) => ({line, type: "+" as const})),
-                    },
-                  ],
-                }
-              } catch (error) {
-                return {path: filepath, status: "added" as const, diffHunks: []}
-              }
-            },
-          })
-          changes.push(...files.filter(Boolean))
-        }
-
-        return changes
-      }
+      const collectCommitChanges = async () =>
+        collectCloneBackedDiffChanges(dir, commit.commit.parent?.[0], commit.oid)
 
       let warning: string | undefined
-      let changes: Array<{
-        path: string
-        status: "added" | "modified" | "deleted" | "renamed"
-        diffHunks: Array<{
-          oldStart: number
-          oldLines: number
-          newStart: number
-          newLines: number
-          patches: Array<{line: string; type: "+" | "-" | " "}>
-        }>
-      }> = []
+      let changes: GitDiffChange[] = []
 
       try {
         changes = await collectCommitChanges()
@@ -4972,17 +4785,7 @@ const api = {
     readScope?: string
   }): Promise<{
     success: boolean
-    changes?: Array<{
-      path: string
-      status: "added" | "modified" | "deleted" | "renamed"
-      diffHunks: Array<{
-        oldStart: number
-        oldLines: number
-        newStart: number
-        newLines: number
-        patches: Array<{line: string; type: "+" | "-" | " "}>
-      }>
-    }>
+    changes?: GitDiffChange[]
     error?: string
   }> {
     const {key, dir} = repoKeyAndDir(opts.repoId)
@@ -5068,100 +4871,7 @@ const api = {
         }
       }
 
-      const changes: Array<{
-        path: string
-        status: "added" | "modified" | "deleted" | "renamed"
-        diffHunks: Array<{
-          oldStart: number
-          oldLines: number
-          newStart: number
-          newLines: number
-          patches: Array<{line: string; type: "+" | "-" | " "}>
-        }>
-      }> = []
-
-      const changedFiles = await (git as any).walk({
-        dir,
-        trees: [(git as any).TREE({ref: baseOid}), (git as any).TREE({ref: headOid})],
-        map: async function (filepath: string, [A, B]: any[]) {
-          if (filepath === ".") return
-          try {
-            const at = A ? await A.type() : undefined
-            const bt = B ? await B.type() : undefined
-            const isABlob = at === "blob"
-            const isBBlob = bt === "blob"
-            if (!isABlob && !isBBlob) return
-          } catch {
-            return
-          }
-
-          const Aoid = await A?.oid()
-          const Boid = await B?.oid()
-
-          let status: "added" | "modified" | "deleted" | "renamed" = "modified"
-          if (Aoid === undefined && Boid !== undefined) {
-            status = "added"
-          } else if (Aoid !== undefined && Boid === undefined) {
-            status = "deleted"
-          } else if (Aoid !== Boid) {
-            status = "modified"
-          } else {
-            return
-          }
-
-          let diffHunks: Array<{
-            oldStart: number
-            oldLines: number
-            newStart: number
-            newLines: number
-            patches: Array<{line: string; type: "+" | "-" | " "}>
-          }> = []
-
-          try {
-            if (status === "added") {
-              const blob = await B!.content()
-              cacheObservedGitNaturalBlob(Boid, blob)
-              const lines = new TextDecoder().decode(blob).split("\n")
-              diffHunks = [
-                {
-                  oldStart: 0,
-                  oldLines: 0,
-                  newStart: 1,
-                  newLines: lines.length,
-                  patches: lines.map((line: string) => ({line, type: "+" as const})),
-                },
-              ]
-            } else if (status === "deleted") {
-              const blob = await A!.content()
-              cacheObservedGitNaturalBlob(Aoid, blob)
-              const lines = new TextDecoder().decode(blob).split("\n")
-              diffHunks = [
-                {
-                  oldStart: 1,
-                  oldLines: lines.length,
-                  newStart: 0,
-                  newLines: 0,
-                  patches: lines.map((line: string) => ({line, type: "-" as const})),
-                },
-              ]
-            } else {
-              const oldBlob = await A!.content()
-              const newBlob = await B!.content()
-              cacheObservedGitNaturalBlob(Aoid, oldBlob)
-              cacheObservedGitNaturalBlob(Boid, newBlob)
-              const oldText = new TextDecoder().decode(oldBlob)
-              const newText = new TextDecoder().decode(newBlob)
-              diffHunks = buildModifiedFileDiffHunks(oldText, newText)
-            }
-          } catch (diffError) {
-            console.warn(`Failed to generate diff for ${filepath}:`, diffError)
-          }
-
-          return {path: filepath, status, diffHunks}
-        },
-      })
-
-      changes.push(...changedFiles.filter(Boolean))
+      const changes = await collectCloneBackedDiffChanges(dir, baseOid, headOid)
       return toPlain({success: true, changes})
     } catch (error) {
       return toPlain({
@@ -5341,14 +5051,7 @@ const api = {
       "Preparing local repository creation",
       async operation => {
         const result = await withRepoOperationLock(opts.repoId, () =>
-          createLocalRepo(
-            git,
-            rootDir,
-            clonedRepos,
-            repoDataLevels,
-            opts,
-            operation,
-          ),
+          createLocalRepo(git, rootDir, clonedRepos, repoDataLevels, opts, operation),
         )
         return toPlain(result)
       },

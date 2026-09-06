@@ -54,6 +54,8 @@ export interface FileContent {
   path: string;
   /** Branch or commit where content was retrieved */
   ref: string;
+  /** Immutable commit snapshot used for the read. */
+  commitHash?: string;
   /** File encoding (utf-8, binary, etc.) */
   encoding?: string;
   /** File size in bytes */
@@ -93,8 +95,25 @@ export interface FileListingResult {
   path: string;
   /** Branch or commit used for listing */
   ref: string;
+  /** Immutable commit snapshot used for the listing. */
+  commitHash?: string;
   /** Whether result was retrieved from cache */
   fromCache?: boolean;
+}
+
+export class RepositorySnapshotUnavailableError extends Error {
+  readonly code = "repository-snapshot-unavailable";
+
+  constructor(
+    readonly commitHash: string,
+    cause?: unknown
+  ) {
+    super(
+      `Repository snapshot ${commitHash} is unavailable; restart the Code view before showing newer content`,
+      cause === undefined ? undefined : { cause }
+    );
+    this.name = "RepositorySnapshotUnavailableError";
+  }
 }
 
 /**
@@ -111,6 +130,7 @@ export class FileManager {
     Pick<FileManagerConfig, "vendorReadRouter">;
   private vendorReadRouter?: VendorReadRouter;
   private cloneUrlsOverride: string[] = [];
+  private branchSnapshots = new Map<string, string>();
 
   setCloneUrls(cloneUrls: string[]): void {
     this.cloneUrlsOverride = Array.from(
@@ -172,6 +192,7 @@ export class FileManager {
         content: keepBase64 ? rawContent : new TextDecoder("utf-8", { fatal: false }).decode(bytes),
         path,
         ref: vendorRes.ref || fallbackRef,
+        commitHash: vendorRes.commitHash,
         encoding: keepBase64 ? "base64" : "utf-8",
         size: typeof vendorRes.size === "number" ? vendorRes.size : bytes.length,
         fromCache: false,
@@ -182,6 +203,7 @@ export class FileManager {
       content: rawContent,
       path,
       ref: vendorRes.ref || fallbackRef,
+      commitHash: vendorRes.commitHash,
       encoding: vendorRes.encoding || "utf-8",
       size: typeof vendorRes.size === "number" ? vendorRes.size : rawContent.length,
       fromCache: false,
@@ -279,9 +301,9 @@ export class FileManager {
     }
 
     try {
-      const pending = this.vendorReadRouter
-        ? this.vendorReadRouter
-            .listDirectory({
+      const pending: Promise<FileListingResult> = (async () => {
+        const routed = this.vendorReadRouter
+          ? await this.vendorReadRouter.listDirectory({
               workerManager: this.workerManager,
               repoEvent,
               repoKey,
@@ -290,42 +312,43 @@ export class FileManager {
               commitHash: commit,
               path,
             })
-            .then((result) => result.files)
-        : this.workerManager.listTreeAtCommit({
-            repoEvent,
-            commit,
-            path,
-            repoKey,
-          });
-      this.inFlightListings.set(cacheKey, pending as unknown as Promise<FileListingResult>);
+          : undefined;
+        const files = routed
+          ? routed.files
+          : await this.workerManager.listTreeAtCommit({ repoEvent, commit, path, repoKey });
+        const observedOid = String(routed?.commitHash || commit).toLowerCase();
+        if (observedOid !== commit.toLowerCase()) {
+          throw new Error(`Tag listing returned ${observedOid} instead of ${commit}`);
+        }
+        const fileListingResult: FileListingResult = {
+          files: files.map(
+            (file: any): FileInfo => ({
+              path: file.path || file.name,
+              type: file.type || "file",
+              size: file.size,
+              mode: file.mode,
+              lastCommit: file.oid,
+            })
+          ),
+          path,
+          ref,
+          commitHash: observedOid,
+          fromCache: false,
+        };
+
+        if (this.config.enableCaching && this.cacheManager) {
+          await this.cacheManager.set(
+            "file_listing",
+            cacheKey,
+            fileListingResult,
+            this.config.listingCacheTTL
+          );
+        }
+        return fileListingResult;
+      })();
+      this.inFlightListings.set(cacheKey, pending);
       this.recentListingCalls.set(cacheKey, now);
-      const result = await pending;
-
-      const fileListingResult: FileListingResult = {
-        files: result.map(
-          (file: any): FileInfo => ({
-            path: file.path || file.name,
-            type: file.type || "file",
-            size: file.size,
-            mode: file.mode,
-            lastCommit: file.oid,
-          })
-        ),
-        path,
-        ref,
-        fromCache: false,
-      };
-
-      if (this.config.enableCaching && this.cacheManager) {
-        await this.cacheManager.set(
-          "file_listing",
-          cacheKey,
-          fileListingResult,
-          this.config.listingCacheTTL
-        );
-      }
-
-      return fileListingResult;
+      return await pending;
     } catch (error: any) {
       console.error(`Failed to list repository files for commit '${ref}':`, error);
       // Apply backoff on failure for this key
@@ -396,6 +419,46 @@ export class FileManager {
     return `${FileManager.CACHE_KEYS[type]}_${repoKey}_${ref}_${path}`;
   }
 
+  private branchSnapshotKey(repoKey: string, branch: string): string {
+    return `${repoKey}\0${this.getShortBranchName(branch)}`;
+  }
+
+  private getBranchSnapshot(repoKey: string, branch: string): string | undefined {
+    return this.branchSnapshots.get(this.branchSnapshotKey(repoKey, branch));
+  }
+
+  private pinBranchSnapshot(
+    repoKey: string,
+    branch: string,
+    observedOid: string | undefined,
+    requestedOid?: string
+  ): string | undefined {
+    const oid = String(observedOid || "")
+      .trim()
+      .toLowerCase();
+    const expected = String(requestedOid || "")
+      .trim()
+      .toLowerCase();
+    if (!/^[0-9a-f]{40}$/.test(oid)) {
+      if (expected) throw new RepositorySnapshotUnavailableError(expected);
+      return undefined;
+    }
+    if (expected && oid !== expected) {
+      throw new RepositorySnapshotUnavailableError(expected);
+    }
+    const key = this.branchSnapshotKey(repoKey, branch);
+    const current = this.branchSnapshots.get(key);
+    if (current && current !== oid) {
+      throw new RepositorySnapshotUnavailableError(current);
+    }
+    this.branchSnapshots.set(key, oid);
+    return oid;
+  }
+
+  resetBranchSnapshot(repoKey: string, branch: string): void {
+    this.branchSnapshots.delete(this.branchSnapshotKey(repoKey, branch));
+  }
+
   /**
    * Get default branch name from full branch reference
    */
@@ -421,15 +484,19 @@ export class FileManager {
   }): Promise<FileListingResult> {
     const shortBranch = this.getShortBranchName(branch);
     const repoKey = providedRepoKey || this.getCanonicalRepoKey(repoEvent);
-    const cacheKey = this.generateCacheKey("LISTING", repoKey, path, shortBranch);
+    const requestedSnapshot = this.getBranchSnapshot(repoKey, shortBranch);
+    const guardKey = this.generateCacheKey("LISTING", repoKey, path, shortBranch);
+    const cacheKey = requestedSnapshot
+      ? this.generateCacheKey("LISTING", repoKey, path, requestedSnapshot)
+      : undefined;
     const routedRead = Boolean(this.vendorReadRouter);
 
     // Rate-limit duplicate calls for same key
     const now = Date.now();
-    const backoffUntil = this.failureBackoffUntil.get(cacheKey) || 0;
+    const backoffUntil = this.failureBackoffUntil.get(guardKey) || 0;
     if (now < backoffUntil) {
       // Still backing off; return cached (if any) or short-circuit
-      if (this.config.enableCaching && this.cacheManager) {
+      if (cacheKey && this.config.enableCaching && this.cacheManager) {
         try {
           const cached = await this.cacheManager.get("file_listing", cacheKey);
           if (cached && typeof cached === "object") {
@@ -441,15 +508,15 @@ export class FileManager {
       terr.message = `Listing temporarily backed off due to recent failures (branch=${shortBranch || "?"}, path=${path || "/"})`;
       throw terr;
     }
-    const lastTs = this.recentListingCalls.get(cacheKey) || 0;
+    const lastTs = this.recentListingCalls.get(guardKey) || 0;
     if (now - lastTs < FileManager.MIN_LISTING_INTERVAL_MS) {
-      const pending = this.inFlightListings.get(cacheKey);
+      const pending = this.inFlightListings.get(guardKey);
       if (pending) return pending;
       // fall through to cache if available
     }
 
     // Try cache first if enabled
-    if (this.config.enableCaching && useCache && this.cacheManager) {
+    if (cacheKey && this.config.enableCaching && useCache && this.cacheManager) {
       try {
         const cached = await this.cacheManager.get("file_listing", cacheKey);
         if (cached && typeof cached === "object") {
@@ -487,6 +554,7 @@ export class FileManager {
             repoKey,
             cloneUrls,
             branch: shortBranch,
+            commitHash: requestedSnapshot,
             path,
           });
 
@@ -500,10 +568,17 @@ export class FileManager {
             })
           );
 
+          const commitHash = this.pinBranchSnapshot(
+            repoKey,
+            shortBranch,
+            vendorRes.commitHash,
+            requestedSnapshot
+          );
           return {
             files,
             path: vendorRes.path || path,
             ref: vendorRes.ref || shortBranch || "",
+            commitHash,
             fromCache: false,
           };
         }
@@ -518,15 +593,15 @@ export class FileManager {
         return toFileListingResult(workerRaw, shortBranch);
       })();
 
-      this.inFlightListings.set(cacheKey, pending);
-      this.recentListingCalls.set(cacheKey, now);
+      this.inFlightListings.set(guardKey, pending);
+      this.recentListingCalls.set(guardKey, now);
       const fileListingResult = await pending;
 
       // Cache the result if enabled
-      if (this.config.enableCaching && this.cacheManager) {
+      if (fileListingResult.commitHash && this.config.enableCaching && this.cacheManager) {
         await this.cacheManager.set(
           "file_listing",
-          cacheKey,
+          this.generateCacheKey("LISTING", repoKey, path, fileListingResult.commitHash),
           fileListingResult,
           this.config.listingCacheTTL
         );
@@ -535,6 +610,12 @@ export class FileManager {
       return fileListingResult;
     } catch (error: any) {
       const msg = error instanceof Error ? error.message : String(error);
+
+      if (requestedSnapshot && !isTerminalReadCancellation(error)) {
+        throw error instanceof RepositorySnapshotUnavailableError
+          ? error
+          : new RepositorySnapshotUnavailableError(requestedSnapshot, error);
+      }
 
       // Handle stale local clone: "commit X is not available locally. Do a git fetch"
       const looksLikeStaleClone = /is not available locally|do a git fetch/i.test(msg);
@@ -562,7 +643,7 @@ export class FileManager {
             if (this.config.enableCaching && this.cacheManager) {
               await this.cacheManager.set(
                 "file_listing",
-                cacheKey,
+                guardKey,
                 retryResult,
                 this.config.listingCacheTTL
               );
@@ -596,7 +677,7 @@ export class FileManager {
             if (this.config.enableCaching && this.cacheManager) {
               await this.cacheManager.set(
                 "file_listing",
-                cacheKey.replace(shortBranch, altBranch),
+                guardKey.replace(shortBranch, altBranch),
                 altListing,
                 this.config.listingCacheTTL
               );
@@ -610,19 +691,19 @@ export class FileManager {
       }
 
       // Apply failure backoff for this key
-      this.failureBackoffUntil.set(cacheKey, Date.now() + FileManager.FAILURE_BACKOFF_MS);
+      this.failureBackoffUntil.set(guardKey, Date.now() + FileManager.FAILURE_BACKOFF_MS);
       // Avoid spamming toasts for the same key too frequently
-      const lastToast = this.lastToastAt.get(cacheKey) || 0;
+      const lastToast = this.lastToastAt.get(guardKey) || 0;
       if (Date.now() - lastToast > FileManager.MIN_TOAST_INTERVAL_MS) {
         toast.push({
           message: `Failed to list repository files for branch '${shortBranch}': ${error}`,
           duration: 8000,
         });
-        this.lastToastAt.set(cacheKey, Date.now());
+        this.lastToastAt.set(guardKey, Date.now());
       }
       throw error;
     } finally {
-      this.inFlightListings.delete(cacheKey);
+      this.inFlightListings.delete(guardKey);
     }
   }
 
@@ -645,11 +726,15 @@ export class FileManager {
     useCache?: boolean;
   }): Promise<FileContent> {
     const repoKey = providedRepoKey || this.getCanonicalRepoKey(repoEvent);
-    const ref = commit || this.getShortBranchName(branch || "");
-    const cacheKey = this.generateCacheKey("CONTENT", repoKey, path, ref);
+    const branchRef = this.getShortBranchName(branch || "");
+    const requestedSnapshot = commit || this.getBranchSnapshot(repoKey, branchRef);
+    const ref = commit || branchRef;
+    const cacheKey = requestedSnapshot
+      ? this.generateCacheKey("CONTENT", repoKey, path, requestedSnapshot)
+      : undefined;
 
     // Try cache first if enabled
-    if (this.config.enableCaching && useCache && this.cacheManager) {
+    if (cacheKey && this.config.enableCaching && useCache && this.cacheManager) {
       try {
         const cached = await this.cacheManager.get("file_content", cacheKey);
         if (cached && typeof cached === "object") {
@@ -669,23 +754,31 @@ export class FileManager {
           repoEvent,
           repoKey,
           cloneUrls,
-          branch: ref,
-          commitHash: commit,
+          branch: branchRef,
+          commitHash: requestedSnapshot,
           path,
         });
 
         const result = this.normalizeVendorFileContent(path, ref, vendorRes);
+        const commitHash = commit
+          ? String(vendorRes.commitHash || commit).toLowerCase()
+          : this.pinBranchSnapshot(repoKey, branchRef, vendorRes.commitHash, requestedSnapshot);
+        if (commit && commitHash !== commit.toLowerCase()) {
+          throw new Error(`Commit read returned ${commitHash} instead of ${commit}`);
+        }
+        result.commitHash = commitHash;
 
         // Cache the result if enabled and file is not too large
         if (
           this.config.enableCaching &&
           this.cacheManager &&
+          result.commitHash &&
           result.size <= this.config.maxCacheFileSize
         ) {
           try {
             await this.cacheManager.set(
               "file_content",
-              cacheKey,
+              this.generateCacheKey("CONTENT", repoKey, path, result.commitHash),
               result,
               this.config.contentCacheTTL
             );
@@ -700,7 +793,7 @@ export class FileManager {
       // Worker fallback (and always for commit-based reads)
       const content = await this.workerManager.getRepoFileContentFromEvent({
         repoEvent,
-        branch: commit ? ("" as any) : ref,
+        branch: commit ? ("" as any) : branchRef,
         path,
         commit: commit || undefined,
         repoKey,
@@ -718,6 +811,7 @@ export class FileManager {
       if (
         this.config.enableCaching &&
         this.cacheManager &&
+        cacheKey &&
         result.size <= this.config.maxCacheFileSize
       ) {
         try {
@@ -735,6 +829,11 @@ export class FileManager {
       return result;
     } catch (error) {
       console.error(`Failed to get file content for ${path}:`, error);
+      if (requestedSnapshot && !commit && !isTerminalReadCancellation(error)) {
+        throw error instanceof RepositorySnapshotUnavailableError
+          ? error
+          : new RepositorySnapshotUnavailableError(requestedSnapshot, error);
+      }
       throw error;
     }
   }
@@ -882,6 +981,13 @@ export class FileManager {
    * Clear file-related caches
    */
   async clearCache(repoId?: string): Promise<void> {
+    if (repoId) {
+      for (const key of this.branchSnapshots.keys()) {
+        if (key.startsWith(`${repoId}\0`)) this.branchSnapshots.delete(key);
+      }
+    } else {
+      this.branchSnapshots.clear();
+    }
     if (!this.cacheManager) return;
 
     try {
@@ -937,6 +1043,14 @@ export class FileManager {
    */
   dispose(): void {
     // Clear any pending operations or timers if needed
+    this.branchSnapshots.clear();
     console.log("FileManager disposed");
   }
+}
+
+function isTerminalReadCancellation(error: unknown): boolean {
+  return (
+    (error as { name?: string } | null)?.name === "AbortError" ||
+    (error as { code?: string } | null)?.code === "cancellation-unconfirmed"
+  );
 }

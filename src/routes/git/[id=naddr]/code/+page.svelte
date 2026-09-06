@@ -30,6 +30,7 @@
     publishPermalinkToDestinations,
     type PublicationDestinationSelection,
   } from "@app/util/permalink-publishing"
+  import {isCurrentCodeRead, shouldRestartCodeSnapshot} from "./code-read-state"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoCloneUrlsStore = hasContext(REPO_CLONE_URLS_KEY)
@@ -59,6 +60,7 @@
   let fileSearchSource: FileEntry[] | null = null
   let fileSearchCache: {searchOptions: (query: string) => FileEntry[]} | null = null
   let fileLoadSeq = 0
+  let fileContentLoadSeq = 0
 
   const FILE_SEARCH_DEBOUNCE_MS = 350
 
@@ -83,7 +85,7 @@
       ($repoCloneUrlsStore.length > 0 ? $repoCloneUrlsStore : repoClass.cloneUrls) || [],
     ),
   )
-  const supportedCloneUrlKey = $derived.by(() => supportedCloneUrls.join("|"))
+  const supportedCloneUrlKey = $derived.by(() => JSON.stringify(supportedCloneUrls))
   const repositoryContentUnavailable = $derived.by(() => {
     if (selectedBranch || !repoClass.isRefDiscoveryUnavailable) return false
     if (supportedCloneUrls.length === 0) return true
@@ -156,12 +158,14 @@
     directory,
     repoEventId: expectedRepoEventId,
     cloneUrlKey: expectedCloneUrlKey,
+    allowSnapshotRestart = true,
   }: {
     branchName: string
     directory: string
     repoEventId: string
     cloneUrlKey: string
-  }) => {
+    allowSnapshotRestart?: boolean
+  }): Promise<FileEntry[]> => {
     const requestId = ++fileLoadSeq
     loading = true
     error = null
@@ -173,11 +177,20 @@
       })
       .then(result => {
         const activeBranch = normalizeBranchRef(selectedBranch)
-        const isStale =
-          requestId !== fileLoadSeq ||
-          repoEventId !== expectedRepoEventId ||
-          supportedCloneUrlKey !== expectedCloneUrlKey ||
-          (activeBranch && activeBranch !== branchName)
+        const isStale = !isCurrentCodeRead(
+          {
+            requestId,
+            repoEventId: expectedRepoEventId,
+            cloneUrlKey: expectedCloneUrlKey,
+            branch: branchName,
+          },
+          {
+            requestId: fileLoadSeq,
+            repoEventId,
+            cloneUrlKey: supportedCloneUrlKey,
+            branch: activeBranch,
+          },
+        )
         if (isStale) return []
 
         const mapped = mapFileListing(result)
@@ -189,12 +202,39 @@
       })
       .catch(e => {
         const activeBranch = normalizeBranchRef(selectedBranch)
-        const isStale =
-          requestId !== fileLoadSeq ||
-          repoEventId !== expectedRepoEventId ||
-          supportedCloneUrlKey !== expectedCloneUrlKey ||
-          (activeBranch && activeBranch !== branchName)
+        const isStale = !isCurrentCodeRead(
+          {
+            requestId,
+            repoEventId: expectedRepoEventId,
+            cloneUrlKey: expectedCloneUrlKey,
+            branch: branchName,
+          },
+          {
+            requestId: fileLoadSeq,
+            repoEventId,
+            cloneUrlKey: supportedCloneUrlKey,
+            branch: activeBranch,
+          },
+        )
         if (isStale) return []
+
+        if (allowSnapshotRestart && shouldRestartCodeSnapshot(e)) {
+          repoClass.resetCodeSnapshot(branchName)
+          path = ""
+          autoOpenPath = undefined
+          selectedFile = null
+          currentFiles = []
+          if ($page.url.searchParams.has("dir") || $page.url.searchParams.has("path")) {
+            updateQueryParams({dir: "", file: undefined})
+          }
+          return loadFilesForBranch({
+            branchName,
+            directory: "",
+            repoEventId: expectedRepoEventId,
+            cloneUrlKey: expectedCloneUrlKey,
+            allowSnapshotRestart: false,
+          })
+        }
 
         loading = false
         const message = e instanceof Error ? e.message : "Failed to load files"
@@ -521,14 +561,52 @@
       return ""
     }
 
+    const requestId = ++fileContentLoadSeq
+    const expectedRepoEventId = repoEventId
+    const expectedCloneUrlKey = supportedCloneUrlKey
+    const isStale = () =>
+      !isCurrentCodeRead(
+        {
+          requestId,
+          repoEventId: expectedRepoEventId,
+          cloneUrlKey: expectedCloneUrlKey,
+          branch: branchName,
+        },
+        {
+          requestId: fileContentLoadSeq,
+          repoEventId,
+          cloneUrlKey: supportedCloneUrlKey,
+          branch: normalizeBranchRef(selectedBranch),
+        },
+      )
+
     try {
       const result = await repoClass.getFileContent({
         branch: branchName,
         path: filePath,
         commit: undefined as any,
       })
+      if (isStale()) return ""
       return result
     } catch (e) {
+      if (isStale()) return ""
+      if (shouldRestartCodeSnapshot(e)) {
+        repoClass.resetCodeSnapshot(branchName)
+        path = ""
+        autoOpenPath = undefined
+        selectedFile = null
+        currentFiles = []
+        if ($page.url.searchParams.has("dir") || $page.url.searchParams.has("path")) {
+          updateQueryParams({dir: "", file: undefined})
+        }
+        void loadFilesForBranch({
+          branchName,
+          directory: "",
+          repoEventId: expectedRepoEventId,
+          cloneUrlKey: expectedCloneUrlKey,
+        })
+        return ""
+      }
       pushToast({
         message: "Failed to load file: " + e,
         theme: "error",

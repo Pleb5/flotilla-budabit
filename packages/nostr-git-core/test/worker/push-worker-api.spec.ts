@@ -23,6 +23,7 @@ const readCommitMock = vi.fn(async ({oid}: {oid: string}) => ({
   },
 }))
 const walkMock = vi.fn(async () => [])
+const readBlobMock = vi.fn(async () => ({blob: new Uint8Array()}))
 const httpFetchMock = vi.fn(async () => ({
   ok: false,
   status: 404,
@@ -61,6 +62,7 @@ vi.mock("../../src/git/factory-browser.js", () => ({
     init: initMock,
     readCommit: readCommitMock,
     walk: walkMock,
+    readBlob: readBlobMock,
     TREE: ({ref}: {ref: string}) => ({ref}),
     // Other methods may be referenced in unrelated API paths but are not invoked here
     statusMatrix: vi.fn(async () => []),
@@ -106,6 +108,7 @@ describe("worker.pushToRemote API", () => {
     writeFileMock.mockReset()
     readCommitMock.mockClear()
     walkMock.mockClear()
+    readBlobMock.mockReset()
     httpFetchMock.mockReset()
     nostrProviderMock = undefined
     pushMock.mockResolvedValue(undefined)
@@ -120,6 +123,7 @@ describe("worker.pushToRemote API", () => {
     initMock.mockResolvedValue(undefined)
     mkdirMock.mockResolvedValue(undefined)
     writeFileMock.mockResolvedValue(undefined)
+    readBlobMock.mockResolvedValue({blob: new Uint8Array()})
     httpFetchMock.mockResolvedValue({
       ok: false,
       status: 404,
@@ -286,7 +290,10 @@ describe("worker.pushToRemote API", () => {
 
     expect(result.success).toBe(false)
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.objectContaining({ref: requestedOid, url: "https://authorized.example/owner/repo.git"}),
+      expect.objectContaining({
+        ref: requestedOid,
+        url: "https://authorized.example/owner/repo.git",
+      }),
     )
     expect(readCommitMock).not.toHaveBeenCalled()
   })
@@ -336,6 +343,33 @@ describe("worker.pushToRemote API", () => {
     expect(walkMock).toHaveBeenCalledWith(
       expect.objectContaining({trees: [expect.objectContaining({ref: fetchedOid})]}),
     )
+  })
+
+  it("fails clone-backed commit details when a changed blob cannot be read", async () => {
+    const commitId = "e".repeat(40)
+    const blobOid = "f".repeat(40)
+    logMock.mockResolvedValue([
+      {
+        oid: commitId,
+        commit: {
+          author: {name: "Test", email: "test@example.com", timestamp: 1},
+          message: "root commit",
+          parent: [],
+        },
+      },
+    ])
+    fetchMock.mockResolvedValue({fetchHead: commitId})
+    walkMock.mockResolvedValue([{path: "README.md", oid: blobOid, mode: "100644", type: "blob"}])
+    readBlobMock.mockRejectedValue(new Error("blob read failed"))
+
+    const result = await exposed.getCommitDetails({
+      repoId: "owner/repo",
+      commitId,
+      cloneUrls: ["https://authorized.example/owner/repo.git"],
+      cloneFallbackReason: "missing-filter-capability",
+    })
+
+    expect(result).toMatchObject({success: false, error: "blob read failed"})
   })
 
   it("serializes file edits and local creation behind an active repository push", async () => {
@@ -746,9 +780,10 @@ describe("worker.pushToRemote API", () => {
 
     expect(res.success).toBe(false)
     expect(pushMock).toHaveBeenCalledTimes(1)
-    expect(
-      await exposed.getOperationStatus({operationId: "ambiguous-grasp-push"}),
-    ).toMatchObject({state: "unknown", sideEffectMayHaveOccurred: true})
+    expect(await exposed.getOperationStatus({operationId: "ambiguous-grasp-push"})).toMatchObject({
+      state: "unknown",
+      sideEffectMayHaveOccurred: true,
+    })
   })
 
   it("skips GRASP push when remote branch already at local tip", async () => {

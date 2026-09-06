@@ -110,12 +110,46 @@ describe("commit-api", () => {
     expect(smartInitializeRepo).not.toHaveBeenCalled()
     expect(getCommitDetails).not.toHaveBeenCalled()
     expect(sameRemoteFallback).not.toHaveBeenCalled()
-    expect(worker.gitNaturalGetCommit).toHaveBeenCalledWith(
-      expect.objectContaining({timeoutMs: 15_000}),
-    )
+    expect(worker.gitNaturalGetCommit).toHaveBeenCalledWith(expect.objectContaining({timeoutMs: 0}))
     expect(worker.gitNaturalGetDiffBetween).toHaveBeenCalledWith(
       expect.not.objectContaining({timeoutMs: expect.anything()}),
     )
+  })
+
+  it("loads a root commit diff against the empty-tree sentinel", async () => {
+    const worker = {
+      gitNaturalGetCommit: vi.fn(async () => ({
+        commit: {
+          hash: "head",
+          author: {name: "Alice", email: "alice@example.com", timestamp: 1},
+          message: "Initial commit",
+          parents: [],
+        },
+      })),
+      gitNaturalGetDiffBetween: vi.fn(async () => ({
+        changes: [{path: "README.md", status: "added", diffHunks: []}],
+      })),
+    }
+
+    const {getCommitDetailsViaGitNatural} = await import("./commit-api")
+    const result = await getCommitDetailsViaGitNatural(
+      worker,
+      ["https://example.com/repo.git"],
+      "head",
+      "owner/repo",
+    )
+
+    expect(worker.gitNaturalGetDiffBetween).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseCommitHash: "0".repeat(40),
+        headCommitHash: "head",
+      }),
+    )
+    expect(result).toMatchObject({
+      success: true,
+      diffAvailable: true,
+      changes: [expect.objectContaining({path: "README.md", status: "added"})],
+    })
   })
 
   it("returns metadata-only only after every natural diff attempt fails", async () => {

@@ -1397,15 +1397,14 @@ export class Repo {
               );
               return (
                 failureIndex >= 0 &&
-                (!observation.activeFallbackUrl || observedIndex < 0 || failureIndex < observedIndex)
+                (!observation.activeFallbackUrl ||
+                  observedIndex < 0 ||
+                  failureIndex < observedIndex)
               );
             }),
           }
         : observation;
-    if (
-      !currentObservation.activeFallbackUrl &&
-      currentObservation.failures.length === 0
-    ) {
+    if (!currentObservation.activeFallbackUrl && currentObservation.failures.length === 0) {
       return;
     }
     if (
@@ -1448,8 +1447,7 @@ export class Repo {
           const cachedIndex = findUrlIndex(getCachedUrlPreference(this.key)?.preferredUrl);
           const currentIndex = findUrlIndex(this.currentReadRemoteUrl);
           this.currentReadRemoteUrl =
-            declaredUrls[Math.max(cachedIndex, currentIndex, successIndex)] ||
-            trimmed;
+            declaredUrls[Math.max(cachedIndex, currentIndex, successIndex)] || trimmed;
         }
       }
     }
@@ -1830,6 +1828,7 @@ export class Repo {
       // refresh and write flows remain responsible for synchronizing local git state.
       // Reset commits first to ensure fresh load for the new branch
       this.commitManager.reset(true); // Clear stored branch since we're explicitly switching
+      this.fileManager.resetBranchSnapshot(this.key, shortBranch);
 
       // Set the new branch in CommitManager so subsequent operations (loadMore, loadPage) use it
       const mainBranchName = this.branchManager.getMainBranch();
@@ -2133,13 +2132,18 @@ export class Repo {
       branch: target,
       path: targetPath,
     });
-    if (listing.files.length > 0) return listing;
+    if (listing.files.length > 0 || listing.commitHash) return listing;
 
     const fallback = await this.#listRepoFilesFromStatus({
       branch: normalizeGitRefName(target) || target,
       path: targetPath,
     });
     return fallback || listing;
+  }
+
+  resetCodeSnapshot(branch?: string): void {
+    const target = normalizeGitRefName(branch || this.selectedBranch || this.mainBranch || "");
+    if (target) this.fileManager.resetBranchSnapshot(this.key, target);
   }
 
   async getFileContent({

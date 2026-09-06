@@ -8,6 +8,7 @@ import {GitNaturalObjectCache} from "../../src/git/natural-read-cache.js"
 import {GitNaturalIndexedObjectStore} from "../../src/git/natural-read-indexed-cache.js"
 import {GitNaturalApiAdapter} from "../../src/git/natural-read-api-adapter.js"
 import {GitNaturalReadProvider} from "../../src/git/natural-read-provider.js"
+import {EMPTY_GIT_TREE_COMMIT_HASH} from "../../src/git/natural-read-provider.js"
 
 const encoder = new TextEncoder()
 
@@ -421,6 +422,30 @@ describe("GitNaturalReadProvider", () => {
     expect(postBodies.some(body => body.includes(`want ${fixture.unchangedHash}`))).toBe(false)
   })
 
+  it("renders a root commit against the Git empty-tree sentinel", async () => {
+    const fixture = createAddedFilesDiffFixture([
+      {name: "README.md", data: encoder.encode("root content\n")},
+    ])
+    const provider = new GitNaturalReadProvider({
+      enabled: true,
+      fetcher: createDiffFixtureFetcher(fixture),
+    })
+
+    const diff = await provider.getDiffBetween({
+      url: REMOTE_URL,
+      baseCommitHash: EMPTY_GIT_TREE_COMMIT_HASH,
+      headCommitHash: fixture.headHash,
+    })
+
+    expect(diff.changes).toEqual([
+      expect.objectContaining({
+        path: "README.md",
+        status: "added",
+        diffHunks: [expect.objectContaining({newLines: 1})],
+      }),
+    ])
+  })
+
   it("returns metadata-only changes for binary diffs", async () => {
     const fixture = createBinaryDiffFixture()
     const fetcher = createDiffFixtureFetcher(fixture)
@@ -761,7 +786,9 @@ describe("GitNaturalReadProvider", () => {
         {url: REMOTE_URL, signal: controller.signal},
         {refs: {}, capabilities: CAPABILITIES, symrefs: {}},
         new Map(),
-        new Map([["image.png", {path: "image.png", mode: "100644", hash: "a".repeat(40)}]]),
+        new Map([
+          ["image.png", {path: "image.png", mode: "100644", oid: "a".repeat(40), type: "blob"}],
+        ]),
       ),
     ).rejects.toMatchObject({name: "AbortError"})
   })

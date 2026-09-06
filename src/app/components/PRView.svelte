@@ -38,6 +38,7 @@
     inspectRequestedRemoteRefs,
     verifyRequestedRemoteRefs,
     isUnknownRemoteOutcome,
+    classifyRemoteReadFailure,
     prChangeToParseDiffFile,
     prChangeToReviewParseDiffFile,
     toast,
@@ -104,6 +105,7 @@
   import Markdown from "@src/lib/components/Markdown.svelte"
   import RepoRichDescriptionEditor from "@app/components/RepoRichDescriptionEditor.svelte"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
+  import {buildPRReviewFallbackEvidence} from "@app/core/pr-review-fallback"
   import {pushModal} from "@app/util/modal"
   import type {
     Repo,
@@ -647,6 +649,7 @@
   let prChangesError = $state<string | null>(null)
   let prChangesErrorPhase = $state<PrReviewErrorPhase | null>(null)
   let prChangesWarning = $state<string | null>(null)
+  let prSourceFallbackEvidence = $state<string | null>(null)
   let prChangesProgress = $state("")
   let prChangesGeneration = $state(0)
   let prReviewCommits = $state<PrReviewCommit[]>([])
@@ -807,6 +810,27 @@
 
   const recordPrReadRemote = (result: any, role: PrReadRole) => {
     if (role === "target" && result?.usedUrl) repoClass.recordCloneUrlSuccess(result.usedUrl)
+  }
+
+  const recordPrReviewFallbackEvidence = (result: any) => {
+    const evidence = buildPRReviewFallbackEvidence({
+      result,
+      targetPrimaryUrl: prTargetCloneUrls[0],
+      sourcePrimaryUrl: prSourceReadCloneUrls[0],
+      classify: classifyRemoteReadFailure,
+    })
+    for (const failure of evidence.targetEndpointFailures) {
+      repoClass.recordCloneUrlError(failure.url, failure.error, failure.status, {
+        errorCode: failure.errorCode,
+        operation: "diff",
+        kind: failure.kind as any,
+      })
+    }
+    if (evidence.targetObservation) repoClass.recordReadFallback(evidence.targetObservation as any)
+    if (evidence.usedTargetUrl) repoClass.recordCloneUrlSuccess(evidence.usedTargetUrl)
+
+    // Fork/source evidence remains PR-scoped and never reaches the target cursor.
+    prSourceFallbackEvidence = evidence.sourceMessage || null
   }
 
   const readPrCommitMeta = async (oid: string, targetFirst = false) => {
@@ -1647,6 +1671,7 @@
       sourceReadScope: prSourceReadScope,
       targetCommitOid: targetParent,
     })
+    recordPrReviewFallbackEvidence(review)
     if (review?.success && Array.isArray(review.commits) && review.commits.length > 0) {
       return review.commits
     }
@@ -1669,6 +1694,7 @@
         sourceReadScope: prSourceReadScope,
         mergeBase: prEffectiveMergeBase,
       })
+      recordPrReviewFallbackEvidence(review)
       if (review?.success && Array.isArray(review.commits)) {
         return review.commits
       }
@@ -1739,6 +1765,7 @@
     prChangesError = null
     prChangesErrorPhase = null
     prChangesWarning = null
+    prSourceFallbackEvidence = null
     prChangesProgress = "Resolving diff range..."
     prReviewTargetOid = null
     prReviewAheadCount = null
@@ -1769,6 +1796,7 @@
         })
 
         if (prChangesGeneration !== currentGen) return
+        recordPrReviewFallbackEvidence(res)
         if (res?.success) {
           prDiffBaseOid = res.baseOid || res.mergeBase || null
           prDiffHeadOid = res.headOid || prEffectiveTipOid
@@ -1893,11 +1921,7 @@
       prChangesWarning = null
 
       try {
-        const res = await readPrDiff(
-          prDiffBaseOid,
-          prDiffHeadOid,
-          prEffectiveStatus === "applied",
-        )
+        const res = await readPrDiff(prDiffBaseOid, prDiffHeadOid, prEffectiveStatus === "applied")
 
         if (prChangesGeneration !== currentGen) return
         if (res.success && res.changes) {
@@ -2854,13 +2878,13 @@
   const matchesCurrentDeliveryContext = (identity: PrDeliveryIdentity) =>
     Boolean(
       prEvent &&
-        $pubkey &&
-        identity.rootId === prEvent.id &&
-        identity.tipOid === prEffectiveTipOid &&
-        identity.targetBranch === prTargetBranch &&
-        identity.announcementId === String((repoClass as any)?.repoEvent?.id || "") &&
-        identity.primaryUrl === primaryTargetCloneUrl &&
-        identity.actor === $pubkey,
+      $pubkey &&
+      identity.rootId === prEvent.id &&
+      identity.tipOid === prEffectiveTipOid &&
+      identity.targetBranch === prTargetBranch &&
+      identity.announcementId === String((repoClass as any)?.repoEvent?.id || "") &&
+      identity.primaryUrl === primaryTargetCloneUrl &&
+      identity.actor === $pubkey,
     )
 
   const getCurrentDeliveryKey = (mergeOid: string) => {
@@ -2893,7 +2917,11 @@
 
   const clearPrDelivery = () => {
     if (prEvent && typeof localStorage !== "undefined") {
-      clearPrDeliveryRecovery(localStorage, prEvent.id, $pubkey || mergePrDeliveryIdentity?.actor || "")
+      clearPrDeliveryRecovery(
+        localStorage,
+        prEvent.id,
+        $pubkey || mergePrDeliveryIdentity?.actor || "",
+      )
     }
     mergePrDeliveryGeneration++
     mergePrDeliveryIdentity = null
@@ -4508,6 +4536,14 @@
             <div
               class="mb-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
               {prChangesWarning}
+            </div>
+          {/if}
+
+          {#if prSourceFallbackEvidence}
+            <div
+              class="mb-3 rounded border border-border bg-background/50 p-3 text-sm text-muted-foreground"
+              data-testid="pr-source-fallback-evidence">
+              {prSourceFallbackEvidence}
             </div>
           {/if}
 

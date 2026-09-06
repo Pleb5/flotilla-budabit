@@ -309,7 +309,7 @@ describe('WorkerManager', () => {
       expect(calls).toEqual([`meta:${primary}`, `diff:${primary}`, `meta:${secondary}`, `diff:${secondary}`]);
       expect(result).toMatchObject({ success: true, usedUrl: secondary, diffAvailable: true });
       expect(api.gitNaturalGetCommit).toHaveBeenCalledWith(
-        expect.objectContaining({ timeoutMs: 15_000 }),
+        expect.objectContaining({ timeoutMs: 0 }),
       );
       expect(api.gitNaturalGetDiffBetween).toHaveBeenCalledWith(
         expect.not.objectContaining({ timeoutMs: expect.anything() }),
@@ -354,6 +354,7 @@ describe('WorkerManager', () => {
       api.getCommitDetails = vi.fn(async () => {
         throw new Error('clone failed');
       });
+      api.gitNaturalGetDiffBetween = vi.fn(async () => ({ changes: [] }));
 
       const result = await manager.getCommitDetails({
         repoId: 'worker-manager-capability-fallback',

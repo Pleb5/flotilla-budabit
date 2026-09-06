@@ -20,6 +20,7 @@ import type {
   GitNaturalResolveRefResult,
   PRReviewData,
 } from "@nostr-git/core/git";
+import { EMPTY_GIT_TREE_COMMIT_HASH } from "@nostr-git/core/git";
 import {
   deserializeGitNaturalReadError,
   type SerializedGitNaturalReadError,
@@ -931,22 +932,12 @@ export class WorkerManager {
             url,
             commitHash: params.commitId,
             enabled: true,
-            timeoutMs: 15_000,
+            timeoutMs: 0,
           });
           if (!commitResult?.commit) throw new Error("Git natural did not return a commit object");
           meta = gitNaturalCommitMeta(commitResult.commit, params.commitId);
           lastMeta = meta;
-          const parent = meta.parents[0];
-          if (!parent) {
-            return {
-              success: true,
-              meta,
-              changes: [],
-              diffAvailable: false,
-              warning: "Commit metadata loaded, but the root commit diff is unavailable.",
-              source: "git-natural",
-            };
-          }
+          const parent = meta.parents[0] || EMPTY_GIT_TREE_COMMIT_HASH;
           const diff = await this.gitNaturalGetDiffBetween({
             url,
             baseCommitHash: parent,
@@ -1017,7 +1008,7 @@ export class WorkerManager {
             url,
             commitHash: params.commitId,
             enabled: true,
-            timeoutMs: 15_000,
+            timeoutMs: 0,
           });
           if (!result?.commit) throw new Error("Git natural did not return a commit object");
           return { success: true, meta: gitNaturalCommitMeta(result.commit, params.commitId) };

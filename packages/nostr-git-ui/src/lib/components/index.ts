@@ -29,6 +29,12 @@ export type { RepoCommunityOption } from "./git/repo-community-options";
 export { Repo } from "./git/Repo.svelte";
 export { WorkerManager } from "./git/WorkerManager";
 export {
+  RepositorySnapshotUnavailableError,
+  type FileContent,
+  type FileInfo,
+  type FileListingResult,
+} from "./git/FileManager";
+export {
   VendorReadRouter,
   type VendorReadRouterConfig,
   type VendorRef,

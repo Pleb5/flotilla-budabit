@@ -11,6 +11,21 @@ vi.mock("comlink", () => ({
 
 vi.mock("../../src/git/natural-read-provider.js", () => ({
   GitNaturalReadProvider: class {
+    async listDirectory({url}: {url: string}) {
+      await new Promise(resolve => setTimeout(resolve, 16_001))
+      return {entries: [], source: {remoteUrl: url}}
+    }
+
+    async getFileContent({url}: {url: string}) {
+      await new Promise(resolve => setTimeout(resolve, 16_001))
+      return {content: "", source: {remoteUrl: url}}
+    }
+
+    async listCommits({url}: {url: string}) {
+      await new Promise(resolve => setTimeout(resolve, 16_001))
+      return {commits: [], source: {remoteUrl: url}}
+    }
+
     async getDiffBetween({url}: {url: string}) {
       await new Promise(resolve => setTimeout(resolve, 16_001))
       return {changes: [], source: {remoteUrl: url}}
@@ -48,5 +63,26 @@ describe("Git-natural diff worker timeout", () => {
       changes: [],
       source: {remoteUrl: "https://example.com/repo.git"},
     })
+  })
+
+  it.each([
+    ["gitNaturalListDirectory", {ref: "main", path: ""}, "entries"],
+    ["gitNaturalGetFileContent", {ref: "main", path: "README.md"}, "content"],
+    ["gitNaturalListCommits", {ref: "main", depth: 30}, "commits"],
+  ])("does not impose an aggregate deadline on %s", async (operation, params, resultKey) => {
+    vi.useFakeTimers()
+    try {
+      const resultPromise = exposed[operation]({
+        url: "https://example.com/repo.git",
+        enabled: true,
+        timeoutMs: 15_000,
+        ...params,
+      })
+      await vi.advanceTimersByTimeAsync(16_001)
+      const result = await resultPromise
+      expect(result).toHaveProperty(resultKey)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

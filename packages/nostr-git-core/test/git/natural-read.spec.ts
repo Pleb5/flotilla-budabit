@@ -670,6 +670,46 @@ describe("natural read API adapter", () => {
     expect(fetcher).toHaveBeenCalledTimes(2)
   })
 
+  it("allows sequential direct and proxy attempts to exceed 15 seconds in aggregate", async () => {
+    vi.useFakeTimers()
+    const advertisement = buildAdvertisement()
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            setTimeout(() => reject(new TypeError("Failed to fetch")), 8_000)
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve => {
+            setTimeout(
+              () =>
+                resolve({
+                  status: 200,
+                  arrayBuffer: async () => arrayBuffer(encoder.encode(advertisement)),
+                }),
+              8_000,
+            )
+          }),
+      )
+    const adapter = new GitNaturalApiAdapter({
+      corsProxy: "https://cors.example",
+      fetcher,
+      requestTimeoutMs: 15_000,
+    })
+
+    try {
+      const resultPromise = adapter.fetchInfoRefs({url: GRASP_URL})
+      await vi.advanceTimersByTimeAsync(16_000)
+      await expect(resultPromise).resolves.toMatchObject({usesProxy: true})
+      expect(fetcher).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("distinguishes direct connectivity from exhausted CORS proxy failures", async () => {
     const direct = new GitNaturalApiAdapter({
       fetcher: vi.fn().mockRejectedValue(new TypeError("Failed to fetch")),
