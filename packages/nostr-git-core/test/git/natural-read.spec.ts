@@ -243,7 +243,7 @@ describe("GitNaturalObjectCache", () => {
       `raw:${"b".repeat(40)}:blob:none`,
     )
     expect(gitNaturalCacheKeys.historyBatch("C".repeat(40), 30)).toBe(
-      `history:v2:${"c".repeat(40)}:30`,
+      `history:v3:first-parent:${"c".repeat(40)}:30`,
     )
 
     cache.putInfoRefs("https://example.com/repo.git/", infoRefs)
@@ -987,7 +987,7 @@ describe("GitNaturalReadProvider commit history batching", () => {
     ).toHaveLength(10)
   })
 
-  it("retains second-parent commits returned beside a full first-parent batch", async () => {
+  it("keeps second-parent metadata without displaying merged commits", async () => {
     const mainline = makeCommitChain(24)
     const side: GitNaturalCommit = {
       ...mainline[0],
@@ -1023,18 +1023,19 @@ describe("GitNaturalReadProvider commit history batching", () => {
     expect(result.commits.slice(0, 4).map(item => item.hash)).toEqual([
       tip.hash,
       mainline[0].hash,
-      side.hash,
       mainline[1].hash,
+      mainline[2].hash,
     ])
     expect(result.commits).toHaveLength(20)
+    expect(result.unresolvedParentOids).toContain(side.hash)
     expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.commitHash)).toEqual([
       tip.hash,
-      mainline[13].hash,
+      mainline[14].hash,
     ])
     expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.maxCommits)).toEqual([15, 5])
   })
 
-  it("continues every unresolved merge-parent frontier across batches", async () => {
+  it("leaves nonlinear merge frontiers for the dedicated PR traversal", async () => {
     const template = makeCommitChain(1)[0]
     const base: GitNaturalCommit = {...template, hash: "c".repeat(40), parents: []}
     const makeBranch = (offset: number) =>
@@ -1080,15 +1081,13 @@ describe("GitNaturalReadProvider commit history batching", () => {
       depth: commits.length,
     })
 
-    expect(result.commits).toHaveLength(commits.length)
-    expect(new Set(result.commits.map(item => item.hash))).toEqual(
-      new Set(commits.map(item => item.hash)),
-    )
-    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.commitHash)).toEqual([
+    expect(result.commits.map(item => item.hash)).toEqual([
       tip.hash,
-      left[7].hash,
-      right[7].hash,
+      ...left.map(item => item.hash),
+      base.hash,
     ])
-    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.maxCommits)).toEqual([15, 7, 3])
+    expect(result.unresolvedParentOids).toEqual([right[0].hash])
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.commitHash)).toEqual([tip.hash])
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.maxCommits)).toEqual([15])
   })
 })

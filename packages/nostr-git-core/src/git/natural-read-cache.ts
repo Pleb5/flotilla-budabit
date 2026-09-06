@@ -85,7 +85,7 @@ export const gitNaturalCacheKeys = {
   rawObjectBatch: (commitHash: string, filter: string): string =>
     `raw:${normalizeObjectHash(commitHash)}:${filter}`,
   historyBatch: (startCommitHash: string, limit: number): string =>
-    `history:v2:${normalizeObjectHash(startCommitHash)}:${limit}`,
+    `history:v3:first-parent:${normalizeObjectHash(startCommitHash)}:${limit}`,
 }
 
 export function normalizeObjectHash(hash: string): string {

@@ -378,7 +378,7 @@ export class GitNaturalReadProvider {
         ref: resolved.resolvedRef,
         commitHash: resolved.commitHash,
         commits: cached.commits,
-        hasMore: frontier.length > 0,
+        hasMore: Boolean(firstParentContinuation(cached.commits)),
         unresolvedParentOids: frontier,
         source: this.source({
           operation: "listCommits",
@@ -418,7 +418,7 @@ export class GitNaturalReadProvider {
       ref: resolved.resolvedRef,
       commitHash: resolved.commitHash,
       commits,
-      hasMore: frontier.length > 0,
+      hasMore: Boolean(firstParentContinuation(commits)),
       unresolvedParentOids: frontier,
       source: this.source({
         operation: "listCommits",
@@ -461,12 +461,14 @@ export class GitNaturalReadProvider {
           if (!commits.has(commit.hash)) commits.set(commit.hash, commit)
         }
 
-        for (const commit of batch) {
-          for (const parent of commit.parents) {
-            if (!commits.has(parent) && !requested.has(parent) && !pending.includes(parent)) {
-              pending.push(parent)
-            }
-          }
+        const continuation = firstParentContinuation(batch)
+        if (
+          continuation &&
+          !commits.has(continuation) &&
+          !requested.has(continuation) &&
+          !pending.includes(continuation)
+        ) {
+          pending.push(continuation)
         }
       } catch (error) {
         if (batchSize > 1 && isGitNaturalBigBatchError(error)) {
@@ -478,7 +480,7 @@ export class GitNaturalReadProvider {
       }
     }
 
-    return orderCommitsFromTip(Array.from(commits.values()), startCommitHash, depth)
+    return orderFirstParentCommits(Array.from(commits.values()), startCommitHash, depth)
   }
 
   private async fetchCommitHistoryBatch(
@@ -491,7 +493,11 @@ export class GitNaturalReadProvider {
     if (cached?.commits?.length) return cached.commits
 
     const batch = await this.getTreeZeroObjects(params, infoRefs, startCommitHash, depth)
-    const commits = orderCommitsFromTip(this.parseCommits(batch.objects), startCommitHash, depth)
+    const commits = orderFirstParentCommits(
+      this.parseCommits(batch.objects),
+      startCommitHash,
+      depth,
+    )
     if (commits.length > 0) {
       this.cache.putHistoryBatch({
         startCommitHash,
@@ -1162,6 +1168,13 @@ function unresolvedCommitParents(commits: GitNaturalCommit[]): string[] {
   return Array.from(unresolved)
 }
 
+function firstParentContinuation(commits: GitNaturalCommit[]): string | undefined {
+  if (commits.length === 0) return undefined
+  const included = new Set(commits.map(commit => normalizeObjectHash(commit.hash)))
+  const firstParent = normalizeObjectHash(commits[commits.length - 1]?.parents?.[0])
+  return firstParent && !included.has(firstParent) ? firstParent : undefined
+}
+
 function isTransientServerError(error: unknown): boolean {
   return (
     error instanceof GitNaturalReadError &&
@@ -1209,30 +1222,20 @@ function treeEntryTypeFromApi(entry: GitNaturalApiTreeEntry): GitNaturalTreeEntr
   return "unknown"
 }
 
-function orderCommitsFromTip(
+function orderFirstParentCommits(
   commits: GitNaturalCommit[],
   tipHash: string,
   limit: number,
 ): GitNaturalCommit[] {
   const byHash = new Map(commits.map(commit => [commit.hash, commit]))
   const ordered: GitNaturalCommit[] = []
-  const seen = new Set<string>()
-  const pending = [tipHash]
+  let nextHash: string | undefined = tipHash
 
-  while (pending.length > 0 && ordered.length < limit) {
-    const nextHash = pending.shift()!
+  while (nextHash && ordered.length < limit) {
     const commit = byHash.get(nextHash)
-    if (!commit || seen.has(commit.hash)) continue
+    if (!commit) break
     ordered.push(commit)
-    seen.add(commit.hash)
-    pending.push(...commit.parents)
-  }
-
-  for (const commit of commits
-    .filter(commit => !seen.has(commit.hash))
-    .sort((a, b) => b.committer.timestamp - a.committer.timestamp)) {
-    if (ordered.length >= limit) break
-    ordered.push(commit)
+    nextHash = commit.parents[0]
   }
 
   return ordered

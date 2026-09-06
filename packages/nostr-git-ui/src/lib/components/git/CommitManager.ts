@@ -45,6 +45,28 @@ export interface CommitLoadResult {
   fromCache?: boolean;
 }
 
+interface CommitPageCacheEntry {
+  commits: any[];
+  total?: number;
+  hasMore: boolean;
+  page: number;
+  pageSize: number;
+  branch: string;
+  repoKey: string;
+  commitHash: string;
+  readIdentity: string;
+}
+
+interface CommitHistoryRefPointer {
+  version: 1;
+  repoKey: string;
+  branch: string;
+  commitHash: string;
+  readIdentity: string;
+}
+
+const COMMIT_HISTORY_REF_POINTER_VERSION = 1;
+
 /**
  * CommitManager handles all commit-related operations including history loading,
  * pagination, caching, and coordination with the git worker system.
@@ -201,6 +223,33 @@ export class CommitManager {
     this.historySnapshotOid = undefined;
     this.historySnapshotBranch = undefined;
     this.historySnapshotRepoKey = undefined;
+  }
+
+  private historyRefPointerKey(repoKey: string, branch: string): string {
+    return `ref:v${COMMIT_HISTORY_REF_POINTER_VERSION}:${encodeURIComponent(repoKey)}:${encodeURIComponent(branch)}`;
+  }
+
+  private historyReadIdentity(repoKey: string, branch: string): string {
+    const cloneUrls = this.repoEventSnapshot
+      ? this.getCloneUrlsFromRepoEvent(this.repoEventSnapshot)
+      : this.cloneUrlsOverride;
+    return JSON.stringify({ repoKey, branch, cloneUrls });
+  }
+
+  private validHistoryPointer(
+    pointer: CommitHistoryRefPointer | null,
+    repoKey: string,
+    branch: string,
+    readIdentity: string
+  ): pointer is CommitHistoryRefPointer {
+    return Boolean(
+      pointer &&
+      pointer.version === COMMIT_HISTORY_REF_POINTER_VERSION &&
+      pointer.repoKey === repoKey &&
+      pointer.branch === branch &&
+      pointer.readIdentity === readIdentity &&
+      /^[0-9a-f]{40}$/.test(pointer.commitHash)
+    );
   }
 
   private pinHistorySnapshot(
@@ -421,21 +470,30 @@ export class CommitManager {
         "mainBranch:",
         mainBranch
       );
+      const readIdentity = this.historyReadIdentity(snapshotRepoKey, branchName);
+      const pointerKey = cacheEnabled
+        ? this.historyRefPointerKey(this.canonicalKey!, branchName)
+        : undefined;
+      let cachedSnapshot = requestedSnapshot;
+      if (cacheEnabled && !cachedSnapshot && pointerKey) {
+        const pointer = await this.cacheManager!.get<CommitHistoryRefPointer>(
+          this.COMMIT_CACHE_NAME,
+          pointerKey
+        );
+        if (loadSequence !== this.loadSequence) {
+          return { success: false, error: "Stale commit history load ignored" };
+        }
+        if (this.validHistoryPointer(pointer, this.canonicalKey!, branchName, readIdentity)) {
+          cachedSnapshot = pointer.commitHash;
+        } else if (pointer) {
+          await this.cacheManager!.remove(this.COMMIT_CACHE_NAME, pointerKey);
+        }
+      }
       const pageKey =
-        cacheEnabled && requestedSnapshot
-          ? `${this.canonicalKey}:${requestedSnapshot}:p${requestedPage}:s${this.commitsPerPage}`
+        cacheEnabled && cachedSnapshot
+          ? `${this.canonicalKey}:${cachedSnapshot}:p${requestedPage}:s${this.commitsPerPage}`
           : undefined;
       console.log("[CommitManager] pageKey:", pageKey, "cacheEnabled:", cacheEnabled);
-      type CommitPageCacheEntry = {
-        commits: any[];
-        total?: number;
-        hasMore: boolean;
-        page: number;
-        pageSize: number;
-        branch: string;
-        repoKey: string;
-        commitHash: string;
-      };
       if (cacheEnabled && pageKey) {
         console.log(`[CommitManager] Checking cache for key: ${pageKey}`);
         const cached = await this.cacheManager!.get<CommitPageCacheEntry>(
@@ -456,8 +514,10 @@ export class CommitManager {
           cached &&
           cached.repoKey === this.canonicalKey &&
           cached.branch === branchName &&
-          cached.commitHash === requestedSnapshot
+          cached.commitHash === cachedSnapshot &&
+          cached.readIdentity === readIdentity
         ) {
+          this.pinHistorySnapshot(snapshotRepoKey, branchName, cachedSnapshot);
           // Apply cached state
           this.commits = cached.commits;
           this.totalCommits = cached.total;
@@ -476,6 +536,10 @@ export class CommitManager {
             totalCount: this.totalCommits,
             fromCache: true,
           };
+        }
+        if (!requestedSnapshot && pointerKey) {
+          this.clearHistorySnapshot();
+          await this.cacheManager!.remove(this.COMMIT_CACHE_NAME, pointerKey);
         }
       }
 
@@ -712,9 +776,22 @@ export class CommitManager {
             branch: branchName,
             repoKey: this.canonicalKey!,
             commitHash: snapshotOid,
+            readIdentity,
           } satisfies CommitPageCacheEntry);
           if (loadSequence !== this.loadSequence) {
             return { success: false, error: "Stale commit history load ignored" };
+          }
+          if (!requestedSnapshot && requestedPage === 1 && pointerKey) {
+            await this.cacheManager!.set(this.COMMIT_CACHE_NAME, pointerKey, {
+              version: COMMIT_HISTORY_REF_POINTER_VERSION,
+              repoKey: this.canonicalKey!,
+              branch: branchName,
+              commitHash: snapshotOid,
+              readIdentity,
+            } satisfies CommitHistoryRefPointer);
+            if (loadSequence !== this.loadSequence) {
+              return { success: false, error: "Stale commit history load ignored" };
+            }
           }
         }
 

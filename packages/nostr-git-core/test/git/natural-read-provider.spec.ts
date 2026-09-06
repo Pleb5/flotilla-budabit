@@ -376,6 +376,33 @@ describe("GitNaturalReadProvider", () => {
     expect(postBodies.some(body => body.includes("filter tree:0\n"))).toBe(true)
   })
 
+  it("lists merge-heavy history by first parent without expanding merged branches", async () => {
+    const fixture = createMergeHeavyHistoryFixture()
+    const fetcher = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === "GET") {
+        return {
+          ok: true,
+          status: 200,
+          text: async () => fixture.advertisement,
+          arrayBuffer: async () => arrayBuffer(encoder.encode(fixture.advertisement)),
+        }
+      }
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => arrayBuffer(uploadPackResponse(fixture.historyPack)),
+      }
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    const history = await provider.listCommits({url: REMOTE_URL, ref: "main", depth: 30})
+
+    expect(history.commits.map(commit => commit.hash)).toEqual([...fixture.mainHashes].reverse())
+    expect(history.hasMore).toBe(false)
+    expect(history.unresolvedParentOids.sort()).toEqual([...fixture.sideHashes].sort())
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(2)
+  })
+
   it("builds diffs from blob:none tree metadata and fetches only changed blobs", async () => {
     const fixture = createDiffFixture()
     const fetcher = createDiffFixtureFetcher(fixture)
@@ -872,6 +899,50 @@ function createGitFixture(options: {capabilities?: string[]} = {}) {
   }
 }
 
+function createMergeHeavyHistoryFixture() {
+  const tree = "f".repeat(40)
+  const objects: Array<{type: "commit"; data: Uint8Array}> = []
+  const mainHashes: string[] = []
+  const sideHashes: string[] = []
+  let firstParent: string | undefined
+
+  for (let index = 0; index < 30; index += 1) {
+    const parents = firstParent ? [firstParent] : []
+    if (firstParent && index % 3 === 0) {
+      const sideData = commitData({
+        tree,
+        parents: [firstParent],
+        message: `side ${index}`,
+        timestamp: 1_700_000_000 + index * 2,
+      })
+      const sideHash = computeGitNaturalObjectHash("commit", sideData)
+      sideHashes.push(sideHash)
+      objects.push({type: "commit", data: sideData})
+      parents.push(sideHash)
+    }
+    const mainData = commitData({
+      tree,
+      parents,
+      message: `main ${index}`,
+      timestamp: 1_700_000_001 + index * 2,
+    })
+    firstParent = computeGitNaturalObjectHash("commit", mainData)
+    mainHashes.push(firstParent)
+    objects.push({type: "commit", data: mainData})
+  }
+
+  return {
+    mainHashes,
+    sideHashes,
+    advertisement: buildAdvertisement({
+      tipHash: firstParent!,
+      tagHash: firstParent!,
+      capabilities: CAPABILITIES,
+    }),
+    historyPack: packfile(objects),
+  }
+}
+
 function testDbName(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
@@ -1186,13 +1257,16 @@ function buildAdvertisement(params: {
 function commitData(params: {
   tree: string
   parent?: string
+  parents?: string[]
   message: string
   timestamp: number
 }): Uint8Array {
   return encoder.encode(
     [
       `tree ${params.tree}`,
-      params.parent ? `parent ${params.parent}` : undefined,
+      ...(params.parents || (params.parent ? [params.parent] : [])).map(
+        parent => `parent ${parent}`,
+      ),
       `author A <a@example.com> ${params.timestamp} +0000`,
       `committer C <c@example.com> ${params.timestamp} +0000`,
       "",
