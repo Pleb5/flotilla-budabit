@@ -164,7 +164,7 @@ interface BlobObjectResult {
 const DEFAULT_REF = "HEAD"
 export const EMPTY_GIT_TREE_COMMIT_HASH = "0".repeat(40)
 const COMMIT_HISTORY_BATCH_SIZE = 15
-const DIFF_BLOB_FETCH_CONCURRENCY = 8
+const DIFF_BLOB_FETCH_CONCURRENCY = 16
 const DIFF_BLOB_TRANSIENT_HTTP_RETRIES = 1
 
 export class GitNaturalReadProvider {

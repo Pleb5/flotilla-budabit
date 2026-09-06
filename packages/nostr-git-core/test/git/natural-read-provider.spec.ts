@@ -511,7 +511,7 @@ describe("GitNaturalReadProvider", () => {
     expect(siblingSettled).toBe(true)
   })
 
-  it("completes a 100-file diff over 15 aggregate seconds with eight concurrent requests", async () => {
+  it("completes a 100-file diff over 15 aggregate seconds with sixteen concurrent requests", async () => {
     vi.useFakeTimers()
     const fixture = createAddedFilesDiffFixture(
       Array.from({length: 105}, (_, index) => ({
@@ -527,7 +527,7 @@ describe("GitNaturalReadProvider", () => {
       if (init?.method === "POST" && !body.includes("filter blob:none")) {
         active += 1
         maxActive = Math.max(maxActive, active)
-        await new Promise(resolve => setTimeout(resolve, 1_200))
+        await new Promise(resolve => setTimeout(resolve, 2_400))
         active -= 1
       }
       return fixtureFetcher(url, init)
@@ -551,7 +551,7 @@ describe("GitNaturalReadProvider", () => {
     expect(diff.changes.map(change => change.path)).toEqual(
       [...diff.changes.map(change => change.path)].sort(),
     )
-    expect(maxActive).toBe(8)
+    expect(maxActive).toBe(16)
     expect(
       fetcher.mock.calls.filter(([, init]) => {
         const body = String(init?.body || "")
@@ -719,17 +719,17 @@ describe("GitNaturalReadProvider", () => {
       headCommitHash: fixture.headHash,
       signal: controller.signal,
     })
-    await vi.waitFor(() => expect(startedSignals).toHaveLength(8))
+    await vi.waitFor(() => expect(startedSignals).toHaveLength(16))
     controller.abort()
 
     await expect(diff).rejects.toMatchObject({name: "AbortError"})
-    expect(startedSignals).toHaveLength(8)
+    expect(startedSignals).toHaveLength(16)
     expect(startedSignals.every(signal => signal.aborted)).toBe(true)
   })
 
   it("surfaces unconfirmed sibling cancellation before remote fallback", async () => {
     const fixture = createAddedFilesDiffFixture(
-      Array.from({length: 12}, (_, index) => ({
+      Array.from({length: 20}, (_, index) => ({
         name: `failure-${index}.txt`,
         data: encoder.encode(`content ${index}\n`),
       })),
@@ -769,11 +769,11 @@ describe("GitNaturalReadProvider", () => {
       baseCommitHash: fixture.baseHash,
       headCommitHash: fixture.headHash,
     })
-    await vi.waitFor(() => expect(objectRequestCount).toBe(8))
+    await vi.waitFor(() => expect(objectRequestCount).toBe(16))
     rejectFirst?.(new Error("first object failed"))
 
     await expect(diff).rejects.toMatchObject({code: "cancellation-unconfirmed"})
-    expect(objectRequestCount).toBe(8)
+    expect(objectRequestCount).toBe(16)
   })
 
   it("does not return a binary-only diff for an already-aborted scheduler", async () => {
