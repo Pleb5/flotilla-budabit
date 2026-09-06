@@ -60,7 +60,8 @@ export interface GitNaturalApiObjectResult extends GitNaturalApiPackResult {
 }
 
 export interface GitNaturalApiWantRequestParams {
-  objectHash: string
+  objectHash?: string
+  objectHashes?: readonly string[]
   capabilities: string[]
   deepen?: number
   filter?: string
@@ -71,17 +72,33 @@ export const gitNaturalApiNecessaryCapabilities = ["multi_ack_detailed", "side-b
 export const gitNaturalApiRequiredCapabilities = ["shallow", "object-format=sha1"] as const
 
 export function createGitNaturalApiWantRequest(params: GitNaturalApiWantRequestParams): string {
-  const objectHash = String(params.objectHash || "")
-    .trim()
-    .toLowerCase()
-  if (!/^[a-f0-9]{40}$/.test(objectHash)) {
-    throw new GitNaturalReadError(
-      "ref-not-found",
-      `Invalid object hash '${params.objectHash}', expected 40 hex characters`,
-    )
+  const requestedHashes = params.objectHashes ?? (params.objectHash ? [params.objectHash] : [])
+  const objectHashes: string[] = []
+  const seen = new Set<string>()
+  for (const requestedHash of requestedHashes) {
+    const objectHash = String(requestedHash || "")
+      .trim()
+      .toLowerCase()
+    if (!/^[a-f0-9]{40}$/.test(objectHash)) {
+      throw new GitNaturalReadError(
+        "ref-not-found",
+        `Invalid object hash '${requestedHash}', expected 40 hex characters`,
+      )
+    }
+    if (!seen.has(objectHash)) {
+      seen.add(objectHash)
+      objectHashes.push(objectHash)
+    }
+  }
+  if (objectHashes.length === 0) {
+    throw new GitNaturalReadError("ref-not-found", "At least one Git object hash is required")
   }
 
-  const packets = [`want ${objectHash} ${params.capabilities.join(" ")} agent=budabit/1.0.0\n`]
+  const packets = objectHashes.map((objectHash, index) =>
+    index === 0
+      ? `want ${objectHash} ${params.capabilities.join(" ")} agent=budabit/1.0.0\n`
+      : `want ${objectHash}\n`,
+  )
   if (params.deepen !== undefined) packets.push(`deepen ${params.deepen}\n`)
   if (params.filter) packets.push(`filter ${params.filter}\n`)
   packets.push("")
@@ -253,11 +270,10 @@ export class GitNaturalApiAdapter {
     signal?: AbortSignal
   }): Promise<GitNaturalApiObjectResult> {
     const objectHash = params.objectHash.toLowerCase()
-    const result = await this.fetchPackObjects({
+    const result = await this.fetchObjectsByHash({
       url: params.url,
-      objectHash,
+      objectHashes: [objectHash],
       serverCapabilities: params.serverCapabilities,
-      deepen: 1,
       corsProxy: params.corsProxy,
       signal: params.signal,
     })
@@ -273,6 +289,33 @@ export class GitNaturalApiAdapter {
     return {...result, object}
   }
 
+  async fetchObjectsByHash(params: {
+    url: string
+    objectHashes: readonly string[]
+    serverCapabilities: string[]
+    corsProxy?: string | null
+    signal?: AbortSignal
+  }): Promise<GitNaturalApiPackResult> {
+    const objectHashes = uniqueObjectHashes(params.objectHashes)
+    const result = await this.fetchPackObjects({
+      url: params.url,
+      objectHashes,
+      serverCapabilities: params.serverCapabilities,
+      deepen: 1,
+      corsProxy: params.corsProxy,
+      signal: params.signal,
+    })
+    const missing = objectHashes.filter(objectHash => !result.pack.objects.has(objectHash))
+    if (missing.length > 0) {
+      throw new GitNaturalReadError(
+        "object-not-found",
+        `Git objects missing from library-backed packfile: ${missing.join(", ")}`,
+        {remoteUrl: params.url, effectiveUrl: result.effectiveUrl},
+      )
+    }
+    return result
+  }
+
   async fetchBlobNoneObjects(params: {
     url: string
     commitHash: string
@@ -282,7 +325,7 @@ export class GitNaturalApiAdapter {
   }): Promise<GitNaturalApiPackResult> {
     return this.fetchPackObjects({
       url: params.url,
-      objectHash: params.commitHash,
+      objectHashes: [params.commitHash],
       serverCapabilities: params.serverCapabilities,
       deepen: 1,
       filter: "blob:none",
@@ -302,7 +345,7 @@ export class GitNaturalApiAdapter {
   }): Promise<GitNaturalApiPackResult> {
     return this.fetchPackObjects({
       url: params.url,
-      objectHash: params.commitHash,
+      objectHashes: [params.commitHash],
       serverCapabilities: params.serverCapabilities,
       deepen: params.maxCommits,
       filter: "tree:0",
@@ -330,7 +373,7 @@ export class GitNaturalApiAdapter {
 
   private async fetchPackObjects(params: {
     url: string
-    objectHash: string
+    objectHashes: readonly string[]
     serverCapabilities: string[]
     deepen?: number
     filter?: string
@@ -347,7 +390,7 @@ export class GitNaturalApiAdapter {
       requireFilter: params.requireFilter,
     })
     const want = createGitNaturalApiWantRequest({
-      objectHash: params.objectHash,
+      objectHashes: params.objectHashes,
       capabilities,
       deepen: params.deepen,
       filter: params.filter,
@@ -373,7 +416,7 @@ export class GitNaturalApiAdapter {
       if (error instanceof MissingRef) {
         throw new GitNaturalReadError(
           "object-not-found",
-          `Git object not found: ${params.objectHash}${formatPackFailureDiagnostics({
+          `Git object not found: ${params.objectHashes.join(", ")}${formatPackFailureDiagnostics({
             remoteUrl,
             effectiveUrl,
             filter: params.filter,
@@ -563,6 +606,30 @@ const textDecoder = new TextDecoder("utf-8")
 function encodePktLine(payload: string): string {
   if (payload.length === 0) return "0000"
   return (payload.length + 4).toString(16).padStart(4, "0") + payload
+}
+
+function uniqueObjectHashes(hashes: readonly string[]): string[] {
+  const unique: string[] = []
+  const seen = new Set<string>()
+  for (const hash of hashes) {
+    const normalized = String(hash || "")
+      .trim()
+      .toLowerCase()
+    if (!/^[a-f0-9]{40}$/.test(normalized)) {
+      throw new GitNaturalReadError(
+        "ref-not-found",
+        `Invalid object hash '${hash}', expected 40 hex characters`,
+      )
+    }
+    if (!seen.has(normalized)) {
+      seen.add(normalized)
+      unique.push(normalized)
+    }
+  }
+  if (unique.length === 0) {
+    throw new GitNaturalReadError("ref-not-found", "At least one Git object hash is required")
+  }
+  return unique
 }
 
 function throwIfAborted(signal?: AbortSignal): void {

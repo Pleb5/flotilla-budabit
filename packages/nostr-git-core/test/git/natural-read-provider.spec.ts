@@ -447,6 +447,114 @@ describe("GitNaturalReadProvider", () => {
     expect(postBodies.some(body => body.includes(`want ${fixture.addedHash}`))).toBe(true)
     expect(postBodies.some(body => body.includes(`want ${fixture.deletedHash}`))).toBe(true)
     expect(postBodies.some(body => body.includes(`want ${fixture.unchangedHash}`))).toBe(false)
+    expect(postBodies.filter(body => !body.includes("filter blob:none"))).toHaveLength(1)
+  })
+
+  it("fails a partial changed-blob batch without rendering a partial diff", async () => {
+    const fixture = createAddedFilesDiffFixture([
+      {name: "first.txt", data: encoder.encode("first\n")},
+      {name: "second.txt", data: encoder.encode("second\n")},
+    ])
+    const fixtureFetcher = createDiffFixtureFetcher(fixture)
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = String(init?.body || "")
+      if (init?.method !== "POST" || body.includes("filter blob:none")) {
+        return fixtureFetcher(url, init)
+      }
+      const firstHash = Array.from(body.matchAll(/want ([0-9a-f]{40})/g), match => match[1])[0]
+      const data = fixture.blobObjects.get(firstHash)
+      const response = uploadPackResponse(packfile(data ? [{type: "blob", data}] : []))
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => arrayBuffer(response),
+      }
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    await expect(
+      provider.getDiffBetween({
+        url: REMOTE_URL,
+        baseCommitHash: fixture.baseHash,
+        headCommitHash: fixture.headHash,
+      }),
+    ).rejects.toMatchObject({code: "object-not-found"})
+    expect(
+      fetcher.mock.calls.filter(([, init]) => {
+        const body = String(init?.body || "")
+        return init?.method === "POST" && !body.includes("filter blob:none")
+      }),
+    ).toHaveLength(1)
+  })
+
+  it("rejects a changed-blob type mismatch without retrying the batch", async () => {
+    const hash = "a".repeat(40)
+    const fetchObjectsByHash = vi.fn(async () => ({
+      remoteUrl: REMOTE_URL,
+      effectiveUrl: `${REMOTE_URL}/git-upload-pack`,
+      usesProxy: false,
+      elapsedMs: 0,
+      pack: {
+        version: 2,
+        count: 1,
+        objects: new Map([
+          [
+            hash,
+            {
+              hash,
+              type: 1,
+              size: 0,
+              data: new Uint8Array(),
+              offset: 0,
+            },
+          ],
+        ]),
+      },
+    }))
+    const provider = new GitNaturalReadProvider({
+      enabled: true,
+      adapter: {fetchObjectsByHash} as any,
+    })
+
+    await expect(
+      (provider as any).getDiffBlobObjects(
+        {url: REMOTE_URL},
+        {refs: {}, capabilities: CAPABILITIES, symrefs: {}},
+        [hash],
+      ),
+    ).rejects.toMatchObject({code: "object-not-found"})
+    expect(fetchObjectsByHash).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not retry a malformed changed-blob pack", async () => {
+    const fixture = createAddedFilesDiffFixture([
+      {name: "malformed.txt", data: encoder.encode("content\n")},
+    ])
+    const fixtureFetcher = createDiffFixtureFetcher(fixture)
+    let malformedRequests = 0
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = String(init?.body || "")
+      if (init?.method !== "POST" || body.includes("filter blob:none")) {
+        return fixtureFetcher(url, init)
+      }
+      malformedRequests += 1
+      const response = uploadPackResponse(encoder.encode("not a pack"))
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => arrayBuffer(response),
+      }
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    await expect(
+      provider.getDiffBetween({
+        url: REMOTE_URL,
+        baseCommitHash: fixture.baseHash,
+        headCommitHash: fixture.headHash,
+      }),
+    ).rejects.toMatchObject({code: "protocol-error"})
+    expect(malformedRequests).toBe(1)
   })
 
   it("renders a root commit against the Git empty-tree sentinel", async () => {
@@ -538,10 +646,10 @@ describe("GitNaturalReadProvider", () => {
     expect(siblingSettled).toBe(true)
   })
 
-  it("completes a 100-file diff over 15 aggregate seconds with sixteen concurrent requests", async () => {
+  it("batches a large diff under sixteen concurrent requests of at most sixteen wants", async () => {
     vi.useFakeTimers()
     const fixture = createAddedFilesDiffFixture(
-      Array.from({length: 105}, (_, index) => ({
+      Array.from({length: 320}, (_, index) => ({
         name: `file-${String(index).padStart(3, "0")}.txt`,
         data: encoder.encode(`content ${index}\n`),
       })),
@@ -568,23 +676,27 @@ describe("GitNaturalReadProvider", () => {
         baseCommitHash: fixture.baseHash,
         headCommitHash: fixture.headHash,
       })
-      await vi.advanceTimersByTimeAsync(16_800)
+      await vi.advanceTimersByTimeAsync(4_800)
       diff = await diffPromise
     } finally {
       vi.useRealTimers()
     }
 
-    expect(diff.changes).toHaveLength(105)
+    expect(diff.changes).toHaveLength(320)
     expect(diff.changes.map(change => change.path)).toEqual(
       [...diff.changes.map(change => change.path)].sort(),
     )
     expect(maxActive).toBe(16)
-    expect(
-      fetcher.mock.calls.filter(([, init]) => {
+    const objectBodies = fetcher.mock.calls
+      .filter(([, init]) => {
         const body = String(init?.body || "")
         return init?.method === "POST" && !body.includes("filter blob:none")
-      }),
-    ).toHaveLength(105)
+      })
+      .map(([, init]) => String(init?.body || ""))
+    expect(objectBodies).toHaveLength(20)
+    expect(
+      objectBodies.every(body => Array.from(body.matchAll(/want [0-9a-f]{40}/g)).length <= 16),
+    ).toBe(true)
   })
 
   it("retries one transient server error while fetching changed blobs", async () => {
@@ -622,9 +734,22 @@ describe("GitNaturalReadProvider", () => {
     expect(
       fetcher.mock.calls.filter(([, init]) => String(init?.body || "").includes(retriedHash)),
     ).toHaveLength(2)
+    const objectBodies = fetcher.mock.calls
+      .filter(([, init]) => {
+        const body = String(init?.body || "")
+        return init?.method === "POST" && !body.includes("filter blob:none")
+      })
+      .map(([, init]) => String(init?.body || ""))
+    expect(objectBodies).toHaveLength(5)
+    const bodyCounts = new Map<string, number>()
+    for (const body of objectBodies) bodyCounts.set(body, (bodyCounts.get(body) || 0) + 1)
+    expect(Array.from(bodyCounts.values()).sort()).toEqual([1, 1, 1, 2])
   })
 
-  it("does not retry permanent HTTP errors while fetching changed blobs", async () => {
+  it.each([
+    {status: 401, statusText: "Unauthorized"},
+    {status: 404, statusText: "Not Found"},
+  ])("does not retry HTTP $status while fetching changed blobs", async ({status, statusText}) => {
     const fixture = createAddedFilesDiffFixture([
       {name: "unavailable.txt", data: encoder.encode("content\n")},
     ])
@@ -634,8 +759,8 @@ describe("GitNaturalReadProvider", () => {
       if (String(init?.body || "").includes(unavailableHash)) {
         return {
           ok: false,
-          status: 404,
-          statusText: "Not Found",
+          status,
+          statusText,
           arrayBuffer: async () => new ArrayBuffer(0),
         }
       }
@@ -649,7 +774,7 @@ describe("GitNaturalReadProvider", () => {
         baseCommitHash: fixture.baseHash,
         headCommitHash: fixture.headHash,
       }),
-    ).rejects.toMatchObject({code: "http-error", status: 404})
+    ).rejects.toMatchObject({code: "http-error", status})
     expect(
       fetcher.mock.calls.filter(([, init]) => String(init?.body || "").includes(unavailableHash)),
     ).toHaveLength(1)
@@ -711,12 +836,12 @@ describe("GitNaturalReadProvider", () => {
       .filter(([, init]) => init?.method === "POST")
       .map(([, init]) => String(init?.body || ""))
       .filter(body => !body.includes("filter blob:none"))
-    expect(objectBodies).toHaveLength(2)
+    expect(objectBodies).toHaveLength(1)
   })
 
   it("aborts active blob requests and does not start queued work after caller cancellation", async () => {
     const fixture = createAddedFilesDiffFixture(
-      Array.from({length: 20}, (_, index) => ({
+      Array.from({length: 320}, (_, index) => ({
         name: `cancel-${index}.txt`,
         data: encoder.encode(`content ${index}\n`),
       })),
@@ -756,7 +881,7 @@ describe("GitNaturalReadProvider", () => {
 
   it("surfaces unconfirmed sibling cancellation before remote fallback", async () => {
     const fixture = createAddedFilesDiffFixture(
-      Array.from({length: 20}, (_, index) => ({
+      Array.from({length: 320}, (_, index) => ({
         name: `failure-${index}.txt`,
         data: encoder.encode(`content ${index}\n`),
       })),
@@ -1034,6 +1159,13 @@ function createDiffFixture() {
         ]),
       ],
     ]),
+    blobObjects: new Map([
+      [oldReadmeHash, oldReadmeData],
+      [newReadmeHash, newReadmeData],
+      [addedHash, addedData],
+      [deletedHash, deletedData],
+      [unchangedHash, unchangedData],
+    ]),
     blobPacks: new Map([
       [oldReadmeHash, packfile([{type: "blob", data: oldReadmeData}])],
       [newReadmeHash, packfile([{type: "blob", data: newReadmeData}])],
@@ -1046,7 +1178,7 @@ function createDiffFixture() {
 
 type DiffFixtureLike = Pick<
   ReturnType<typeof createDiffFixture>,
-  "advertisement" | "baseHash" | "blobNonePacks" | "blobPacks" | "headHash"
+  "advertisement" | "baseHash" | "blobNonePacks" | "blobObjects" | "blobPacks" | "headHash"
 >
 
 function createBinaryDiffFixture() {
@@ -1106,6 +1238,10 @@ function createBinaryDiffFixture() {
         ]),
       ],
     ]),
+    blobObjects: new Map([
+      [oldImageHash, oldImageData],
+      [newImageHash, newImageData],
+    ]),
     blobPacks: new Map([
       [oldImageHash, packfile([{type: "blob", data: oldImageData}])],
       [newImageHash, packfile([{type: "blob", data: newImageData}])],
@@ -1163,6 +1299,9 @@ function createAddedFilesDiffFixture(
         ]),
       ],
     ]),
+    blobObjects: new Map(
+      files.map(file => [computeGitNaturalObjectHash("blob", file.data), file.data]),
+    ),
     blobPacks: new Map(
       files.map(file => {
         const hash = computeGitNaturalObjectHash("blob", file.data)
@@ -1190,12 +1329,12 @@ function createDiffFixtureFetcher(fixture: DiffFixtureLike) {
         ? fixture.blobNonePacks.get(fixture.baseHash)
         : fixture.blobNonePacks.get(fixture.headHash)
     } else {
-      for (const [hash, blobPack] of fixture.blobPacks) {
-        if (body.includes(hash)) {
-          pack = blobPack
-          break
-        }
-      }
+      const wantedHashes = Array.from(body.matchAll(/want ([0-9a-f]{40})/g), match => match[1])
+      const wantedObjects = wantedHashes.flatMap(hash => {
+        const data = fixture.blobObjects.get(hash)
+        return data ? [{type: "blob" as const, data}] : []
+      })
+      pack = packfile(wantedObjects)
     }
 
     const response = uploadPackResponse(pack ?? packfile([]))

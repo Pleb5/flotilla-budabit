@@ -164,7 +164,8 @@ interface BlobObjectResult {
 const DEFAULT_REF = "HEAD"
 export const EMPTY_GIT_TREE_COMMIT_HASH = "0".repeat(40)
 const COMMIT_HISTORY_BATCH_SIZE = 15
-const DIFF_BLOB_FETCH_CONCURRENCY = 16
+const DIFF_BLOB_BATCH_SIZE = 16
+const DIFF_BLOB_BATCH_CONCURRENCY = 16
 const DIFF_BLOB_TRANSIENT_HTTP_RETRIES = 1
 
 export class GitNaturalReadProvider {
@@ -777,14 +778,29 @@ export class GitNaturalReadProvider {
     return {object: this.getObject(objects, blobHash, "blob"), pack}
   }
 
-  private async getDiffBlobObject(
+  private async getDiffBlobObjects(
     params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
     infoRefs: GitNaturalInfoRefs,
-    blobHash: string,
-  ): Promise<BlobObjectResult> {
+    blobHashes: readonly string[],
+  ): Promise<Map<string, GitNaturalParsedObject>> {
     for (let retry = 0; ; retry += 1) {
       try {
-        return await this.getBlobObject(params, infoRefs, blobHash)
+        const pack = await this.adapter.fetchObjectsByHash({
+          url: params.url,
+          objectHashes: blobHashes,
+          serverCapabilities: infoRefs.capabilities,
+          corsProxy: this.resolveCorsProxy(params.corsProxy),
+          signal: params.signal,
+        })
+        const objects = parsedObjectsFromApiObjects(pack.pack.objects)
+        const requiredObjects = new Map(
+          blobHashes.map(blobHash => {
+            const normalizedHash = normalizeObjectHash(blobHash)
+            return [normalizedHash, this.getObject(objects, normalizedHash, "blob")]
+          }),
+        )
+        this.storeObjects(objects)
+        return requiredObjects
       } catch (error) {
         if (
           retry >= DIFF_BLOB_TRANSIENT_HTTP_RETRIES ||
@@ -937,9 +953,15 @@ export class GitNaturalReadProvider {
     hashes: string[],
   ): Promise<Map<string, GitNaturalParsedObject>> {
     const objects = new Map<string, GitNaturalParsedObject>()
-    if (hashes.length === 0) {
+    const uniqueHashes = Array.from(new Set(hashes.map(normalizeObjectHash)))
+    if (uniqueHashes.length === 0) {
       if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError")
       return objects
+    }
+
+    const batches: string[][] = []
+    for (let index = 0; index < uniqueHashes.length; index += DIFF_BLOB_BATCH_SIZE) {
+      batches.push(uniqueHashes.slice(index, index + DIFF_BLOB_BATCH_SIZE))
     }
 
     const controller = new AbortController()
@@ -952,15 +974,34 @@ export class GitNaturalReadProvider {
     const runWorker = async () => {
       while (!controller.signal.aborted && firstFailure === undefined) {
         const index = nextIndex++
-        if (index >= hashes.length) return
-        const hash = hashes[index]
+        if (index >= batches.length) return
+        const batch = batches[index]
         try {
-          const result = await this.getDiffBlobObject(
-            {...params, signal: controller.signal},
-            infoRefs,
-            hash,
-          )
-          objects.set(normalizeObjectHash(hash), result.object)
+          const missing: string[] = []
+          for (const hash of batch) {
+            if (controller.signal.aborted) throw new DOMException("Aborted", "AbortError")
+            const cached = await this.cache.getBlobAsync(hash)
+            if (cached) {
+              objects.set(hash, {
+                hash: cached.hash,
+                type: "blob",
+                typeCode: typeCodeFromObjectType("blob"),
+                size: cached.data.length,
+                data: cached.data,
+                offset: 0,
+              })
+            } else {
+              missing.push(hash)
+            }
+          }
+          if (missing.length > 0) {
+            const fetched = await this.getDiffBlobObjects(
+              {...params, signal: controller.signal},
+              infoRefs,
+              missing,
+            )
+            for (const [hash, object] of fetched) objects.set(hash, object)
+          }
         } catch (error) {
           if (
             firstFailure === undefined ||
@@ -975,7 +1016,7 @@ export class GitNaturalReadProvider {
 
     try {
       await Promise.allSettled(
-        Array.from({length: Math.min(DIFF_BLOB_FETCH_CONCURRENCY, hashes.length)}, runWorker),
+        Array.from({length: Math.min(DIFF_BLOB_BATCH_CONCURRENCY, batches.length)}, runWorker),
       )
       if (firstFailure !== undefined) throw firstFailure
       if (params.signal?.aborted) throw new DOMException("Aborted", "AbortError")

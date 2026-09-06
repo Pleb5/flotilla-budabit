@@ -115,6 +115,20 @@ const buildBlobPack = (content: string): {hash: string; data: Uint8Array; packfi
   return {hash: gitObjectHash("blob", data), data, packfile}
 }
 
+const buildBlobObjectsPack = (
+  contents: string[],
+): {hashes: string[]; data: Uint8Array[]; packfile: Uint8Array} => {
+  const data = contents.map(content => encoder.encode(content))
+  const body = concatBytes(
+    encoder.encode("PACK"),
+    uint32(2),
+    uint32(data.length),
+    ...data.flatMap(blob => [packObjectHeader(3, blob.length), new Uint8Array(deflateSync(blob))]),
+  )
+  const packfile = concatBytes(body, new Uint8Array(createHash("sha1").update(body).digest()))
+  return {hashes: data.map(blob => gitObjectHash("blob", blob)), data, packfile}
+}
+
 const buildTreeData = (entries: Array<{mode: string; name: string; hash: string}>): Uint8Array =>
   concatBytes(
     ...entries.map(entry =>
@@ -760,6 +774,50 @@ describe("natural read API adapter", () => {
     expect(fetcher.mock.calls.some(([calledUrl]) => String(calledUrl).includes("/info/refs"))).toBe(
       false,
     )
+  })
+
+  it("requests and validates multiple unique object OIDs in one upload-pack request", async () => {
+    const blobs = buildBlobObjectsPack(["first object\n", "second object\n"])
+    const response = concatBytes(
+      pktBytes("NAK\n"),
+      sideBandPacket(1, blobs.packfile),
+      encoder.encode("0000"),
+    )
+    const fetcher = uploadPackResponseFetch(response)
+    const adapter = new GitNaturalApiAdapter({fetcher})
+
+    const result = await adapter.fetchObjectsByHash({
+      url: "https://example.com/repo.git",
+      objectHashes: [blobs.hashes[0], blobs.hashes[0].toUpperCase(), blobs.hashes[1]],
+      serverCapabilities: CAPABILITIES,
+    })
+
+    expect(Array.from(result.pack.objects.keys()).sort()).toEqual([...blobs.hashes].sort())
+    const body = String((fetcher.mock.calls[0] as [string, RequestInit])[1].body)
+    const wants = body.match(/want [0-9a-f]{40}[^\n]*\n/g) || []
+    expect(wants).toHaveLength(2)
+    expect(wants[0]).toContain("side-band-64k")
+    expect(wants[1]).not.toContain("side-band-64k")
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it("rejects a partial multi-want pack with the missing OID", async () => {
+    const returned = buildBlobPack("returned object\n")
+    const missing = gitObjectHash("blob", encoder.encode("missing object\n"))
+    const response = concatBytes(
+      pktBytes("NAK\n"),
+      sideBandPacket(1, returned.packfile),
+      encoder.encode("0000"),
+    )
+    const adapter = new GitNaturalApiAdapter({fetcher: uploadPackResponseFetch(response)})
+
+    await expect(
+      adapter.fetchObjectsByHash({
+        url: "https://example.com/repo.git",
+        objectHashes: [returned.hash, missing],
+        serverCapabilities: CAPABILITIES,
+      }),
+    ).rejects.toMatchObject({code: "object-not-found", message: expect.stringContaining(missing)})
   })
 
   it("reads pack responses through the standard arrayBuffer API", async () => {
