@@ -290,11 +290,7 @@ describe("event link utilities", () => {
       kind: 32222,
       pubkey: event.pubkey,
       identifier: "community",
-      relays: [
-        "wss://first.example.com/",
-        "wss://second.example.com/",
-        "wss://third.example.com/",
-      ],
+      relays: ["wss://first.example.com/", "wss://second.example.com/", "wss://third.example.com/"],
     })
   })
 
@@ -409,22 +405,62 @@ describe("event link utilities", () => {
       ])
     })
 
-    it("encodes only repo relays in issue share links", async () => {
+    it.each([1621, 1618])("encodes only repo relays in kind %i share links", async kind => {
       mockRepoLookup()
       relayMocks.trackerRelays = new Set(["wss://seen.example.com"])
+      relayMocks.authorRelays = ["wss://author.example.com"]
 
-      const {makeEventShareEntity} = await import("./event-links")
-      const issue = makeEvent({kind: 1621, tags: [["a", repoAddress]]})
+      const {makeEventShareEntityForEvent} = await import("./event-share")
+      const event = makeEvent({kind, tags: [["a", repoAddress, "wss://pointer.example.com"]]})
 
-      const decoded = nip19.decode(makeEventShareEntity(issue as any))
+      const decoded = nip19.decode(
+        makeEventShareEntityForEvent(event as any, {
+          url: "wss://browsing.example.com",
+          relays: ["wss://explicit.example.com"],
+        }),
+      )
 
       expect(decoded.type).toBe("nevent")
-      expect(decoded.data).toMatchObject({
-        id: issue.id,
-        kind: 1621,
+      expect(decoded.data).toEqual({
+        id: event.id,
+        kind,
+        author: event.pubkey,
         relays: ["wss://repo-relay.example.com/", "wss://repo-relay2.example.com/"],
       })
     })
+
+    it.each([1621, 1618])(
+      "uses passed repo relays for kind %i shares before the announcement is cached",
+      async kind => {
+        mockRepoLookup(null)
+        relayMocks.trackerRelays = new Set(["wss://seen.example.com"])
+        relayMocks.authorRelays = ["wss://author.example.com"]
+        const {makeEventShareEntityForEvent} = await import("./event-share")
+        const event = makeEvent({kind, tags: [["a", repoAddress]]})
+
+        const decoded = nip19.decode(
+          makeEventShareEntityForEvent(event as any, {
+            url: "wss://browsing.example.com",
+            relays: [
+              "wss://repo-relay.example.com",
+              "wss://repo-relay.example.com/",
+              "invalid",
+              "ws://localhost:3334",
+              "wss://github.com/owner/repo.git",
+              "wss://repo-relay2.example.com",
+            ],
+          }),
+        )
+
+        expect(decoded.type).toBe("nevent")
+        expect(decoded.data).toEqual({
+          id: event.id,
+          kind,
+          author: event.pubkey,
+          relays: ["wss://repo-relay.example.com/", "wss://repo-relay2.example.com/"],
+        })
+      },
+    )
 
     it("can skip repo relay resolution when requested", async () => {
       mockRepoLookup()

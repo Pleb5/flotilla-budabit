@@ -1168,6 +1168,7 @@
             status={statusMap[issue.id] || "open"}
             commentCount={commentsOrdered[issue.id]?.length || 0}
             labels={labelsByIssue.get(issue.id) || []}
+            relays={repoBoundRelays}
             profileRelays={repoCommunityProfileRelays} />
         </div>
       {/each}

@@ -4,12 +4,14 @@
   import {getTagValue} from "@welshman/util"
   import {CircleCheck, CircleDot, FileCode, MessageCircle, XCircle} from "@lucide/svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
+  import EventShareButton from "@app/components/EventShareButton.svelte"
 
   type Props = {
     event: IssueEvent
     status?: string
     commentCount?: number
     labels?: string[]
+    relays: string[]
     profileRelays?: string[]
   }
 
@@ -18,6 +20,7 @@
     status = "open",
     commentCount = 0,
     labels = [],
+    relays,
     profileRelays = [],
   }: Props = $props()
 
@@ -69,11 +72,14 @@
     </div>
   </div>
 
-  <span
-    class="mt-0.5 flex min-w-7 shrink-0 items-center justify-end gap-1 text-xs text-muted-foreground"
-    title={`${commentCount} ${commentCount === 1 ? "comment" : "comments"}`}
-    aria-label={`${commentCount} ${commentCount === 1 ? "comment" : "comments"}`}>
-    <MessageCircle class="h-3.5 w-3.5" />
-    {commentCount}
-  </span>
+  <div class="-my-1 flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+    <span
+      class="flex min-w-7 items-center justify-end gap-1"
+      title={`${commentCount} ${commentCount === 1 ? "comment" : "comments"}`}
+      aria-label={`${commentCount} ${commentCount === 1 ? "comment" : "comments"}`}>
+      <MessageCircle class="h-3.5 w-3.5" />
+      {commentCount}
+    </span>
+    <EventShareButton {event} {relays} noun="issue" />
+  </div>
 </div>

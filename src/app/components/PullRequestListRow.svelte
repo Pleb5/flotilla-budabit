@@ -12,6 +12,7 @@
     XCircle,
   } from "@lucide/svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
+  import EventShareButton from "@app/components/EventShareButton.svelte"
 
   type Props = {
     event: PullRequestEvent
@@ -21,6 +22,7 @@
     reviewerCount?: number
     labels?: string[]
     branchName?: string
+    relays: string[]
     profileRelays?: string[]
   }
 
@@ -32,6 +34,7 @@
     reviewerCount = 0,
     labels = [],
     branchName = "",
+    relays,
     profileRelays = [],
   }: Props = $props()
 
@@ -87,7 +90,7 @@
     </div>
   </div>
 
-  <div class="mt-0.5 flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+  <div class="-my-1 flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
     {#if reviewerCount > 0}
       <span
         class="flex items-center gap-1"
@@ -104,5 +107,6 @@
       <MessageCircle class="h-3.5 w-3.5" />
       {commentCount}
     </span>
+    <EventShareButton {event} {relays} noun="pull request" />
   </div>
 </div>

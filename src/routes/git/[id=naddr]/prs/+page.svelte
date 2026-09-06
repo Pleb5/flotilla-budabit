@@ -1054,6 +1054,7 @@
             reviewerCount={$roleAssignments?.get(pr.id)?.reviewers?.size || 0}
             labels={labelsByPr.get(pr.id) || []}
             branchName={pr.branchName}
+            relays={repoRelays}
             profileRelays={repoCommunityProfileRelays} />
         </div>
       {/each}

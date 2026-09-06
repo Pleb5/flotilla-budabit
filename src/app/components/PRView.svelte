@@ -102,6 +102,7 @@
   import Profile from "@src/app/components/Profile.svelte"
   import LogIn from "@app/components/LogIn.svelte"
   import EventActions from "@app/components/EventActions.svelte"
+  import ReactionSummary from "@app/components/ReactionSummary.svelte"
   import Markdown from "@src/lib/components/Markdown.svelte"
   import RepoRichDescriptionEditor from "@app/components/RepoRichDescriptionEditor.svelte"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
@@ -2845,13 +2846,24 @@
     }
   }
 
-  const deleteCommentReaction = async (reaction: any) => {
+  const deleteReaction = async (reaction: TrustedEvent) => {
     const relays = getCommentPublishRelays()
     if (relays.length === 0) return
 
     publishReactionDeleteOperation({
-      reaction: reaction as unknown as TrustedEvent,
+      reaction,
       relays,
+      repoAddress: prRepoAddress,
+    })
+  }
+
+  const createReaction = async (template: EventContent) => {
+    if (strictRepoRelays.length === 0) return
+
+    publishReactionOperation({
+      ...template,
+      event: prEvent,
+      relays: strictRepoRelays,
       repoAddress: prRepoAddress,
     })
   }
@@ -3807,9 +3819,9 @@
   <div>
     <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
       <div class="mb-4 flex flex-col items-start justify-between gap-2">
-        <div class="flex w-full items-start justify-between gap-3">
-          <div class="flex min-w-0 items-start gap-4">
-            <div class="mt-1">
+        <div class="flex w-full flex-wrap items-start justify-between gap-3">
+          <div class="flex min-w-0 flex-1 items-start gap-4">
+            <div class="mt-1 shrink-0">
               <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
                 <GitCommit class="h-5 w-5 text-amber-500" />
               </div>
@@ -3822,20 +3834,30 @@
             </h1>
           </div>
 
-          {#if $pubkey === prEvent.pubkey}
+          <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {#key prEvent.id}
+              <ReactionSummary
+                event={prEvent}
+                url={commentRelayHint || ""}
+                relays={strictRepoRelays}
+                zapScopeH={repoCommunityScope}
+                strictZapRelays={true}
+                {deleteReaction}
+                {createReaction}
+                reactionClass="tooltip-left" />
+            {/key}
             <EventActions
-              event={prEvent as any}
-              url={commentRelayHint || repoRelays[0] || ""}
-              relays={repoRelays}
+              event={prEvent}
+              url={commentRelayHint || ""}
+              relays={strictRepoRelays}
               repoAddress={prRepoAddress}
               strictZapRelays={true}
               noun="pull request"
               ownerPubkey={repoOwnerPubkey}
               zapScopeH={repoCommunityScope}
               showReport={true}
-              menuOnly
               class="shrink-0" />
-          {/if}
+          </div>
         </div>
 
         <div class="mt-1 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-1">
@@ -5053,7 +5075,7 @@
             repoRefs={commentRepoRefs}
             relayHint={commentRelayHint}
             getShareRelays={getCommentShareRelays}
-            deleteReaction={deleteCommentReaction}
+            {deleteReaction}
             createReaction={createCommentReaction}
             ownerPubkey={repoOwnerPubkey}
             onInlineCommentOpen={openPrInlineCommentLocation}
