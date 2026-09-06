@@ -15,6 +15,7 @@
   import {
     Card,
     IssueThread,
+    ImportedProvenance,
     Status,
     toast,
     type RichComposerContext,
@@ -999,6 +1000,7 @@
               <span class="break-all text-xs sm:break-normal">{displayDateFormatted}</span>
             </span>
           </div>
+          <ImportedProvenance event={issueEvent} />
         </div>
       </div>
 

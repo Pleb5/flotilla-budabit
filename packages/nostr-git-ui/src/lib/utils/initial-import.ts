@@ -273,6 +273,7 @@ export async function runInitialImport(
     await (runtime.pause || initialImportDelay)(abort.signal);
     active();
     await save({ publicStarted: true });
+    progress(`Publishing kind ${pending.event.kind}; public side effects may have started…`);
     active();
     const result = await abort.raceWithAbort(
       Promise.resolve(runtime.publish(pending.event, { relays: [job!.relay] }))
@@ -346,6 +347,7 @@ export async function runInitialImport(
     active();
     const id = `${job!.id}:${type}:${crypto.randomUUID()}`;
     await save({ workerOperation: { id, type } });
+    progress(`Git operation: ${type}`);
     active();
     await abort.raceWithAbort(operation(id));
     if (!(await runtime.git.settle(job!)))

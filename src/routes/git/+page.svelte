@@ -80,7 +80,11 @@
     recoverRepoCreationRecord,
     toast,
     NewRepoWizard,
-    ImportRepoDialog,
+    InitialImportDialog,
+    IndexedInitialImportStore,
+    createInitialImportGit,
+    type InitialImportJob,
+    type InitialImportRuntime,
   } from "@nostr-git/ui"
   import type {
     ImportResult,
@@ -97,11 +101,7 @@
     repoAnnouncements,
     REPO_LIST_HYDRATION_READY_KEY,
   } from "@app/core/git-state"
-  import {
-    getInitializedGitWorker,
-    subscribeGitWorkerProgress,
-    terminateGitWorker,
-  } from "@app/core/worker-singleton"
+  import {getInitializedGitWorker, subscribeGitWorkerProgress} from "@app/core/worker-singleton"
   import {
     activeExactCommunityPointer,
     activeExactCommunityDefinition,
@@ -1225,7 +1225,8 @@
       pageSize: repoResultsVisibleLimit,
       maxPages: 1,
       signal,
-    }).catch(error => {
+    })
+      .catch(error => {
         if (signal.aborted || requestId !== communityRepoLoadRequestId) return
         console.warn("[git/+page] Failed to load community repos", error)
       })
@@ -1597,7 +1598,8 @@
       priority: RELAY_REQUEST_PRIORITY.interactive,
       owner: `global-git-community-curation-targets:${selectedCommunityAddress}`,
       signal,
-    }).catch(error => {
+    })
+      .catch(error => {
         if (signal.aborted || requestId !== communityTargetLoadRequestId) return
         console.warn("[git/+page] Failed to load community curation targets", error)
       })
@@ -1706,7 +1708,8 @@
           signal,
         }),
       ),
-    ).catch(error => {
+    )
+      .catch(error => {
         if (signal.aborted || requestId !== communityOriginalLoadRequestId) return
         console.warn("[git/+page] Failed to load community curated originals", error)
       })
@@ -4373,6 +4376,13 @@
             back()
           },
           onDispose: () => operationPublishTransport.dispose(),
+          onImportSource: IMPORT_REPO_ENABLED
+            ? () => {
+                operationPublishTransport.dispose()
+                clearModals()
+                void onImportRepo()
+              }
+            : undefined,
           defaultRelays: [...defaultRepoRelays],
           platformRelays: [...GIT_RELAYS],
           platformUrl: $APP_URL,
@@ -4411,8 +4421,6 @@
   const onImportRepo = async () => {
     if (!IMPORT_REPO_ENABLED) return
 
-    console.log("[+page.svelte] onImportRepo called")
-
     if (!$session || !$pubkey) {
       pushModal(LogIn)
       return
@@ -4420,7 +4428,9 @@
 
     // Get signer for event signing (supports NIP-07, NIP-46, NIP-01)
     const {getSigner} = await import("@welshman/app")
-    const signer = getSigner($session)
+    const importOwner = $pubkey
+    const importSession = $session
+    const signer = getSigner(importSession)
 
     if (!signer) {
       pushToast({
@@ -4462,138 +4472,60 @@
       }
     }
 
-    // Create onSignEvent callback that works with any signer
-    const onSignEvent = async (
-      event: Omit<NostrEvent, "id" | "sig" | "pubkey">,
-    ): Promise<NostrEvent> => {
-      return await signer.sign(event)
-    }
-
     let publishTransport: RepoPublishTransport | undefined
     try {
-      const rollbackPublishedRepoEvents = async (params: {
-        repoName: string
-        relays: string[]
-        events?: NostrEvent[]
-      }): Promise<void> => {
-        if (!$pubkey) return
-
-        const rollbackRelays = Array.from(
-          new Set(params.relays.map(r => normalizeRelayUrl(r)).filter(Boolean)),
-        )
-
-        if (rollbackRelays.length === 0) return
-
-        if (params.events) {
-          const exactEvents = new Map(
-            params.events.filter(event => event?.id).map(event => [event.id, event]),
+      const assertActor = (owner: string) => {
+        if (owner !== importOwner || $pubkey !== importOwner || $session !== importSession) {
+          throw new Error(
+            "Active account changed. Reopen the saved import under its original account.",
           )
-          for (const event of exactEvents.values()) {
-            if (event.pubkey !== $pubkey) continue
-            await deleteExactRepoEvent(event, rollbackRelays)
-          }
-          return
-        }
-
-        const filters = [
-          {kinds: [GIT_REPO_ANNOUNCEMENT], authors: [$pubkey], "#d": [params.repoName]},
-          {kinds: [GIT_REPO_STATE], authors: [$pubkey], "#d": [params.repoName]},
-        ]
-
-        try {
-          await load({relays: rollbackRelays, filters: filters as any}).catch(() => {})
-        } catch {
-          // pass
-        }
-
-        const events = repository.query(filters as any, {shouldSort: false}) as Array<any>
-        const seen = new Set<string>()
-
-        for (const event of events) {
-          if (event.pubkey !== $pubkey) continue
-          if (!event.id || seen.has(event.id)) continue
-          seen.add(event.id)
-
-          await deleteExactRepoEvent(event, rollbackRelays)
         }
       }
-
       publishTransport = createTrackedRepoPublishTransport()
       const operationPublishTransport = publishTransport
+      const runtime: InitialImportRuntime = {
+        store: new IndexedInitialImportStore(),
+        git: createInitialImportGit(workerApi),
+        assertActor,
+        sign: async template => {
+          assertActor(importOwner)
+          const event = await signer.sign(template)
+          assertActor(importOwner)
+          return event
+        },
+        publish: async (event, context) => {
+          assertActor(event.pubkey)
+          if (context?.relays.length !== 1)
+            throw new Error("Initial import requires exactly one repository relay")
+          // The journal, not the app's event cache, owns retry state and bodies.
+          return operationPublishTransport.publish(event, context.relays, {publishLocally: false})
+        },
+        fetchEvents: fetchRelayEvents,
+      }
       const modalId = pushModal(
-        ImportRepoDialog,
+        InitialImportDialog,
         {
-          pubkey: $pubkey!,
-          workerApi,
+          owner: importOwner,
+          runtime,
           subscribeGitProgress: subscribeGitWorkerProgress,
-          onSignEvent: onSignEvent, // Primary signing method (works with all signers)
-          onFetchEvents: async (filters: NostrFilter[]) => {
-            const events: NostrEvent[] = []
-            await load({
-              relays: Router.get().FromUser().getUrls(),
-              filters: filters as any,
-              onEvent: e => events.push(e as NostrEvent),
-            })
-            return events
-          },
-          onFetchRelayEvents: fetchRelayEvents,
           onClose: () => {
             operationPublishTransport.dispose()
             clearModals()
           },
           onDispose: () => operationPublishTransport.dispose(),
-          onPublishEvent: async (repoEvent: NostrEvent, context?: {relays: string[]}) => {
-            const explicitRelays = context?.relays || []
-            const targetRelays =
-              (repoEvent.kind === GIT_REPO_STATE && context?.relays !== undefined) ||
-              explicitRelays.length > 0
-                ? explicitRelays
-                : resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
-            return operationPublishTransport.publish(repoEvent, targetRelays)
-          },
-          onDeleteEvent: async (event: NostrEvent, relays: string[]) => {
-            await deleteExactRepoEvent(event, relays)
-          },
-          onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,
-          onImportComplete: (result: ImportResult) => {
-            operationPublishTransport.dispose()
+          onOpenRepo: async (job: InitialImportJob) => {
+            if (!job.announcement || !job.state)
+              throw new Error("Repository metadata is not yet confirmed")
+            const result = {announcementEvent: job.announcement, stateEvent: job.state}
             hydrateRepoEvents(result)
-            // Reload repos by forcing bookmarks refresh and announcements
-            loadRepoAnnouncements(repoAnnouncementRelays)
-            pushToast({
-              message: `Successfully imported repository! Imported ${result.issuesImported} issues, ${result.commentsImported} comments, ${result.prsImported} PRs, and created ${result.profilesCreated} profiles.`,
-            })
+            await navigateToCreatedRepo(result, "imported repo")
           },
-          onNavigateToRepo: (result: ImportResult) =>
-            navigateToCreatedRepo(result, "imported repo"),
-          onAbortImport: async () => {
-            try {
-              terminateGitWorker()
-              const {api, worker} = await getInitializedGitWorker()
-              workerApi = api
-              workerInstance = worker
-            } catch (error) {
-              console.error("[+page.svelte] Failed to restart worker after import cancel:", error)
-            }
-          },
-          defaultRelays: [...defaultRepoRelays],
-          searchRelays: searchRelaysForWizard,
-          communityOptions: repoPublishCommunityOptions,
-          defaultCommunityPubkey:
-            activeMode === "community" &&
-            repoPublishCommunityOptions.some(
-              option => option.address === $activeExactCommunityPointer?.address,
-            )
-              ? $activeExactCommunityPointer?.address
-              : "",
         },
         {fullscreen: true, noEscape: true},
       )
       if (!modalId) operationPublishTransport.dispose()
-      console.log("[+page.svelte] ImportRepoDialog modal pushed with ID:", modalId)
     } catch (error) {
       publishTransport?.dispose()
-      console.error("[+page.svelte] Failed to push ImportRepoDialog modal:", error)
       pushToast({
         message: `Failed to open Import Repo dialog: ${String(error)}`,
         theme: "error",

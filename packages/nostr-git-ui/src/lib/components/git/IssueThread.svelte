@@ -1,5 +1,6 @@
 <script lang="ts">
   import TimeAgo from "../../TimeAgo.svelte";
+  import ImportedProvenance from "./ImportedProvenance.svelte";
   import { FileCode, MessageSquare, Pencil, Reply } from "@lucide/svelte";
   import { type NostrEvent } from "nostr-tools";
   import {
@@ -474,6 +475,7 @@
             </div>
           </div>
           <div class="w-full flex flex-col gap-y-2 mt-2">
+            <ImportedProvenance event={c.raw} />
             {#if inlineLocation}
               <button
                 type="button"

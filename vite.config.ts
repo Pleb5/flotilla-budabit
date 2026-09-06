@@ -79,7 +79,7 @@ export default defineConfig({
     __DEVELOPMENT__: JSON.stringify(process.env.NODE_ENV !== "production"),
     __GRASP__: JSON.stringify(process.env.FEATURE_GRASP !== "0"),
     __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
-    __IMPORT_REPO__: JSON.stringify(process.env.FEATURE_IMPORT_REPO === "1"),
+    __IMPORT_REPO__: JSON.stringify(process.env.FEATURE_IMPORT_REPO !== "0"),
   },
   optimizeDeps: {
     include: ["@codemirror/state", "@codemirror/view"],

@@ -73,6 +73,7 @@
     /** Called when user chooses to navigate to the newly created repo (app should goto repo URL) */
     onNavigateToRepo?: (repoData: NewRepoResult) => void | Promise<void>;
     onCancel?: () => void;
+    onImportSource?: () => void;
     onDispose?: () => void;
     onPublishEvent?: PublishRepoEvent;
     onDeleteEvent?: DeleteRepoEvent;
@@ -115,6 +116,7 @@
     onRepoCreated,
     onNavigateToRepo,
     onCancel,
+    onImportSource,
     onDispose,
     onPublishEvent,
     onDeleteEvent,
@@ -905,6 +907,14 @@
     >
       <div class="px-4 pb-12 pt-5 sm:px-6 sm:pb-16 sm:pt-6">
         {#if currentStep === 1}
+          {#if onImportSource}
+            <div class="mb-5 rounded border border-border p-4">
+              <p class="mb-2 text-sm text-muted-foreground">
+                Already have a public GitHub repository?
+              </p>
+              <button class="btn" onclick={onImportSource}>Create from GitHub</button>
+            </div>
+          {/if}
           <StepChooseService
             selectedProviders={selectedProviders}
             onProvidersChange={handleProvidersChange as any}
