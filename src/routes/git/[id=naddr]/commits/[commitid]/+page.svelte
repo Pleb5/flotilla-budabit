@@ -1126,7 +1126,7 @@
                   id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}>
                   <button
                     onclick={() => toggleDiffFile(change.path)}
-                    class="min-h-[44px] w-full touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
+                    class="min-h-[44px] w-full min-w-max touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
                     <div
                       class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                       <div class="flex min-w-fit items-center gap-2 sm:gap-3">
@@ -1214,7 +1214,7 @@
                   id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}>
                   <button
                     onclick={() => toggleFile(change.path)}
-                    class="min-h-[44px] w-full touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
+                    class="min-h-[44px] w-full min-w-max touch-manipulation px-2 py-3 text-left transition-colors hover:bg-muted/50 focus:bg-muted/50 focus:outline-none sm:px-6 sm:py-4">
                     <div
                       class="flex min-w-fit flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                       <div class="flex min-w-fit items-center gap-2 sm:gap-3">

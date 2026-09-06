@@ -21,4 +21,8 @@ describe("commit diff performance contracts", () => {
     expect(source).not.toContain("getFileStats(change.diffHunks)")
     expect(source).not.toContain("totalStats()")
   })
+
+  it("preserves trailing padding when file headers overflow horizontally", () => {
+    expect(source.match(/class="min-h-\[44px\] w-full min-w-max/g)).toHaveLength(2)
+  })
 })
