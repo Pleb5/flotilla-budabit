@@ -90,10 +90,14 @@
     </div>
 
     <!-- Commit Metadata -->
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+    <div
+      class="flex flex-col items-start gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between"
+    >
+      <div
+        class="flex min-w-0 max-w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4"
+      >
         <!-- Author Info -->
-        <div class="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+        <div class="flex items-center gap-2 text-sm text-muted-foreground min-w-0 max-w-full">
           <NostrAvatar
             pubkey={pubkey}
             avatarUrl={avatarUrl}
@@ -114,8 +118,10 @@
         </div>
 
         <!-- Date Info -->
-        <div class="flex items-center gap-2 text-sm text-muted-foreground">
-          <Calendar class="h-4 w-4" />
+        <div
+          class="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm text-muted-foreground"
+        >
+          <Calendar class="h-4 w-4 shrink-0" />
           <span title={formatExactDate(date)}>
             committed {formatDate(date)}
           </span>
@@ -123,21 +129,24 @@
 
         <!-- Parent Commits -->
         {#if parents.length > 0}
-          <div class="flex items-center gap-2 text-sm text-muted-foreground min-w-0">
+          <div class="flex items-center gap-2 text-sm text-muted-foreground min-w-0 max-w-full">
             <GitCommit class="h-4 w-4 flex-shrink-0" />
-            <span class="truncate">
+            <span class="min-w-0">
               {parents.length === 1 ? "parent" : "parents"}:
               {#each parents as parent, i}
                 {#if getParentHref}
                   <a
                     href={getParentHref(parent)}
-                    class="mx-1 rounded bg-muted px-1 py-0.5 text-xs font-mono hover:bg-muted/80 hover:text-foreground transition-colors"
+                    class="mx-1 inline-block rounded bg-muted px-1 py-0.5 text-xs font-mono hover:bg-muted/80 hover:text-foreground transition-colors"
                     title={parent}
                   >
                     {parent.slice(0, 7)}
                   </a>
                 {:else}
-                  <code class="mx-1 rounded bg-muted px-1 py-0.5 text-xs font-mono" title={parent}>
+                  <code
+                    class="mx-1 inline-block rounded bg-muted px-1 py-0.5 text-xs font-mono"
+                    title={parent}
+                  >
                     {parent.slice(0, 7)}
                   </code>
                 {/if}
@@ -149,7 +158,7 @@
       </div>
 
       <!-- SHA and Copy Button -->
-      <div class="flex items-center gap-2">
+      <div class="flex shrink-0 items-center gap-2">
         <code class="rounded bg-muted px-2 py-1 text-sm font-mono text-foreground">
           {sha.slice(0, 7)}
         </code>
