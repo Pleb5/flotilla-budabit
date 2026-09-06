@@ -19,11 +19,14 @@ if [ -n "$build_commit" ]; then
 	export VITE_BUILD_HASH="$build_commit"
 fi
 
+# Use sharp's prebuilt binaries instead of compiling against system libvips
+export SHARP_IGNORE_GLOBAL_LIBVIPS=1
+
 # Install dependencies
 CI=0 pnpm i
 
 # Rebuild native deps as needed (e.g., sharp)
-pnpm rebuild || true
+pnpm rebuild
 
 # Use unified build script (builds core, UI, app, and copies worker libs)
 if [ -z "${NODE_OPTIONS:-}" ]; then
