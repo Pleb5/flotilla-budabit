@@ -76,6 +76,31 @@ export class ImportAbortController {
     })
   }
 
+  /** Unlike repeated waitForAbort races, settled operations leave no retained listener. */
+  raceWithAbort<T>(operation: Promise<T>): Promise<T> {
+    const signal = this.controller.signal
+    return new Promise<T>((resolve, reject) => {
+      const cleanup = () => signal.removeEventListener("abort", onAbort)
+      const onAbort = () => {
+        cleanup()
+        reject(new ImportAbortedError(this.reason || "Import cancelled"))
+      }
+      // Always observe the operation, including when cancellation already happened.
+      operation.then(
+        value => {
+          cleanup()
+          resolve(value)
+        },
+        error => {
+          cleanup()
+          reject(error)
+        },
+      )
+      if (signal.aborted) onAbort()
+      else signal.addEventListener("abort", onAbort, {once: true})
+    })
+  }
+
   /**
    * Throw an error if the operation has been aborted
    * Useful for checking at safe points during long-running operations

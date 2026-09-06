@@ -77,6 +77,15 @@ export const CTag = z.tuple([z.literal("c"), z.string()])
 export const QReferenceTag = z.tuple([z.literal("q"), z.string()]).rest(z.string())
 export const ImetaTag = z.tuple([z.literal("imeta")]).rest(z.string())
 
+const ImportedProvenanceTags = [
+  z.tuple([z.literal("imported"), z.string()]),
+  z.tuple([z.literal("proxy"), z.string(), z.string()]),
+  z.tuple([z.literal("source-key"), z.string().min(1)]),
+  z.tuple([z.literal("source-author"), z.string(), z.string()]),
+  z.tuple([z.literal("original_date"), z.string()]),
+  z.tuple([z.literal("original_updated_at"), z.string()]),
+] as const
+
 // Issue tags (kind 1621)
 export const SubjectTag = z.tuple([z.literal("subject"), z.string()])
 export const IssueTagSchema = z.union([
@@ -86,6 +95,7 @@ export const IssueTagSchema = z.union([
   HashtagTag,
   QReferenceTag,
   ImetaTag,
+  ...ImportedProvenanceTags,
 ])
 export const IssueTagsSchema = z.array(IssueTagSchema)
 
@@ -120,6 +130,7 @@ export const StatusTagSchema = z.union([
   QTag,
   MergeCommitTag,
   AppliedAsCommitsTag,
+  ...ImportedProvenanceTags,
 ])
 export const StatusTagsSchema = z.array(StatusTagSchema)
 
