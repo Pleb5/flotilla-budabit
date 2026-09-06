@@ -766,7 +766,8 @@ export class WorkerManager {
   }
 
   async cancelGitNaturalRead(operationId: string): Promise<boolean> {
-    if (!operationId || !this.isReady) return false;
+    if (!operationId) return false;
+    await this.initialize();
     return this.execute("cancelGitNaturalRead", { operationId });
   }
 
@@ -1115,6 +1116,7 @@ export class WorkerManager {
     mergeBase?: string;
     targetCommitOid?: string;
     sourceReadScope?: string;
+    operationId?: string;
   }): Promise<PRReviewDataResult> {
     await this.initialize();
     const targetUrls = params.cloneUrls;

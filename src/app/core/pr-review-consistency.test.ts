@@ -52,4 +52,12 @@ describe("PR review consistency", () => {
     expect(newPrForm).toContain("`pr-source:new:${JSON.stringify(sourceUrls)}`")
     expect(newPrForm).toContain("sourceReadScope,")
   })
+
+  it("cancels obsolete PR review work while retaining generation guards", () => {
+    expect(prView).toContain("const operationId = beginPrReviewOperation()")
+    expect(prView).toContain("cancelGitNaturalRead(operationId)")
+    expect(prView).toContain("finishPrReviewOperation(operationId)")
+    expect(prView).toContain("if (prChangesGeneration !== currentGen) return")
+    expect(prView).toContain("cancelActivePrReviewOperation()")
+  })
 })

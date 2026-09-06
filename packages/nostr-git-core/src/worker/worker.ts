@@ -309,6 +309,23 @@ function getGitNaturalReadProvider(corsProxy: string | null | undefined): GitNat
   return gitNaturalReadProvider
 }
 
+function beginGitNaturalWorkerRead(operationId?: string): AbortController {
+  const controller = new AbortController()
+  if (operationId) {
+    gitNaturalReadControllers.get(operationId)?.abort()
+    gitNaturalReadControllers.set(operationId, controller)
+    if (cancelledGitNaturalReadIds.delete(operationId)) controller.abort()
+  }
+  return controller
+}
+
+function finishGitNaturalWorkerRead(operationId: string | undefined, controller: AbortController) {
+  if (operationId && gitNaturalReadControllers.get(operationId) === controller) {
+    gitNaturalReadControllers.delete(operationId)
+    cancelledGitNaturalReadIds.delete(operationId)
+  }
+}
+
 function assertGitNaturalReadEnabled(enabled?: boolean): void {
   if (enabled === true) return
   throw new Error("Git natural read worker RPCs are disabled. Pass enabled: true to opt in.")
@@ -329,12 +346,7 @@ async function runGitNaturalWorkerRead<T>(
       gitNaturalError?: ReturnType<typeof serializeGitNaturalReadError>
     }
 > {
-  const controller = new AbortController()
-  if (opts.operationId) {
-    gitNaturalReadControllers.get(opts.operationId)?.abort()
-    gitNaturalReadControllers.set(opts.operationId, controller)
-    if (cancelledGitNaturalReadIds.delete(opts.operationId)) controller.abort()
-  }
+  const controller = beginGitNaturalWorkerRead(opts.operationId)
   const readPromise = read(controller.signal)
 
   try {
@@ -348,10 +360,7 @@ async function runGitNaturalWorkerRead<T>(
       gitNaturalError: serializeGitNaturalReadError(error),
     })
   } finally {
-    if (opts.operationId && gitNaturalReadControllers.get(opts.operationId) === controller) {
-      gitNaturalReadControllers.delete(opts.operationId)
-      cancelledGitNaturalReadIds.delete(opts.operationId)
-    }
+    finishGitNaturalWorkerRead(opts.operationId, controller)
   }
 }
 
@@ -422,6 +431,7 @@ async function tryGitNaturalPRReviewData(params: {
   corsProxy?: string | null
   sourceReadScope?: string
   attempts?: RoleAttemptCollector
+  signal?: AbortSignal
 }) {
   const corsProxy = resolveGitNaturalCorsProxy(params.corsProxy)
   const provider = getGitNaturalReadProvider(corsProxy)
@@ -437,6 +447,7 @@ async function tryGitNaturalPRReviewData(params: {
       targetCommitOid: params.targetCommitOid,
       sourceReadScope: params.sourceReadScope,
       corsProxy,
+      signal: params.signal,
       onAttempts: attempts => {
         terminalAttempts = attempts
       },
@@ -460,6 +471,7 @@ async function tryGitNaturalPRReviewData(params: {
     }
     return review
   } catch (error) {
+    if (params.signal?.aborted) return null
     console.info(
       `[getPRReviewData] Git natural PR review unavailable, falling back to worker clone: ${error instanceof Error ? error.message : String(error)}`,
     )
@@ -3452,6 +3464,7 @@ const api = {
     mergeBase?: string
     targetCommitOid?: string
     sourceReadScope?: string
+    operationId?: string
   }) {
     const {key, dir} = repoKeyAndDir(opts.repoId)
     let targetUrls = filterValidCloneUrls(opts.cloneUrls || [])
@@ -3496,17 +3509,27 @@ const api = {
     }
 
     const naturalAttempts: RoleAttemptCollector = {sourceAttempts: [], targetAttempts: []}
-    const naturalReview = await tryGitNaturalPRReviewData({
-      key,
-      tipCommitOid: opts.tipCommitOid,
-      targetBranch: opts.targetBranch,
-      sourceUrls,
-      targetUrls,
-      ...(hasProvidedMergeBase ? {mergeBase: opts.mergeBase} : {}),
-      ...(hasProvidedTargetCommit ? {targetCommitOid: opts.targetCommitOid} : {}),
-      sourceReadScope: opts.sourceReadScope,
-      attempts: naturalAttempts,
-    })
+    const naturalController = beginGitNaturalWorkerRead(opts.operationId)
+    let naturalReview
+    try {
+      naturalReview = await tryGitNaturalPRReviewData({
+        key,
+        tipCommitOid: opts.tipCommitOid,
+        targetBranch: opts.targetBranch,
+        sourceUrls,
+        targetUrls,
+        ...(hasProvidedMergeBase ? {mergeBase: opts.mergeBase} : {}),
+        ...(hasProvidedTargetCommit ? {targetCommitOid: opts.targetCommitOid} : {}),
+        sourceReadScope: opts.sourceReadScope,
+        attempts: naturalAttempts,
+        signal: naturalController.signal,
+      })
+    } finally {
+      finishGitNaturalWorkerRead(opts.operationId, naturalController)
+    }
+    if (naturalController.signal.aborted) {
+      return failure("PR review load was cancelled", "review", {code: "operation-aborted"})
+    }
     if (naturalReview) return toPlain(naturalReview)
     targetAttempts = naturalAttempts.targetAttempts
     sourceAttempts = naturalAttempts.sourceAttempts

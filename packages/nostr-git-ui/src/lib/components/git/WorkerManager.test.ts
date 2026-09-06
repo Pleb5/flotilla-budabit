@@ -440,6 +440,7 @@ describe('WorkerManager', () => {
       api.getCommitsAheadOfTip = vi.fn(async () => ({ success: true }));
       api.getMergeBaseBetween = vi.fn(async () => ({ mergeBase: 'a'.repeat(40) }));
       api.analyzePRMerge = vi.fn(async () => ({ success: true }));
+      api.cancelGitNaturalRead = vi.fn(async () => true);
       const common = {
         repoId: 'owner/repo',
         cloneUrls: ['https://target.example/repo.git'],
@@ -449,7 +450,8 @@ describe('WorkerManager', () => {
       await manager.getPRReviewData({
         ...common,
         tipCommitOid: 'a'.repeat(40),
-        targetBranch: 'main'
+        targetBranch: 'main',
+        operationId: 'pr-review:test'
       });
       await manager.getPRPreview({ ...common, sourceBranch: 'feature', targetBranch: 'main' });
       await manager.getCommitsAheadOfTip({ ...common, tipOid: 'a'.repeat(40) });
@@ -476,6 +478,11 @@ describe('WorkerManager', () => {
       ]) {
         expect(method).toHaveBeenCalledWith(expect.objectContaining({ sourceReadScope: 'pr-source:event' }));
       }
+      expect(api.getPRReviewData).toHaveBeenCalledWith(
+        expect.objectContaining({ operationId: 'pr-review:test' })
+      );
+      await expect(manager.cancelGitNaturalRead('pr-review:test')).resolves.toBe(true);
+      expect(api.cancelGitNaturalRead).toHaveBeenCalledWith({ operationId: 'pr-review:test' });
     });
 
     it('orders and reconciles target and source cursors for composite PR reads', async () => {

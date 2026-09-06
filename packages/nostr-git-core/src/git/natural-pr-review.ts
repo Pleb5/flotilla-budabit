@@ -83,6 +83,7 @@ export interface GetGitNaturalPRReviewDataOptions {
   /** Maximum commits requested in one frontier expansion. */
   historyBatchSize?: number
   corsProxy?: string | null
+  signal?: AbortSignal
   onAttempts?: (attempts: GitNaturalPRReviewAttempts) => void
   reader: GitNaturalPRReviewReader
 }
@@ -116,6 +117,7 @@ export async function getGitNaturalPRReviewData(
 ): Promise<GitNaturalPRReviewData | null> {
   const tipCommitOid = normalizeFullOid(options.tipCommitOid)
   if (!tipCommitOid) return null
+  options.signal?.throwIfAborted()
 
   const sourceUrls = normalizeHttpUrls(options.sourceUrls, options.repoId, options.sourceReadScope)
   const targetUrls = normalizeHttpUrls(options.targetUrls || [], options.repoId)
@@ -143,6 +145,7 @@ export async function getGitNaturalPRReviewData(
       repoId: options.repoId,
       ref: options.targetBranch,
       corsProxy: options.corsProxy,
+      signal: options.signal,
     })
     targetAttempts.push(...summarizeAttempts(target.attempts))
     usedTargetCloneUrl = latestAttemptUrl(target)
@@ -163,6 +166,7 @@ export async function getGitNaturalPRReviewData(
         maxCommits,
         batchSize: historyBatchSize,
         corsProxy: options.corsProxy,
+        signal: options.signal,
       },
       targetUrls.length > 0 ? targetUrls : sourceUrls,
       {
@@ -172,6 +176,7 @@ export async function getGitNaturalPRReviewData(
         maxCommits,
         batchSize: historyBatchSize,
         corsProxy: options.corsProxy,
+        signal: options.signal,
       },
     )
     sourceHistory = histories.source
@@ -205,6 +210,7 @@ export async function getGitNaturalPRReviewData(
       maxCommits,
       batchSize: historyBatchSize,
       corsProxy: options.corsProxy,
+      signal: options.signal,
     })
     sourceAttempts.push(...summarizeAttempts(sourceHistory.attempts))
     usedCloneUrl = sourceHistory.usedUrl
@@ -226,6 +232,7 @@ export async function getGitNaturalPRReviewData(
     baseCommitHash: baseOid,
     headCommitHash: tipCommitOid,
     corsProxy: options.corsProxy,
+    signal: options.signal,
   }
   const sourceDiff = await tryGetDiffBetween(options.reader, sourceUrls, {
     ...diffParams,
@@ -308,6 +315,7 @@ async function expandNaturalHistories(
     maxCommits: number
     batchSize: number
     corsProxy?: string | null
+    signal?: AbortSignal
   },
   targetUrls: string[],
   targetParams: {
@@ -317,6 +325,7 @@ async function expandNaturalHistories(
     maxCommits: number
     batchSize: number
     corsProxy?: string | null
+    signal?: AbortSignal
   },
 ): Promise<ExpandedNaturalHistories> {
   const source = createNaturalHistoryTraversal(sourceParams.commitHash)
@@ -363,6 +372,7 @@ async function expandNaturalHistories(
         commitHash: sharedFrontier,
         depth: Math.min(sourceParams.batchSize, sourceParams.maxCommits - uniqueCommits.size),
         corsProxy: sourceParams.corsProxy,
+        signal: sourceParams.signal,
       })
       source.attempts.push(...result.attempts)
       source.usedUrl = result.usedUrl || latestAttemptUrl(result) || source.usedUrl
@@ -413,6 +423,7 @@ async function expandNaturalHistories(
         params.maxCommits - uniqueCommits.size,
       ),
       corsProxy: params.corsProxy,
+      signal: params.signal,
     })
     traversal.attempts.push(...result.attempts)
     traversal.usedUrl = result.usedUrl || latestAttemptUrl(result) || traversal.usedUrl
@@ -627,13 +638,21 @@ function normalizeFullOid(value?: string): string | undefined {
 async function tryResolveRef(
   reader: GitNaturalPRReviewReader,
   urls: string[],
-  params: {repoId: string; readScope?: string; ref: string; corsProxy?: string | null},
+  params: {
+    repoId: string
+    readScope?: string
+    ref: string
+    corsProxy?: string | null
+    signal?: AbortSignal
+  },
 ): Promise<ReadFallbackResult<GitNaturalResolveRefResult>> {
-  return withUrlFallback(
+  const result = await withUrlFallback(
     urls,
     (url, signal) => reader.resolveRef({url, ref: params.ref, corsProxy: params.corsProxy, signal}),
-    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0},
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0, signal: params.signal},
   )
+  params.signal?.throwIfAborted()
+  return result
 }
 
 async function tryListCommits(
@@ -645,9 +664,10 @@ async function tryListCommits(
     commitHash: string
     depth: number
     corsProxy?: string | null
+    signal?: AbortSignal
   },
 ): Promise<ReadFallbackResult<GitNaturalListCommitsResult>> {
-  return withUrlFallback(
+  const result = await withUrlFallback(
     urls,
     (url, signal) =>
       reader.listCommits({
@@ -657,8 +677,10 @@ async function tryListCommits(
         corsProxy: params.corsProxy,
         signal,
       }),
-    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0},
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0, signal: params.signal},
   )
+  params.signal?.throwIfAborted()
+  return result
 }
 
 async function expandNaturalHistory(
@@ -671,6 +693,7 @@ async function expandNaturalHistory(
     maxCommits: number
     batchSize: number
     corsProxy?: string | null
+    signal?: AbortSignal
   },
 ): Promise<ExpandedNaturalHistory> {
   const graph = new Map<string, GitNaturalCommit>()
@@ -692,6 +715,7 @@ async function expandNaturalHistory(
       commitHash: frontier,
       depth: Math.min(params.batchSize, remaining),
       corsProxy: params.corsProxy,
+      signal: params.signal,
     })
     attempts.push(...result.attempts)
     usedUrl = result.usedUrl || latestAttemptUrl(result) || usedUrl
@@ -756,9 +780,10 @@ async function tryGetDiffBetween(
     baseCommitHash: string
     headCommitHash: string
     corsProxy?: string | null
+    signal?: AbortSignal
   },
 ): Promise<ReadFallbackResult<GitNaturalDiffBetweenResult>> {
-  return withUrlFallback(
+  const result = await withUrlFallback(
     urls,
     (url, signal) =>
       reader.getDiffBetween({
@@ -768,8 +793,10 @@ async function tryGetDiffBetween(
         corsProxy: params.corsProxy,
         signal,
       }),
-    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0},
+    {repoId: params.repoId, readScope: params.readScope, perUrlTimeoutMs: 0, signal: params.signal},
   )
+  params.signal?.throwIfAborted()
+  return result
 }
 
 function latestAttemptUrl(result: ReadFallbackResult): string | undefined {

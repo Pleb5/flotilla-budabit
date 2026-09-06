@@ -5,19 +5,21 @@ import {
   getCachedUrlPreference,
 } from "../../src/utils/clone-url-fallback.js"
 
-const {fetchMock, fetchMode, naturalMode, reviewMock, smartInitializeMock} = vi.hoisted(() => ({
-  fetchMode: {failAllTargets: false},
-  naturalMode: {missingFilterHistory: false},
-  fetchMock: vi.fn(async ({url, ref}: {url: string; ref?: string}) => {
-    if (fetchMode.failAllTargets && url.includes("target")) {
-      throw new Error(`target refresh failed for ${url}`)
-    }
-    if (url.includes("primary")) throw new Error(`recovery failed for ${url}`)
-    return {fetchHead: ref || null}
-  }),
-  reviewMock: vi.fn(async () => ({success: false, error: "review objects incomplete"})),
-  smartInitializeMock: vi.fn(async () => ({success: true})),
-}))
+const {fetchMock, fetchMode, historySignals, naturalMode, reviewMock, smartInitializeMock} =
+  vi.hoisted(() => ({
+    fetchMode: {failAllTargets: false},
+    historySignals: [] as AbortSignal[],
+    naturalMode: {blockHistory: false, missingFilterHistory: false, successfulReview: false},
+    fetchMock: vi.fn(async ({url, ref}: {url: string; ref?: string}) => {
+      if (fetchMode.failAllTargets && url.includes("target")) {
+        throw new Error(`target refresh failed for ${url}`)
+      }
+      if (url.includes("primary")) throw new Error(`recovery failed for ${url}`)
+      return {fetchHead: ref || null}
+    }),
+    reviewMock: vi.fn(async () => ({success: false, error: "review objects incomplete"})),
+    smartInitializeMock: vi.fn(async () => ({success: true})),
+  }))
 let exposed: any
 
 vi.mock("comlink", () => ({
@@ -47,7 +49,29 @@ vi.mock("../../src/git/natural-read-provider.js", () => ({
       }
     }
 
-    async listCommits({url, commitHash}: {url: string; commitHash: string}) {
+    async listCommits({
+      url,
+      commitHash,
+      signal,
+    }: {
+      url: string
+      commitHash: string
+      signal?: AbortSignal
+    }) {
+      if (signal) historySignals.push(signal)
+      if (naturalMode.blockHistory) {
+        return new Promise((_resolve, reject) => {
+          if (signal?.aborted) {
+            reject(new DOMException("Aborted", "AbortError"))
+            return
+          }
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            {once: true},
+          )
+        })
+      }
       if (naturalMode.missingFilterHistory) {
         throw Object.assign(new Error(`filter unavailable from ${url}`), {
           code: "missing-filter-capability",
@@ -55,21 +79,62 @@ vi.mock("../../src/git/natural-read-provider.js", () => ({
       }
       if (url.includes("source")) {
         const person = {name: "Test", email: "test@example.com", timestamp: 1, timezone: "+0000"}
+        const base = "c".repeat(40)
         return {
           commits: [
             {
               hash: commitHash,
               tree: "c".repeat(40),
-              parents: [],
+              parents: naturalMode.successfulReview ? [base] : [],
               author: person,
               committer: person,
               message: "source",
+            },
+            ...(naturalMode.successfulReview
+              ? [
+                  {
+                    hash: base,
+                    tree: "d".repeat(40),
+                    parents: [],
+                    author: person,
+                    committer: person,
+                    message: "base",
+                  },
+                ]
+              : []),
+          ],
+          source: {remoteUrl: url},
+        }
+      }
+      if (naturalMode.successfulReview) {
+        const person = {name: "Test", email: "test@example.com", timestamp: 1, timezone: "+0000"}
+        return {
+          commits: [
+            {
+              hash: commitHash,
+              tree: "c".repeat(40),
+              parents: ["c".repeat(40)],
+              author: person,
+              committer: person,
+              message: "target",
+            },
+            {
+              hash: "c".repeat(40),
+              tree: "d".repeat(40),
+              parents: [],
+              author: person,
+              committer: person,
+              message: "base",
             },
           ],
           source: {remoteUrl: url},
         }
       }
       throw new Error(`target history unavailable from ${url}`)
+    }
+
+    async getDiffBetween({url, baseCommitHash, headCommitHash}: any) {
+      return {baseCommitHash, headCommitHash, changes: [], source: {remoteUrl: url}}
     }
   },
 }))
@@ -110,7 +175,10 @@ describe("PR review recovery attempts", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     fetchMode.failAllTargets = false
+    historySignals.length = 0
+    naturalMode.blockHistory = false
     naturalMode.missingFilterHistory = false
+    naturalMode.successfulReview = false
     clearUrlPreferenceCache()
   })
 
@@ -208,5 +276,64 @@ describe("PR review recovery attempts", () => {
       preferredUrl: urls[1],
       lastSuccessAt: 0,
     })
+  })
+
+  it("cancels one composite natural review without affecting its replacement", async () => {
+    naturalMode.blockHistory = true
+    const oldOperationId = "pr-review:old"
+    const oldReview = exposed.getPRReviewData({
+      repoId: "owner/cancelled-review",
+      tipCommitOid: "a".repeat(40),
+      targetCommitOid: "b".repeat(40),
+      targetBranch: "main",
+      cloneUrls: ["https://target.example/repo.git"],
+      prCloneUrls: ["https://source.example/repo.git"],
+      operationId: oldOperationId,
+    })
+    await vi.waitFor(() => expect(historySignals).toHaveLength(1))
+    expect(exposed.cancelGitNaturalRead({operationId: oldOperationId})).toBe(true)
+
+    await expect(oldReview).resolves.toMatchObject({
+      success: false,
+      code: "operation-aborted",
+    })
+    expect(historySignals[0].aborted).toBe(true)
+    expect(smartInitializeMock).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    naturalMode.blockHistory = false
+    naturalMode.successfulReview = true
+    await expect(
+      exposed.getPRReviewData({
+        repoId: "owner/cancelled-review",
+        tipCommitOid: "a".repeat(40),
+        targetCommitOid: "b".repeat(40),
+        targetBranch: "main",
+        cloneUrls: ["https://target.example/repo.git"],
+        prCloneUrls: ["https://source.example/repo.git"],
+        operationId: "pr-review:replacement",
+      }),
+    ).resolves.toMatchObject({success: true})
+    expect(historySignals.slice(1).every(signal => !signal.aborted)).toBe(true)
+  })
+
+  it("honors composite PR cancellation before worker read registration", async () => {
+    naturalMode.successfulReview = true
+    const operationId = "pr-review:cancelled-before-registration"
+    expect(exposed.cancelGitNaturalRead({operationId})).toBe(true)
+
+    await expect(
+      exposed.getPRReviewData({
+        repoId: "owner/pre-cancelled-review",
+        tipCommitOid: "a".repeat(40),
+        targetCommitOid: "b".repeat(40),
+        targetBranch: "main",
+        cloneUrls: ["https://target.example/repo.git"],
+        prCloneUrls: ["https://source.example/repo.git"],
+        operationId,
+      }),
+    ).resolves.toMatchObject({success: false, code: "operation-aborted"})
+    expect(historySignals).toHaveLength(0)
+    expect(smartInitializeMock).not.toHaveBeenCalled()
   })
 })

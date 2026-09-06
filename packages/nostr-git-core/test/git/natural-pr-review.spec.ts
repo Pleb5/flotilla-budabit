@@ -589,6 +589,43 @@ describe("getGitNaturalPRReviewData", () => {
     expect(targetDiff).not.toHaveBeenCalled()
   })
 
+  it("propagates caller cancellation through an active history request", async () => {
+    const startedSignals: AbortSignal[] = []
+    const reader: GitNaturalPRReviewReader = {
+      resolveRef: vi.fn(),
+      listCommits: vi.fn(
+        ({signal}) =>
+          new Promise((_resolve, reject) => {
+            startedSignals.push(signal!)
+            signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              {once: true},
+            )
+          }),
+      ),
+      getDiffBetween: vi.fn(),
+    }
+    const controller = new AbortController()
+
+    const pending = getGitNaturalPRReviewData({
+      repoId: "cancelled-pr-history",
+      tipCommitOid: HEAD,
+      targetCommitOid: TARGET,
+      sourceUrls: [SOURCE_URL],
+      targetUrls: [TARGET_URL],
+      signal: controller.signal,
+      reader,
+    })
+    await vi.waitFor(() => expect(startedSignals).toHaveLength(1))
+    controller.abort()
+
+    await expect(pending).rejects.toMatchObject({name: "AbortError"})
+    expect(startedSignals).toHaveLength(1)
+    expect(startedSignals[0].aborted).toBe(true)
+    expect(reader.getDiffBetween).not.toHaveBeenCalled()
+  })
+
   it("reports partial role attempts before returning null", async () => {
     const sourceUrls = [SOURCE_URL, "https://source-fallback.example/repo.git"]
     const targetUrls = [TARGET_URL, "https://target-fallback.example/repo.git"]

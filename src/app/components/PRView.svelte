@@ -652,6 +652,11 @@
   let prSourceFallbackEvidence = $state<string | null>(null)
   let prChangesProgress = $state("")
   let prChangesGeneration = $state(0)
+  let prReviewOperationSequence = 0
+  let activePrReviewOperation: {
+    operationId: string
+    cancel: () => Promise<boolean>
+  } | null = null
   let prReviewCommits = $state<PrReviewCommit[]>([])
   let lastPrChangesLoadKey: string | null = null
   let prDiffBaseOid = $state<string | null>(null)
@@ -688,6 +693,33 @@
     request: number
   } | null>(null)
   let suppressNextPrDiffHashOpen = false
+
+  const cancelActivePrReviewOperation = () => {
+    const active = activePrReviewOperation
+    activePrReviewOperation = null
+    if (active) void active.cancel().catch(() => false)
+  }
+
+  const beginPrReviewOperation = () => {
+    cancelActivePrReviewOperation()
+    prReviewOperationSequence += 1
+    const operationId = [
+      "pr-review",
+      prEvent?.id || "unknown",
+      Date.now().toString(36),
+      prReviewOperationSequence.toString(36),
+    ].join(":")
+    const workerManager = repoClass.workerManager
+    activePrReviewOperation = {
+      operationId,
+      cancel: () => workerManager.cancelGitNaturalRead(operationId),
+    }
+    return operationId
+  }
+
+  const finishPrReviewOperation = (operationId: string) => {
+    if (activePrReviewOperation?.operationId === operationId) activePrReviewOperation = null
+  }
 
   const prReviewHasExpandedItem = $derived.by(() =>
     prReviewTab === "commits" ? prExpandedCommits.size > 0 : prExpandedFiles.size > 0,
@@ -1653,7 +1685,10 @@
     return commits
   }
 
-  async function loadPrCommitsFromMergeCommit(mergeCommitOid: string): Promise<PrReviewCommit[]> {
+  async function loadPrCommitsFromMergeCommit(
+    mergeCommitOid: string,
+    operationId?: string,
+  ): Promise<PrReviewCommit[]> {
     if (!repoClass.key || !repoClass.workerManager || !mergeCommitOid) return []
 
     const mergeDetails = await readPrCommitMeta(mergeCommitOid, true)
@@ -1670,6 +1705,7 @@
       prCloneUrls: prEffectiveCloneUrls,
       sourceReadScope: prSourceReadScope,
       targetCommitOid: targetParent,
+      ...(operationId ? {operationId} : {}),
     })
     recordPrReviewFallbackEvidence(review)
     if (review?.success && Array.isArray(review.commits) && review.commits.length > 0) {
@@ -1679,7 +1715,7 @@
     return getReviewCommitMetadataForOids([prParent])
   }
 
-  async function loadPrCommitsFromLatestTip(): Promise<PrReviewCommit[]> {
+  async function loadPrCommitsFromLatestTip(operationId?: string): Promise<PrReviewCommit[]> {
     if (!repoClass.key || !repoClass.workerManager || !prEffectiveTipOid || !prEffectiveMergeBase) {
       return []
     }
@@ -1693,6 +1729,7 @@
         prCloneUrls: prEffectiveCloneUrls,
         sourceReadScope: prSourceReadScope,
         mergeBase: prEffectiveMergeBase,
+        ...(operationId ? {operationId} : {}),
       })
       recordPrReviewFallbackEvidence(review)
       if (review?.success && Array.isArray(review.commits)) {
@@ -1705,7 +1742,7 @@
     return []
   }
 
-  async function loadAppliedPrReviewCommits(): Promise<PrReviewCommit[]> {
+  async function loadAppliedPrReviewCommits(operationId?: string): Promise<PrReviewCommit[]> {
     if (!repoClass.key || !repoClass.workerManager) return []
 
     const appliedCommits = uniqueOids(prStatus?.appliedCommits || [])
@@ -1726,13 +1763,16 @@
         candidateCommits.find(commit => (commit.parents || []).length > 1)?.oid ||
         appliedCommits[0]
       try {
-        const commitsFromMerge = await loadPrCommitsFromMergeCommit(mergeCommitCandidate)
+        const commitsFromMerge = await loadPrCommitsFromMergeCommit(
+          mergeCommitCandidate,
+          operationId,
+        )
         if (commitsFromMerge.length > 0) return commitsFromMerge
       } catch {
         // Fall through to latest PR/update metadata.
       }
 
-      const commitsFromLatestTip = await loadPrCommitsFromLatestTip()
+      const commitsFromLatestTip = await loadPrCommitsFromLatestTip(operationId)
       if (commitsFromLatestTip.length > 0) return commitsFromLatestTip
 
       return getReviewCommitMetadataForOids(appliedCommits, true)
@@ -1740,14 +1780,17 @@
 
     if (prStatus?.mergedCommit) {
       try {
-        const commitsFromMerge = await loadPrCommitsFromMergeCommit(prStatus.mergedCommit)
+        const commitsFromMerge = await loadPrCommitsFromMergeCommit(
+          prStatus.mergedCommit,
+          operationId,
+        )
         if (commitsFromMerge.length > 0) return commitsFromMerge
       } catch {
         // Fall through to latest PR/update metadata.
       }
     }
 
-    const commitsFromLatestTip = await loadPrCommitsFromLatestTip()
+    const commitsFromLatestTip = await loadPrCommitsFromLatestTip(operationId)
     if (commitsFromLatestTip.length > 0) return commitsFromLatestTip
 
     return []
@@ -1761,6 +1804,7 @@
 
     prChangesGeneration++
     const currentGen = prChangesGeneration
+    const operationId = beginPrReviewOperation()
     prChangesLoading = true
     prChangesError = null
     prChangesErrorPhase = null
@@ -1793,6 +1837,7 @@
           sourceReadScope: prSourceReadScope,
           ...(prEffectiveMergeBase ? {mergeBase: prEffectiveMergeBase} : {}),
           ...(options.targetCommitOid ? {targetCommitOid: options.targetCommitOid} : {}),
+          operationId,
         })
 
         if (prChangesGeneration !== currentGen) return
@@ -1838,7 +1883,7 @@
       }
 
       prChangesProgress = "Loading merged PR commits..."
-      const appliedCommits = await loadAppliedPrReviewCommits()
+      const appliedCommits = await loadAppliedPrReviewCommits(operationId)
       if (prChangesGeneration !== currentGen) return
       prReviewCommits = appliedCommits
 
@@ -1886,6 +1931,7 @@
         errorPhase,
       )
     } finally {
+      finishPrReviewOperation(operationId)
       if (prChangesGeneration === currentGen) {
         prChangesLoading = false
         prChangesProgress = ""
@@ -1996,7 +2042,11 @@
     if (lastPrChangesLoadKey === changesKey) return
     lastPrChangesLoadKey = changesKey
 
-    loadPrChanges()
+    void loadPrChanges()
+    return () => {
+      prChangesGeneration++
+      cancelActivePrReviewOperation()
+    }
   })
 
   const getPrFileStatusIcon = (status: string) => {
