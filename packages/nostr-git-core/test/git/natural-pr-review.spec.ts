@@ -795,6 +795,35 @@ describe("getGitNaturalPRReviewData", () => {
       vi.useRealTimers()
     }
   })
+
+  it("loads an OID-pinned submitted commit range without fetching its file diff", async () => {
+    const reader = createReader({
+      histories: new Map([
+        [HEAD, [commit(HEAD, [MID]), commit(MID, [BASE]), commit(BASE)]],
+        [BASE, [commit(BASE)]],
+      ]),
+    })
+
+    const review = await getGitNaturalPRReviewData({
+      repoId: "submitted-commit-range",
+      tipCommitOid: HEAD,
+      sourceUrls: [SOURCE_URL],
+      targetCommitOid: BASE,
+      mergeBase: BASE,
+      includeDiff: false,
+      reader,
+    })
+
+    expect(review).toMatchObject({
+      success: true,
+      baseOid: BASE,
+      headOid: HEAD,
+      commitOids: [HEAD, MID],
+      changes: [],
+    })
+    expect(review?.targetAttempts).toEqual([])
+    expect(reader.getDiffBetween).not.toHaveBeenCalled()
+  })
 })
 
 function createReader(options: {

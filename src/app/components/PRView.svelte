@@ -114,7 +114,7 @@
     RichContentPayload,
     RichDescriptionEditorHandle,
   } from "@nostr-git/ui"
-  import {getContext, hasContext, tick, untrack} from "svelte"
+  import {getContext, hasContext, onDestroy, tick, untrack} from "svelte"
   import type {Readable} from "svelte/store"
   import {getSeenEventRelayHints} from "@app/util/event-links"
   import {selectAuthorizedPullRequestUpdates} from "@app/core/pr-update-selection"
@@ -652,10 +652,13 @@
   let prChangesWarning = $state<string | null>(null)
   let prSourceFallbackEvidence = $state<string | null>(null)
   let prChangesProgress = $state("")
+  let prCommitsLoading = $state(false)
+  let prCommitsError = $state<string | null>(null)
+  let prCommitsProgress = $state("")
   let prChangesGeneration = $state(0)
   let prReviewOperationSequence = 0
   let activePrReviewOperation: {
-    operationId: string
+    operationIds: Set<string>
     cancel: () => Promise<boolean>
   } | null = null
   let prReviewCommits = $state<PrReviewCommit[]>([])
@@ -666,6 +669,7 @@
   let prReviewAheadCount = $state<number | null>(null)
   let prReviewBehindCount = $state<number | null>(null)
   let prClaimedMergeBaseMismatch = $state(false)
+  let prDiffUsesSubmittedBase = $state(false)
   let lastPrTargetDriftReloadKey = ""
   let prExpandedFiles = $state<Set<string>>(new Set())
   let prDiffAnchors = $state<Record<string, string>>({})
@@ -701,26 +705,39 @@
     if (active) void active.cancel().catch(() => false)
   }
 
-  const beginPrReviewOperation = () => {
+  const beginPrReviewOperations = <T extends string>(roles: readonly T[]): Record<T, string> => {
     cancelActivePrReviewOperation()
     prReviewOperationSequence += 1
-    const operationId = [
+    const prefix = [
       "pr-review",
       prEvent?.id || "unknown",
       Date.now().toString(36),
       prReviewOperationSequence.toString(36),
     ].join(":")
+    const operationIds = new Set(roles.map(role => `${prefix}:${role}`))
     const workerManager = repoClass.workerManager
     activePrReviewOperation = {
-      operationId,
-      cancel: () => workerManager.cancelGitNaturalRead(operationId),
+      operationIds,
+      cancel: async () => {
+        const results = await Promise.all(
+          Array.from(operationIds, operationId => workerManager.cancelGitNaturalRead(operationId)),
+        )
+        return results.some(Boolean)
+      },
     }
-    return operationId
+    return Object.fromEntries(roles.map(role => [role, `${prefix}:${role}`])) as Record<T, string>
   }
 
   const finishPrReviewOperation = (operationId: string) => {
-    if (activePrReviewOperation?.operationId === operationId) activePrReviewOperation = null
+    if (!activePrReviewOperation?.operationIds.has(operationId)) return
+    activePrReviewOperation.operationIds.delete(operationId)
+    if (activePrReviewOperation.operationIds.size === 0) activePrReviewOperation = null
   }
+
+  onDestroy(() => {
+    prChangesGeneration++
+    cancelActivePrReviewOperation()
+  })
 
   const prReviewHasExpandedItem = $derived.by(() =>
     prReviewTab === "commits" ? prExpandedCommits.size > 0 : prExpandedFiles.size > 0,
@@ -902,9 +919,16 @@
     return lastResult
   }
 
-  const readPrDiff = async (baseOid: string, headOid: string, targetFirst = false) => {
+  const readPrDiff = async (
+    baseOid: string,
+    headOid: string,
+    targetFirst = false,
+    operationId?: string,
+    isCurrent: () => boolean = () => true,
+  ) => {
     let lastResult: any = null
     for (const role of getPrReadRoles(targetFirst)) {
+      if (!isCurrent()) return lastResult
       const route = getPrReadRoute(role)
       if (route.cloneUrls.length === 0) continue
       const result = await repoClass.workerManager.getDiffBetween({
@@ -913,10 +937,12 @@
         headOid,
         cloneUrls: route.cloneUrls,
         ...(route.readScope ? {readScope: route.readScope} : {}),
+        ...(operationId ? {operationId} : {}),
         gitNaturalDiff: true,
       })
       recordPrReadRemote(result, role)
       lastResult = result
+      if (!isCurrent()) return lastResult
       if (result?.success && Array.isArray(result?.changes)) return result
     }
     return lastResult
@@ -1611,6 +1637,9 @@
       prChangesError = null
       prChangesErrorPhase = null
       prChangesWarning = null
+      prCommitsLoading = false
+      prCommitsError = null
+      prCommitsProgress = ""
       prReviewCommits = []
       prDiffBaseOid = null
       prDiffHeadOid = null
@@ -1618,6 +1647,7 @@
       prReviewAheadCount = null
       prReviewBehindCount = null
       prClaimedMergeBaseMismatch = false
+      prDiffUsesSubmittedBase = false
       lastPrChangesLoadKey = null
     }
     if (lastPrAnalysisKey !== analysisKey) {
@@ -1797,6 +1827,120 @@
     return []
   }
 
+  const normalizePrOid = (value: string | null | undefined) => {
+    const oid = String(value || "")
+      .trim()
+      .toLowerCase()
+    return /^[0-9a-f]{40}$/.test(oid) ? oid : null
+  }
+
+  const isCurrentPrChangesLoad = (generation: number) => prChangesGeneration === generation
+
+  async function loadSubmittedPrDiff(
+    baseOid: string,
+    headOid: string,
+    generation: number,
+    operationId: string,
+  ) {
+    prChangesLoading = true
+    prChangesProgress = "Loading submitted file diffs..."
+    try {
+      const result = await readPrDiff(baseOid, headOid, false, operationId, () =>
+        isCurrentPrChangesLoad(generation),
+      )
+      if (!isCurrentPrChangesLoad(generation)) return
+      if (result?.success && Array.isArray(result.changes)) {
+        prChanges = result.changes
+        prChangesError = null
+        prChangesErrorPhase = null
+        prChangesWarning = null
+      } else {
+        const errorPhase: PrReviewErrorPhase = "review"
+        prChanges = []
+        prChangesErrorPhase = errorPhase
+        prChangesWarning = null
+        prChangesError = formatPrReviewLoadError(
+          result?.error || "Failed to load submitted file diffs",
+          errorPhase,
+        )
+      }
+    } catch (error) {
+      if (!isCurrentPrChangesLoad(generation)) return
+      const errorPhase: PrReviewErrorPhase = "review"
+      prChanges = []
+      prChangesErrorPhase = errorPhase
+      prChangesWarning = null
+      prChangesError = formatPrReviewLoadError(
+        getErrorText(error) || "Failed to load submitted file diffs",
+        errorPhase,
+      )
+    } finally {
+      finishPrReviewOperation(operationId)
+      if (isCurrentPrChangesLoad(generation)) {
+        prChangesLoading = false
+        prChangesProgress = ""
+      }
+    }
+  }
+
+  async function loadSubmittedPrCommits(
+    baseOid: string,
+    headOid: string,
+    generation: number,
+    operationId: string,
+  ) {
+    prCommitsLoading = true
+    prCommitsError = null
+    prCommitsProgress = "Loading submitted PR commits..."
+    try {
+      const result = await repoClass.workerManager.getPRSubmittedCommits({
+        repoId: repoClass.key,
+        tipCommitOid: headOid,
+        baseCommitOid: baseOid,
+        cloneUrls: prSourceReadCloneUrls,
+        sourceReadScope: prSourceReadScope,
+        operationId,
+      })
+      if (!isCurrentPrChangesLoad(generation)) return
+      recordPrReviewFallbackEvidence(result)
+      if (result?.success) {
+        prReviewCommits = Array.isArray(result.commits) ? result.commits : []
+        prCommitsError = null
+      } else {
+        prReviewCommits = []
+        prCommitsError = formatPrReviewLoadError(
+          result?.error || "Failed to load submitted PR commits",
+          "source",
+        )
+      }
+    } catch (error) {
+      if (!isCurrentPrChangesLoad(generation)) return
+      prReviewCommits = []
+      prCommitsError = formatPrReviewLoadError(
+        getErrorText(error) || "Failed to load submitted PR commits",
+        "source",
+      )
+    } finally {
+      finishPrReviewOperation(operationId)
+      if (isCurrentPrChangesLoad(generation)) {
+        prCommitsLoading = false
+        prCommitsProgress = ""
+      }
+    }
+  }
+
+  async function retrySubmittedPrCommits() {
+    const baseOid = prDiffUsesSubmittedBase ? normalizePrOid(prDiffBaseOid) : null
+    const headOid = normalizePrOid(prDiffHeadOid)
+    if (!baseOid || !headOid) {
+      await loadPrChanges()
+      return
+    }
+
+    const operationId = beginPrReviewOperations(["commits-retry"] as const)["commits-retry"]
+    await loadSubmittedPrCommits(baseOid, headOid, prChangesGeneration, operationId)
+  }
+
   async function loadPrChanges(
     options: {preserveAnalysisUntilSuccess?: boolean; targetCommitOid?: string} = {},
   ) {
@@ -1805,17 +1949,20 @@
 
     prChangesGeneration++
     const currentGen = prChangesGeneration
-    const operationId = beginPrReviewOperation()
     prChangesLoading = true
+    prCommitsLoading = false
     prChangesError = null
     prChangesErrorPhase = null
     prChangesWarning = null
+    prCommitsError = null
     prSourceFallbackEvidence = null
     prChangesProgress = "Resolving diff range..."
+    prCommitsProgress = ""
     prReviewTargetOid = null
     prReviewAheadCount = null
     prReviewBehindCount = null
     prClaimedMergeBaseMismatch = false
+    prDiffUsesSubmittedBase = false
     if (!options.preserveAnalysisUntilSuccess) {
       prChanges = null
       prReviewCommits = []
@@ -1826,9 +1973,25 @@
       clearPrMergeAnalysis()
     }
 
+    const submittedBaseOid = normalizePrOid(prEffectiveMergeBase)
+    const submittedHeadOid = normalizePrOid(prEffectiveTipOid)
+    if (prEffectiveStatus !== "applied" && submittedBaseOid && submittedHeadOid) {
+      prDiffBaseOid = submittedBaseOid
+      prDiffHeadOid = submittedHeadOid
+      prDiffUsesSubmittedBase = true
+      const operations = beginPrReviewOperations(["diff", "commits"] as const)
+      await Promise.all([
+        loadSubmittedPrDiff(submittedBaseOid, submittedHeadOid, currentGen, operations.diff),
+        loadSubmittedPrCommits(submittedBaseOid, submittedHeadOid, currentGen, operations.commits),
+      ])
+      return
+    }
+
+    const operationId = beginPrReviewOperations(["review"] as const).review
+
     try {
       if (prEffectiveStatus !== "applied") {
-        prChangesProgress = "Loading PR commits and file diffs..."
+        prChangesProgress = "Discovering a diff base and loading PR changes..."
         const res = await repoClass.workerManager.getPRReviewData({
           repoId: repoClass.key,
           tipCommitOid: prEffectiveTipOid,
@@ -1855,6 +2018,7 @@
           prChangesError = null
           prChangesErrorPhase = null
           prChangesWarning = typeof res.warning === "string" ? res.warning : null
+          prDiffUsesSubmittedBase = false
         } else {
           const errorPhase = normalizePrReviewErrorPhase(res?.errorPhase)
           prDiffBaseOid =
@@ -1904,9 +2068,12 @@
 
       prDiffBaseOid = range.baseOid
       prDiffHeadOid = range.headOid
+      prDiffUsesSubmittedBase = false
       prChangesProgress = "Loading file diffs..."
 
-      const res = await readPrDiff(range.baseOid, range.headOid, true)
+      const res = await readPrDiff(range.baseOid, range.headOid, true, operationId, () =>
+        isCurrentPrChangesLoad(currentGen),
+      )
 
       if (prChangesGeneration !== currentGen) return
       if (res.success && res.changes) {
@@ -1936,6 +2103,8 @@
       if (prChangesGeneration === currentGen) {
         prChangesLoading = false
         prChangesProgress = ""
+        prCommitsLoading = false
+        prCommitsProgress = ""
       }
     }
   }
@@ -1953,6 +2122,10 @@
   })
 
   async function retryPrReviewLoad() {
+    if (prDiffUsesSubmittedBase) {
+      await loadPrChanges()
+      return
+    }
     if (
       prChangesErrorPhase === "review" &&
       prDiffBaseOid &&
@@ -1966,9 +2139,16 @@
       prChangesProgress = "Loading file diffs..."
       prChangesError = null
       prChangesWarning = null
+      const operationId = beginPrReviewOperations(["diff-retry"] as const)["diff-retry"]
 
       try {
-        const res = await readPrDiff(prDiffBaseOid, prDiffHeadOid, prEffectiveStatus === "applied")
+        const res = await readPrDiff(
+          prDiffBaseOid,
+          prDiffHeadOid,
+          prEffectiveStatus === "applied",
+          operationId,
+          () => isCurrentPrChangesLoad(currentGen),
+        )
 
         if (prChangesGeneration !== currentGen) return
         if (res.success && res.changes) {
@@ -1990,6 +2170,7 @@
           errorPhase,
         )
       } finally {
+        finishPrReviewOperation(operationId)
         if (prChangesGeneration === currentGen) {
           prChangesLoading = false
           prChangesProgress = ""
@@ -2044,10 +2225,6 @@
     lastPrChangesLoadKey = changesKey
 
     untrack(() => void loadPrChanges())
-    return () => {
-      prChangesGeneration++
-      cancelActivePrReviewOperation()
-    }
   })
 
   const getPrFileStatusIcon = (status: string) => {
@@ -4634,7 +4811,10 @@
                     : "none"}
               </span>
               {#if prDiffBaseOid}
-                <span>Merge base: {prDiffBaseOid.slice(0, 8)}</span>
+                <span>
+                  {prDiffUsesSubmittedBase ? "Submitted base (unverified)" : "Merge base"}:
+                  {prDiffBaseOid.slice(0, 8)}
+                </span>
               {/if}
               {#if prClaimedMergeBaseMismatch}
                 <span class="font-medium text-amber-700 dark:text-amber-300">
@@ -4645,11 +4825,23 @@
           {/if}
 
           <TabsContent value="commits" class="mt-0" id="pr-commits-tab-panel">
-            {#if prChangesLoading && !prCommitOids.length}
+            {#if (prCommitsLoading || prChangesLoading) && !prCommitOids.length}
               <div
                 class="flex items-center gap-2 rounded border bg-background/50 p-4 text-sm text-muted-foreground">
                 <Loader2 class="h-4 w-4 animate-spin" />
-                {prChangesProgress || "Loading PR commits..."}
+                {prCommitsProgress || prChangesProgress || "Loading PR commits..."}
+              </div>
+            {:else if prCommitsError && !prCommitOids.length}
+              <div
+                class="space-y-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+                <p>{prCommitsError}</p>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onclick={() => retrySubmittedPrCommits()}
+                  disabled={prCommitsLoading || prChangesLoading}>
+                  Retry loading commits
+                </Button>
               </div>
             {:else if prChangesError && !prCommitOids.length}
               <div

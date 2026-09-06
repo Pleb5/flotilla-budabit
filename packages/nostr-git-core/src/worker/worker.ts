@@ -433,6 +433,7 @@ async function tryGitNaturalPRReviewData(params: {
   targetUrls: string[]
   mergeBase?: string
   targetCommitOid?: string
+  includeDiff?: boolean
   corsProxy?: string | null
   sourceReadScope?: string
   attempts?: RoleAttemptCollector
@@ -450,6 +451,7 @@ async function tryGitNaturalPRReviewData(params: {
       targetUrls: params.targetUrls,
       mergeBase: params.mergeBase,
       targetCommitOid: params.targetCommitOid,
+      includeDiff: params.includeDiff,
       sourceReadScope: params.sourceReadScope,
       corsProxy,
       signal: params.signal,
@@ -481,6 +483,54 @@ async function tryGitNaturalPRReviewData(params: {
       `[getPRReviewData] Git natural PR review unavailable, falling back to worker clone: ${error instanceof Error ? error.message : String(error)}`,
     )
     return null
+  }
+}
+
+async function tryGitNaturalPRSubmittedCommits(params: {
+  key: string
+  tipCommitOid: string
+  baseCommitOid: string
+  sourceUrls: string[]
+  sourceReadScope?: string
+  attempts?: RoleAttemptCollector
+  signal?: AbortSignal
+}) {
+  const review = await tryGitNaturalPRReviewData({
+    key: params.key,
+    tipCommitOid: params.tipCommitOid,
+    targetBranch: "",
+    sourceUrls: params.sourceUrls,
+    targetUrls: [],
+    mergeBase: params.baseCommitOid,
+    targetCommitOid: params.baseCommitOid,
+    includeDiff: false,
+    sourceReadScope: params.sourceReadScope,
+    attempts: params.attempts,
+    signal: params.signal,
+  })
+  if (!review) return null
+  if (review.baseOid !== params.baseCommitOid || review.claimedMergeBaseMismatch) {
+    return {
+      success: false,
+      error: "The declared submitted base is not an ancestor of the PR tip.",
+      errorPhase: "source" as const,
+      baseOid: params.baseCommitOid,
+      headOid: review.headOid,
+      commits: [],
+      commitOids: [],
+      sourceAttempts: review.sourceAttempts,
+    }
+  }
+
+  return {
+    success: true,
+    baseOid: review.baseOid,
+    headOid: review.headOid,
+    commits: review.commits,
+    commitOids: review.commitOids,
+    source: "git-natural" as const,
+    usedCloneUrl: review.usedCloneUrl,
+    sourceAttempts: review.sourceAttempts,
   }
 }
 
@@ -3489,9 +3539,145 @@ const api = {
     }
   },
 
+  /** Load the commits in the PR author's immutable submitted base-to-tip range. */
+  async getPRSubmittedCommits(opts: {
+    repoId: string
+    tipCommitOid: string
+    baseCommitOid: string
+    cloneUrls: string[]
+    sourceReadScope?: string
+    operationId?: string
+  }) {
+    const {key, dir} = repoKeyAndDir(opts.repoId)
+    let sourceUrls = filterValidCloneUrls(opts.cloneUrls || [])
+    let sourceAttempts: ReadUrlAttempt[] | undefined
+    const failure = (error: string, extra: Record<string, any> = {}) =>
+      toPlain({
+        ...extra,
+        success: false,
+        error,
+        errorPhase: "source" as const,
+        sourceAttempts,
+        commits: Array.isArray(extra.commits) ? extra.commits : [],
+        commitOids: Array.isArray(extra.commitOids) ? extra.commitOids : [],
+      })
+
+    const tipCommitOid = normalizeFullOid(opts.tipCommitOid)
+    const baseCommitOid = normalizeFullOid(opts.baseCommitOid)
+    if (!tipCommitOid) return failure("PR tip commit is missing or invalid")
+    if (!baseCommitOid) return failure("PR submitted base commit is missing or invalid")
+    if (sourceUrls.length === 0) return failure("No PR source clone URLs are available")
+
+    const naturalAttempts: RoleAttemptCollector = {sourceAttempts: [], targetAttempts: []}
+    const naturalController = beginGitNaturalWorkerRead(opts.operationId)
+    let naturalResult
+    try {
+      naturalResult = await tryGitNaturalPRSubmittedCommits({
+        key,
+        tipCommitOid,
+        baseCommitOid,
+        sourceUrls,
+        sourceReadScope: opts.sourceReadScope,
+        attempts: naturalAttempts,
+        signal: naturalController.signal,
+      })
+    } finally {
+      finishGitNaturalWorkerRead(opts.operationId, naturalController)
+    }
+    if (naturalController.signal.aborted) {
+      return failure("Submitted PR commit load was cancelled", {code: "operation-aborted"})
+    }
+    if (naturalResult) return naturalResult
+
+    sourceAttempts = naturalAttempts.sourceAttempts
+    sourceUrls = activeMissingFilterCloneUrls(
+      key,
+      sourceUrls,
+      opts.sourceReadScope,
+      naturalAttempts.sourceAttempts,
+    )
+    if (sourceUrls.length === 0) {
+      return failure(
+        "Git-natural submitted PR commit loading failed without missing-filter capability evidence for the active source remote.",
+      )
+    }
+
+    const releaseRepoOperation = await acquireRepoOperationLock(opts.repoId)
+    try {
+      const initialized = await smartInitializeRepoUtil(
+        git,
+        cacheManager,
+        {
+          repoId: opts.repoId,
+          cloneUrls: sourceUrls,
+          strictCloneUrls: true,
+          readScope: opts.sourceReadScope,
+          trackReadPreference: false,
+        },
+        {
+          rootDir,
+          parseRepoId,
+          repoDataLevels,
+          clonedRepos,
+          isRepoCloned: async (g: GitProvider, d: string) => isRepoClonedFs(g, d),
+          resolveBranchName: async (d: string, requested?: string) =>
+            resolveRobustBranchUtil(git, d, requested),
+        },
+        makeProgress(opts.repoId, "clone-progress"),
+      )
+      if (!initialized?.success) {
+        return failure(
+          (initialized && "error" in initialized && initialized.error) ||
+            "Failed to initialize the PR source remote",
+        )
+      }
+
+      const fetched = await fetchRefsUntilOidsAvailable({
+        key,
+        dir,
+        requiredOids: [tipCommitOid, baseCommitOid],
+        cloneUrls: sourceUrls,
+        forceRefFetch: true,
+        strictCloneUrls: true,
+        readScope: opts.sourceReadScope,
+      })
+      appendUrlAttempts(sourceAttempts, fetched.attempts)
+      if (!fetched.success) {
+        return failure("Could not fetch the submitted PR commit range from its scoped source.")
+      }
+
+      const review = await getPRReviewDataCore(git, dir, {
+        tipCommitOid,
+        targetCommitOid: baseCommitOid,
+        mergeBase: baseCommitOid,
+        allowUnrelatedHistoryFallback: false,
+      })
+      if (!review.success || review.baseOid !== baseCommitOid) {
+        return failure(
+          review.error || "The declared submitted base is not an ancestor of the PR tip.",
+          review,
+        )
+      }
+
+      return toPlain({
+        success: true,
+        baseOid: baseCommitOid,
+        headOid: tipCommitOid,
+        commits: review.commits,
+        commitOids: review.commitOids,
+        usedCloneUrl: fetched.usedUrl || sourceUrls[0],
+        sourceAttempts,
+      })
+    } catch (error) {
+      return failure(error instanceof Error ? error.message : String(error))
+    } finally {
+      releaseRepoOperation()
+    }
+  },
+
   /**
    * Load PR review data without running merge/conflict analysis.
-   * This powers commits/files tabs and inline-comment jumps independently of mergeability checks.
+   * This powers fallback review loading when a PR has no usable submitted base.
    */
   async getPRReviewData(opts: {
     repoId: string
@@ -4845,6 +5031,7 @@ const api = {
     corsProxy?: string | null
     cloneFallbackReason?: "missing-filter-capability"
     readScope?: string
+    operationId?: string
   }): Promise<{
     success: boolean
     changes?: GitDiffChange[]

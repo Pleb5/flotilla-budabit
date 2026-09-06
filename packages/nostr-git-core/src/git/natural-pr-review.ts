@@ -82,6 +82,8 @@ export interface GetGitNaturalPRReviewDataOptions {
   maxCommits?: number
   /** Maximum commits requested in one frontier expansion. */
   historyBatchSize?: number
+  /** Skip file-diff loading when the caller only needs the commit range. */
+  includeDiff?: boolean
   corsProxy?: string | null
   signal?: AbortSignal
   onAttempts?: (attempts: GitNaturalPRReviewAttempts) => void
@@ -227,33 +229,37 @@ export async function getGitNaturalPRReviewData(
     return null
   }
 
-  const diffParams = {
-    repoId: options.repoId,
-    baseCommitHash: baseOid,
-    headCommitHash: tipCommitOid,
-    corsProxy: options.corsProxy,
-    signal: options.signal,
-  }
-  const sourceDiff = await tryGetDiffBetween(options.reader, sourceUrls, {
-    ...diffParams,
-    readScope: options.sourceReadScope,
-  })
-  sourceAttempts.push(...summarizeAttempts(sourceDiff.attempts))
-  usedCloneUrl = latestAttemptUrl(sourceDiff) || usedCloneUrl
+  let diff: GitNaturalDiffBetweenResult | undefined
+  if (options.includeDiff !== false) {
+    const diffParams = {
+      repoId: options.repoId,
+      baseCommitHash: baseOid,
+      headCommitHash: tipCommitOid,
+      corsProxy: options.corsProxy,
+      signal: options.signal,
+    }
+    const sourceDiff = await tryGetDiffBetween(options.reader, sourceUrls, {
+      ...diffParams,
+      readScope: options.sourceReadScope,
+    })
+    sourceAttempts.push(...summarizeAttempts(sourceDiff.attempts))
+    usedCloneUrl = latestAttemptUrl(sourceDiff) || usedCloneUrl
 
-  let diff = sourceDiff
-  if (!diff.result && isTerminalCancellation(sourceDiff)) {
-    reportAttempts()
-    return null
-  }
-  if (!diff.result && targetUrls.length > 0) {
-    diff = await tryGetDiffBetween(options.reader, targetUrls, diffParams)
-    targetAttempts.push(...summarizeAttempts(diff.attempts))
-    usedTargetCloneUrl = latestAttemptUrl(diff) || usedTargetCloneUrl
-  }
-  if (!diff.result) {
-    reportAttempts()
-    return null
+    let diffAttempt = sourceDiff
+    if (!diffAttempt.result && isTerminalCancellation(sourceDiff)) {
+      reportAttempts()
+      return null
+    }
+    if (!diffAttempt.result && targetUrls.length > 0) {
+      diffAttempt = await tryGetDiffBetween(options.reader, targetUrls, diffParams)
+      targetAttempts.push(...summarizeAttempts(diffAttempt.attempts))
+      usedTargetCloneUrl = latestAttemptUrl(diffAttempt) || usedTargetCloneUrl
+    }
+    if (!diffAttempt.result) {
+      reportAttempts()
+      return null
+    }
+    diff = diffAttempt.result
   }
 
   const sharedIds = targetHistory
@@ -295,13 +301,13 @@ export async function getGitNaturalPRReviewData(
     ...(targetHistory ? {behindCount: targetCommits.length} : {}),
     commits,
     commitOids: commits.map(commit => commit.oid),
-    changes: diff.result.changes,
+    changes: diff?.changes || [],
     source: "git-natural",
     ...(usedCloneUrl ? {usedCloneUrl} : {}),
     ...(usedTargetCloneUrl ? {usedTargetCloneUrl} : {}),
     sourceAttempts,
     targetAttempts,
-    readSource: diff.result.source,
+    ...(diff?.source ? {readSource: diff.source} : {}),
   }
 }
 

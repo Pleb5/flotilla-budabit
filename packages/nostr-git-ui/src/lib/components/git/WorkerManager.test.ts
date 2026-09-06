@@ -445,6 +445,7 @@ describe('WorkerManager', () => {
     it('forwards the PR source scope through worker review APIs', async () => {
       const api = manager.apiInstance as any;
       api.getPRReviewData = vi.fn(async () => ({ success: true }));
+      api.getPRSubmittedCommits = vi.fn(async () => ({ success: true }));
       api.getPRPreview = vi.fn(async () => ({ success: true }));
       api.getCommitsAheadOfTip = vi.fn(async () => ({ success: true }));
       api.getMergeBaseBetween = vi.fn(async () => ({ mergeBase: 'a'.repeat(40) }));
@@ -461,6 +462,14 @@ describe('WorkerManager', () => {
         tipCommitOid: 'a'.repeat(40),
         targetBranch: 'main',
         operationId: 'pr-review:test'
+      });
+      await manager.getPRSubmittedCommits({
+        repoId: common.repoId,
+        tipCommitOid: 'a'.repeat(40),
+        baseCommitOid: 'b'.repeat(40),
+        cloneUrls: ['https://source.example/repo.git'],
+        sourceReadScope: common.sourceReadScope,
+        operationId: 'pr-submitted:test'
       });
       await manager.getPRPreview({ ...common, sourceBranch: 'feature', targetBranch: 'main' });
       await manager.getCommitsAheadOfTip({ ...common, tipOid: 'a'.repeat(40) });
@@ -480,6 +489,7 @@ describe('WorkerManager', () => {
 
       for (const method of [
         api.getPRReviewData,
+        api.getPRSubmittedCommits,
         api.getPRPreview,
         api.getCommitsAheadOfTip,
         api.getMergeBaseBetween,
@@ -490,8 +500,32 @@ describe('WorkerManager', () => {
       expect(api.getPRReviewData).toHaveBeenCalledWith(
         expect.objectContaining({ operationId: 'pr-review:test' })
       );
+      expect(api.getPRSubmittedCommits).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceReadScope: 'pr-source:event',
+          operationId: 'pr-submitted:test'
+        })
+      );
       await expect(manager.cancelGitNaturalRead('pr-review:test')).resolves.toBe(true);
       expect(api.cancelGitNaturalRead).toHaveBeenCalledWith({ operationId: 'pr-review:test' });
+    });
+
+    it('forwards cancellation identity to an OID-pinned natural diff', async () => {
+      const api = manager.apiInstance as any;
+      api.gitNaturalGetDiffBetween = vi.fn(async () => ({ changes: [] }));
+
+      await manager.getDiffBetween({
+        repoId: 'owner/repo',
+        baseOid: 'a'.repeat(40),
+        headOid: 'b'.repeat(40),
+        cloneUrls: ['https://source.example/repo.git'],
+        gitNaturalDiff: true,
+        operationId: 'pr-review:diff'
+      });
+
+      expect(api.gitNaturalGetDiffBetween).toHaveBeenCalledWith(
+        expect.objectContaining({ operationId: 'pr-review:diff' })
+      );
     });
 
     it('orders and reconciles target and source cursors for composite PR reads', async () => {
@@ -590,6 +624,26 @@ describe('WorkerManager', () => {
       );
       expect(getCachedUrlPreference(reviewRepo)?.preferredUrl).toBe(targetUrls[2]);
       expect(getCachedUrlPreference(reviewRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
+
+      const submittedRepo = 'worker-manager-submitted-range-cursors';
+      seedCursors(submittedRepo);
+      api.getPRSubmittedCommits = vi.fn(async () => ({
+        ...result,
+        usedTargetCloneUrl: undefined,
+        targetAttempts: undefined
+      }));
+      await manager.getPRSubmittedCommits({
+        repoId: submittedRepo,
+        tipCommitOid: 'a'.repeat(40),
+        baseCommitOid: 'b'.repeat(40),
+        cloneUrls: sourceUrls,
+        sourceReadScope
+      });
+      expect(api.getPRSubmittedCommits).toHaveBeenCalledWith(
+        expect.objectContaining({ cloneUrls: sourceUrls.slice(1), sourceReadScope })
+      );
+      expect(getCachedUrlPreference(submittedRepo)?.preferredUrl).toBe(targetUrls[1]);
+      expect(getCachedUrlPreference(submittedRepo, sourceReadScope)?.preferredUrl).toBe(sourceUrls[2]);
 
       const previewRepo = 'worker-manager-preview-cursors';
       seedCursors(previewRepo);

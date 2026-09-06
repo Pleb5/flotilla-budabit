@@ -34,6 +34,19 @@ describe("PR review consistency", () => {
     expect(worker).toContain("allowUnrelatedHistoryFallback: false")
   })
 
+  it("renders an OID-pinned submitted diff without waiting for current-target ancestry", () => {
+    expect(prView).toContain('beginPrReviewOperations(["diff", "commits"] as const)')
+    expect(prView).toContain(
+      "loadSubmittedPrDiff(submittedBaseOid, submittedHeadOid, currentGen, operations.diff)",
+    )
+    expect(prView).toContain("getPRSubmittedCommits({")
+    expect(prView).toContain("cloneUrls: prSourceReadCloneUrls")
+    expect(prView).toContain('"Submitted base (unverified)"')
+    expect(worker).toContain("targetUrls: []")
+    expect(worker).toContain("targetCommitOid: params.baseCommitOid")
+    expect(worker).toContain("includeDiff: false")
+  })
+
   it("routes normal target review reads through the declared list while pinning authority checks", () => {
     expect(prView.match(/cloneUrls: prTargetCloneUrls/g)).toHaveLength(4)
     expect(prView).toContain(
@@ -54,11 +67,14 @@ describe("PR review consistency", () => {
   })
 
   it("cancels obsolete PR review work while retaining generation guards", () => {
-    expect(prView).toContain("const operationId = beginPrReviewOperation()")
+    expect(prView).toContain("const beginPrReviewOperations = <T extends string>")
+    expect(prView).toContain("workerManager.cancelGitNaturalRead(operationId)")
     expect(prView).toContain("cancelGitNaturalRead(operationId)")
     expect(prView).toContain("finishPrReviewOperation(operationId)")
     expect(prView).toContain("if (prChangesGeneration !== currentGen) return")
     expect(prView).toContain("cancelActivePrReviewOperation()")
+    expect(prView).toContain("onDestroy(() => {")
     expect(prView).toContain("untrack(() => void loadPrChanges())")
+    expect(prView).not.toContain("untrack(() => void loadPrChanges())\n    return () =>")
   })
 })

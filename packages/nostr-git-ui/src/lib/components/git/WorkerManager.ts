@@ -1037,6 +1037,7 @@ export class WorkerManager {
     corsProxy?: string | null;
     cloneFallbackReason?: "missing-filter-capability";
     readScope?: string;
+    operationId?: string;
   }): Promise<{ success: boolean; changes?: any[]; error?: string; usedUrl?: string }> {
     await this.initialize();
     if (params.cloneFallbackReason) {
@@ -1059,7 +1060,9 @@ export class WorkerManager {
             headCommitHash: params.headOid,
             enabled: true,
             corsProxy: params.corsProxy,
+            operationId: params.operationId,
           });
+          if (isWorkerErrorResponse(result)) throw createErrorFromWorkerResponse(result);
           return {
             success: true,
             changes: Array.isArray(result?.changes) ? result.changes : [],
@@ -1139,6 +1142,39 @@ export class WorkerManager {
       result.targetAttempts,
       undefined,
       targetOperation
+    );
+    applyReadResult(
+      params.repoId,
+      sourceUrls,
+      result.usedCloneUrl,
+      result.sourceAttempts,
+      params.sourceReadScope,
+      sourceOperation
+    );
+    return result;
+  }
+
+  /** Load the commit list for the PR author's immutable submitted range. */
+  async getPRSubmittedCommits(params: {
+    repoId: string;
+    tipCommitOid: string;
+    baseCommitOid: string;
+    cloneUrls: string[];
+    sourceReadScope?: string;
+    operationId?: string;
+  }): Promise<PRReviewDataResult> {
+    await this.initialize();
+    const sourceUrls = filterValidCloneUrls(params.cloneUrls);
+    const orderedSourceUrls = orderReadUrlsByPreference(
+      sourceUrls,
+      params.repoId,
+      params.sourceReadScope
+    );
+    const sourceOperation = beginReadUrlOperation(params.repoId, params.sourceReadScope);
+    const result = await this.execute<PRReviewDataResult>(
+      "getPRSubmittedCommits",
+      { ...params, cloneUrls: orderedSourceUrls },
+      { timeoutMs: 0, returnWorkerErrors: true }
     );
     applyReadResult(
       params.repoId,

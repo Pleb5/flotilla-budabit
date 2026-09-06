@@ -80,17 +80,18 @@ vi.mock("../../src/git/natural-read-provider.js", () => ({
       if (url.includes("source")) {
         const person = {name: "Test", email: "test@example.com", timestamp: 1, timezone: "+0000"}
         const base = "c".repeat(40)
+        const isBaseRequest = commitHash === base
         return {
           commits: [
             {
               hash: commitHash,
               tree: "c".repeat(40),
-              parents: naturalMode.successfulReview ? [base] : [],
+              parents: naturalMode.successfulReview && !isBaseRequest ? [base] : [],
               author: person,
               committer: person,
               message: "source",
             },
-            ...(naturalMode.successfulReview
+            ...(naturalMode.successfulReview && !isBaseRequest
               ? [
                   {
                     hash: base,
@@ -180,6 +181,30 @@ describe("PR review recovery attempts", () => {
     naturalMode.missingFilterHistory = false
     naturalMode.successfulReview = false
     clearUrlPreferenceCache()
+  })
+
+  it("loads a submitted range from the scoped source without target review", async () => {
+    naturalMode.successfulReview = true
+    const sourceUrl = "https://source-primary.example/repo.git"
+
+    const result = await exposed.getPRSubmittedCommits({
+      repoId: "owner/submitted-range",
+      tipCommitOid: "a".repeat(40),
+      baseCommitOid: "c".repeat(40),
+      cloneUrls: [sourceUrl],
+      sourceReadScope: "pr-source:submitted",
+    })
+
+    expect(result).toMatchObject({
+      success: true,
+      baseOid: "c".repeat(40),
+      headOid: "a".repeat(40),
+      commitOids: ["a".repeat(40)],
+      usedCloneUrl: sourceUrl,
+    })
+    expect(result.targetAttempts).toBeUndefined()
+    expect(reviewMock).not.toHaveBeenCalled()
+    expect(smartInitializeMock).not.toHaveBeenCalled()
   })
 
   it("does not start clone-backed recovery after generic natural-read failures", async () => {
