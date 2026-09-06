@@ -5,9 +5,11 @@ import {join} from "node:path"
 import {describe, expect, it} from "vitest"
 
 import {
+  buildModifiedFileDiffHunks,
   describeGitTreeChanges,
   renderGitDiffChanges,
   requiredGitDiffBlobOids,
+  summarizeGitDiffChanges,
   type GitDiffTreeEntry,
 } from "../../src/git/diff-engine.js"
 
@@ -70,6 +72,55 @@ describe("transport-independent Git diff engine", () => {
       {line: "same", type: "-"},
       {line: "same", type: "+"},
     ])
+    expect(change.stats).toEqual({additions: 1, deletions: 1, total: 2})
+  })
+
+  it("emits deterministic three-line context hunks for separated edits", () => {
+    const oldLines = Array.from({length: 30}, (_, index) => `line ${index + 1}`)
+    const newLines = [...oldLines]
+    newLines[5] = "changed 6"
+    newLines[25] = "changed 26"
+
+    const hunks = buildModifiedFileDiffHunks(`${oldLines.join("\n")}\n`, `${newLines.join("\n")}\n`)
+
+    expect(hunks).toHaveLength(2)
+    expect(hunks[0]).toMatchObject({oldStart: 3, oldLines: 7, newStart: 3, newLines: 7})
+    expect(hunks.flatMap(hunk => hunk.patches).map(patch => patch.line)).not.toContain("line 15")
+    expect(hunks.flatMap(hunk => hunk.patches).filter(patch => patch.type === "+")).toHaveLength(2)
+    expect(hunks.flatMap(hunk => hunk.patches).filter(patch => patch.type === "-")).toHaveLength(2)
+  })
+
+  it("uses zero-line unified-diff coordinates for context-free insertions and deletions", () => {
+    expect(buildModifiedFileDiffHunks("a\nb\n", "x\na\nb\n", 0)).toEqual([
+      {
+        oldStart: 0,
+        oldLines: 0,
+        newStart: 1,
+        newLines: 1,
+        patches: [{line: "x", type: "+"}],
+      },
+    ])
+    expect(buildModifiedFileDiffHunks("x\na\nb\n", "a\nb\n", 0)).toEqual([
+      {
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 0,
+        newLines: 0,
+        patches: [{line: "x", type: "-"}],
+      },
+    ])
+  })
+
+  it("keeps a one-line edit payload bounded independently of file length", () => {
+    const oldLines = Array.from({length: 10_000}, (_, index) => `line ${index + 1}`)
+    const newLines = [...oldLines]
+    newLines[4_999] = "changed middle"
+
+    const hunks = buildModifiedFileDiffHunks(`${oldLines.join("\n")}\n`, `${newLines.join("\n")}\n`)
+
+    expect(hunks).toHaveLength(1)
+    expect(hunks[0].patches).toHaveLength(8)
+    expect(JSON.stringify(hunks).length).toBeLessThan(1_000)
   })
 
   it("keeps mode-only and submodule pointer changes even without blob reads", () => {
@@ -191,5 +242,29 @@ describe("transport-independent Git diff engine", () => {
     expect(() => renderGitDiffChanges(missingDescriptors, new Map())).toThrow(
       `Git blob ${missingOid} required for missing.txt is unavailable`,
     )
+  })
+
+  it("summarizes per-file statistics without rescanning at the caller", () => {
+    const firstOid = oid("1")
+    const secondOid = oid("2")
+    const changes = renderGitDiffChanges(
+      describeGitTreeChanges(
+        new Map(),
+        new Map([
+          ["first.txt", entry("first.txt", firstOid)],
+          ["second.txt", entry("second.txt", secondOid)],
+        ]),
+      ),
+      new Map([
+        [firstOid, encoder.encode("one\ntwo\n")],
+        [secondOid, encoder.encode("three\n")],
+      ]),
+    )
+
+    expect(changes.map(change => change.stats)).toEqual([
+      {additions: 2, deletions: 0, total: 2},
+      {additions: 1, deletions: 0, total: 1},
+    ])
+    expect(summarizeGitDiffChanges(changes)).toEqual({additions: 3, deletions: 0, total: 3})
   })
 })

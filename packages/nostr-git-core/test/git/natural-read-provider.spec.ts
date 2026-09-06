@@ -418,6 +418,7 @@ describe("GitNaturalReadProvider", () => {
     expect(diff.headCommitHash).toBe(fixture.headHash)
     expect(diff.source.operation).toBe("getDiffBetween")
     expect(diff.source.capability).toBe("filter=blob:none,object-by-hash")
+    expect(diff.stats).toEqual({additions: 2, deletions: 2, total: 4})
     expect(diff.changes.map(change => [change.path, change.status])).toEqual([
       ["README.md", "modified"],
       ["added.txt", "added"],

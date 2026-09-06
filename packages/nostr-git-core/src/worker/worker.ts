@@ -184,7 +184,9 @@ import {
   describeGitTreeChanges,
   renderGitDiffChanges,
   requiredGitDiffBlobOids,
+  summarizeGitDiffChanges,
   type GitDiffChange,
+  type GitDiffStats,
   type GitDiffTreeEntry,
 } from "../git/diff-engine.js"
 import {getGitNaturalPRReviewData} from "../git/natural-pr-review.js"
@@ -352,7 +354,9 @@ async function runGitNaturalWorkerRead<T>(
   try {
     // A natural read can span several progressing HTTP requests. Request-level
     // timeout and cancellation settlement are enforced by the transport.
-    return toPlain(await readPromise)
+    // Comlink applies structured cloning at the worker boundary. Avoid a full
+    // JSON stringify/parse copy here, especially for large diff payloads.
+    return await readPromise
   } catch (error) {
     return toPlain({
       success: false as const,
@@ -3530,7 +3534,7 @@ const api = {
     if (naturalController.signal.aborted) {
       return failure("PR review load was cancelled", "review", {code: "operation-aborted"})
     }
-    if (naturalReview) return toPlain(naturalReview)
+    if (naturalReview) return naturalReview
     targetAttempts = naturalAttempts.targetAttempts
     sourceAttempts = naturalAttempts.sourceAttempts
 
@@ -3779,14 +3783,14 @@ const api = {
         })
       }
 
-      return toPlain({
+      return {
         ...review,
         changes: diff.changes || [],
         usedTargetCloneUrl,
         usedCloneUrl,
         targetAttempts,
         sourceAttempts,
-      })
+      }
     } catch (error: any) {
       return failure(error?.message || String(error), loadingPhase)
     } finally {
@@ -4770,14 +4774,15 @@ const api = {
         }
       }
 
-      return toPlain({
+      return {
         success: true,
         meta,
         changes,
+        stats: summarizeGitDiffChanges(changes),
         warning,
         diffAvailable: !warning,
         source: "worker",
-      })
+      }
     } catch (error) {
       return toPlain({
         success: false,
@@ -4809,6 +4814,7 @@ const api = {
   }): Promise<{
     success: boolean
     changes?: GitDiffChange[]
+    stats?: GitDiffStats
     error?: string
   }> {
     const {key, dir} = repoKeyAndDir(opts.repoId)
@@ -4895,7 +4901,7 @@ const api = {
       }
 
       const changes = await collectCloneBackedDiffChanges(dir, baseOid, headOid)
-      return toPlain({success: true, changes})
+      return {success: true, changes, stats: summarizeGitDiffChanges(changes)}
     } catch (error) {
       return toPlain({
         success: false,

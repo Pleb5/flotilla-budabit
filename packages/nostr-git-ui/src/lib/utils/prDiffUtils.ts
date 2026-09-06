@@ -3,8 +3,10 @@ import parseDiff from "parse-diff";
 /** Worker/getDiffBetween output format */
 export interface PrChangeInput {
   path: string;
+  oldPath?: string;
   status: "added" | "modified" | "deleted" | "renamed";
   binary?: boolean;
+  stats?: { additions: number; deletions: number; total?: number };
   diffHunks: Array<{
     oldStart: number;
     oldLines: number;
@@ -191,9 +193,9 @@ function compactHunk(
 
 function createParseDiffFile(change: PrChangeInput, chunks: parseDiff.Chunk[]): parseDiff.File {
   const path = change.path;
-  const from = change.status === "added" ? "/dev/null" : path;
+  const from = change.status === "added" ? "/dev/null" : change.oldPath || path;
   const to = change.status === "deleted" ? "/dev/null" : path;
-  const { additions, deletions } = countStats(change.diffHunks);
+  const { additions, deletions } = change.stats || countStats(change.diffHunks);
 
   return {
     from,

@@ -152,6 +152,42 @@ describe("commit-api", () => {
     })
   })
 
+  it("uses aggregate diff statistics without rescanning patch payloads", async () => {
+    const change = {
+      path: "large.txt",
+      status: "modified",
+      stats: {additions: 12, deletions: 4, total: 16},
+      get diffHunks(): never {
+        throw new Error("patches were rescanned")
+      },
+    }
+    const worker = {
+      gitNaturalGetCommit: vi.fn(async () => ({
+        commit: {
+          hash: "head",
+          author: {name: "Alice", email: "alice@example.com", timestamp: 1},
+          message: "Large change",
+          parents: ["parent"],
+        },
+      })),
+      gitNaturalGetDiffBetween: vi.fn(async () => ({
+        changes: [change],
+        stats: {additions: 12, deletions: 4, total: 16},
+      })),
+    }
+
+    const {getCommitDetailsViaGitNatural} = await import("./commit-api")
+    const result = await getCommitDetailsViaGitNatural(
+      worker,
+      ["https://example.com/repo.git"],
+      "head",
+      "owner/repo",
+    )
+
+    expect(result?.stats).toEqual({additions: 12, deletions: 4, total: 16})
+    expect(result?.changes?.[0]).toBe(change)
+  })
+
   it("returns metadata-only only after every natural diff attempt fails", async () => {
     const urls = ["https://primary.example/repo.git", "https://secondary.example/repo.git"]
     const worker = {

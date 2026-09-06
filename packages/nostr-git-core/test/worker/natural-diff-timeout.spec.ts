@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest"
 import "fake-indexeddb/auto"
 
 let exposed: any
+const transportMarker = new Date(0)
 
 vi.mock("comlink", () => ({
   expose: (api: any) => {
@@ -28,7 +29,7 @@ vi.mock("../../src/git/natural-read-provider.js", () => ({
 
     async getDiffBetween({url}: {url: string}) {
       await new Promise(resolve => setTimeout(resolve, 16_001))
-      return {changes: [], source: {remoteUrl: url}}
+      return {changes: [], source: {remoteUrl: url}, transportMarker}
     }
   },
 }))
@@ -62,7 +63,9 @@ describe("Git-natural diff worker timeout", () => {
     expect(result).toEqual({
       changes: [],
       source: {remoteUrl: "https://example.com/repo.git"},
+      transportMarker,
     })
+    expect(result.transportMarker).toBe(transportMarker)
   })
 
   it.each([

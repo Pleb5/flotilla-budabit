@@ -105,6 +105,11 @@ function statsFromChanges(changes: any[]): CommitDetails["stats"] {
   let deletions = 0
 
   for (const change of changes || []) {
+    if (change?.stats) {
+      additions += Number(change.stats.additions || 0)
+      deletions += Number(change.stats.deletions || 0)
+      continue
+    }
     for (const hunk of change?.diffHunks || []) {
       for (const patch of hunk?.patches || []) {
         if (patch?.type === "+" || patch?.type === "add") additions += 1
@@ -175,13 +180,14 @@ export async function getCommitDetailsViaGitNatural(
         })
         throwIfAborted(options.signal)
         const changes = Array.isArray(diffResult?.changes) ? diffResult.changes : []
+        const stats = diffResult?.stats || statsFromChanges(changes)
         console.log(`[commit-api] Git natural commit details success for ${commitId}`)
         return {
           success: true,
           meta,
           changes,
           diffAvailable: true,
-          stats: statsFromChanges(changes),
+          stats,
           source: "git-natural",
           remoteUrl: url,
         } satisfies CommitDetails

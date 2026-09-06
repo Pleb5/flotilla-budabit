@@ -26,8 +26,10 @@ import {
   describeGitTreeChanges,
   renderGitDiffChanges,
   requiredGitDiffBlobOids,
+  summarizeGitDiffChanges,
   type GitDiffChange,
   type GitDiffHunk,
+  type GitDiffStats,
   type GitDiffTreeEntry,
 } from "./diff-engine.js"
 
@@ -134,6 +136,7 @@ export interface GitNaturalDiffBetweenResult {
   baseCommitHash: string
   headCommitHash: string
   changes: GitNaturalDiffChange[]
+  stats: GitDiffStats
   source: GitNaturalReadSourceMetadata
 }
 
@@ -577,6 +580,7 @@ export class GitNaturalReadProvider {
       baseCommitHash: base.commitHash,
       headCommitHash: head.commitHash,
       changes,
+      stats: summarizeGitDiffChanges(changes),
       source: this.source({
         operation: "getDiffBetween",
         info,

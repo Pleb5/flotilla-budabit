@@ -8,6 +8,12 @@ export interface GitDiffHunk {
   patches: Array<{line: string; type: "+" | "-" | " "}>
 }
 
+export interface GitDiffStats {
+  additions: number
+  deletions: number
+  total: number
+}
+
 export interface GitDiffTreeEntry {
   path: string
   mode: string
@@ -26,6 +32,7 @@ export interface GitDiffChange {
   binary?: boolean
   submodule?: boolean
   diffHunks: GitDiffHunk[]
+  stats: GitDiffStats
 }
 
 export interface GitDiffChangeDescriptor {
@@ -38,6 +45,7 @@ export interface GitDiffChangeDescriptor {
 }
 
 const utf8Decoder = new TextDecoder("utf-8")
+export const GIT_DIFF_CONTEXT_LINES = 3
 
 /**
  * Compare two flattened Git trees. Exact-content moves are paired as renames;
@@ -162,36 +170,42 @@ export function renderGitDiffChange(
         : base.oid === head.oid
           ? []
           : buildModifiedFileDiffHunks(oldText, newText)
-    return {...metadata, submodule: true, diffHunks}
+    return withGitDiffStats({...metadata, submodule: true, diffHunks})
   }
-  if (knownBinary) return {...metadata, binary: true, diffHunks: []}
+  if (knownBinary) return withGitDiffStats({...metadata, binary: true, diffHunks: []})
 
   // Mode-only changes and exact renames have no content hunk.
-  if (base?.oid === head?.oid) return {...metadata, diffHunks: []}
+  if (base?.oid === head?.oid) return withGitDiffStats({...metadata, diffHunks: []})
 
   if (!base && head) {
     const data = getDiffBlob(blobs, head.oid, path)
     return isBinaryFile(path, data)
-      ? {...metadata, binary: true, diffHunks: []}
-      : {...metadata, diffHunks: buildAddedFileDiffHunks(utf8Decoder.decode(data))}
+      ? withGitDiffStats({...metadata, binary: true, diffHunks: []})
+      : withGitDiffStats({
+          ...metadata,
+          diffHunks: buildAddedFileDiffHunks(utf8Decoder.decode(data)),
+        })
   }
   if (base && !head) {
     const data = getDiffBlob(blobs, base.oid, oldPath || path)
     return isBinaryFile(oldPath || path, data)
-      ? {...metadata, binary: true, diffHunks: []}
-      : {...metadata, diffHunks: buildDeletedFileDiffHunks(utf8Decoder.decode(data))}
+      ? withGitDiffStats({...metadata, binary: true, diffHunks: []})
+      : withGitDiffStats({
+          ...metadata,
+          diffHunks: buildDeletedFileDiffHunks(utf8Decoder.decode(data)),
+        })
   }
   if (!base || !head) throw new Error(`Invalid diff descriptor for ${path}`)
 
   const oldData = getDiffBlob(blobs, base.oid, oldPath || path)
   const newData = getDiffBlob(blobs, head.oid, path)
   if (isBinaryFile(oldPath || path, oldData) || isBinaryFile(path, newData)) {
-    return {...metadata, binary: true, diffHunks: []}
+    return withGitDiffStats({...metadata, binary: true, diffHunks: []})
   }
-  return {
+  return withGitDiffStats({
     ...metadata,
     diffHunks: buildModifiedFileDiffHunks(utf8Decoder.decode(oldData), utf8Decoder.decode(newData)),
-  }
+  })
 }
 
 export function buildAddedFileDiffHunks(text: string): GitDiffHunk[] {
@@ -222,7 +236,11 @@ export function buildDeletedFileDiffHunks(text: string): GitDiffHunk[] {
   ]
 }
 
-export function buildModifiedFileDiffHunks(oldText: string, newText: string): GitDiffHunk[] {
+export function buildModifiedFileDiffHunks(
+  oldText: string,
+  newText: string,
+  contextLines = GIT_DIFF_CONTEXT_LINES,
+): GitDiffHunk[] {
   const oldLines = splitGitLines(oldText)
   const newLines = splitGitLines(newText)
   const chunks = diffArrays(
@@ -241,15 +259,85 @@ export function buildModifiedFileDiffHunks(oldText: string, newText: string): Gi
   }
 
   if (patches.length === 0 || patches.every(patch => patch.type === " ")) return []
-  return [
-    {
-      oldStart: 1,
-      oldLines: oldLines.length,
-      newStart: 1,
-      newLines: newLines.length,
-      patches,
-    },
-  ]
+  return compactGitDiffPatches(patches, Math.max(0, Math.floor(contextLines)))
+}
+
+export function gitDiffHunkStats(hunks: readonly GitDiffHunk[]): GitDiffStats {
+  let additions = 0
+  let deletions = 0
+  for (const hunk of hunks) {
+    for (const patch of hunk.patches) {
+      if (patch.type === "+") additions += 1
+      else if (patch.type === "-") deletions += 1
+    }
+  }
+  return {additions, deletions, total: additions + deletions}
+}
+
+export function summarizeGitDiffChanges(changes: readonly GitDiffChange[]): GitDiffStats {
+  let additions = 0
+  let deletions = 0
+  for (const change of changes) {
+    additions += change.stats.additions
+    deletions += change.stats.deletions
+  }
+  return {additions, deletions, total: additions + deletions}
+}
+
+function withGitDiffStats(change: Omit<GitDiffChange, "stats">): GitDiffChange {
+  return {...change, stats: gitDiffHunkStats(change.diffHunks)}
+}
+
+function compactGitDiffPatches(
+  patches: GitDiffHunk["patches"],
+  contextLines: number,
+): GitDiffHunk[] {
+  const ranges: Array<{start: number; end: number}> = []
+  for (let index = 0; index < patches.length; index += 1) {
+    if (patches[index].type === " ") continue
+    const range = {
+      start: Math.max(0, index - contextLines),
+      end: Math.min(patches.length - 1, index + contextLines),
+    }
+    const previous = ranges[ranges.length - 1]
+    if (previous && range.start <= previous.end + 1) {
+      previous.end = Math.max(previous.end, range.end)
+    } else {
+      ranges.push(range)
+    }
+  }
+
+  const hunks: GitDiffHunk[] = []
+  let patchIndex = 0
+  let oldCursor = 1
+  let newCursor = 1
+  const advance = (patch: GitDiffHunk["patches"][number]) => {
+    if (patch.type !== "+") oldCursor += 1
+    if (patch.type !== "-") newCursor += 1
+  }
+
+  for (const range of ranges) {
+    while (patchIndex < range.start) advance(patches[patchIndex++])
+    const rawOldStart = oldCursor
+    const rawNewStart = newCursor
+    let oldLines = 0
+    let newLines = 0
+    const hunkPatches = patches.slice(range.start, range.end + 1)
+    for (const patch of hunkPatches) {
+      if (patch.type !== "+") oldLines += 1
+      if (patch.type !== "-") newLines += 1
+      advance(patch)
+      patchIndex += 1
+    }
+    hunks.push({
+      oldStart: oldLines === 0 ? Math.max(0, rawOldStart - 1) : rawOldStart,
+      oldLines,
+      newStart: newLines === 0 ? Math.max(0, rawNewStart - 1) : rawNewStart,
+      newLines,
+      patches: hunkPatches,
+    })
+  }
+  return hunks
 }
 
 export function isBinaryFile(path: string, data: Uint8Array): boolean {

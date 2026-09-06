@@ -9,6 +9,11 @@
   .touch-manipulation {
     touch-action: manipulation;
   }
+
+  .commit-diff-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 68px;
+  }
 </style>
 
 <script lang="ts">
@@ -224,11 +229,7 @@
         const failures = (commitDetails?.readFailures || []).map((failure: any) => ({
           ...failure,
           error: failure.error || "Unknown error",
-          kind: classifyRemoteReadFailure(
-            failure.error,
-            failure.status,
-            failure.errorCode,
-          ).kind,
+          kind: classifyRemoteReadFailure(failure.error, failure.status, failure.errorCode).kind,
         }))
         repoClass.recordReadFallback({
           operation: "getCommit",
@@ -273,10 +274,10 @@
       }
 
       changes = commitDetails.changes.map((change: any) => ({
-        path: change.path,
-        status: change.status,
+        ...change,
         binary: change.binary === true,
-        diffHunks: change.diffHunks,
+        diffHunks: Array.isArray(change.diffHunks) ? change.diffHunks : [],
+        stats: getChangeStats(change),
       }))
 
       diffUnavailable = commitDetails.diffAvailable === false
@@ -674,6 +675,8 @@
   let autoSelectedFilesAnchor = $state<string | null>(null)
   let autoExpandedChangesKey = $state<string | null>(null)
 
+  const DIFF_ANCHOR_CONCURRENCY = 16
+
   const getCommitReviewDiff = (change: CommitChange) =>
     prChangeToReviewParseDiffFile(change, {
       contextLines: COMMIT_DIFF_CONTEXT_LINES,
@@ -772,8 +775,19 @@
     }
     const paths = Array.from(new Set(changes.map(change => change.path).filter(Boolean)))
     let cancelled = false
-    Promise.all(paths.map(async path => [path, await githubPermalinkDiffId(path)] as const))
-      .then(entries => {
+    let nextPath = 0
+    const entries: Array<readonly [string, string]> = []
+    Promise.all(
+      Array.from({length: Math.min(DIFF_ANCHOR_CONCURRENCY, paths.length)}, async () => {
+        while (!cancelled) {
+          const index = nextPath++
+          if (index >= paths.length) return
+          const path = paths[index]
+          entries[index] = [path, await githubPermalinkDiffId(path)] as const
+        }
+      }),
+    )
+      .then(() => {
         if (!cancelled) diffAnchors = Object.fromEntries(entries)
       })
       .catch(() => {
@@ -839,13 +853,17 @@
     }
   }
 
-  // Calculate diff stats for each file
-  const getFileStats = (hunks: any[]) => {
+  const getChangeStats = (change: any) => {
+    if (change?.stats) {
+      const additions = Number(change.stats.additions || 0)
+      const deletions = Number(change.stats.deletions || 0)
+      return {additions, deletions, total: additions + deletions}
+    }
     let additions = 0
     let deletions = 0
 
-    for (const hunk of hunks) {
-      for (const patch of hunk.patches) {
+    for (const hunk of change?.diffHunks || []) {
+      for (const patch of hunk?.patches || []) {
         // Accept both SplitDiff ('+', '-') and parse-diff ('add','del','normal') styles
         const t = patch.type
         if (t === "+" || t === "add") additions++
@@ -853,12 +871,15 @@
       }
     }
 
-    return {additions, deletions}
+    return {additions, deletions, total: additions + deletions}
   }
 
+  const getFileStats = (change: CommitChange) =>
+    change.stats || {additions: 0, deletions: 0, total: 0}
+
   // Calculate total diff stats (safe for missing data)
-  const totalStats = $derived(() => {
-    if ((!changes || changes.length === 0) && diffUnavailable && fallbackStats) {
+  const totalStats = $derived.by(() => {
+    if (fallbackStats) {
       return {
         totalAdditions: Number(fallbackStats.additions || 0),
         totalDeletions: Number(fallbackStats.deletions || 0),
@@ -869,7 +890,7 @@
     let totalDeletions = 0
 
     for (const change of changes) {
-      const stats = getFileStats(change.diffHunks)
+      const stats = getFileStats(change)
       totalAdditions += stats.additions
       totalDeletions += stats.deletions
     }
@@ -985,15 +1006,15 @@
         <div
           class="rounded-lg border bg-emerald-50 p-3 text-center dark:border-emerald-900 dark:bg-emerald-950/30">
           <div class="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
-            +{totalStats().totalAdditions}
+            +{totalStats.totalAdditions}
           </div>
           <div class="text-sm text-muted-foreground">Lines Added</div>
           <div class="mt-1 text-xs text-muted-foreground">
-            {totalStats().totalAdditions === 0
+            {totalStats.totalAdditions === 0
               ? "No additions"
-              : totalStats().totalAdditions < 10
+              : totalStats.totalAdditions < 10
                 ? "Few additions"
-                : totalStats().totalAdditions < 50
+                : totalStats.totalAdditions < 50
                   ? "Moderate additions"
                   : "Many additions"}
           </div>
@@ -1002,15 +1023,15 @@
         <div
           class="rounded-lg border bg-rose-50 p-3 text-center dark:border-rose-900 dark:bg-rose-950/30">
           <div class="text-2xl font-bold text-rose-700 dark:text-rose-300">
-            -{totalStats().totalDeletions}
+            -{totalStats.totalDeletions}
           </div>
           <div class="text-sm text-muted-foreground">Lines Removed</div>
           <div class="mt-1 text-xs text-muted-foreground">
-            {totalStats().totalDeletions === 0
+            {totalStats.totalDeletions === 0
               ? "No deletions"
-              : totalStats().totalDeletions < 10
+              : totalStats.totalDeletions < 10
                 ? "Few deletions"
-                : totalStats().totalDeletions < 50
+                : totalStats.totalDeletions < 50
                   ? "Moderate deletions"
                   : "Many deletions"}
           </div>
@@ -1098,10 +1119,10 @@
               {#each changes as change (change.path)}
                 {@const isExpanded = expandedDiffFiles.has(change.path)}
                 {@const statusInfo = getFileStatusIcon(change.status)}
-                {@const stats = getFileStats(change.diffHunks)}
+                {@const stats = getFileStats(change)}
 
                 <div
-                  class="w-full overflow-x-auto bg-background"
+                  class="commit-diff-row w-full overflow-x-auto bg-background"
                   id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}>
                   <button
                     onclick={() => toggleDiffFile(change.path)}
@@ -1186,10 +1207,10 @@
               {#each changes as change (change.path)}
                 {@const isExpanded = expandedFiles.has(change.path)}
                 {@const statusInfo = getFileStatusIcon(change.status)}
-                {@const stats = getFileStats(change.diffHunks)}
+                {@const stats = getFileStats(change)}
 
                 <div
-                  class="w-full overflow-x-auto bg-background"
+                  class="commit-diff-row w-full overflow-x-auto bg-background"
                   id={diffAnchors[change.path] ? `diff-${diffAnchors[change.path]}` : undefined}>
                   <button
                     onclick={() => toggleFile(change.path)}

@@ -2,8 +2,19 @@ import type {PageLoad} from "./$types"
 
 export interface CommitChange {
   path: string
+  oldPath?: string
   status: "added" | "modified" | "deleted" | "renamed"
+  oldOid?: string
+  newOid?: string
+  oldMode?: string
+  newMode?: string
   binary?: boolean
+  submodule?: boolean
+  stats?: {
+    additions: number
+    deletions: number
+    total: number
+  }
   diffHunks: Array<{
     oldStart: number
     oldLines: number
