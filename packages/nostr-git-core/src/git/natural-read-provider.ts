@@ -454,39 +454,45 @@ export class GitNaturalReadProvider {
     startCommitHash: string,
     depth: number,
   ): Promise<GitNaturalCommit[]> {
-    const commits: GitNaturalCommit[] = []
-    const seen = new Set<string>()
-    let nextHash: string | undefined = startCommitHash
+    const commits = new Map<string, GitNaturalCommit>()
+    const requested = new Set<string>()
+    const pending = [startCommitHash]
     let batchSize = Math.min(COMMIT_HISTORY_BATCH_SIZE, depth)
 
-    while (nextHash && commits.length < depth) {
-      const remaining = depth - commits.length
+    while (pending.length > 0 && commits.size < depth) {
+      const nextHash = pending.shift()!
+      if (commits.has(nextHash) || requested.has(nextHash)) continue
+
+      const remaining = depth - commits.size
       const batchDepth = Math.min(batchSize, remaining)
 
       try {
         const batch = await this.fetchCommitHistoryBatch(params, infoRefs, nextHash, batchDepth)
-        if (batch.length === 0) break
+        requested.add(nextHash)
+        if (batch.length === 0) continue
 
         for (const commit of batch) {
-          if (seen.has(commit.hash)) continue
-          commits.push(commit)
-          seen.add(commit.hash)
-          if (commits.length >= depth) break
+          if (!commits.has(commit.hash)) commits.set(commit.hash, commit)
         }
 
-        const tail = batch[batch.length - 1]
-        if (!tail || tail.parents.length === 0 || batch.length < batchDepth) break
-        nextHash = tail.parents[0]
+        for (const commit of batch) {
+          for (const parent of commit.parents) {
+            if (!commits.has(parent) && !requested.has(parent) && !pending.includes(parent)) {
+              pending.push(parent)
+            }
+          }
+        }
       } catch (error) {
         if (batchSize > 1 && isGitNaturalBigBatchError(error)) {
           batchSize = Math.max(1, Math.floor(batchSize / 2))
+          pending.unshift(nextHash)
           continue
         }
         throw error
       }
     }
 
-    return commits
+    return orderCommitsFromTip(Array.from(commits.values()), startCommitHash, depth)
   }
 
   private async fetchCommitHistoryBatch(
@@ -1245,14 +1251,15 @@ function orderCommitsFromTip(
   const byHash = new Map(commits.map(commit => [commit.hash, commit]))
   const ordered: GitNaturalCommit[] = []
   const seen = new Set<string>()
-  let nextHash: string | undefined = tipHash
+  const pending = [tipHash]
 
-  while (nextHash && ordered.length < limit) {
+  while (pending.length > 0 && ordered.length < limit) {
+    const nextHash = pending.shift()!
     const commit = byHash.get(nextHash)
-    if (!commit || seen.has(commit.hash)) break
+    if (!commit || seen.has(commit.hash)) continue
     ordered.push(commit)
     seen.add(commit.hash)
-    nextHash = commit.parents[0]
+    pending.push(...commit.parents)
   }
 
   for (const commit of commits

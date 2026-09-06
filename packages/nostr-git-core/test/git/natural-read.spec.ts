@@ -156,6 +156,10 @@ function makeFakeNaturalAdapter(
   commits: GitNaturalCommit[],
   opts: {
     throwOnce?: (params: {commitHash: string; maxCommits: number}) => Error | undefined
+    selectCommits?: (params: {
+      commitHash: string
+      maxCommits: number
+    }) => GitNaturalCommit[] | undefined
   } = {},
 ) {
   const byHash = new Map(commits.map((commit, index) => [commit.hash, {commit, index}]))
@@ -167,8 +171,11 @@ function makeFakeNaturalAdapter(
       })
       if (error) throw error
 
+      const maxCommits = params.maxCommits ?? 1
       const start = byHash.get(params.commitHash)?.index ?? commits.length
-      const selected = commits.slice(start, start + (params.maxCommits ?? 1))
+      const selected =
+        opts.selectCommits?.({commitHash: params.commitHash, maxCommits}) ??
+        commits.slice(start, start + maxCommits)
       const objects = new Map(
         selected.map(commit => {
           const data = encoder.encode(JSON.stringify(commit))
@@ -236,7 +243,7 @@ describe("GitNaturalObjectCache", () => {
       `raw:${"b".repeat(40)}:blob:none`,
     )
     expect(gitNaturalCacheKeys.historyBatch("C".repeat(40), 30)).toBe(
-      `history:${"c".repeat(40)}:30`,
+      `history:v2:${"c".repeat(40)}:30`,
     )
 
     cache.putInfoRefs("https://example.com/repo.git/", infoRefs)
@@ -938,5 +945,110 @@ describe("GitNaturalReadProvider commit history batching", () => {
     expect(
       (await cache.getHistoryBatchAsync<GitNaturalCommit>(commits[0].hash, 10))?.commits,
     ).toHaveLength(10)
+  })
+
+  it("retains second-parent commits returned beside a full first-parent batch", async () => {
+    const mainline = makeCommitChain(24)
+    const side: GitNaturalCommit = {
+      ...mainline[0],
+      hash: "e".repeat(40),
+      parents: [mainline[1].hash],
+      message: "Side commit\n",
+    }
+    const tip: GitNaturalCommit = {
+      ...mainline[0],
+      hash: "f".repeat(40),
+      parents: [mainline[0].hash, side.hash],
+      message: "Merge commit\n",
+    }
+    const commits = [tip, ...mainline, side]
+    const cache = new GitNaturalObjectCache({asyncStore: false})
+    const {adapter, fetchTreeZeroObjects} = makeFakeNaturalAdapter(commits, {
+      selectCommits: ({commitHash, maxCommits}) => {
+        if (commitHash === tip.hash) {
+          return [tip, ...mainline.slice(0, maxCommits - 1), side]
+        }
+        const start = mainline.findIndex(item => item.hash === commitHash)
+        return start >= 0 ? mainline.slice(start, start + maxCommits) : undefined
+      },
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, cache, adapter})
+
+    const result = await provider.listCommits({
+      url: "https://example.com/repo.git",
+      commitHash: tip.hash,
+      depth: 20,
+    })
+
+    expect(result.commits.slice(0, 4).map(item => item.hash)).toEqual([
+      tip.hash,
+      mainline[0].hash,
+      side.hash,
+      mainline[1].hash,
+    ])
+    expect(result.commits).toHaveLength(20)
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.commitHash)).toEqual([
+      tip.hash,
+      mainline[13].hash,
+    ])
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.maxCommits)).toEqual([15, 5])
+  })
+
+  it("continues every unresolved merge-parent frontier across batches", async () => {
+    const template = makeCommitChain(1)[0]
+    const base: GitNaturalCommit = {...template, hash: "c".repeat(40), parents: []}
+    const makeBranch = (offset: number) =>
+      Array.from({length: 10}, (_, index) => ({
+        ...template,
+        hash: (offset + index).toString(16).padStart(2, "0").repeat(20),
+        parents: [
+          index === 9 ? base.hash : (offset + index + 1).toString(16).padStart(2, "0").repeat(20),
+        ],
+        message: `Branch commit ${offset}:${index}\n`,
+      }))
+    const left = makeBranch(100)
+    const right = makeBranch(150)
+    const tip: GitNaturalCommit = {
+      ...template,
+      hash: "d".repeat(40),
+      parents: [left[0].hash, right[0].hash],
+      message: "Merge commit\n",
+    }
+    const commits = [tip, ...left, ...right, base]
+    const fromBranch = (branch: GitNaturalCommit[], start: number, maxCommits: number) => {
+      const selected = branch.slice(start, start + maxCommits)
+      if (selected.length < maxCommits && start + selected.length === branch.length) {
+        selected.push(base)
+      }
+      return selected
+    }
+    const {adapter, fetchTreeZeroObjects} = makeFakeNaturalAdapter(commits, {
+      selectCommits: ({commitHash, maxCommits}) => {
+        if (commitHash === tip.hash) return commits
+        const leftStart = left.findIndex(item => item.hash === commitHash)
+        if (leftStart >= 0) return fromBranch(left, leftStart, maxCommits)
+        const rightStart = right.findIndex(item => item.hash === commitHash)
+        if (rightStart >= 0) return fromBranch(right, rightStart, maxCommits)
+        return commitHash === base.hash ? [base] : undefined
+      },
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, adapter})
+
+    const result = await provider.listCommits({
+      url: "https://example.com/repo.git",
+      commitHash: tip.hash,
+      depth: commits.length,
+    })
+
+    expect(result.commits).toHaveLength(commits.length)
+    expect(new Set(result.commits.map(item => item.hash))).toEqual(
+      new Set(commits.map(item => item.hash)),
+    )
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.commitHash)).toEqual([
+      tip.hash,
+      left[7].hash,
+      right[7].hash,
+    ])
+    expect(fetchTreeZeroObjects.mock.calls.map(([params]) => params.maxCommits)).toEqual([15, 7, 3])
   })
 })
