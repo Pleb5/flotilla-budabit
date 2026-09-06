@@ -59,5 +59,6 @@ describe("PR review consistency", () => {
     expect(prView).toContain("finishPrReviewOperation(operationId)")
     expect(prView).toContain("if (prChangesGeneration !== currentGen) return")
     expect(prView).toContain("cancelActivePrReviewOperation()")
+    expect(prView).toContain("untrack(() => void loadPrChanges())")
   })
 })

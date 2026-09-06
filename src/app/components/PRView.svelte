@@ -2042,7 +2042,7 @@
     if (lastPrChangesLoadKey === changesKey) return
     lastPrChangesLoadKey = changesKey
 
-    void loadPrChanges()
+    untrack(() => void loadPrChanges())
     return () => {
       prChangesGeneration++
       cancelActivePrReviewOperation()
