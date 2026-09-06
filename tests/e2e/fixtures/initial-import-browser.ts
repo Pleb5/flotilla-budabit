@@ -6,20 +6,29 @@ import {IndexedInitialImportStore} from "../../../packages/nostr-git-ui/src/lib/
 import {parseInitialImportUrl} from "../../../packages/nostr-git-ui/src/lib/utils/initial-import-source"
 import type {InitialImportRuntime} from "../../../packages/nostr-git-ui/src/lib/utils/initial-import"
 
-export async function mountInitialImportFixture(failFirstIssue = true) {
+type FixtureRelayState = {
+  events: ReturnType<typeof finalizeEvent>[]
+  pushes: number
+  attemptedIssueId: string
+}
+
+export async function mountInitialImportFixture(
+  failFirstIssue = true,
+  restored?: FixtureRelayState,
+) {
   if (!import.meta.env.DEV) throw new Error("Development fixture only")
   // This constant is a public disposable test identity, never a personal signing key.
   const testKey = new Uint8Array(32).fill(17)
   const owner = getPublicKey(testKey)
-  const events = new Map<string, ReturnType<typeof finalizeEvent>>()
+  const events = new Map((restored?.events || []).map(event => [event.id, event]))
   const sourceRefs = [
     {ref: "refs/heads/main", oid: "a".repeat(40)},
     {ref: "refs/tags/v1", oid: "b".repeat(40)},
   ]
-  let remoteRefs: typeof sourceRefs = []
-  let pushes = 0
+  let remoteRefs: typeof sourceRefs = restored?.pushes ? sourceRefs : []
+  let pushes = restored?.pushes || 0
   let lostAck = failFirstIssue
-  let attemptedIssueId = ""
+  let attemptedIssueId = restored?.attemptedIssueId || ""
   const store = new IndexedInitialImportStore()
   const target = document.createElement("div")
   target.setAttribute("data-initial-import-fixture", "")
@@ -99,6 +108,8 @@ export async function mountInitialImportFixture(failFirstIssue = true) {
   })
   return {
     owner,
+    // Small mock relay state only; production recovery always uses its real relay and saved job.
+    relayState: () => ({events: [...events.values()], pushes, attemptedIssueId}),
     evidence: () => ({
       pushes,
       attemptedIssueId,

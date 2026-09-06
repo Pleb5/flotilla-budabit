@@ -29,6 +29,26 @@ const GRASP_URL =
 afterEach(() => vi.useRealTimers())
 
 describe("cloneRemoteRepoUtil GRASP transport selection", () => {
+  it("initial import bounds discovery/clone HTTP and skips checkout without truncating history", async () => {
+    const git = makeGitMock()
+    await cloneRemoteRepoUtil(git, makeCacheMock() as any, {
+      url: "https://github.com/owner/repo.git",
+      dir: "/repos/owner/initial-test",
+      initialImport: true,
+    })
+    expect(git.listServerRefs).toHaveBeenCalledWith(
+      expect.objectContaining({maxHttpBytes: 2 * 1024 * 1024}),
+    )
+    expect(git.clone).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxHttpBytes: 64 * 1024 * 1024,
+        singleBranch: false,
+        noCheckout: true,
+      }),
+    )
+    expect((git.clone as any).mock.calls[0][0]).not.toHaveProperty("depth")
+    expect(git.checkout).not.toHaveBeenCalled()
+  })
   it("uses direct transport first for GRASP clone URLs", async () => {
     const listServerRefs = vi.fn(async () => [{ref: "refs/heads/main", oid: "abcd"}])
     const clone = vi.fn(async () => undefined)

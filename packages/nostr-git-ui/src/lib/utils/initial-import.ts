@@ -229,25 +229,23 @@ export async function runInitialImport(
     job = next;
   };
   const exactVisible = async (event: NostrEvent): Promise<boolean> => {
-    const events = await abort.raceWithAbort(
-      runtime.fetchEvents({
-        relays: [job!.relay],
-        filters: [{ ids: [event.id] }],
-        timeoutMs: 10_000,
-        throwOnTimeout: true,
-      })
-    );
+    active();
+    const events = await runtime.fetchEvents({
+      relays: [job!.relay],
+      filters: [{ ids: [event.id] }],
+      timeoutMs: 10_000,
+      throwOnTimeout: true,
+    });
     return events.some((e) => e.id === event.id && e.pubkey === job!.owner && verifyEvent(e));
   };
   const assertAnnouncementUnchanged = async () => {
-    const latest = await abort.raceWithAbort(
-      runtime.fetchEvents({
-        relays: [job!.relay],
-        filters: [{ kinds: [30617], authors: [job!.owner], "#d": [job!.name], limit: 10 }],
-        timeoutMs: 10_000,
-        throwOnTimeout: true,
-      })
-    );
+    active();
+    const latest = await runtime.fetchEvents({
+      relays: [job!.relay],
+      filters: [{ kinds: [30617], authors: [job!.owner], "#d": [job!.name], limit: 10 }],
+      timeoutMs: 10_000,
+      throwOnTimeout: true,
+    });
     active();
     if (
       !job!.announcement ||
@@ -266,6 +264,17 @@ export async function runInitialImport(
     const pending = job!.pending;
     active();
     // Announcement/state admission always requires a real ACK (purgatory is not readable before push).
+    if (["announcement", "state"].includes(pending.type)) {
+      const metadata = await runtime.fetchEvents({
+        relays: [job!.relay],
+        filters: [{ kinds: [30617, 30618], authors: [job!.owner], "#d": [job!.name], limit: 3 }],
+        timeoutMs: 10_000,
+        throwOnTimeout: true,
+      });
+      const expectedIds = new Set([pending.event.id, job!.announcement?.id, job!.state?.id]);
+      if (metadata.some((event) => !expectedIds.has(event.id)))
+        throw new Error("Destination metadata changed; no replacement import event was sent");
+    }
     if (!["announcement", "state"].includes(pending.type) && (await exactVisible(pending.event))) {
       job = await runtime.store.confirm(job!);
       return;
@@ -275,9 +284,9 @@ export async function runInitialImport(
     await save({ publicStarted: true });
     progress(`Publishing kind ${pending.event.kind}; public side effects may have started…`);
     active();
-    const result = await abort.raceWithAbort(
-      Promise.resolve(runtime.publish(pending.event, { relays: [job!.relay] }))
-    );
+    // Let this bounded-deadline request settle while retaining the caller's Web Lock.
+    // Stop must not detach requests and allow rapid retries to accumulate live transports.
+    const result = await runtime.publish(pending.event, { relays: [job!.relay] });
     const ack = extractPublishRelayAck(result);
     if (
       result.event?.id !== pending.event.id ||
@@ -321,9 +330,24 @@ export async function runInitialImport(
         return runtime.sign(template);
       })
       .finally(() => outstandingSignatures.delete(owner));
-    const event = await abort.raceWithAbort(signing);
+    const signed = await abort.raceWithAbort(signing);
     active();
-    if (event.pubkey !== owner || event.id !== plannedId || !verifyEvent(event)) {
+    // Drop cached verification symbols and signer-owned mutable tags before checking wire identity.
+    const event: NostrEvent = {
+      id: signed.id,
+      sig: signed.sig,
+      kind: signed.kind,
+      pubkey: signed.pubkey,
+      content: signed.content,
+      created_at: signed.created_at,
+      tags: signed.tags.map((tag) => [...tag]),
+    };
+    if (
+      event.pubkey !== owner ||
+      event.id !== plannedId ||
+      getEventHash(event) !== plannedId ||
+      !verifyEvent(event)
+    ) {
       throw new Error("Signer changed the import event or active account");
     }
     const bytes = new TextEncoder().encode(JSON.stringify(event)).byteLength;
@@ -362,7 +386,7 @@ export async function runInitialImport(
       abort.signal
     );
     if (source.id !== job.source.id) throw new Error("Source repository identity changed");
-    if (!job.publicStarted && !job.pending) await assertNewCoordinate(job, runtime);
+    if (!job.publicStarted) await assertNewCoordinate(job, runtime);
     if (job.workerOperation && !(await runtime.git.settle(job)))
       throw new Error(
         "Previous Git operation is still active or unknown; no new mutation was started"

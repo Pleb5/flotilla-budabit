@@ -3,6 +3,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkGraspReceivePackReady, checkGraspRepoExists } from "./grasp-availability.js";
 
 describe("grasp-availability", () => {
+  it("bounds initial-import advertisement bodies and never mistakes an exception containing 404 for absence", async () => {
+    const fetcher = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(new Response("x".repeat(2 * 1024 * 1024 + 1)));
+    const params = {
+      relayUrl: "wss://grasp.example",
+      owner: "a".repeat(64),
+      userPubkey: "a".repeat(64),
+      repoName: "repo",
+      bounded: true,
+    };
+    await expect(checkGraspRepoExists(params)).rejects.toThrow("limit");
+    fetcher.mockRejectedValue(new Error("untrusted failure contains 404"));
+    await expect(checkGraspRepoExists(params)).rejects.toThrow("Failed to verify");
+    fetcher.mockResolvedValue(new Response("", { status: 404 }));
+    await expect(checkGraspRepoExists(params)).resolves.toEqual({ exists: false });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -27,10 +44,9 @@ describe("grasp-availability", () => {
 
   it("recognizes a repository with an advertised Git ref as existing", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        `001e# service=git-upload-pack\n0044${"b".repeat(40)} HEAD\0multi_ack\n0000`,
-        { status: 200 }
-      )
+      new Response(`001e# service=git-upload-pack\n0044${"b".repeat(40)} HEAD\0multi_ack\n0000`, {
+        status: 200,
+      })
     );
 
     await expect(

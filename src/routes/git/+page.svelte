@@ -139,7 +139,10 @@
     makeTargetedPublicationOriginalFilterPlan,
     makeTargetedPublicationOriginalRelayHintPlans,
   } from "@app/core/community-feeds"
-  import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
+  import {
+    fetchRelayEventsWithTimeout,
+    fetchInitialImportRelayEvents,
+  } from "@app/util/fetch-relay-events"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
@@ -4500,7 +4503,7 @@
           // The journal, not the app's event cache, owns retry state and bodies.
           return operationPublishTransport.publish(event, context.relays, {publishLocally: false})
         },
-        fetchEvents: fetchRelayEvents,
+        fetchEvents: fetchInitialImportRelayEvents,
       }
       const modalId = pushModal(
         InitialImportDialog,

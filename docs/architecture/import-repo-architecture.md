@@ -1,312 +1,86 @@
-# Repository Import Architecture
+# Initial Repository Import
 
-This document describes the implemented repository import lifecycle in Budabit. Import is a transaction across Nostr relays, GRASP Git servers, and optional hosted Git providers. Repository metadata must be admitted before irreversible Git work begins, and repository state must authorize each GRASP push before `git-receive-pack` starts.
+The supported importer is **new repository creation plus one-time initial data delivery**, not incremental forge synchronization. It is available from `/git` → **Import Repo**, or **New Repo** → **Create from GitHub**. `FEATURE_IMPORT_REPO=0` hides the entry points; the supported lane is otherwise enabled. The [legacy importer](./legacy-repository-import.md) remains dormant, not merged with this executor.
 
-## Scope
+## Supported lane
 
-The import flow supports:
+- One public, nonempty GitHub repository, inspected anonymously even when a history API token is supplied.
+- One **new** GRASP destination and kind-30617 coordinate under the active Nostr account. Existing, provisioned-but-empty, and ambiguous destinations cannot be adopted by a fresh job.
+- All advertised branch and tag tips, including their reachable history, within the limits below. There is no silent top-five branch selection or shallow-history default.
+- Optional issues, current open/closed status, and issue conversation comments. GitHub PR objects encountered in the issues endpoint are skipped explicitly.
+- No source mutation, hosted destination creation, multi-target migration, recurring reconciliation, or distributed deduplication.
 
-- importing an existing public Git repository;
-- targeting one or more GRASP servers;
-- targeting hosted Git providers such as GitHub or GitLab;
-- hybrid imports that combine GRASP and hosted targets;
-- reusing an existing GRASP repository announcement;
-- importing pull-request refs when the source provider exposes them;
-- recovering or rolling back partially completed transactions.
+Pull requests and their Git refs, private repositories, LFS object transfer, release assets, wikis, and submodule repository migration are not supported. Large or unusual jobs need a native migration. GitHub's size estimate is an admission check, not proof of the exact pack size or peak heap.
 
-The flow is implemented primarily in:
+## Effect ordering
 
-- `packages/nostr-git-ui/src/lib/hooks/useImportRepo.svelte.ts`;
-- `packages/nostr-git-ui/src/lib/utils/remote-sync.ts`;
-- `packages/nostr-git-ui/src/lib/utils/grasp-pipeline.ts`;
-- `packages/nostr-git-ui/src/lib/utils/repo-creation-transaction.ts`;
-- `packages/nostr-git-ui/src/lib/utils/repo-creation-recovery.ts`;
-- `packages/nostr-git-ui/src/lib/utils/worker-operation-session.ts`;
-- `src/app/core/git-commands.ts`;
-- `src/app/util/fetch-relay-events.ts`.
+1. Validate source/public access, actor, destination/coordinate availability and all branch/tag refs. Review has no remote mutation and does not retain full history.
+2. The user approves public effects. Save a version-1 IndexedDB job with frozen source identity, actor, destination, category choices, cutoff and refs.
+3. Sign kind **30617**, verify the signer preserved its planned identity, and save the exact signed pending event **before sending**. Require the selected GRASP relay's explicit ACK. A provisioned endpoint or missing explicit relay outcome is not an ACK.
+4. Await GRASP receive-pack provisioning, then clone the source into one transaction-owned local mirror, without a worktree checkout. Verify local tips against the reviewed refs.
+5. Sign, save and obtain the required ACK for kind **30618**, containing those exact branch/tag refs and HEAD, **before pushing any Git data**.
+6. Refuse divergent destination refs. Push missing pinned refs without force or automatic repair fetch. Verify all destination tips and exact announcement/state visibility after GRASP promotion. Purgatory admission does not require pre-push readback; promotion does.
+7. Mark Git verified independently of history completion. Remove only the job-owned local mirror after known worker settlement, then stream optional history sequentially.
 
-Critical relay publications and exact transactional reads use operation-scoped transport isolation. See [Critical Relay Transport Isolation](./critical-relay-transport-isolation.md) for the scheduler interaction, guarantees, and usage criteria.
+The first recorded publication attempt is the public boundary, even if its ACK is lost. Announcements can remain after clone failure. Accepted pushes and published Nostr events cannot be reliably rolled back; the new executor has no remote-delete or compensating-publication callback.
 
-## Terms
+## History delivery and trust
 
-### Repository announcement
+The working set is an issue page plus its currently active comment page, one template and one signed pending event. Delivery awaits the required relay before advancing the stream. There is no full-history plan, pre-signing buffer, event retry array, or whole-store hydration on resume.
 
-A kind `30617` replaceable event that identifies the repository and advertises its clone URLs, web URLs, maintainers, and repository relays.
+Events are signed by the repository owner, not fabricated forge-user keypairs. `imported`, `proxy`, `source-author`, `source-key`, `original_date` and `original_updated_at` describe the source attribution asserted by that importer. A source key contains the forge origin, stable GitHub repository ID, object type and global object ID. Original authors do not gain control of the importer's Nostr signature.
 
-### Repository state
+An `imported` tag **never grants status authority**. Repository owner/direct-maintainer authority is still required for imported baselines. Native root-author status behavior is unchanged. Issue detail and conversation UI explicitly distinguish GitHub attribution from the Nostr signer.
 
-A kind `30618` replaceable event that records the repository's refs. GRASP uses this event to authorize and stage an incoming push.
+All selected metadata and history go to the **same required GRASP relay**, avoiding root/comment graphs scattered across unrelated successful relays. The route uses isolated publication with `publishLocally: false`; the main event cache is not an import retry queue. Exact reads use isolated, EOSE-complete, small-query budgets. Publication is paced at least 1.25 seconds apart; failures stop for user-directed recovery rather than retaining automatic retry jobs.
 
-### Repository relays
+## Durable state and continuation
 
-The relays selected for the repository's Nostr metadata. During initial admission, this set consists of the configured metadata relays plus every new selected GRASP target relay, with duplicate GRASP origins removed.
+Database: `nostr-git-initial-import`, stores `jobs` and `receipts`.
 
-### GRASP relay
+- A unique `[owner, name]` job index prevents a second local job for the same coordinate.
+- Each job stores at most one signed pending event, exact signed announcement/state, pinned refs, current worker operation ID, Git/history status and numeric confirmed counters.
+- After an ACK (or an exact readback of a previously pending history event), one transaction writes a compact source-key → event-ID/type receipt, increments counters and clears the pending body. Delivered history bodies are not retained.
+- Indexed lookups skip receipts without building an in-memory history index. Templates for confirmed source keys are not rebuilt.
+- Identity and source/destination/config are immutable within a job. Tokens, key material and credential-bearing URLs are not journal fields. Signer output is copied to plain wire fields and cryptographically checked before storage.
+- One browser Web Lock serializes the import lane across tabs. An outstanding cancelled signer prompt also blocks another prompt for that actor until it settles.
+- Stop retains that lock while a relay read/send reaches its deadline (10 seconds for reads, 30 seconds for publication). Rapid retries therefore cannot accumulate detached relay transports. A late confirmed ACK can still be journaled; no next effect is scheduled.
 
-The Nostr relay associated with a selected GRASP Git target. A GRASP relay may also be a repository relay, but admission still requires an explicit ACK from each newly selected GRASP target's relay.
+**Resume is same-job continuation, not sync.** It rechecks public source identity and actor, settles known worker receipts, retries the exact signed pending event, and rescans source streams while skipping confirmed receipts. New source items after the creation cutoff are excluded. Unprocessed bodies/statuses are read afresh: source edits, deletions or pagination movement during an interruption can affect the remaining import. No frozen-snapshot or exactly-once transport claim is made.
 
-### Provisional announcement
+Before retrying metadata, any visible conflicting coordinate metadata blocks replacement. Before delivering pending history, the saved repository announcement must still be the current visible announcement. Unknown workers, incomplete clones, divergent refs or changed announcement scope stop for manual inspection. Reload does not turn an unknown Git operation into a safe retry.
 
-The initial kind `30617` event published before cloning, remote creation, or pushing. It proves that the repository coordinate is admitted by the required relays. For a new GRASP repository, ngit-grasp keeps this event in purgatory until Git data arrives.
+**Stop** prevents further scheduled effects, requests scoped worker cancellation, and retains recovery rather than terminating the shared worker. An in-flight send/push may still complete. “Repository created” and “selected initial history complete” are separate results. **Keep repository; stop history** preserves a usable partial repository and the record of any unconfirmed event. Closing a dialog does not delete public data. Clearing site data loses local recovery; a new job must not reconstruct/adopt the existing destination.
 
-### Final announcement
+## Resource budgets
 
-The reconciled kind `30617` event published after synchronization. It advertises only successful targets and the selected repository relays.
+| Resource                                     | Limit                                                 |
+| -------------------------------------------- | ----------------------------------------------------- |
+| GitHub-reported repository size              | 50 MiB                                                |
+| Clone/push HTTP body                         | 64 MiB per request/response                           |
+| Git ref advertisement / GitHub JSON response | 2 MiB                                                 |
+| Branch/tag refs                              | 100                                                   |
+| Source page size / pages per stream          | 30 items / 200 pages                                  |
+| Source items scanned per attempt             | 5,000, including skipped PRs                          |
+| Delivered history                            | 1,000 events / 8 MiB cumulative signed bytes per job  |
+| Signed event / job record                    | 32 KiB / 128 KiB                                      |
+| Saved local jobs                             | 50 globally; no age-based dropping of unresolved work |
+| Exact relay read                             | 10 events / 64 KiB, 10-second request deadline        |
 
-## Core Invariants
+Limits stop with a partial result, never silent truncation. IndexedDB has a job/receipt budget as well as browser quota; persistence failure stops the next effect. HTTP limits are applied during body consumption, before aggregation/JSON parsing where the transport allows it. Browser Git still needs transient packing, inflation and delta buffers: **64 MiB transferred is not a guaranteed 64 MiB heap ceiling**, and unusually large expanded objects remain a reason to use native Git.
 
-The import flow preserves these invariants:
+## Verification and limits of evidence
 
-1. Metadata admission precedes source cloning, hosted repository creation, and Git pushes.
-2. The provisional announcement must receive at least one repository-relay ACK.
-3. Every newly selected GRASP target must ACK its provisional announcement on its own relay.
-4. Existing GRASP targets reuse their current announcement rather than replacing it with a provisional event.
-5. A GRASP target must be ready for Smart HTTP before Budabit clones the source repository.
-6. A matching state event must be published and ACKed before each GRASP push.
-7. GRASP targets are processed before hosted Git targets.
-8. A failed target is excluded from final clone and web URLs.
-9. Repository metadata never gains relays outside the user's selected repository relays.
-10. An exact post-push read is successful only when the expected event is returned, not merely when a relay completes a query.
-11. Rollback targets only relays that ACKed provisional events.
-12. Recovery publishes newer reconciled metadata instead of replaying stale provisional metadata.
-13. Same-coordinate augmentation may preserve a GRASP clone URL from the exact source announcement without selecting its legacy service relay; this exception never applies to a newly introduced clone URL.
-14. Augmentation target selection controls synchronization, not metadata removal. Unchecked source remotes and their original repository relays remain advertised unless the user explicitly removes that metadata. A selected GRASP source remote that fails and is de-listed is removed from final clone and web URLs because cleanup can make that endpoint unavailable.
+- Unit tests cover identity/URL limits, stream backpressure, byte caps, event provenance/trust, signer mutation, ACK admission, exact retry, changed actor/scope, storage failure, reload via a new store instance, unknown worker outcomes and ref divergence.
+- Worker tests cover initial-import no-checkout/full-history clone options, pinned head/tag pushes, no force and no unbounded repair fetch. Existing new/fork/GRASP tests remain in place.
+- `tests/e2e/initial-repository-import.spec.ts` verifies approval → lost ACK → partial result → same-job completion, both within one dialog and after reload, with mocked Git/publication and real browser IndexedDB.
+- Its isolated retention fixture streams 250 issue pages (500 events, over 5 MiB), then retries one pending event 25 times. Chromium GC/heap measurements require less than 3 MiB retained growth; the final implementation run measured 158,232 bytes (about 155 KiB). This isolates importer retention from unrelated app hydration. `fake-indexeddb` is used for correctness, **not heap evidence**, because it retains completed transactions.
+- This is not live GRASP/GitHub or a full browser-Git peak-memory certification. See the [manual acceptance checklist](../features/initial-repository-import.md).
 
-## Import Lifecycle
+## Primary implementation
 
-### 1. Validate the request
-
-Budabit validates the source URL, repository identity, selected metadata relays, selected targets, credentials, and provider-specific constraints. The transaction records the operation identity, sanitized target plan, relay ACK evidence, completed target results, signed final events, and pending Nostr compensations.
-
-Validation happens before metadata publication. No target should be provisioned for a request that cannot produce a valid repository coordinate or announcement.
-
-### 2. Build the target plan
-
-The importer separates targets into:
-
-- new GRASP targets;
-- existing GRASP targets;
-- hosted Git targets.
-
-GRASP targets are ordered before hosted targets. This resolves the Nostr-native path before hosted repositories are created and makes partial-success reconciliation deterministic.
-
-Each GRASP target keeps its own relay, Git endpoint, and exact admitted announcement. New targets normally share the signed provisional event. Existing targets retain the current event fetched from their relay. All of these events use the same repository coordinate.
-
-### 3. Publish the provisional announcement
-
-Before cloning or creating remotes, Budabit signs the repository announcement and publishes it to:
-
-- the selected repository relays; and
-- each new GRASP target's own relay.
-
-The import is admitted only when:
-
-- at least one selected repository relay returns a matching successful `OK`; and
-- every new GRASP target's relay returns a matching successful `OK` for that target's signed event.
-
-The publisher records ACK evidence by event ID and relay. A queued send, an open WebSocket, an `EOSE`, or an unrelated relay response is not admission evidence.
-
-If an ACK attempt times out, Budabit may retry only the exact signed event returned by the first attempt. A retry that produces a different event ID is rejected, and Smart HTTP readiness never substitutes for a matching relay `OK`.
-
-An existing GRASP repository is different. Budabit queries its current kind `30617` event and reuses it for readiness and synchronization. It does not publish a replacement provisional announcement that could hide or disturb an already usable repository.
-
-An HTTP endpoint that advertises no Git refs is provisioned but not an active existing repository. Import treats this as resumable residue, publishes a fresh provisional announcement, and still requires its exact ACK before pushing. This covers a prior attempt that admitted metadata but failed before any Git ref arrived.
-
-If admission fails, the transaction stops before cloning, hosted repository creation, or pushing. Rollback is limited to relays that actually ACKed a provisional event.
-
-### 4. Wait for GRASP provisioning
-
-For every new GRASP target, Budabit polls the target's Smart HTTP endpoint after announcement admission. A successful announcement ACK means the server accepted the Nostr event; it does not by itself prove that Git storage and HTTP routing are ready.
-
-The import proceeds only when each required GRASP endpoint is ready. Provisioning failure is attributed to the affected target rather than being confused with a source-clone failure.
-
-On ngit-grasp, a newly accepted announcement is normally acknowledged with a `purgatory:` message. The event is intentionally hidden from ordinary relay `REQ` queries while the corresponding Git repository is empty. Smart HTTP readiness, rather than an immediate `REQ` readback, is the valid pre-push check.
-
-### 5. Clone the source
-
-Only after metadata admission and GRASP readiness does the worker clone the source repository. Progress is streamed to the UI. The journal records whether the transaction-owned local mirror is planned, being created, created, awaiting cleanup, cleaned, failed, or unknown. Successful imports remove the temporary mirror after every worker mutation has reached a terminal or explicitly unknown state.
-
-Source cloning may discover more concrete repository information, such as the default branch and refs, but it must not broaden the selected repository relay set.
-
-### 6. Synchronize targets
-
-Targets are synchronized sequentially, with GRASP targets first.
-
-#### GRASP target
-
-For a GRASP target, Budabit:
-
-1. reuses the target's already signed announcement and admission result;
-2. confirms the target is ready;
-3. derives the refs that the push will create or update;
-4. signs a kind `30618` state event for those refs;
-5. publishes the state event to the target relay;
-6. requires a matching successful `OK` for that state event;
-7. pushes the Git refs;
-8. queries the target relay for the exact announcement and state event IDs.
-
-The state-before-push order is required by ngit-grasp authorization. Publishing state after starting `git-receive-pack` is too late.
-
-The successful state ACK is commonly marked `purgatory:`. The event remains hidden from normal reads until the push succeeds and ngit-grasp promotes the announcement and state together.
-
-#### Hosted Git target
-
-For a hosted target, Budabit:
-
-1. creates or resolves the destination repository through the provider API;
-2. adds the destination remote;
-3. pushes the repository refs;
-4. records the clone and web URLs only after target success.
-
-Hosted failures are isolated to their target. Budabit does not reinterpret a hosted API response as Nostr relay evidence.
-
-### 7. Synchronize pull-request refs
-
-When the source provider exposes pull-request refs, Budabit can push those refs after the main repository synchronization. Worker results are checked strictly: partial or unsuccessful ref pushes are failures, not successful completion with warnings.
-
-Pull-request refs do not change the repository's metadata relay set. A failed optional ref synchronization is reported separately from the main target's repository push where possible.
-
-### 8. Verify GRASP promotion
-
-After a successful GRASP push, Budabit performs exact event reads for the expected kind `30617` and kind `30618` event IDs.
-
-The query distinguishes:
-
-- the exact expected `EVENT`;
-- a completed query with no event (`EOSE`);
-- relay disconnect;
-- timeout.
-
-Only the exact event is positive evidence. An empty completed query is not treated as success.
-
-Budabit does not blindly replay the announcement after a push. ngit-grasp owns promotion from purgatory to visible relay storage. Replaying the announcement could create a newer replacement at the wrong time and is not evidence that the original transaction was promoted.
-
-### 9. Reconcile final metadata
-
-After all targets have settled, Budabit constructs the final announcement from successful results only.
-
-The final announcement:
-
-- preserves the repository coordinate;
-- contains clone and web URLs only for successful targets;
-- contains only the selected repository relays;
-- preserves successful existing GRASP URLs;
-- excludes failed GRASP and hosted destinations.
-
-If the successful target set differs from the provisional plan, Budabit signs a newer reconciled announcement. The newer timestamp ensures replaceable-event ordering converges on the reduced, truthful target set.
-
-Final publication is attempted on the selected repository relays and applicable successful target relays. Per-relay signed event reuse avoids generating unnecessary replacement events during the same synchronization.
-
-## Success and Failure Modes
-
-### Pure GRASP import
-
-Success requires announcement admission, Smart HTTP readiness, state admission, Git push success, exact post-push visibility, and final metadata reconciliation.
-
-If the GRASP target fails and no other target succeeds, the transaction fails and compensates provisional metadata where possible.
-
-### Pure hosted import
-
-The announcement admission barrier still precedes source cloning and hosted repository creation. Provider creation and push then determine target success. Final metadata advertises the hosted destination only after it succeeds.
-
-### Hybrid import
-
-GRASP targets run first, followed by hosted targets. A target failure does not automatically invalidate successful targets. The final announcement is narrowed to the successful subset.
-
-| Result                              | Final metadata                                                  |
-| ----------------------------------- | --------------------------------------------------------------- |
-| GRASP succeeds, hosted target fails | Advertise GRASP only                                            |
-| GRASP fails, hosted target succeeds | Advertise hosted target only                                    |
-| One of several GRASP targets fails  | Advertise successful GRASP targets only                         |
-| All targets fail                    | Fail the transaction and compensate admitted provisional events |
-
-Partial success is an explicit reconciled result, not permission to retain URLs for failed targets.
-
-## Rollback, Recovery, and Cancellation
-
-### Rollback
-
-Rollback uses transaction evidence rather than the original target list. Only relays that returned matching successful ACKs for provisional events are eligible for compensating metadata publication.
-
-The import hook performs this provisional-event rollback when synchronization fails without any successful target. The shared synchronization helper can also delete a transaction-created hosted repository immediately when it can prove that the destination is empty. It deliberately retains unknown or partially populated remotes to avoid data loss.
-
-Rollback does not delete GRASP Git data. A partial target success suppresses provisional-event rollback so final metadata can describe the surviving target set. Temporary local deletion runs only after tracked worker operations settle; failed or unavailable deletion remains a retryable journal state.
-
-### Recovery
-
-The versioned transaction journal records local ownership, each target and ref stage, remote receipts, event-specific ACK evidence, signed events, worker terminal receipts, cleanup state, manual-attention reasons, and pending Nostr compensations. It persists immediately around create, publish, push, verify, cleanup, and target-settlement boundaries. Initial persistence and later pre-side-effect checkpoints fail closed. Credentials are removed or rejected, and unresolved records are retained without a time-to-live.
-
-For a `metadata-pending` record that contains the exact signed final announcement and state, recovery republishes the pair, intersects their ACKed relay sets, verifies retained GRASP events, and signs newer reconciled metadata when the usable relay set shrinks. Existing successful GRASP URLs are preserved. Recovery never restores a failed destination merely because it appeared in the original provisional event.
-
-Startup recovery also classifies `syncing`, `failed`, and `cleanup-pending` records. It probes checkpointed commit IDs through advertised refs and checks exact GRASP announcement/state visibility. It never automatically repeats an ambiguous hosted create or push. Verified survivors produce newer reconciled final metadata; known failures compensate only exact provisional ACK scopes; inconclusive probes remain visible for manual attention. Pending event and local cleanup remains journaled for retry.
-
-### Cancellation
-
-Every mutating worker call receives a unique operation ID. The worker exposes cancellation, status, and terminal-wait RPCs; propagates abort signals into clone, push, provider fetch, and supported provider requests; and records when a side-effect boundary may have been crossed. The hook requests cancellation before aborting its UI wait, then waits for every tracked child operation to become `completed`, `failed`, `cancelled`, or `unknown` before compensation or local cleanup.
-
-`cancelled` means cancellation settled before any side-effect boundary. If cancellation follows a local mutation or a request that a remote server may have accepted, the terminal state is `unknown`. An unknown terminal receipt is persisted and suppresses automatic event, remote, and local deletion. Cancellation cannot recall an HTTP request already accepted by a provider, so recovery remains evidence-based rather than assuming exactly-once behavior.
-
-## Relay Publication Semantics
-
-Budabit's publication result is event-specific. For each relay attempt, it tracks:
-
-- event ID;
-- relay URL;
-- connection and send attempt;
-- matching `OK true` or `OK false`;
-- `NOTICE` and `AUTH` frames;
-- timeout, error, and close conditions.
-
-Repository event publication follows the destination policy in `Budabit-Relay-Publishing-Policy.md`. Import admission also includes every new user-selected GRASP target relay in the provisional announcement's relay set and requires a target-specific ACK there.
-
-## Development Diagnostics
-
-Development builds expose transport diagnostics for publication failures. Logs correlate:
-
-- event ID and publication attempt;
-- pooled socket wrapper identity;
-- underlying WebSocket generation;
-- queue and send transitions;
-- matching relay `OK` frames;
-- `NOTICE` and `AUTH` frames;
-- socket errors and closes.
-
-These diagnostics distinguish an event waiting in a client queue from an event written to a WebSocket but rejected, disconnected, or acknowledged after the caller's timeout. The diagnostic code does not create a fresh relay pool or reset sockets speculatively.
-
-## Progress Reporting
-
-The UI reports structured import phases and detailed step messages. Clone forwards real object, delta, and worktree counts; target synchronization forwards real target/ref counts. Packing and upload stay indeterminate when the Git implementation provides no truthful denominator. Child worker operation IDs are correlated to the parent import operation so unrelated concurrent progress is ignored. The `remotes` phase contains announcement admission, GRASP provisioning, source mirror preparation, target creation, state publication, pushes, verification, and reconciliation.
-
-| Phase               | Meaning                                             |
-| ------------------- | --------------------------------------------------- |
-| Connecting          | Parse the source and validate access                |
-| Repository          | Fetch source repository data                        |
-| Remote sync         | Admit metadata and synchronize selected Git targets |
-| Repository metadata | Convert and publish repository events               |
-| Issues              | Import issue events when enabled                    |
-| Pull requests       | Import pull requests and their refs when enabled    |
-| Comments            | Import comments when enabled                        |
-| User profiles       | Publish discovered user profiles                    |
-| Complete            | Import and final reconciliation succeeded           |
-
-Provider API rate limits and relay timeouts are reported with their own context. Retrying a provider request must not duplicate already admitted Nostr events or repeat a successful Git push.
-
-## Testing Expectations
-
-The import architecture is covered by tests for:
-
-- admission before clone, create, and push;
-- per-relay ACK requirements;
-- existing GRASP announcement reuse;
-- Smart HTTP readiness;
-- state-before-push ordering;
-- exact post-push read semantics;
-- pure GRASP, pure hosted, and hybrid results;
-- failed-target exclusion from final metadata;
-- pull-request ref partial failures;
-- rollback scope;
-- recovery with a reduced successful target set;
-- transaction persistence and cleanup failures;
-- transport diagnostics and timeout behavior.
-
-Changes to import ordering or success criteria should update these tests and this document together.
+- `packages/nostr-git-ui/src/lib/utils/initial-import{,-source,-store,-git}.ts`
+- `packages/nostr-git-ui/src/lib/components/git/InitialImportDialog.svelte`
+- `packages/nostr-git-core/src/git/{abort-controller,bounded-http-client,isomorphic-git-provider}.ts`
+- `packages/nostr-git-core/src/worker/{worker,progress}.ts` and `worker/workers/repos.ts`
+- `src/app/core/git-commands.ts`, `src/app/util/fetch-relay-events.ts`, `src/routes/git/+page.svelte`

@@ -12,6 +12,7 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   throwOnTimeout?: boolean
   isolated?: boolean
   maxEvents?: number
+  maxBytes?: number
   onOutcome?: (outcome: {timedOut: boolean; sawEose: boolean; capped: boolean}) => void
 }): Promise<TEvent[]> {
   const events: TEvent[] = []
@@ -24,6 +25,7 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   params.signal?.addEventListener("abort", onAbort, {once: true})
   let timedOut = false
   let capped = false
+  let bytes = 0
   const timeoutId = setTimeout(
     () => {
       timedOut = true
@@ -42,7 +44,17 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
       filters: params.filters,
       signal: controller.signal,
       onEvent: event => {
+        if (controller.signal.aborted) return
         if (eventIds.has(event.id)) return
+        const eventBytes = params.maxBytes
+          ? new TextEncoder().encode(JSON.stringify(event)).byteLength
+          : 0
+        if (params.maxBytes && bytes + eventBytes > params.maxBytes) {
+          capped = true
+          controller.abort()
+          return
+        }
+        bytes += eventBytes
         eventIds.add(event.id)
         events.push(event as TEvent)
         if (params.maxEvents && events.length >= params.maxEvents) {
@@ -87,6 +99,31 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
     params.onOutcome?.({timedOut, sawEose, capped})
   }
 
+  return events
+}
+
+/** Small exact reads for initial import, not whole-relay history inventory. */
+export async function fetchInitialImportRelayEvents(params: {
+  relays: string[]
+  filters: any[]
+  timeoutMs?: number
+  throwOnTimeout?: boolean
+}) {
+  if (params.relays.length !== 1)
+    throw new Error("Initial import reads require one repository relay")
+  let complete = false
+  const events = await fetchRelayEventsWithTimeout({
+    ...params,
+    isolated: true,
+    throwOnTimeout: true,
+    maxEvents: 10,
+    maxBytes: 64 * 1024,
+    onOutcome: outcome => {
+      complete = outcome.sawEose && !outcome.capped && !outcome.timedOut
+    },
+  })
+  if (!complete)
+    throw new Error("Initial import relay read was incomplete or exceeded its small-query budget")
   return events
 }
 

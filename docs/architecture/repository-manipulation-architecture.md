@@ -1,6 +1,10 @@
 # Repository Manipulation Architecture
 
-Budabit treats repository import, creation, and fork as durable transactions across local Git storage, Nostr relays, GRASP servers, and hosted Git providers. This document describes the shared lifecycle, progress, recovery, cleanup, and cancellation contracts. Import-specific GRASP details remain in `import-repo-architecture.md`.
+Budabit coordinates repository creation and fork across local Git storage, Nostr relays, GRASP servers, and hosted Git providers. This document describes their shared lifecycle and the retained **legacy importer**. The currently exposed initial importer is a separate, bounded new-only lane: see [Initial Repository Import](./import-repo-architecture.md). It reuses worker/GRASP primitives but does not use this version-2 journal or compensation lifecycle.
+
+## Current Initial Import
+
+Public GitHub → one new GRASP destination, with optional one-time issues/status/comments. It rejects existing coordinates and provisioned residue, journals one signed event before send, and stores compact receipts in IndexedDB. Announcement ACK/provisioning and state ACK precede Git push. Stop retains public data; a usable repository is not rolled back because history delivery failed. This lane has no hosted create, augmentation, PR migration, synthetic profiles or remote deletion.
 
 ## Shared Invariants
 
@@ -17,7 +21,7 @@ Budabit treats repository import, creation, and fork as durable transactions acr
 
 ## Flow Differences
 
-| Policy                      | Import                                    | New                                                         | Fork                                        |
+| Policy                      | Legacy import (dormant)                   | New                                                         | Fork                                        |
 | --------------------------- | ----------------------------------------- | ----------------------------------------------------------- | ------------------------------------------- |
 | Source Git work             | Clone existing source                     | Initialize canonical local repository                       | Clone existing source into temporary mirror |
 | Existing remote destination | May reuse an explicitly discovered target | Reject                                                      | Reject                                      |

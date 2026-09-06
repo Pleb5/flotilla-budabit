@@ -93,6 +93,25 @@ describe("fetchRelayEventsWithTimeout", () => {
     )
     expect(mockPoolClear).toHaveBeenCalledOnce()
   })
+  it("bounds initial-import exact reads and requires EOSE even after an event", async () => {
+    const {fetchInitialImportRelayEvents} = await import("./fetch-relay-events")
+    mockLoad.mockImplementation(async options => {
+      options.onEvent({id: "event"})
+      return []
+    })
+    await expect(
+      fetchInitialImportRelayEvents({relays: ["wss://relay.example"], filters: [{ids: ["event"]}]}),
+    ).rejects.toThrow("incomplete")
+    mockLoad.mockImplementation(async options => {
+      options.onEvent({id: "large", content: "x".repeat(65 * 1024)})
+      options.onEose("wss://relay.example")
+      expect(options.signal.aborted).toBe(true)
+      return []
+    })
+    await expect(
+      fetchInitialImportRelayEvents({relays: ["wss://relay.example"], filters: [{ids: ["large"]}]}),
+    ).rejects.toThrow("budget")
+  })
 })
 
 describe("fetchCompleteRelayInventory", () => {

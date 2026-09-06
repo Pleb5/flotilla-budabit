@@ -6,6 +6,7 @@ const pushMock = vi.fn(async (_opts?: any) => undefined)
 const fetchMock = vi.fn(async () => undefined)
 const addRemoteMock = vi.fn(async () => undefined)
 const listRemotesMock = vi.fn(async () => [])
+const listServerRefsMock = vi.fn(async () => [] as Array<{ref: string; oid: string}>)
 const resolveRefMock = vi.fn(async () => "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
 const logMock = vi.fn(async () => [] as any[])
 const writeRefMock = vi.fn(async () => undefined)
@@ -55,6 +56,7 @@ vi.mock("../../src/git/factory-browser.js", () => ({
     fetch: fetchMock,
     addRemote: addRemoteMock,
     listRemotes: listRemotesMock,
+    listServerRefs: listServerRefsMock,
     resolveRef: resolveRefMock,
     writeRef: writeRefMock,
     add: addMock,
@@ -98,6 +100,7 @@ describe("worker.pushToRemote API", () => {
     fetchMock.mockReset()
     addRemoteMock.mockReset()
     listRemotesMock.mockReset()
+    listServerRefsMock.mockReset().mockResolvedValue([])
     resolveRefMock.mockReset()
     logMock.mockReset()
     writeRefMock.mockReset()
@@ -133,6 +136,59 @@ describe("worker.pushToRemote API", () => {
       text: async () => "",
     })
     initializeNostrGitProviderMock.mockResolvedValue(undefined)
+  })
+
+  it("refuses changed initial-import tips and never repairs them with a new fetch", async () => {
+    const params = {
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      provider: "grasp",
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: [GRASP_RELAY],
+      refs: ["refs/heads/main"],
+      initialImportRefs: [{ref: "refs/heads/main", oid: "b".repeat(40)}],
+    }
+    const changed = await exposed.pushToRemote(params)
+    expect(changed.success).toBe(false)
+    expect(pushMock).not.toHaveBeenCalled()
+    pushMock.mockRejectedValue(new Error("missing necessary objects"))
+    const incomplete = await exposed.pushToRemote({
+      ...params,
+      initialImportRefs: [{ref: "refs/heads/main", oid: "a".repeat(40)}],
+    })
+    expect(incomplete.success).toBe(false)
+    expect(pushMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("pushes pinned initial-import heads and tags without force and verifies bounded advertisements", async () => {
+    const refs = [
+      {ref: "refs/heads/main", oid: "a".repeat(40)},
+      {ref: "refs/tags/v1", oid: "b".repeat(40)},
+    ]
+    const remote: typeof refs = []
+    listServerRefsMock.mockImplementation(async () => remote)
+    resolveRefMock.mockImplementation(
+      async (args: any) => refs.find(item => item.ref === args.ref)?.oid || "",
+    )
+    pushMock.mockImplementation(async (args: any) => {
+      remote.push(refs.find(item => item.ref === args.remoteRef)!)
+    })
+    const result = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      provider: "grasp",
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: [GRASP_RELAY],
+      refs: refs.map(item => item.ref),
+      initialImportRefs: refs,
+    })
+    expect(result.success).toBe(true)
+    expect(pushMock).toHaveBeenCalledTimes(2)
+    expect(pushMock.mock.calls.every(([args]) => args.force === false)).toBe(true)
+    expect(listServerRefsMock).toHaveBeenCalledWith(
+      expect.objectContaining({maxHttpBytes: 2 * 1024 * 1024, corsProxy: null}),
+    )
   })
 
   it("materializes an imported pull request refs/nostr ref", async () => {

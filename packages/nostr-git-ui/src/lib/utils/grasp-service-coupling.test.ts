@@ -22,8 +22,8 @@ describe("GRASP service coupling", () => {
       ])
     ).toEqual([
       {
-        relayUrl: "wss://grasp.example",
-        httpBaseAliases: ["https://grasp.example"],
+        relayUrl: "wss://grasp.example/",
+        httpBaseAliases: ["https://grasp.example/"],
         sources: ["user-10317", "community-definition"],
       },
     ]);
@@ -73,10 +73,10 @@ describe("GRASP service coupling", () => {
       })
     ).resolves.toEqual([
       {
-        relayUrl: "wss://events.community.example",
+        relayUrl: "wss://events.community.example/",
         httpBaseAliases: [
-          "https://events.community.example",
-          "https://git.community.example",
+          "https://events.community.example/",
+          "https://git.community.example/",
           "https://events.community.example/git",
         ],
         sources: ["community-definition", "nip11"],
@@ -102,8 +102,8 @@ describe("GRASP service coupling", () => {
       })
     ).resolves.toEqual([
       {
-        relayUrl: "wss://malformed.example",
-        httpBaseAliases: ["https://malformed.example", "https://malformed.example/git"],
+        relayUrl: "wss://malformed.example/",
+        httpBaseAliases: ["https://malformed.example/", "https://malformed.example/git"],
         sources: ["nip11"],
       },
     ]);

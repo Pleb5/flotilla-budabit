@@ -235,6 +235,37 @@ describe("new repository + initial history", () => {
     );
     expect(await store.receipt(job.id, "github:github.com:1:issue:300")).not.toHaveProperty("body");
   }, 30_000);
+  it("holds the run until an in-flight relay send settles after Stop", async () => {
+    const { runtime, job } = await fixture();
+    const controller = new AbortController();
+    let release!: () => void;
+    let entered!: () => void;
+    const sending = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    runtime.publish = async (event) => {
+      entered();
+      await gate;
+      return { event, ackedRelays: [relay], hasRelayOutcomes: true };
+    };
+    let settled = false;
+    const run = runInitialImport(job.id, runtime, controller.signal).then((result) => {
+      settled = true;
+      return result;
+    });
+    await sending;
+    controller.abort();
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    release();
+    const result = await run;
+    expect(result.status).toBe("stopped");
+    expect(result.announcement).toBeDefined();
+    expect(runtime.git.clone).not.toHaveBeenCalled();
+  });
   it("fails closed on job event limits instead of growing the journal", async () => {
     const { runtime, job, store } = await fixture();
     job.counts.events = 1000;
@@ -292,6 +323,52 @@ describe("new repository + initial history", () => {
     expect(
       (await runInitialImport(job.id, runtime, new AbortController().signal)).message
     ).toContain("unknown");
+    expect(runtime.publish).not.toHaveBeenCalled();
+  });
+  it("reopens exact pending delivery from a new store instance and rejects missing explicit ACKs", async () => {
+    const { runtime, job, store } = await fixture();
+    const publish = runtime.publish;
+    runtime.publish = async (event) => ({ event });
+    const stopped = await runInitialImport(job.id, runtime, new AbortController().signal);
+    expect(stopped.pending?.event.kind).toBe(30617);
+    expect(runtime.git.clone).not.toHaveBeenCalled();
+    const pendingId = stopped.pending!.event.id;
+    runtime.store = new IndexedInitialImportStore();
+    runtime.publish = publish;
+    expect((await runInitialImport(job.id, runtime, new AbortController().signal)).status).toBe(
+      "complete"
+    );
+    expect((await store.get(job.id))?.announcement?.id).toBe(pendingId);
+  });
+  it("does not overwrite another announcement while retrying an unacknowledged one", async () => {
+    const { runtime, job, events } = await fixture();
+    runtime.publish = async (event) => ({ event });
+    await runInitialImport(job.id, runtime, new AbortController().signal);
+    const other = finalizeEvent(
+      {
+        kind: 30617,
+        created_at: job.createdAt + 1,
+        tags: [["d", job.name]],
+        content: "Changed by another action",
+      },
+      secret
+    );
+    events.set(other.id, other);
+    runtime.publish = vi.fn();
+    const stopped = await runInitialImport(job.id, runtime, new AbortController().signal);
+    expect(stopped.message).toContain("Destination metadata changed");
+    expect(runtime.publish).not.toHaveBeenCalled();
+  });
+  it("rejects a modified signed event even if its verification result was cached", async () => {
+    const { runtime, job } = await fixture();
+    runtime.sign = async (template) => {
+      const event = finalizeEvent(template, secret);
+      event.content = "Modified after signing";
+      return event;
+    };
+    expect(
+      (await runInitialImport(job.id, runtime, new AbortController().signal)).message
+    ).toContain("Signer changed");
     expect(runtime.publish).not.toHaveBeenCalled();
   });
 });
