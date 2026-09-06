@@ -125,6 +125,17 @@ export class GitNaturalIndexedObjectStore implements GitNaturalAsyncObjectStore 
     })
   }
 
+  async putBlobs(blobs: readonly GitNaturalBlobObject[]): Promise<void> {
+    await this.putRecords(
+      blobs.map(blob => ({
+        key: gitNaturalCacheKeys.blob(blob.hash),
+        kind: "blob" as const,
+        blob,
+        size: blob.data.length,
+      })),
+    )
+  }
+
   async getTree(hash: string): Promise<GitNaturalTreeObject | undefined> {
     return (await this.getRecord<TreeRecord>(gitNaturalCacheKeys.tree(hash), "tree"))?.tree
   }
@@ -138,8 +149,14 @@ export class GitNaturalIndexedObjectStore implements GitNaturalAsyncObjectStore 
     })
   }
 
-  async getRawObjectBatch(commitHash: string, filter: string): Promise<GitNaturalRawObjectBatch | undefined> {
-    const record = await this.getRecord<RawBatchRecord>(gitNaturalCacheKeys.rawObjectBatch(commitHash, filter), "raw")
+  async getRawObjectBatch(
+    commitHash: string,
+    filter: string,
+  ): Promise<GitNaturalRawObjectBatch | undefined> {
+    const record = await this.getRecord<RawBatchRecord>(
+      gitNaturalCacheKeys.rawObjectBatch(commitHash, filter),
+      "raw",
+    )
     if (!record) return undefined
     return {
       commitHash: record.batch.commitHash,
@@ -277,11 +294,24 @@ export class GitNaturalIndexedObjectStore implements GitNaturalAsyncObjectStore 
     })
   }
 
-  private async putRecord<TRecord extends Omit<GitNaturalIndexedRecord, keyof GitNaturalIndexedRecordBase> & {
-    key: string
-    kind: GitNaturalIndexedRecordKind
-    size: number
-  }>(record: TRecord): Promise<void> {
+  private async putRecord<
+    TRecord extends Omit<GitNaturalIndexedRecord, keyof GitNaturalIndexedRecordBase> & {
+      key: string
+      kind: GitNaturalIndexedRecordKind
+      size: number
+    },
+  >(record: TRecord): Promise<void> {
+    await this.putRecords([record])
+  }
+
+  private async putRecords<
+    TRecord extends Omit<GitNaturalIndexedRecord, keyof GitNaturalIndexedRecordBase> & {
+      key: string
+      kind: GitNaturalIndexedRecordKind
+      size: number
+    },
+  >(records: readonly TRecord[]): Promise<void> {
+    if (records.length === 0) return
     const db = await this.open()
     if (!db) return
 
@@ -300,23 +330,27 @@ export class GitNaturalIndexedObjectStore implements GitNaturalAsyncObjectStore 
         tx.onerror = finish
         tx.oncomplete = finish
         const store = tx.objectStore(STORE_OBJECTS)
-        const existingRequest = store.get(record.key)
-        existingRequest.onerror = finish
-        existingRequest.onsuccess = () => {
-          const existing = existingRequest.result as GitNaturalIndexedRecord | undefined
-          store.put({
-            ...record,
-            version: RECORD_VERSION,
-            createdAt: existing?.createdAt ?? now,
-            lastUpdatedAt: now,
-            lastAccessedAt: now,
-          })
+        for (const record of records) {
+          const existingRequest = store.get(record.key)
+          existingRequest.onerror = finish
+          existingRequest.onsuccess = () => {
+            const existing = existingRequest.result as GitNaturalIndexedRecord | undefined
+            store.put({
+              ...record,
+              version: RECORD_VERSION,
+              createdAt: existing?.createdAt ?? now,
+              lastUpdatedAt: now,
+              lastAccessedAt: now,
+            })
+          }
         }
       } catch {
         finish()
       }
     })
 
+    // Count transactions rather than individual objects. Bulk writes exist to
+    // keep large diffs from triggering thousands of cleanup scans.
     this.writeCount += 1
     if (this.writeCount % this.cleanupEveryWrites === 0) await this.cleanup()
   }
@@ -329,9 +363,12 @@ export class GitNaturalIndexedObjectStore implements GitNaturalAsyncObjectStore 
     if (records.length <= this.maxEntries && totalBytes <= this.maxBytes) return
 
     const keysToDelete: string[] = []
-    const oldestFirst = [...records].sort((left, right) => left.lastAccessedAt - right.lastAccessedAt)
+    const oldestFirst = [...records].sort(
+      (left, right) => left.lastAccessedAt - right.lastAccessedAt,
+    )
     for (const record of oldestFirst) {
-      if (records.length - keysToDelete.length <= this.maxEntries && totalBytes <= this.maxBytes) break
+      if (records.length - keysToDelete.length <= this.maxEntries && totalBytes <= this.maxBytes)
+        break
       keysToDelete.push(record.key)
       totalBytes -= Math.max(0, record.size || 0)
     }

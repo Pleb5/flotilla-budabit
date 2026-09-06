@@ -1,6 +1,7 @@
 export const DEFAULT_NATURAL_INFO_REFS_TTL_MS = 60_000
 export const DEFAULT_NATURAL_MEMORY_MAX_ENTRIES = 2_000
 export const DEFAULT_NATURAL_MEMORY_MAX_BYTES = 64 * 1024 * 1024
+const NATURAL_PERSISTENCE_BLOB_BATCH_SIZE = 256
 
 export interface GitNaturalInfoRefs {
   refs: Record<string, string>
@@ -60,6 +61,7 @@ export interface GitNaturalAsyncObjectStore {
   putCommit(commit: GitNaturalCommitObject): Promise<void>
   getBlob(hash: string): Promise<GitNaturalBlobObject | undefined>
   putBlob(blob: GitNaturalBlobObject): Promise<void>
+  putBlobs?(blobs: readonly GitNaturalBlobObject[]): Promise<void>
   getTree(hash: string): Promise<GitNaturalTreeObject | undefined>
   putTree(tree: GitNaturalTreeObject): Promise<void>
   getRawObjectBatch(
@@ -127,6 +129,9 @@ export class GitNaturalObjectCache {
   private readonly maxMemoryEntries: number
   private readonly maxMemoryBytes: number
   private readonly pendingWrites = new Set<Promise<void>>()
+  private readonly pendingBlobs = new Map<string, GitNaturalBlobObject>()
+  private persistenceTail: Promise<void> = Promise.resolve()
+  private blobPersistenceQueued = false
   private readonly infoRefs = new Map<string, TimedInfoRefs>()
   private readonly commits = new Map<string, GitNaturalCommitObject>()
   private readonly blobs = new Map<string, GitNaturalBlobObject>()
@@ -206,7 +211,13 @@ export class GitNaturalObjectCache {
 
   putBlob(blob: GitNaturalBlobObject): void {
     this.putBlobMemory(blob)
-    this.persistAsync(store => store.putBlob(blob))
+    this.persistBlobs([blob])
+  }
+
+  putBlobs(blobs: readonly GitNaturalBlobObject[]): void {
+    if (blobs.length === 0) return
+    for (const blob of blobs) this.putBlobMemory(blob)
+    this.persistBlobs(blobs)
   }
 
   getTree(hash: string): GitNaturalTreeObject | undefined {
@@ -402,9 +413,39 @@ export class GitNaturalObjectCache {
 
   private persistAsync(operation: (store: GitNaturalAsyncObjectStore) => Promise<void>): void {
     if (!this.asyncStore) return
-    const write = operation(this.asyncStore).catch(() => undefined)
+    const store = this.asyncStore
+    const write = this.persistenceTail.then(() => operation(store)).catch(() => undefined)
+    this.persistenceTail = write
     this.pendingWrites.add(write)
     void write.finally(() => this.pendingWrites.delete(write))
+  }
+
+  private persistBlobs(blobs: readonly GitNaturalBlobObject[]): void {
+    if (!this.asyncStore) return
+    for (const blob of blobs) this.pendingBlobs.set(normalizeObjectHash(blob.hash), blob)
+    if (this.blobPersistenceQueued || this.pendingBlobs.size === 0) return
+
+    this.blobPersistenceQueued = true
+    this.persistAsync(async store => {
+      try {
+        while (this.pendingBlobs.size > 0) {
+          const batch: GitNaturalBlobObject[] = []
+          for (const [hash, blob] of this.pendingBlobs) {
+            this.pendingBlobs.delete(hash)
+            batch.push(blob)
+            if (batch.length === NATURAL_PERSISTENCE_BLOB_BATCH_SIZE) break
+          }
+
+          if (store.putBlobs) await store.putBlobs(batch)
+          else {
+            for (const blob of batch) await store.putBlob(blob)
+          }
+        }
+      } finally {
+        this.blobPersistenceQueued = false
+        if (this.pendingBlobs.size > 0) this.persistBlobs([])
+      }
+    })
   }
 }
 

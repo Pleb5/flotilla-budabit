@@ -4,7 +4,10 @@ import {deflateSync} from "node:zlib"
 import {indexedDB as fakeIndexedDB} from "fake-indexeddb"
 import {afterEach, describe, expect, it, vi} from "vitest"
 
-import {GitNaturalObjectCache} from "../../src/git/natural-read-cache.js"
+import {
+  GitNaturalObjectCache,
+  type GitNaturalAsyncObjectStore,
+} from "../../src/git/natural-read-cache.js"
 import {GitNaturalIndexedObjectStore} from "../../src/git/natural-read-indexed-cache.js"
 import {GitNaturalApiAdapter} from "../../src/git/natural-read-api-adapter.js"
 import {GitNaturalReadProvider} from "../../src/git/natural-read-provider.js"
@@ -219,6 +222,26 @@ describe("GitNaturalReadProvider", () => {
 
     secondCache.close()
     await deleteTestDb(dbName)
+  })
+
+  it("persists filtered packs without per-object transaction fan-out", async () => {
+    const fixture = createGitFixture()
+    const store = createAsyncObjectStoreSpies()
+    const cache = new GitNaturalObjectCache({asyncStore: store})
+    const provider = new GitNaturalReadProvider({
+      enabled: true,
+      fetcher: createFixtureFetcher(fixture),
+      cache,
+    })
+
+    await provider.listDirectory({url: REMOTE_URL, ref: "main"})
+    await cache.flushPersistence()
+
+    expect(store.putRawObjectBatch).toHaveBeenCalledTimes(1)
+    expect(store.putCommit).not.toHaveBeenCalled()
+    expect(store.putTree).not.toHaveBeenCalled()
+    expect(store.putBlob).not.toHaveBeenCalled()
+    expect(store.putBlobs).not.toHaveBeenCalled()
   })
 
   it("dedupes concurrent filtered object fetches", async () => {
@@ -449,6 +472,31 @@ describe("GitNaturalReadProvider", () => {
     expect(postBodies.some(body => body.includes(`want ${fixture.deletedHash}`))).toBe(true)
     expect(postBodies.some(body => body.includes(`want ${fixture.unchangedHash}`))).toBe(false)
     expect(postBodies.filter(body => !body.includes("filter blob:none"))).toHaveLength(1)
+  })
+
+  it("persists changed blobs with the bulk cache API", async () => {
+    const fixture = createDiffFixture()
+    const store = createAsyncObjectStoreSpies()
+    const cache = new GitNaturalObjectCache({asyncStore: store})
+    const provider = new GitNaturalReadProvider({
+      enabled: true,
+      fetcher: createDiffFixtureFetcher(fixture),
+      cache,
+    })
+
+    await provider.getDiffBetween({
+      url: REMOTE_URL,
+      baseCommitHash: fixture.baseHash,
+      headCommitHash: fixture.headHash,
+    })
+    await cache.flushPersistence()
+
+    expect(store.putRawObjectBatch).toHaveBeenCalledTimes(2)
+    expect(store.putBlobs).toHaveBeenCalledTimes(1)
+    expect(store.putBlobs.mock.calls[0]?.[0]).toHaveLength(4)
+    expect(store.putCommit).not.toHaveBeenCalled()
+    expect(store.putTree).not.toHaveBeenCalled()
+    expect(store.putBlob).not.toHaveBeenCalled()
   })
 
   it("fails a partial changed-blob batch without rendering a partial diff", async () => {
@@ -1071,6 +1119,24 @@ function createMergeHeavyHistoryFixture() {
 
 function testDbName(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function createAsyncObjectStoreSpies() {
+  return {
+    getCommit: vi.fn(async () => undefined),
+    putCommit: vi.fn(async () => undefined),
+    getBlob: vi.fn(async () => undefined),
+    putBlob: vi.fn(async () => undefined),
+    putBlobs: vi.fn(async () => undefined),
+    getTree: vi.fn(async () => undefined),
+    putTree: vi.fn(async () => undefined),
+    getRawObjectBatch: vi.fn(async () => undefined),
+    putRawObjectBatch: vi.fn(async () => undefined),
+    getHistoryBatch: vi.fn(async () => undefined),
+    putHistoryBatch: vi.fn(async () => undefined),
+  } as unknown as GitNaturalAsyncObjectStore & {
+    putBlobs: ReturnType<typeof vi.fn>
+  }
 }
 
 async function deleteTestDb(dbName: string): Promise<void> {

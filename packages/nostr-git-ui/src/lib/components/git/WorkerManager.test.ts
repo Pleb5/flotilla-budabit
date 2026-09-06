@@ -151,6 +151,15 @@ describe('WorkerManager', () => {
       });
     });
 
+    it('does not JSON-copy results already cloned by the worker boundary', async () => {
+      const toJSON = vi.fn(() => ({ success: true, files: [], branch: 'main' }));
+      const result = { success: true, files: [], branch: 'main', toJSON };
+      manager.apiInstance.getStatus = vi.fn().mockResolvedValue(result);
+
+      await expect(manager.execute('getStatus', { repoId: 'owner:repo' })).resolves.toBe(result);
+      expect(toJSON).not.toHaveBeenCalled();
+    });
+
     it('should throw error if not initialized', async () => {
       const uninitializedManager = new WorkerManager();
 

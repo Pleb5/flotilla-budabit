@@ -1053,8 +1053,25 @@ export class GitNaturalReadProvider {
     commitHash?: string,
     filter?: string,
   ): void {
+    // Filtered packs can contain thousands of trees for one repository
+    // snapshot. The immutable raw batch is sufficient to hydrate those exact
+    // reads after restart; persisting every tree as a separate IndexedDB write
+    // duplicates the same data and can overwhelm the browser on a cold load.
+    if (commitHash && filter) {
+      this.cache.putRawObjectBatch({
+        commitHash,
+        filter,
+        objects: new Map(
+          Array.from(objects, ([hash, object]) => [hash, rawObjectFromParsed(object)]),
+        ),
+        fetchedAt: this.now(),
+      })
+      return
+    }
+
+    const blobs = []
     for (const object of objects.values()) {
-      if (object.type === "blob") this.cache.putBlob({hash: object.hash, data: object.data})
+      if (object.type === "blob") blobs.push({hash: object.hash, data: object.data})
       else if (object.type === "tree") {
         this.cache.putTree({
           hash: object.hash,
@@ -1075,17 +1092,7 @@ export class GitNaturalReadProvider {
         }
       }
     }
-
-    if (commitHash && filter) {
-      this.cache.putRawObjectBatch({
-        commitHash,
-        filter,
-        objects: new Map(
-          Array.from(objects, ([hash, object]) => [hash, rawObjectFromParsed(object)]),
-        ),
-        fetchedAt: this.now(),
-      })
-    }
+    this.cache.putBlobs(blobs)
   }
 
   private parseTreeEntries(data: Uint8Array): GitNaturalTreeEntry[] {

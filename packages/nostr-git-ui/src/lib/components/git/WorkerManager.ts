@@ -470,20 +470,15 @@ export class WorkerManager {
         // Check if worker returned a structured error response
         if (isWorkerErrorResponse(result)) {
           if (options?.returnWorkerErrors) {
-            try {
-              return JSON.parse(JSON.stringify(result)) as T;
-            } catch {
-              return result as T;
-            }
+            return result as T;
           }
           throw createErrorFromWorkerResponse(result);
         }
 
-        try {
-          return JSON.parse(JSON.stringify(result)) as T;
-        } catch {
-          return result as T;
-        }
+        // Comlink has already structured-cloned worker results. A second full
+        // JSON round trip here blocks the main thread and amplifies stale or
+        // large commit payloads before route-level guards can discard them.
+        return result as T;
       } else {
         // No timeout - for long-running background operations
         const result = await method(safeParams);
@@ -491,20 +486,12 @@ export class WorkerManager {
         // Check if worker returned a structured error response
         if (isWorkerErrorResponse(result)) {
           if (options?.returnWorkerErrors) {
-            try {
-              return JSON.parse(JSON.stringify(result)) as T;
-            } catch {
-              return result as T;
-            }
+            return result as T;
           }
           throw createErrorFromWorkerResponse(result);
         }
 
-        try {
-          return JSON.parse(JSON.stringify(result)) as T;
-        } catch {
-          return result as T;
-        }
+        return result as T;
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);

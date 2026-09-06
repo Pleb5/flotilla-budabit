@@ -1,7 +1,7 @@
 import {createHash} from "node:crypto"
 import {deflateSync} from "node:zlib"
 
-import {indexedDB as fakeIndexedDB} from "fake-indexeddb"
+import {IDBDatabase as FakeIDBDatabase, indexedDB as fakeIndexedDB} from "fake-indexeddb"
 import {afterEach, describe, expect, it, vi} from "vitest"
 
 import {
@@ -276,6 +276,7 @@ describe("GitNaturalObjectCache", () => {
     const commitHash = "a".repeat(40)
     const treeHash = "b".repeat(40)
     const blobHash = "c".repeat(40)
+    const secondBlobHash = "f".repeat(40)
     const blobData = Uint8Array.from([0, 1, 2, 255])
     const commit = {
       hash: commitHash,
@@ -303,7 +304,10 @@ describe("GitNaturalObjectCache", () => {
     })
     cache.putCommit(commit)
     cache.putTree(tree)
-    cache.putBlob({hash: blobHash, data: blobData})
+    cache.putBlobs([
+      {hash: blobHash, data: blobData},
+      {hash: secondBlobHash, data: Uint8Array.from([4, 5, 6])},
+    ])
     cache.putRawObjectBatch({
       commitHash,
       filter: "blob:none",
@@ -326,6 +330,9 @@ describe("GitNaturalObjectCache", () => {
     })
     expect(await nextCache.getTreeAsync(treeHash)).toMatchObject({hash: treeHash})
     expect(Array.from((await nextCache.getBlobAsync(blobHash))?.data ?? [])).toEqual([0, 1, 2, 255])
+    expect(Array.from((await nextCache.getBlobAsync(secondBlobHash))?.data ?? [])).toEqual([
+      4, 5, 6,
+    ])
     const raw = await nextCache.getRawObjectBatchAsync(commitHash, "blob:none")
     expect(Array.from(raw?.objects.get(blobHash)?.data ?? [])).toEqual([0, 1, 2, 255])
     expect((await nextCache.getHistoryBatchAsync(commitHash, 1))?.commits[0]?.hash).toBe(commitHash)
@@ -351,6 +358,73 @@ describe("GitNaturalObjectCache", () => {
     cache.putBlob({hash: blobHash, data: Uint8Array.from([1, 2, 3])})
     await cache.flushPersistence()
     expect(Array.from(cache.getBlob(blobHash)?.data ?? [])).toEqual([1, 2, 3])
+  })
+
+  it("coalesces blobs into bounded serial persistence batches", async () => {
+    const releases: Array<() => void> = []
+    let activeWrites = 0
+    let maxActiveWrites = 0
+    const store = createAsyncObjectStoreSpies()
+    store.putBlobs.mockImplementation(async () => {
+      activeWrites += 1
+      maxActiveWrites = Math.max(maxActiveWrites, activeWrites)
+      await new Promise<void>(resolve => releases.push(resolve))
+      activeWrites -= 1
+    })
+    const cache = new GitNaturalObjectCache({asyncStore: store})
+
+    cache.putBlobs([
+      {hash: "1".repeat(40), data: Uint8Array.from([1])},
+      {hash: "2".repeat(40), data: Uint8Array.from([2])},
+    ])
+
+    await vi.waitFor(() => expect(store.putBlobs).toHaveBeenCalledTimes(1))
+    expect(store.putBlobs.mock.calls[0]?.[0]).toHaveLength(2)
+    expect(maxActiveWrites).toBe(1)
+
+    cache.putBlobs(
+      Array.from({length: 300}, (_, index) => ({
+        hash: (index + 3).toString(16).padStart(40, "0"),
+        data: Uint8Array.from([index % 256]),
+      })),
+    )
+    releases.shift()?.()
+    await vi.waitFor(() => expect(store.putBlobs).toHaveBeenCalledTimes(2))
+    expect(store.putBlobs.mock.calls[1]?.[0]).toHaveLength(256)
+    expect(maxActiveWrites).toBe(1)
+
+    releases.shift()?.()
+    await vi.waitFor(() => expect(store.putBlobs).toHaveBeenCalledTimes(3))
+    expect(store.putBlobs.mock.calls[2]?.[0]).toHaveLength(44)
+    expect(maxActiveWrites).toBe(1)
+
+    releases.shift()?.()
+    await cache.flushPersistence()
+    expect(activeWrites).toBe(0)
+  })
+
+  it("stores a bulk blob batch in one IndexedDB transaction", async () => {
+    const dbName = testDbName("natural-bulk-blobs")
+    const store = new GitNaturalIndexedObjectStore({
+      dbName,
+      indexedDB: fakeIndexedDB,
+      cleanupEveryWrites: 100,
+    })
+    const transactionSpy = vi.spyOn(FakeIDBDatabase.prototype, "transaction")
+    const blobs = Array.from({length: 300}, (_, index) => ({
+      hash: (index + 1).toString(16).padStart(40, "0"),
+      data: Uint8Array.from([index % 256]),
+    }))
+
+    await store.putBlobs(blobs)
+
+    expect(transactionSpy.mock.calls.filter(([, mode]) => mode === "readwrite")).toHaveLength(1)
+    transactionSpy.mockClear()
+    expect(Array.from((await store.getBlob(blobs[0].hash))?.data ?? [])).toEqual([0])
+    expect(Array.from((await store.getBlob(blobs[299].hash))?.data ?? [])).toEqual([43])
+
+    store.close()
+    await deleteTestDb(dbName)
   })
 
   it("bridges observed clone-backed blobs into the natural persistent cache", async () => {
@@ -384,6 +458,24 @@ describe("GitNaturalObjectCache", () => {
 
 function testDbName(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function createAsyncObjectStoreSpies() {
+  return {
+    getCommit: vi.fn(async () => undefined),
+    putCommit: vi.fn(async () => undefined),
+    getBlob: vi.fn(async () => undefined),
+    putBlob: vi.fn(async () => undefined),
+    putBlobs: vi.fn(async () => undefined),
+    getTree: vi.fn(async () => undefined),
+    putTree: vi.fn(async () => undefined),
+    getRawObjectBatch: vi.fn(async () => undefined),
+    putRawObjectBatch: vi.fn(async () => undefined),
+    getHistoryBatch: vi.fn(async () => undefined),
+    putHistoryBatch: vi.fn(async () => undefined),
+  } as unknown as GitNaturalAsyncObjectStore & {
+    putBlobs: ReturnType<typeof vi.fn>
+  }
 }
 
 async function deleteTestDb(dbName: string): Promise<void> {
