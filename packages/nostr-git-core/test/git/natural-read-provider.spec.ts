@@ -402,6 +402,14 @@ describe("GitNaturalReadProvider", () => {
     expect(readme?.diffHunks[0]?.patches.map(patch => patch.type)).toContain("-")
     expect(readme?.diffHunks[0]?.patches.map(patch => patch.type)).toContain("+")
 
+    const added = diff.changes.find(change => change.path === "added.txt")
+    expect(added?.diffHunks[0]).toMatchObject({newLines: 1})
+    expect(added?.diffHunks[0]?.patches).toEqual([{line: "Added file", type: "+"}])
+
+    const deleted = diff.changes.find(change => change.path === "delete.txt")
+    expect(deleted?.diffHunks[0]).toMatchObject({oldLines: 1})
+    expect(deleted?.diffHunks[0]?.patches).toEqual([{line: "Deleted file", type: "-"}])
+
     const postBodies = fetcher.mock.calls
       .filter(([, init]) => init?.method === "POST")
       .map(([, init]) => String(init?.body || ""))
@@ -525,6 +533,105 @@ describe("GitNaturalReadProvider", () => {
         return init?.method === "POST" && !body.includes("filter blob:none")
       }),
     ).toHaveLength(105)
+  })
+
+  it("retries one transient server error while fetching changed blobs", async () => {
+    const fixture = createAddedFilesDiffFixture(
+      Array.from({length: 50}, (_, index) => ({
+        name: `file-${String(index).padStart(2, "0")}.txt`,
+        data: encoder.encode(`content ${index}\n`),
+      })),
+    )
+    const fixtureFetcher = createDiffFixtureFetcher(fixture)
+    const retriedHash = Array.from(fixture.blobPacks.keys())[37]
+    let returnedTransientFailure = false
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      const body = String(init?.body || "")
+      if (init?.method === "POST" && body.includes(retriedHash) && !returnedTransientFailure) {
+        returnedTransientFailure = true
+        return {
+          ok: false,
+          status: 502,
+          statusText: "Bad Gateway",
+          arrayBuffer: async () => new ArrayBuffer(0),
+        }
+      }
+      return fixtureFetcher(url, init)
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    const diff = await provider.getDiffBetween({
+      url: REMOTE_URL,
+      baseCommitHash: fixture.baseHash,
+      headCommitHash: fixture.headHash,
+    })
+
+    expect(diff.changes).toHaveLength(50)
+    expect(
+      fetcher.mock.calls.filter(([, init]) => String(init?.body || "").includes(retriedHash)),
+    ).toHaveLength(2)
+  })
+
+  it("does not retry permanent HTTP errors while fetching changed blobs", async () => {
+    const fixture = createAddedFilesDiffFixture([
+      {name: "unavailable.txt", data: encoder.encode("content\n")},
+    ])
+    const fixtureFetcher = createDiffFixtureFetcher(fixture)
+    const unavailableHash = Array.from(fixture.blobPacks.keys())[0]
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(init?.body || "").includes(unavailableHash)) {
+        return {
+          ok: false,
+          status: 404,
+          statusText: "Not Found",
+          arrayBuffer: async () => new ArrayBuffer(0),
+        }
+      }
+      return fixtureFetcher(url, init)
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    await expect(
+      provider.getDiffBetween({
+        url: REMOTE_URL,
+        baseCommitHash: fixture.baseHash,
+        headCommitHash: fixture.headHash,
+      }),
+    ).rejects.toMatchObject({code: "http-error", status: 404})
+    expect(
+      fetcher.mock.calls.filter(([, init]) => String(init?.body || "").includes(unavailableHash)),
+    ).toHaveLength(1)
+  })
+
+  it("stops after one retry when a changed-blob server error persists", async () => {
+    const fixture = createAddedFilesDiffFixture([
+      {name: "unavailable.txt", data: encoder.encode("content\n")},
+    ])
+    const fixtureFetcher = createDiffFixtureFetcher(fixture)
+    const unavailableHash = Array.from(fixture.blobPacks.keys())[0]
+    const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
+      if (String(init?.body || "").includes(unavailableHash)) {
+        return {
+          ok: false,
+          status: 503,
+          statusText: "Service Unavailable",
+          arrayBuffer: async () => new ArrayBuffer(0),
+        }
+      }
+      return fixtureFetcher(url, init)
+    })
+    const provider = new GitNaturalReadProvider({enabled: true, fetcher})
+
+    await expect(
+      provider.getDiffBetween({
+        url: REMOTE_URL,
+        baseCommitHash: fixture.baseHash,
+        headCommitHash: fixture.headHash,
+      }),
+    ).rejects.toMatchObject({code: "http-error", status: 503})
+    expect(
+      fetcher.mock.calls.filter(([, init]) => String(init?.body || "").includes(unavailableHash)),
+    ).toHaveLength(2)
   })
 
   it("deduplicates shared blob OIDs and retains content-based binary detection", async () => {

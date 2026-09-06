@@ -184,6 +184,7 @@ interface DiffChangeDescriptor {
 const DEFAULT_REF = "HEAD"
 const COMMIT_HISTORY_BATCH_SIZE = 15
 const DIFF_BLOB_FETCH_CONCURRENCY = 8
+const DIFF_BLOB_TRANSIENT_HTTP_RETRIES = 1
 const utf8Decoder = new TextDecoder("utf-8")
 
 export class GitNaturalReadProvider {
@@ -770,6 +771,26 @@ export class GitNaturalReadProvider {
     return {object: this.getObject(objects, blobHash, "blob"), pack}
   }
 
+  private async getDiffBlobObject(
+    params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
+    infoRefs: GitNaturalInfoRefs,
+    blobHash: string,
+  ): Promise<BlobObjectResult> {
+    for (let retry = 0; ; retry += 1) {
+      try {
+        return await this.getBlobObject(params, infoRefs, blobHash)
+      } catch (error) {
+        if (
+          retry >= DIFF_BLOB_TRANSIENT_HTTP_RETRIES ||
+          params.signal?.aborted ||
+          !isTransientServerError(error)
+        ) {
+          throw error
+        }
+      }
+    }
+  }
+
   private async getSameCommitBatches(
     params: {url: string; corsProxy?: string | null; signal?: AbortSignal},
     infoRefs: GitNaturalInfoRefs,
@@ -972,7 +993,7 @@ export class GitNaturalReadProvider {
         if (index >= hashes.length) return
         const hash = hashes[index]
         try {
-          const result = await this.getBlobObject(
+          const result = await this.getDiffBlobObject(
             {...params, signal: controller.signal},
             infoRefs,
             hash,
@@ -1167,6 +1188,16 @@ function directCommitResolution(commitHash: string, ref: string): RefResolutionC
     resolvedRef: ref,
     commitHash: commitHash.toLowerCase(),
   }
+}
+
+function isTransientServerError(error: unknown): boolean {
+  return (
+    error instanceof GitNaturalReadError &&
+    error.code === "http-error" &&
+    error.status !== undefined &&
+    error.status >= 500 &&
+    error.status <= 599
+  )
 }
 
 function directoryEntryFromTreeEntry(
@@ -1371,7 +1402,7 @@ function encodeBase64(bytes: Uint8Array): string {
 }
 
 function buildAddedFileDiffHunks(text: string): GitNaturalDiffHunk[] {
-  const lines = text.split("\n")
+  const lines = splitDiffLines(text)
   return [
     {
       oldStart: 0,
@@ -1384,7 +1415,7 @@ function buildAddedFileDiffHunks(text: string): GitNaturalDiffHunk[] {
 }
 
 function buildDeletedFileDiffHunks(text: string): GitNaturalDiffHunk[] {
-  const lines = text.split("\n")
+  const lines = splitDiffLines(text)
   return [
     {
       oldStart: 1,
@@ -1506,4 +1537,11 @@ function buildModifiedFileDiffHunks(oldText: string, newText: string): GitNatura
       patches,
     },
   ]
+}
+
+function splitDiffLines(text: string): string[] {
+  if (!text) return []
+  const lines = text.split("\n")
+  if (text.endsWith("\n")) lines.pop()
+  return lines
 }
