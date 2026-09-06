@@ -33,6 +33,7 @@ export function createBoundedGitHttpClient(
   options: {
     signal?: AbortSignal
     inactivityTimeoutMs?: number
+    maxBytes?: number
     fetcher?: FetchLike
   } = {},
 ): GitHttpClient {
@@ -44,6 +45,7 @@ export function createBoundedGitHttpClient(
       requestWithInactivityTimeout(request, {
         fetcher,
         signal: options.signal,
+        maxBytes: options.maxBytes,
         inactivityTimeoutMs: options.inactivityTimeoutMs ?? GIT_HTTP_INACTIVITY_TIMEOUT_MS,
       }),
   }
@@ -55,6 +57,7 @@ async function requestWithInactivityTimeout(
     fetcher: FetchLike
     signal?: AbortSignal
     inactivityTimeoutMs: number
+    maxBytes?: number
   },
 ): Promise<GitHttpResponse> {
   const controller = new AbortController()
@@ -88,7 +91,9 @@ async function requestWithInactivityTimeout(
 
   try {
     armTimeout()
-    const body = request.body ? await collectBody(request.body, armTimeout) : undefined
+    const body = request.body
+      ? await collectBody(request.body, armTimeout, options.maxBytes)
+      : undefined
     const response = await options.fetcher(request.url, {
       method: request.method || "GET",
       headers: request.headers,
@@ -101,9 +106,13 @@ async function requestWithInactivityTimeout(
     response.headers.forEach((value, key) => {
       headers[key] = value
     })
+    if (options.maxBytes && Number(headers["content-length"]) > options.maxBytes) {
+      await response.body?.cancel()
+      throw new Error("Git HTTP data exceeds the browser import byte limit")
+    }
 
     let source: AsyncIterableIterator<Uint8Array>
-    if (response.body?.getReader && response.ok) {
+    if (response.body?.getReader && (response.ok || options.maxBytes)) {
       source = readableStreamIterator(response.body)
     } else {
       source = singleValueIterator(new Uint8Array(await response.arrayBuffer()))
@@ -118,6 +127,7 @@ async function requestWithInactivityTimeout(
         cleanup,
         didTimeOut: () => timedOut,
         timeoutError,
+        maxBytes: options.maxBytes,
       }),
       statusCode: response.status,
       statusMessage: response.statusText,
@@ -132,12 +142,15 @@ async function requestWithInactivityTimeout(
 async function collectBody(
   body: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
   onChunk: () => void,
+  maxBytes?: number,
 ): Promise<Uint8Array> {
   const chunks: Uint8Array[] = []
   let size = 0
   for await (const chunk of body) {
-    chunks.push(chunk)
     size += chunk.byteLength
+    if (maxBytes && size > maxBytes)
+      throw new Error("Git HTTP data exceeds the browser import byte limit")
+    chunks.push(chunk)
     onChunk()
   }
   const result = new Uint8Array(size)
@@ -194,13 +207,22 @@ function boundedBodyIterator(
     cleanup: () => void
     didTimeOut: () => boolean
     timeoutError: () => Error
+    maxBytes?: number
   },
 ): AsyncIterableIterator<Uint8Array> {
+  let bytes = 0
   return {
     async next() {
       controls.armTimeout()
       try {
         const result = await source.next()
+        if (!result.done) {
+          bytes += result.value.byteLength
+          if (controls.maxBytes && bytes > controls.maxBytes) {
+            await source.return?.()
+            throw new Error("Git HTTP data exceeds the browser import byte limit")
+          }
+        }
         if (result.done) controls.cleanup()
         else controls.armTimeout()
         return result

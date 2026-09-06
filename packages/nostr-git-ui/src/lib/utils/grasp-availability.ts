@@ -11,6 +11,7 @@ interface CheckGraspRepoExistsParams {
   userPubkey: string;
   owner: string;
   repoName: string;
+  bounded?: boolean;
 }
 
 function toNpub(pubkeyOrNpub: string): string {
@@ -74,26 +75,51 @@ function hasAdvertisedGitRefs(advertisement: string): boolean {
   return false;
 }
 
-async function fetchWithTimeout(url: string): Promise<Response> {
+async function fetchWithTimeout(url: string, bounded = false): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), SMART_HTTP_PROBE_TIMEOUT_MS);
   try {
-    return await fetch(url, { method: "GET", signal: controller.signal });
+    const response = await fetch(url, { method: "GET", signal: controller.signal });
+    if (!bounded) return response;
+    const maxBytes = 2 * 1024 * 1024;
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Git advertisement body is unavailable");
+    try {
+      if (Number(response.headers.get("content-length")) > maxBytes)
+        throw new Error("Git advertisement exceeds browser import limit");
+      const decoder = new TextDecoder();
+      let bytes = 0;
+      let text = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        bytes += value.byteLength;
+        if (bytes > maxBytes) throw new Error("Git advertisement exceeds browser import limit");
+        text += decoder.decode(value, { stream: true });
+      }
+      return new Response(text + decoder.decode(), {
+        status: response.status,
+        headers: response.headers,
+      });
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
-async function probeSmartHttp(url: string): Promise<Response | null> {
+async function probeSmartHttp(url: string, bounded = false): Promise<Response | null> {
   try {
-    return await fetchWithTimeout(url);
+    return await fetchWithTimeout(url, bounded);
   } catch (error) {
     if (!isLikelyCorsOrNetworkFailure(error)) throw error;
   }
 
   const corsProxy = resolveCorsProxyUrl();
   const proxiedUrl = toCorsProxyRequestUrl(url, corsProxy);
-  return fetchWithTimeout(proxiedUrl);
+  return fetchWithTimeout(proxiedUrl, bounded);
 }
 
 export function isNotFoundError(error: unknown): boolean {
@@ -117,6 +143,7 @@ export async function checkGraspRepoExists({
   userPubkey: _userPubkey,
   owner,
   repoName,
+  bounded = false,
 }: CheckGraspRepoExistsParams): Promise<GraspRepoExistsResult> {
   const ownerNpub = toNpub(owner);
   const httpBase = trimTrailingSlash(toHttpBase(relayUrl));
@@ -124,7 +151,7 @@ export async function checkGraspRepoExists({
   const url = `${httpBase}/${ownerNpub}/${encodedRepoName}.git/info/refs?service=git-upload-pack`;
 
   try {
-    const response = await probeSmartHttp(url);
+    const response = await probeSmartHttp(url, bounded);
     if (!response) return { exists: false };
     if (response.ok) {
       const htmlUrl = `${httpBase}/${ownerNpub}/${encodedRepoName}`;
@@ -138,7 +165,7 @@ export async function checkGraspRepoExists({
 
     throw new Error(`Smart HTTP probe failed with status ${response.status}`);
   } catch (error) {
-    if (isNotFoundError(error)) return { exists: false };
+    if (!bounded && isNotFoundError(error)) return { exists: false };
     throw new Error(
       `Failed to verify GRASP repository availability via Smart HTTP: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -160,6 +187,7 @@ export async function checkGraspReceivePackReady({
     const response = await fetchWithTimeout(url);
 
     const contentType = response.headers.get("content-type") || "";
+    await response.body?.cancel();
     return response.ok && contentType.includes("application/x-git-receive-pack-advertisement");
   } catch {
     return false;

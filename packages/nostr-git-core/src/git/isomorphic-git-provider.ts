@@ -43,10 +43,12 @@ export class IsomorphicGitProvider implements GitProvider {
     // Per-call clients may add authentication, tracing, or signing. Preserve
     // those semantics rather than replacing them with the stock fetch client.
     if (options?.http) return http
-    if (this.httpInactivityTimeoutMs === undefined && !options?.signal) return http
+    if (this.httpInactivityTimeoutMs === undefined && !options?.signal && !options?.maxHttpBytes)
+      return http
     return createBoundedGitHttpClient(http, {
       signal: options?.signal,
       inactivityTimeoutMs: this.httpInactivityTimeoutMs,
+      maxBytes: options?.maxHttpBytes,
     })
   }
 

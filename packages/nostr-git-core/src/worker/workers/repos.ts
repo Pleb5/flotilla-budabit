@@ -36,6 +36,8 @@ export interface CloneRemoteRepoOptions {
   token?: string
   onProgress?: (stage: string, pct?: number) => void
   operationId?: string
+  /** Bounded initial-import lane: no worktree checkout or unlimited HTTP buffers. */
+  initialImport?: boolean
 }
 
 /**
@@ -1228,6 +1230,7 @@ export async function cloneRemoteRepoUtil(
             corsProxy: transport.corsProxy,
             onAuth: getAuthCallback(url),
             signal,
+            ...(options.initialImport ? {maxHttpBytes: 2 * 1024 * 1024} : {}),
           }),
         timeoutMs,
         "listServerRefs",
@@ -1313,7 +1316,8 @@ export async function cloneRemoteRepoUtil(
         corsProxy: transport.corsProxy,
         onAuth: getAuthCallback(url),
         singleBranch: false,
-        noCheckout: false,
+        noCheckout: Boolean(options.initialImport),
+        ...(options.initialImport ? {maxHttpBytes: 64 * 1024 * 1024} : {}),
         ...(operation ? {signal: operation.signal} : {}),
         onProgress: (progress: any) => {
           onGitProgress?.({
@@ -1385,7 +1389,7 @@ export async function cloneRemoteRepoUtil(
 
     const defaultBranch = await resolveBranchName(git, dir)
     operation?.throwIfCancellationRequested()
-    await git.checkout({dir, ref: defaultBranch})
+    if (!options.initialImport) await git.checkout({dir, ref: defaultBranch})
 
     const headCommit = await git.resolveRef({dir, ref: "HEAD"})
     const branches = await git.listBranches({dir})

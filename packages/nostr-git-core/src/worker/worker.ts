@@ -116,6 +116,7 @@
 
 import {expose} from "comlink"
 import httpWeb from "isomorphic-git/http/web"
+import {createBoundedGitHttpClient} from "../git/bounded-http-client.js"
 
 import type {GitProvider} from "../git/provider.js"
 import {createGitProvider} from "../git/factory-browser.js"
@@ -1613,9 +1614,17 @@ const api = {
     return await needsUpdateUtil(git, key, cloneUrls, cache, now ?? Date.now(), undefined, branch)
   },
 
-  async listServerRefs(opts: {url: string; prefix?: string; symrefs?: boolean}) {
+  async listServerRefs(opts: {
+    url: string
+    prefix?: string
+    symrefs?: boolean
+    initialImport?: boolean
+  }) {
     try {
-      const refs = await listAdvertisedServerRefs(git, {
+      const list = opts.initialImport
+        ? (options: any) => git.listServerRefs({...options, maxHttpBytes: 2 * 1024 * 1024})
+        : (options: any) => listAdvertisedServerRefs(git, options)
+      const refs = await list({
         url: opts.url,
         prefix: opts.prefix,
         symrefs: opts.symrefs ?? true,
@@ -2207,7 +2216,12 @@ const api = {
           return ` [HTTP trace: ${compact}]`
         }
 
-        const baseGraspHttpClient: any = httpWeb
+        const baseGraspHttpClient: any = opts.initialImportRefs
+          ? createBoundedGitHttpClient(httpWeb as any, {
+              signal: operation?.signal,
+              maxBytes: 64 * 1024 * 1024,
+            })
+          : httpWeb
 
         const graspHttpClient = {
           async request(request: any): Promise<any> {
@@ -2237,6 +2251,17 @@ const api = {
         }
 
         const pushOnce = async (targetRef: string) => {
+          if (opts.initialImportRefs) {
+            const expected = opts.initialImportRefs.find(item => item.ref === targetRef)?.oid
+            const local = await git.resolveRef({dir, ref: targetRef}).catch(() =>
+              git.resolveRef({
+                dir,
+                ref: targetRef.replace(/^refs\/heads\//, "refs/remotes/origin/"),
+              }),
+            )
+            if (!expected || local !== expected)
+              throw new Error("Initial import source ref changed; refusing push")
+          }
           let sourceRef = targetRef
 
           if (targetRef.startsWith("refs/heads/")) {
@@ -2398,6 +2423,15 @@ const api = {
 
         const getRemoteRefTip = async (targetRef: string): Promise<string | null> => {
           try {
+            if (opts.initialImportRefs) {
+              const refs = await git.listServerRefs({
+                url: pushUrl,
+                corsProxy: null,
+                maxHttpBytes: 2 * 1024 * 1024,
+                ...(operation ? {signal: operation.signal} : {}),
+              })
+              return refs.find((item: any) => item.ref === targetRef)?.oid || null
+            }
             // Prefer upload-pack for branch tip verification because many servers
             // advertise full refs there while receive-pack can omit them.
             const infoRefsText =
@@ -2458,7 +2492,7 @@ const api = {
               }
             }
 
-            if (!recovered && isMissingObjectsPushError(pushErr)) {
+            if (!recovered && !opts.initialImportRefs && isMissingObjectsPushError(pushErr)) {
               console.warn(
                 `[GRASP] ${targetRef} failed due to missing objects; attempting repair fetch before retry`,
               )

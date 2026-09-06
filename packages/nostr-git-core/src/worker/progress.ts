@@ -36,6 +36,8 @@ export interface PushToRemoteOptions {
   repoRelays?: string[]
   operationId?: string
   expectedSourceOid?: string
+  /** Initial import pins every ref and bounds the HTTP upload buffer. */
+  initialImportRefs?: Array<{ref: string; oid: string}>
   /** Internal recursion guard used while an outer repository operation lock is held. */
   skipRepoLock?: boolean
 }

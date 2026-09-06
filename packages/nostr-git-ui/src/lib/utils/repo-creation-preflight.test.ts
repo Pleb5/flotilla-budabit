@@ -19,7 +19,7 @@ describe("repository creation preflight", () => {
       onDeleteEvent: vi.fn(),
     };
 
-    expect(assertRepoCreationPrerequisites(base)).toEqual(["wss://relay.example"]);
+    expect(assertRepoCreationPrerequisites(base)).toEqual(["wss://relay.example/"]);
     expect(() => assertRepoCreationPrerequisites({ ...base, relayUrls: [] })).toThrow(
       "metadata relay"
     );
@@ -36,7 +36,7 @@ describe("repository creation preflight", () => {
 
   it("checks every relay independently and fails on an existing coordinate", async () => {
     const onFetchRelayEvents = vi.fn(async ({ relays }: { relays: string[] }) =>
-      relays[0] === "wss://second.example"
+      relays[0] === "wss://second.example/"
         ? [
             {
               id: "event",
@@ -61,11 +61,11 @@ describe("repository creation preflight", () => {
     ).rejects.toThrow("already exists on wss://second.example");
     expect(onFetchRelayEvents).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({ relays: ["wss://first.example"], throwOnTimeout: true })
+      expect.objectContaining({ relays: ["wss://first.example/"], throwOnTimeout: true })
     );
     expect(onFetchRelayEvents).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({ relays: ["wss://second.example"], throwOnTimeout: true })
+      expect.objectContaining({ relays: ["wss://second.example/"], throwOnTimeout: true })
     );
   });
 

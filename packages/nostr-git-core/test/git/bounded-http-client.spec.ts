@@ -3,6 +3,16 @@ import {describe, expect, it, vi} from "vitest"
 import {createBoundedGitHttpClient} from "../../src/git/bounded-http-client.js"
 
 describe("bounded Git HTTP client", () => {
+  it("bounds uploaded and downloaded bytes before aggregating them", async () => {
+    const fetcher = vi.fn(async () => new Response(new Uint8Array(16)))
+    const client = createBoundedGitHttpClient({request: vi.fn()} as any, {fetcher, maxBytes: 8})
+    await expect(
+      client.request({url: "https://example.com/repo.git", body: [new Uint8Array(9)]}),
+    ).rejects.toThrow("byte limit")
+    expect(fetcher).not.toHaveBeenCalled()
+    const response = await client.request({url: "https://example.com/repo.git"})
+    await expect(response.body.next()).rejects.toThrow("byte limit")
+  })
   it("aborts a request after network inactivity", async () => {
     const fetcher = vi.fn(
       async (_url: string, init?: RequestInit) =>
