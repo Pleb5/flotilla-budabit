@@ -1151,6 +1151,9 @@ export async function cloneRemoteRepoUtil(
       throw new Error(`Invalid repository URL: ${url}`)
     }
 
+    if (options.initialImport && (token || depth)) {
+      throw new Error("Initial import requires anonymous Git access and complete history")
+    }
     if (token) {
       const hostname = repoUrl.hostname
       setAuthConfig({tokens: [{host: hostname, token}]})
@@ -1228,7 +1231,7 @@ export async function cloneRemoteRepoUtil(
           git.listServerRefs({
             url,
             corsProxy: transport.corsProxy,
-            onAuth: getAuthCallback(url),
+            onAuth: options.initialImport ? undefined : getAuthCallback(url),
             signal,
             ...(options.initialImport ? {maxHttpBytes: 2 * 1024 * 1024} : {}),
           }),
@@ -1314,7 +1317,7 @@ export async function cloneRemoteRepoUtil(
         dir,
         url,
         corsProxy: transport.corsProxy,
-        onAuth: getAuthCallback(url),
+        onAuth: options.initialImport ? undefined : getAuthCallback(url),
         singleBranch: false,
         noCheckout: Boolean(options.initialImport),
         ...(options.initialImport ? {maxHttpBytes: 64 * 1024 * 1024} : {}),
@@ -1403,8 +1406,12 @@ export async function cloneRemoteRepoUtil(
       cloneUrls: [url],
     }
 
-    await cacheManager.init()
-    await cacheManager.setRepoCache(cache)
+    // Initial imports own a temporary mirror, not a browsable repository cache entry.
+    // In particular, do not leave a /repos/... cache key behind after canonical-key cleanup.
+    if (!options.initialImport) {
+      await cacheManager.init()
+      await cacheManager.setRepoCache(cache)
+    }
 
     onGitProgress?.({phase: "Clone complete"})
     onProgress?.("Clone completed successfully!", 100)

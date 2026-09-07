@@ -1,6 +1,7 @@
 import {beforeEach, describe, it, expect, vi} from "vitest"
 import "fake-indexeddb/auto"
 import {nip19} from "nostr-tools"
+import {setAuthConfig} from "../../src/worker/workers/auth.js"
 
 const pushMock = vi.fn(async (_opts?: any) => undefined)
 const fetchMock = vi.fn(async () => undefined)
@@ -136,6 +137,48 @@ describe("worker.pushToRemote API", () => {
       text: async () => "",
     })
     initializeNostrGitProviderMock.mockResolvedValue(undefined)
+    setAuthConfig({tokens: []})
+  })
+
+  it("uses anonymous reads and the direct GRASP endpoint for initial-import refs", async () => {
+    setAuthConfig({tokens: [{host: "github.com", token: "disposable-test-token"}]})
+    await exposed.listServerRefs({url: "https://github.com/owner/repo.git", initialImport: true})
+    expect(listServerRefsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({onAuth: undefined, maxHttpBytes: 2 * 1024 * 1024}),
+    )
+    await exposed.listServerRefs({url: GRASP_REMOTE_URL, initialImport: true})
+    expect(listServerRefsMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({corsProxy: null, onAuth: undefined}),
+    )
+  })
+
+  it("does not treat a failed initial-import ref probe as an absent destination ref", async () => {
+    listServerRefsMock.mockRejectedValue(new Error("advertisement exceeded byte limit"))
+    const result = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      provider: "grasp",
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: [GRASP_RELAY],
+      refs: ["refs/heads/main"],
+      initialImportRefs: [{ref: "refs/heads/main", oid: "a".repeat(40)}],
+    })
+    expect(result.success).toBe(false)
+    expect(pushMock).not.toHaveBeenCalled()
+  })
+  it("refuses even a possible fast-forward when an initial-import destination ref has appeared", async () => {
+    listServerRefsMock.mockResolvedValue([{ref: "refs/heads/main", oid: "b".repeat(40)}])
+    const result = await exposed.pushToRemote({
+      repoId: "owner/repo",
+      remoteUrl: GRASP_REMOTE_URL,
+      provider: "grasp",
+      token: GRASP_OWNER_PUBKEY,
+      repoRelays: [GRASP_RELAY],
+      refs: ["refs/heads/main"],
+      initialImportRefs: [{ref: "refs/heads/main", oid: "a".repeat(40)}],
+    })
+    expect(result.success).toBe(false)
+    expect(pushMock).not.toHaveBeenCalled()
   })
 
   it("refuses changed initial-import tips and never repairs them with a new fetch", async () => {

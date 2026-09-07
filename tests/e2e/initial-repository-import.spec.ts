@@ -31,6 +31,9 @@ for (const reload of [false, true])
       dialog.getByRole("heading", {name: "Repository created", exact: true}),
     ).toBeVisible()
     await expect(dialog.getByText("One exact signed event is saved", {exact: false})).toBeVisible()
+    await expect(
+      dialog.getByText("Fixture: accepted issue, but ACK was lost", {exact: true}),
+    ).toHaveCount(1)
     if (reload) {
       const relayState = await page.evaluate(() =>
         (window as any).__initialImportFixture.relayState(),
@@ -66,7 +69,89 @@ for (const reload of [false, true])
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
     await dialog.getByRole("button", {name: "Close", exact: true}).click()
     await expect(dialog).not.toBeVisible()
+    await expect
+      .poll(() =>
+        page.evaluate(() => (window as any).__initialImportFixture.evidence().storeClosed),
+      )
+      .toBe(true)
   })
+
+test("partial-history save owns the dialog until it settles and navigation errors stay visible", async ({
+  page,
+}) => {
+  const relay = new MockRelay()
+  await relay.setup(page)
+  await page.goto("/git")
+  await page.evaluate(async () => {
+    const fixture = await import(/* @vite-ignore */ "/tests/e2e/fixtures/initial-import-browser.ts")
+    ;(window as any).__initialImportFixture = await fixture.mountInitialImportFixture()
+  })
+  const dialog = page.getByRole("region", {name: "Import a new repository"})
+  await dialog.getByLabel("Public GitHub repository").fill("https://github.com/fixture/project")
+  await dialog.getByLabel("New repository name").fill(`partial-${Date.now()}`)
+  await dialog.getByLabel("GRASP service (one destination)").fill("wss://grasp.test")
+  await dialog.getByLabel("Issues and current status", {exact: true}).check()
+  await dialog.getByRole("button", {name: "Review import", exact: true}).click()
+  await dialog.getByRole("checkbox", {name: /I approve creating this public repository/}).check()
+  await dialog.getByRole("button", {name: "Create public repository", exact: true}).click()
+  await dialog.getByRole("button", {name: "Open repository", exact: true}).click()
+  await expect(dialog.getByRole("alert")).toHaveText("Fixture: repository navigation failed")
+  await page.evaluate(() => (window as any).__initialImportFixture.saveGate.arm())
+  await dialog.getByRole("button", {name: "Keep repository; stop history", exact: true}).click()
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__initialImportFixture.saveGate.waiting()))
+    .toBe(true)
+  await expect(dialog.getByRole("button", {name: "Other imports", exact: true})).not.toBeVisible()
+  await expect(
+    dialog.getByRole("button", {name: "Resume saved import", exact: true}),
+  ).not.toBeVisible()
+  await page.evaluate(() => (window as any).__initialImportFixture.saveGate.release())
+  await expect(
+    dialog.getByText("Repository kept with partial initial history.", {exact: true}),
+  ).toBeVisible()
+  await expect(dialog.getByRole("alert")).not.toBeVisible()
+  await dialog.getByRole("button", {name: "Close", exact: true}).click()
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__initialImportFixture.evidence().storeClosed))
+    .toBe(true)
+})
+
+test("unmount waits for in-flight publication to be journaled before disposing resources", async ({
+  page,
+}) => {
+  const relay = new MockRelay()
+  await relay.setup(page)
+  await page.goto("/git")
+  await page.evaluate(async () => {
+    const fixture = await import(/* @vite-ignore */ "/tests/e2e/fixtures/initial-import-browser.ts")
+    ;(window as any).__initialImportFixture = await fixture.mountInitialImportFixture()
+    ;(window as any).__initialImportFixture.publishGate.arm()
+  })
+  const dialog = page.getByRole("region", {name: "Import a new repository"})
+  await dialog.getByLabel("Public GitHub repository").fill("https://github.com/fixture/project")
+  await dialog.getByLabel("New repository name").fill(`unmount-${Date.now()}`)
+  await dialog.getByLabel("GRASP service (one destination)").fill("wss://grasp.test")
+  await dialog.getByRole("button", {name: "Review import", exact: true}).click()
+  await dialog.getByRole("checkbox", {name: /I approve creating this public repository/}).check()
+  await dialog.getByRole("button", {name: "Create public repository", exact: true}).click()
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__initialImportFixture.publishGate.waiting()))
+    .toBe(true)
+  await page.evaluate(() => (window as any).__initialImportFixture.destroy())
+  expect(
+    await page.evaluate(() => (window as any).__initialImportFixture.evidence()),
+  ).toMatchObject({storeClosed: false, disposed: false})
+  await page.evaluate(() => (window as any).__initialImportFixture.publishGate.release())
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__initialImportFixture.evidence()))
+    .toMatchObject({
+      storeClosed: true,
+      disposed: true,
+      confirmedKind: 30617,
+      savedStatus: "stopped",
+      pushes: 0,
+    })
+})
 
 test("initial history releases page bodies and retries without retained-heap growth", async ({
   page,

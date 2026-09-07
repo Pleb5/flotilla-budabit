@@ -41,6 +41,25 @@ export interface GitHubImportItem {
   labels?: Array<{ name: string } | string>;
 }
 
+export const isInitialImportName = (name: string) =>
+  typeof name === "string" && /^[a-zA-Z0-9][\w.-]{0,63}$/.test(name) && !name.endsWith(".git");
+
+export function isInitialImportRef(value: { ref: string; oid: string }): boolean {
+  const ref = value?.ref;
+  return (
+    typeof ref === "string" &&
+    ref.length <= 1024 &&
+    /^refs\/(heads|tags)\/.+/.test(ref) &&
+    !/[\x00-\x20\x7f~^:?*\[\\]/.test(ref) &&
+    !ref.includes("..") &&
+    !ref.includes("@{") &&
+    !ref.endsWith(".") &&
+    ref.split("/").every((part) => part && !part.startsWith(".") && !part.endsWith(".lock")) &&
+    typeof value.oid === "string" &&
+    /^[0-9a-f]{40}$/.test(value.oid)
+  );
+}
+
 export function parseInitialImportUrl(
   value: string
 ): Pick<InitialImportSource, "url" | "owner" | "name"> {

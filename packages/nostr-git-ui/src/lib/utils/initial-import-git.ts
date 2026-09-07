@@ -86,6 +86,18 @@ export function createInitialImportGit(worker: any): InitialImportGit {
         job.workerOperation.id,
         job.workerOperation.type
       );
+      if (
+        status.operationId !== job.workerOperation.id ||
+        status.operation !== job.workerOperation.type
+      )
+        return false;
+      if (
+        job.workerOperation.type === "cloneRemoteRepo" &&
+        ["failed", "cancelled"].includes(status.state)
+      )
+        throw new Error(
+          "Previous clone did not complete. Local refs alone cannot prove complete Git history; inspect before continuing."
+        );
       return ["completed", "failed", "cancelled"].includes(status.state);
     },
     async cancel(operationId) {
@@ -93,7 +105,7 @@ export function createInitialImportGit(worker: any): InitialImportGit {
     },
     async cleanup(job, operationId) {
       const result = await worker.deleteRepo({ repoId: job.localRepoId, operationId });
-      if (result?.success === false)
+      if (result?.success !== true)
         throw new Error("Repository created, but temporary local cleanup is pending");
     },
   };

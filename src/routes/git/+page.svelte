@@ -4511,10 +4511,7 @@
           owner: importOwner,
           runtime,
           subscribeGitProgress: subscribeGitWorkerProgress,
-          onClose: () => {
-            operationPublishTransport.dispose()
-            clearModals()
-          },
+          onClose: () => clearModals(),
           onDispose: () => operationPublishTransport.dispose(),
           onOpenRepo: async (job: InitialImportJob) => {
             if (!job.announcement || !job.state)

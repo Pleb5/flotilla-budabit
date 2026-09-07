@@ -30,6 +30,50 @@ export async function mountInitialImportFixture(
   let lostAck = failFirstIssue
   let attemptedIssueId = restored?.attemptedIssueId || ""
   const store = new IndexedInitialImportStore()
+  const makeGate = () => {
+    let armed = false
+    let waiting = false
+    let release: (() => void) | undefined
+    return {
+      arm: () => {
+        armed = true
+      },
+      release: () => release?.(),
+      waiting: () => waiting,
+      async wait() {
+        if (!armed) return
+        armed = false
+        waiting = true
+        await new Promise<void>(resolve => {
+          release = resolve
+        })
+        waiting = false
+      },
+    }
+  }
+  const saveGate = makeGate()
+  const publishGate = makeGate()
+  let storeClosed = false
+  let disposed = false
+  let savedStatus = ""
+  let confirmedKind = 0
+  const save = store.save.bind(store)
+  store.save = async job => {
+    await saveGate.wait()
+    await save(job)
+    savedStatus = job.status
+  }
+  const confirm = store.confirm.bind(store)
+  store.confirm = async job => {
+    const result = await confirm(job)
+    confirmedKind = job.pending!.event.kind
+    return result
+  }
+  const close = store.close.bind(store)
+  store.close = async () => {
+    await close()
+    storeClosed = true
+  }
   const target = document.createElement("div")
   target.setAttribute("data-initial-import-fixture", "")
   target.style.cssText =
@@ -65,6 +109,7 @@ export async function mountInitialImportFixture(
     },
     sign: async template => finalizeEvent(template, testKey),
     publish: async (event, context) => {
+      await publishGate.wait()
       events.set(event.id, event)
       if (event.kind === 1621) {
         attemptedIssueId = event.id
@@ -101,16 +146,32 @@ export async function mountInitialImportFixture(
       owner,
       runtime,
       onClose: () => {
-        void unmount(component)
-        target.remove()
+        void destroy()
+      },
+      onDispose: () => {
+        disposed = true
+      },
+      onOpenRepo: async () => {
+        throw new Error("Fixture: repository navigation failed")
       },
     },
   })
+  async function destroy() {
+    await unmount(component)
+    target.remove()
+  }
   return {
     owner,
+    destroy,
+    saveGate,
+    publishGate,
     // Small mock relay state only; production recovery always uses its real relay and saved job.
     relayState: () => ({events: [...events.values()], pushes, attemptedIssueId}),
     evidence: () => ({
+      storeClosed,
+      disposed,
+      savedStatus,
+      confirmedKind,
       pushes,
       attemptedIssueId,
       events: [...events.values()].map(e => ({id: e.id, kind: e.kind})),

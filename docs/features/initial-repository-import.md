@@ -13,6 +13,7 @@ Once publication is attempted, cancellation cannot promise rollback. An announce
 ## Scope and practical limits
 
 - Public GitHub only; one new GRASP destination. No existing-repository augmentation or ongoing sync.
+- Source Git reads do not use saved credentials or the optional history token. The GRASP destination must be directly reachable; failed checks are not treated as an empty destination.
 - At most 100 branch/tag refs, GitHub-reported size 50 MiB, and 64 MiB per Git HTTP body. Full reachable history is requested, not a silent shallow/top-five subset. Transfer caps do not guarantee peak heap; start with a small repository.
 - At most 1,000 history events and 8 MiB signed history per job. An issue with its status consumes two events, plus one for each comment. Oversized events or source scans stop the history import instead of truncating it.
 - PRs, private repositories, LFS objects, release assets, wikis, and submodule repositories are excluded. Native Git/agent-assisted migration is the escape hatch for unsupported jobs, not an atomic rollback mechanism.
@@ -29,7 +30,7 @@ The automated tests use simulated Git/relay outcomes and real browser IndexedDB.
 4. Stop during history delivery. Confirm the repository remains usable. Close/reopen the dialog or reload and select the saved job. Verify no second Git push or duplicate issues/comments after Resume. Source edits during interruption may affect only unfinished items.
 5. Deny a signer prompt or interrupt the relay connection. The UI must retain an unconfirmed pending event/partial result, not report rollback. Switching accounts must block continuation. Re-enter an optional API token after reopening; it must not appear in the saved job.
 6. Try an existing name/destination, private source, unsupported forge, or too-large source. Expect refusal before publication. Try a history item exceeding 32 KiB and expect a retained partial result, not a truncated body.
-7. If Git creation becomes **unknown**, inspect the destination and saved operation evidence. Do not force a retry or delete remote data to clear the message. Report the stage, source/destination URLs (without credentials), expected refs and error text.
+7. If Git creation becomes **unknown**, inspect the destination and saved operation evidence. A failed/cancelled clone cannot be resumed on the strength of local refs alone. Do not force a retry or delete remote data to clear the message. Report the stage, source/destination URLs (without credentials), expected refs and error text.
 
 No real-service signing, publishing or Git pushes were performed during implementation verification.
 
@@ -38,7 +39,7 @@ No real-service signing, publishing or Git pushes were performed during implemen
 ```sh
 pnpm --filter @nostr-git/core build
 pnpm --filter @nostr-git/ui build
-pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts src/lib/utils/initial-import.test.ts src/lib/utils/initial-import-source.test.ts
+pnpm exec vitest run -c packages/nostr-git-ui/vitest.config.ts src/lib/utils/initial-import.test.ts src/lib/utils/initial-import-store.test.ts src/lib/utils/initial-import-source.test.ts
 pnpm exec playwright test --project=chromium tests/e2e/initial-repository-import.spec.ts
 ```
 

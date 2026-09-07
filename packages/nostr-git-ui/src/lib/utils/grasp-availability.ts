@@ -79,8 +79,16 @@ async function fetchWithTimeout(url: string, bounded = false): Promise<Response>
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), SMART_HTTP_PROBE_TIMEOUT_MS);
   try {
-    const response = await fetch(url, { method: "GET", signal: controller.signal });
+    const response = await fetch(url, {
+      method: "GET",
+      signal: controller.signal,
+      ...(bounded ? { credentials: "omit" as const, redirect: "error" as const } : {}),
+    });
     if (!bounded) return response;
+    if (!response.ok) {
+      await response.body?.cancel();
+      return response;
+    }
     const maxBytes = 2 * 1024 * 1024;
     const reader = response.body?.getReader();
     if (!reader) throw new Error("Git advertisement body is unavailable");
@@ -114,6 +122,7 @@ async function probeSmartHttp(url: string, bounded = false): Promise<Response | 
   try {
     return await fetchWithTimeout(url, bounded);
   } catch (error) {
+    if (bounded) throw error; // A proxy's absence response is not direct GRASP evidence.
     if (!isLikelyCorsOrNetworkFailure(error)) throw error;
   }
 

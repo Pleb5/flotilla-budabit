@@ -1672,14 +1672,20 @@ const api = {
   }) {
     try {
       const list = opts.initialImport
-        ? (options: any) => git.listServerRefs({...options, maxHttpBytes: 2 * 1024 * 1024})
+        ? (options: any) =>
+            git.listServerRefs({
+              ...options,
+              maxHttpBytes: 2 * 1024 * 1024,
+              signal: AbortSignal.timeout(30_000),
+            })
         : (options: any) => listAdvertisedServerRefs(git, options)
       const refs = await list({
         url: opts.url,
         prefix: opts.prefix,
         symrefs: opts.symrefs ?? true,
-        onAuth: getAuthCallback(opts.url),
-        corsProxy: resolveDefaultCorsProxy(),
+        onAuth: opts.initialImport ? undefined : getAuthCallback(opts.url),
+        corsProxy:
+          opts.initialImport && isGraspRepoHttpUrl(opts.url) ? null : resolveDefaultCorsProxy(),
       })
       return toPlain(refs)
     } catch (error: any) {
@@ -2493,6 +2499,7 @@ const api = {
 
             return null
           } catch (error) {
+            if (opts.initialImportRefs) throw error
             console.warn("[GRASP] Failed to read remote ref tip for verification:", error)
             return null
           }
@@ -2504,6 +2511,10 @@ const api = {
             getRemoteRefTip(targetRef),
           ])
           if (!localTip || !remoteTip) return false
+          if (opts.initialImportRefs && localTip !== remoteTip)
+            throw new Error(
+              `Initial-import destination ref changed: ${targetRef}; no overwrite attempted`,
+            )
           return localTip === remoteTip
         }
 

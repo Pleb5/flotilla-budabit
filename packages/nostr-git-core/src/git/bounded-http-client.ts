@@ -38,16 +38,28 @@ export function createBoundedGitHttpClient(
   } = {},
 ): GitHttpClient {
   const fetcher = options.fetcher ?? globalThis.fetch?.bind(globalThis)
-  if (!fetcher) return fallbackClient
+  if (!fetcher) {
+    if (options.maxBytes) throw new Error("Bounded Git transport requires fetch support")
+    return fallbackClient
+  }
 
   return {
-    request: request =>
-      requestWithInactivityTimeout(request, {
+    request: request => {
+      // clone/push do their own internal advertisements after the explicit ref probe.
+      // Those GETs must keep the small ref budget, not inherit the 64 MiB pack budget.
+      const maxBytes =
+        options.maxBytes &&
+        (request.method || "GET") === "GET" &&
+        new URL(request.url).pathname.endsWith("/info/refs")
+          ? Math.min(options.maxBytes, 2 * 1024 * 1024)
+          : options.maxBytes
+      return requestWithInactivityTimeout(request, {
         fetcher,
         signal: options.signal,
-        maxBytes: options.maxBytes,
+        maxBytes,
         inactivityTimeoutMs: options.inactivityTimeoutMs ?? GIT_HTTP_INACTIVITY_TIMEOUT_MS,
-      }),
+      })
+    },
   }
 }
 
@@ -90,15 +102,18 @@ async function requestWithInactivityTimeout(
   if (options.signal?.aborted) abortFromCaller()
 
   try {
+    controller.signal.throwIfAborted()
     armTimeout()
     const body = request.body
-      ? await collectBody(request.body, armTimeout, options.maxBytes)
+      ? await collectBody(request.body, armTimeout, options.maxBytes, controller.signal)
       : undefined
+    controller.signal.throwIfAborted()
     const response = await options.fetcher(request.url, {
       method: request.method || "GET",
       headers: request.headers,
       ...(body ? {body: body as BodyInit} : {}),
       signal: controller.signal,
+      ...(options.maxBytes ? {credentials: "omit" as const} : {}),
     })
     armTimeout()
 
@@ -112,10 +127,19 @@ async function requestWithInactivityTimeout(
     }
 
     let source: AsyncIterableIterator<Uint8Array>
-    if (response.body?.getReader && (response.ok || options.maxBytes)) {
+    if (options.maxBytes && !response.ok) {
+      // Git's status/auth handling may never consume an error body. Do not leave it streaming.
+      await response.body?.cancel()
+      source = singleValueIterator(new Uint8Array())
+      cleanup()
+    } else if (response.body?.getReader && response.ok) {
       source = readableStreamIterator(response.body)
     } else {
-      source = singleValueIterator(new Uint8Array(await response.arrayBuffer()))
+      if (options.maxBytes && response.body)
+        throw new Error("Bounded Git transport requires streaming response support")
+      source = singleValueIterator(
+        options.maxBytes ? new Uint8Array() : new Uint8Array(await response.arrayBuffer()),
+      )
       cleanup()
     }
     return {
@@ -143,36 +167,63 @@ async function collectBody(
   body: AsyncIterable<Uint8Array> | Iterable<Uint8Array>,
   onChunk: () => void,
   maxBytes?: number,
+  signal?: AbortSignal,
 ): Promise<Uint8Array> {
-  const chunks: Uint8Array[] = []
+  // A geometrically grown buffer bounds both byte storage and chunk-object overhead.
+  // Copy immediately: async producers may reuse/mutate their yielded views.
+  let buffer = new Uint8Array(0)
   let size = 0
   for await (const chunk of body) {
-    size += chunk.byteLength
-    if (maxBytes && size > maxBytes)
+    signal?.throwIfAborted()
+    const required = size + chunk.byteLength
+    if (maxBytes && required > maxBytes)
       throw new Error("Git HTTP data exceeds the browser import byte limit")
-    chunks.push(chunk)
+    if (required > buffer.byteLength) {
+      const capacity = Math.max(
+        required,
+        Math.min(maxBytes ?? Number.MAX_SAFE_INTEGER, Math.max(64 * 1024, buffer.byteLength * 2)),
+      )
+      const next = new Uint8Array(capacity)
+      next.set(buffer.subarray(0, size))
+      buffer = next
+    }
+    buffer.set(chunk, size)
+    size = required
     onChunk()
   }
-  const result = new Uint8Array(size)
-  let offset = 0
-  for (const chunk of chunks) {
-    result.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return result
+  signal?.throwIfAborted()
+  return buffer.subarray(0, size)
 }
 
 function readableStreamIterator(
   stream: ReadableStream<Uint8Array>,
 ): AsyncIterableIterator<Uint8Array> {
   const reader = stream.getReader()
+  let closed = false
+  const release = () => {
+    if (!closed) {
+      closed = true
+      reader.releaseLock()
+    }
+  }
   return {
-    next: () => reader.read(),
+    async next() {
+      if (closed) return {done: true, value: undefined}
+      try {
+        const result = await reader.read()
+        if (result.done) release()
+        return result
+      } catch (error) {
+        release()
+        throw error
+      }
+    },
     async return() {
+      if (closed) return {done: true, value: undefined}
       try {
         await reader.cancel()
       } finally {
-        reader.releaseLock()
+        release()
       }
       return {done: true, value: undefined}
     },

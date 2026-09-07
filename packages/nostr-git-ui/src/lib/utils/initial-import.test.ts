@@ -266,10 +266,62 @@ describe("new repository + initial history", () => {
     expect(result.announcement).toBeDefined();
     expect(runtime.git.clone).not.toHaveBeenCalled();
   });
+  it("clears a settled clone receipt on Resume without repeating the clone", async () => {
+    const { runtime, job } = await fixture();
+    const controller = new AbortController();
+    runtime.git.clone = vi.fn(async () => {
+      controller.abort();
+    });
+    const stopped = await runInitialImport(job.id, runtime, controller.signal);
+    expect(stopped.workerOperation?.type).toBe("cloneRemoteRepo");
+    expect(stopped.gitStage).toBe("cloning");
+    const result = await runInitialImport(job.id, runtime, new AbortController().signal);
+    expect(result.status, result.message).toBe("complete");
+    expect(result.workerOperation).toBeUndefined();
+    expect(runtime.git.clone).toHaveBeenCalledOnce();
+  });
+  it("does not authorize a push after a failed clone even if local refs still exist", async () => {
+    const { runtime, job, store } = await fixture();
+    runtime.git.clone = async () => {
+      throw new Error("clone interrupted");
+    };
+    await runInitialImport(job.id, runtime, new AbortController().signal);
+    const saved = (await store.get(job.id))!;
+    runtime.git.settle = createInitialImportGit({
+      getOperationStatus: async () => ({
+        operationId: saved.workerOperation!.id,
+        operation: "cloneRemoteRepo",
+        state: "failed",
+        stage: "Failed",
+      }),
+    }).settle;
+    const result = await runInitialImport(job.id, runtime, new AbortController().signal);
+    expect(result.message).toContain("Local refs alone cannot prove complete Git history");
+    expect(runtime.git.verifyLocal).not.toHaveBeenCalled();
+    expect(runtime.git.push).not.toHaveBeenCalled();
+    expect(result.state).toBeUndefined();
+  });
+  it("rejects unexpected refs introduced while the push was running", async () => {
+    const { runtime, job, setRemote } = await fixture();
+    runtime.git.push = async () => {
+      setRemote([...refs, { ref: "refs/heads/unapproved", oid: "f".repeat(40) }]);
+    };
+    const result = await runInitialImport(job.id, runtime, new AbortController().signal);
+    expect(result.gitStage).toBe("pushing");
+    expect(result.counts.events).toBe(0);
+    expect(result.message).toContain("not all confirmed");
+  });
   it("fails closed on job event limits instead of growing the journal", async () => {
     const { runtime, job, store } = await fixture();
-    job.counts.events = 1000;
-    await store.save(job);
+    const ready = await runInitialImport(job.id, runtime, new AbortController().signal);
+    await store.save({
+      ...ready,
+      status: "stopped",
+      counts: { ...ready.counts, issue: 998, events: 1000 },
+    });
+    runtime.pages = async function* () {
+      yield [{ ...issue, id: 99 }];
+    };
     const result = await runInitialImport(job.id, runtime, new AbortController().signal);
     expect(result.gitStage).toBe("verified");
     expect(result.message).toContain("1,000-event");
@@ -359,6 +411,28 @@ describe("new repository + initial history", () => {
     expect(stopped.message).toContain("Destination metadata changed");
     expect(runtime.publish).not.toHaveBeenCalled();
   });
+  it("rechecks coordinate metadata before resuming Git with an already admitted state", async () => {
+    const { runtime, job, events } = await fixture();
+    runtime.git.push = vi.fn(async () => {
+      throw new Error("push interrupted");
+    });
+    const interrupted = await runInitialImport(job.id, runtime, new AbortController().signal);
+    expect(interrupted.state).toBeDefined();
+    const changed = finalizeEvent(
+      {
+        kind: 30617,
+        created_at: job.createdAt + 1,
+        tags: [["d", job.name]],
+        content: "Other owner action",
+      },
+      secret
+    );
+    events.set(changed.id, changed);
+    vi.mocked(runtime.git.push).mockClear();
+    const result = await runInitialImport(job.id, runtime, new AbortController().signal);
+    expect(result.message).toContain("Destination metadata changed");
+    expect(runtime.git.push).not.toHaveBeenCalled();
+  });
   it("rejects a modified signed event even if its verification result was cached", async () => {
     const { runtime, job } = await fixture();
     runtime.sign = async (template) => {
@@ -374,11 +448,31 @@ describe("new repository + initial history", () => {
 });
 
 describe("bounded job store", () => {
+  it("requires an explicit cleanup result and a matching worker receipt", async () => {
+    const { job } = await fixture();
+    const worker = {
+      deleteRepo: vi.fn(async () => undefined),
+      getOperationStatus: async () => ({
+        operationId: "another-operation",
+        operation: "pushToRemote",
+        state: "completed",
+        stage: "Done",
+      }),
+    };
+    const git = createInitialImportGit(worker);
+    await expect(git.cleanup(job, "cleanup")).rejects.toThrow("cleanup is pending");
+    expect(
+      await git.settle({
+        ...job,
+        workerOperation: { id: `${job.id}:pushToRemote:test`, type: "pushToRemote" },
+      })
+    ).toBe(false);
+  });
   it("uses the same normalized local directory for clone, refs, push and cleanup", async () => {
     const { job, store } = await fixture();
     const worker = {
       cloneRemoteRepo: vi.fn(),
-      deleteRepo: vi.fn(),
+      deleteRepo: vi.fn(async () => ({ success: true })),
       resolveRef: vi.fn(async ({ ref }) => refs.find((r) => r.ref === ref)?.oid),
     };
     const git = createInitialImportGit(worker);
@@ -417,5 +511,18 @@ describe("bounded job store", () => {
         "b0"
       )
     ).toThrow();
+    for (const ref of [
+      "refs/heads/.private",
+      "refs/heads/a.lock",
+      "refs/heads/a//b",
+      "refs/heads/a b",
+      "refs/heads/a..b",
+      "refs/heads/a@{1}",
+      "refs/heads/a\\b",
+    ]) {
+      expect(() =>
+        selectInitialImportRefs([...refs, { ref, oid: "a".repeat(40) }], "main")
+      ).toThrow();
+    }
   });
 });

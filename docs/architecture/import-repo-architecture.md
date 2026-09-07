@@ -4,7 +4,7 @@ The supported importer is **new repository creation plus one-time initial data d
 
 ## Supported lane
 
-- One public, nonempty GitHub repository, inspected anonymously even when a history API token is supplied.
+- One public, nonempty GitHub repository. Both inspection and source Git reads are anonymous even when a history API token or saved worker credentials exist. Only the selected history API requests may use the optional token.
 - One **new** GRASP destination and kind-30617 coordinate under the active Nostr account. Existing, provisioned-but-empty, and ambiguous destinations cannot be adopted by a fresh job.
 - All advertised branch and tag tips, including their reachable history, within the limits below. There is no silent top-five branch selection or shallow-history default.
 - Optional issues, current open/closed status, and issue conversation comments. GitHub PR objects encountered in the issues endpoint are skipped explicitly.
@@ -14,15 +14,17 @@ Pull requests and their Git refs, private repositories, LFS object transfer, rel
 
 ## Effect ordering
 
-1. Validate source/public access, actor, destination/coordinate availability and all branch/tag refs. Review has no remote mutation and does not retain full history.
+1. Validate source/public access, actor, destination/coordinate availability and all branch/tag refs. Check both planned metadata events fit before the first publication. Review has no remote mutation and does not retain full history.
 2. The user approves public effects. Save a version-1 IndexedDB job with frozen source identity, actor, destination, category choices, cutoff and refs.
 3. Sign kind **30617**, verify the signer preserved its planned identity, and save the exact signed pending event **before sending**. Require the selected GRASP relay's explicit ACK. A provisioned endpoint or missing explicit relay outcome is not an ACK.
-4. Await GRASP receive-pack provisioning, then clone the source into one transaction-owned local mirror, without a worktree checkout. Verify local tips against the reviewed refs.
+4. Await GRASP receive-pack provisioning, then clone the source into one transaction-owned local mirror, without a worktree checkout or repository-cache entry. Require a completed clone receipt and verify local tips against the reviewed refs; refs alone do not prove an interrupted clone contains complete history.
 5. Sign, save and obtain the required ACK for kind **30618**, containing those exact branch/tag refs and HEAD, **before pushing any Git data**.
-6. Refuse divergent destination refs. Push missing pinned refs without force or automatic repair fetch. Verify all destination tips and exact announcement/state visibility after GRASP promotion. Purgatory admission does not require pre-push readback; promotion does.
+6. Refuse divergent destination refs and conflicting coordinate metadata, including when resuming with a previously admitted state. Push missing pinned refs without force or automatic repair fetch. Verify the exact destination branch/tag set and announcement/state visibility after GRASP promotion. Purgatory admission does not require pre-push readback; promotion does.
 7. Mark Git verified independently of history completion. Remove only the job-owned local mirror after known worker settlement, then stream optional history sequentially.
 
 The first recorded publication attempt is the public boundary, even if its ACK is lost. Announcements can remain after clone failure. Accepted pushes and published Nostr events cannot be reliably rolled back; the new executor has no remote-delete or compensating-publication callback.
+
+GRASP availability/ref checks use the direct endpoint used by the push, not a proxy's absence response. Failed ref discovery is unknown, never permission to push. The worker rechecks each destination tip and refuses a differing tip, even if Git could fast-forward it. These are optimistic client checks, not a server-side lock against concurrent owner actions; final verification can detect a race but cannot undo an accepted push.
 
 ## History delivery and trust
 
@@ -42,9 +44,10 @@ Database: `nostr-git-initial-import`, stores `jobs` and `receipts`.
 - Each job stores at most one signed pending event, exact signed announcement/state, pinned refs, current worker operation ID, Git/history status and numeric confirmed counters.
 - After an ACK (or an exact readback of a previously pending history event), one transaction writes a compact source-key → event-ID/type receipt, increments counters and clears the pending body. Delivered history bodies are not retained.
 - Indexed lookups skip receipts without building an in-memory history index. Templates for confirmed source keys are not rebuilt.
-- Identity and source/destination/config are immutable within a job. Tokens, key material and credential-bearing URLs are not journal fields. Signer output is copied to plain wire fields and cryptographically checked before storage.
+- Identity and source/destination/config are immutable within a job. Tokens, key material and credential-bearing URLs are not journal fields. Signer output is copied to plain wire fields and cryptographically checked before storage. Recovery revalidates signatures without trusting mutable verification caches, metadata against the approved plan, pending source/destination scope, counters/stages and pending-event budgets. Stale saves cannot discard a pending event or confirmed progress.
 - One browser Web Lock serializes the import lane across tabs. An outstanding cancelled signer prompt also blocks another prompt for that actor until it settles.
 - Stop retains that lock while a relay read/send reaches its deadline (10 seconds for reads, 30 seconds for publication). Rapid retries therefore cannot accumulate detached relay transports. A late confirmed ACK can still be journaled; no next effect is scheduled.
+- Unmounting the dialog defers store/transport disposal until its active operation has settled and saved recovery. Idle dialogs close their IndexedDB handle. The partial-history action holds the same lock, captures its job identity and disables navigation until its write settles.
 
 **Resume is same-job continuation, not sync.** It rechecks public source identity and actor, settles known worker receipts, retries the exact signed pending event, and rescans source streams while skipping confirmed receipts. New source items after the creation cutoff are excluded. Unprocessed bodies/statuses are read afresh: source edits, deletions or pagination movement during an interruption can affect the remaining import. No frozen-snapshot or exactly-once transport claim is made.
 
@@ -69,17 +72,19 @@ Before retrying metadata, any visible conflicting coordinate metadata blocks rep
 
 Limits stop with a partial result, never silent truncation. IndexedDB has a job/receipt budget as well as browser quota; persistence failure stops the next effect. HTTP limits are applied during body consumption, before aggregation/JSON parsing where the transport allows it. Browser Git still needs transient packing, inflation and delta buffers: **64 MiB transferred is not a guaranteed 64 MiB heap ceiling**, and unusually large expanded objects remain a reason to use native Git.
 
+Upload aggregation copies chunks immediately into a geometrically grown byte buffer, rather than retaining a chunk-object array. This handles producers that reuse their views and bounds allocation overhead even for tiny chunks. A growth step can temporarily retain both buffers, and fetch/Git can make additional copies; this is not a peak-Git-heap guarantee. Aborted uploads are not sent, HTTP error bodies are cancelled, and consumed response readers release their locks. Initial-import ref RPCs have a 30-second transport deadline; internal clone/push ref advertisements also retain the 2 MiB cap rather than inheriting the larger pack budget.
+
 ## Verification and limits of evidence
 
 - Unit tests cover identity/URL limits, stream backpressure, byte caps, event provenance/trust, signer mutation, ACK admission, exact retry, changed actor/scope, storage failure, reload via a new store instance, unknown worker outcomes and ref divergence.
-- Worker tests cover initial-import no-checkout/full-history clone options, pinned head/tag pushes, no force and no unbounded repair fetch. Existing new/fork/GRASP tests remain in place.
-- `tests/e2e/initial-repository-import.spec.ts` verifies approval → lost ACK → partial result → same-job completion, both within one dialog and after reload, with mocked Git/publication and real browser IndexedDB.
-- Its isolated retention fixture streams 250 issue pages (500 events, over 5 MiB), then retries one pending event 25 times. Chromium GC/heap measurements require less than 3 MiB retained growth; the final implementation run measured 158,232 bytes (about 155 KiB). This isolates importer retention from unrelated app hydration. `fake-indexeddb` is used for correctness, **not heap evidence**, because it retains completed transactions.
+- Worker tests cover anonymous no-checkout/full-history clone options, pinned head/tag pushes, failed/ref-changed probe rejection, no force and no unbounded repair fetch. Existing new/fork/GRASP tests remain in place.
+- `tests/e2e/initial-repository-import.spec.ts` verifies approval → lost ACK → partial result → same-job completion, both within one dialog and after reload, plus partial-save UI ownership and unmount during publication, with mocked Git/publication and real browser IndexedDB.
+- Its isolated retention fixture streams 250 issue pages (500 events, over 5 MiB), then retries one pending event 25 times. Chromium GC/heap measurements require less than 3 MiB retained growth; the follow-up review run measured 40,768 bytes (about 40 KiB). This isolates importer retention from unrelated app hydration. `fake-indexeddb` is used for correctness, **not heap evidence**, because it retains completed transactions.
 - This is not live GRASP/GitHub or a full browser-Git peak-memory certification. See the [manual acceptance checklist](../features/initial-repository-import.md).
 
 ## Primary implementation
 
-- `packages/nostr-git-ui/src/lib/utils/initial-import{,-source,-store,-git}.ts`
+- `packages/nostr-git-ui/src/lib/utils/initial-import{,-source,-metadata,-store,-git}.ts`
 - `packages/nostr-git-ui/src/lib/components/git/InitialImportDialog.svelte`
 - `packages/nostr-git-core/src/git/{abort-controller,bounded-http-client,isomorphic-git-provider}.ts`
 - `packages/nostr-git-core/src/worker/{worker,progress}.ts` and `worker/workers/repos.ts`

@@ -3,6 +3,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkGraspReceivePackReady, checkGraspRepoExists } from "./grasp-availability.js";
 
 describe("grasp-availability", () => {
+  it("requires direct absence evidence rather than a proxy 404 for initial import", async () => {
+    const fetcher = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValueOnce(new Error("Failed to fetch"))
+      .mockResolvedValue(new Response(null, { status: 404 }));
+    const params = {
+      relayUrl: "wss://grasp.example",
+      owner: "a".repeat(64),
+      userPubkey: "a".repeat(64),
+      repoName: "repo",
+      bounded: true,
+    };
+    await expect(checkGraspRepoExists(params)).rejects.toThrow("Failed to verify");
+    expect(fetcher).toHaveBeenCalledOnce();
+    await expect(checkGraspRepoExists(params)).resolves.toEqual({ exists: false });
+    expect(fetcher.mock.calls[0][1]).toMatchObject({ credentials: "omit", redirect: "error" });
+  });
   it("bounds initial-import advertisement bodies and never mistakes an exception containing 404 for absence", async () => {
     const fetcher = vi
       .spyOn(globalThis, "fetch")

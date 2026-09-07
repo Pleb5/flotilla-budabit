@@ -33,8 +33,9 @@
   let prepared = $state.raw<InitialImportJob | undefined>();
   let job = $state.raw<InitialImportJob | undefined>();
   let saved = $state.raw<InitialImportJob[]>([]);
-  let controller: AbortController | undefined;
+  let controller = $state.raw<AbortController | undefined>();
   let disposed = false;
+  let resourcesDisposed = false;
   let contentElement: HTMLDivElement;
   const activeJob = $derived(job || prepared);
   const urls = $derived(activeJob ? initialImportUrls(activeJob) : undefined);
@@ -50,7 +51,19 @@
     error = token ? message.split(token).join("[redacted]") : message;
   };
   async function refreshSaved() {
-    saved = await runtime.store.list(owner);
+    const current = await runtime.store.list(owner);
+    if (!disposed) saved = current;
+  }
+  function disposeResources() {
+    if (resourcesDisposed) return;
+    resourcesDisposed = true;
+    void runtime.store.close?.().catch(() => {});
+    onDispose?.();
+  }
+  function finished() {
+    busy = false;
+    controller = undefined;
+    if (disposed) disposeResources();
   }
   onMount(() => {
     // GRASP configuration is a convenience, not a mandatory relay fallback.
@@ -65,11 +78,12 @@
     disposed = true;
     controller?.abort();
     token = "";
-    onDispose?.();
+    // In-flight relay delivery must settle and journal its ACK before closing its transport/store.
+    if (!busy) disposeResources();
   });
 
   async function review() {
-    if (busy) return;
+    if (busy || disposed) return;
     controller = new AbortController();
     busy = true;
     error = "";
@@ -86,16 +100,17 @@
     } catch (failure) {
       reportError(failure);
     } finally {
-      busy = false;
+      finished();
     }
   }
   async function execute(resume?: InitialImportJob) {
-    if (busy || (!resume && (!prepared || !approved))) return;
+    if (busy || disposed || (!resume && (!prepared || !approved))) return;
     controller = new AbortController();
     busy = true;
     error = "";
     try {
       await withInitialImportLock(resume?.id || prepared!.id, async () => {
+        controller!.signal.throwIfAborted();
         runtime.assertActor(owner);
         if (resume) job = await runtime.store.get(resume.id);
         else {
@@ -112,8 +127,10 @@
           {
             ...runtime,
             onProgress: (current, message) => {
-              job = current;
-              step = message;
+              if (!disposed) {
+                job = current;
+                step = message;
+              }
               runtime.onProgress?.(current, message);
             },
           },
@@ -126,16 +143,30 @@
     } catch (failure) {
       reportError(failure);
     } finally {
-      busy = false;
+      finished();
     }
   }
   async function keepPartial() {
-    if (!job || busy || job.gitStage !== "verified") return;
+    if (!job || busy || disposed || job.gitStage !== "verified") return;
+    const jobId = job.id;
+    controller = new AbortController();
+    const signal = controller.signal;
+    busy = true;
+    error = "";
     try {
-      await withInitialImportLock(job.id, async () => {
+      await withInitialImportLock(jobId, async () => {
+        signal.throwIfAborted();
         runtime.assertActor(owner);
-        const current = await runtime.store.get(job!.id);
+        const current = await runtime.store.get(jobId);
         if (!current) throw new Error("Import recovery is missing");
+        signal.throwIfAborted();
+        runtime.assertActor(current.owner);
+        if (current.gitStage !== "verified")
+          throw new Error("Repository creation is not yet confirmed");
+        if (current.status === "complete" || current.status === "partial") {
+          job = current;
+          return;
+        }
         const partial: InitialImportJob = {
           ...current,
           status: "partial",
@@ -144,10 +175,27 @@
         };
         await runtime.store.save(partial);
         job = partial;
+        step = "";
         await refreshSaved();
       });
     } catch (failure) {
       reportError(failure);
+    } finally {
+      finished();
+    }
+  }
+  async function openRepo() {
+    if (!job || busy || disposed) return;
+    const current = job;
+    busy = true;
+    error = "";
+    try {
+      runtime.assertActor(current.owner);
+      await onOpenRepo?.(current);
+    } catch (failure) {
+      reportError(failure);
+    } finally {
+      finished();
     }
   }
   function stop() {
@@ -334,7 +382,7 @@
           Confirmed: {job.counts.issue} issues · {job.counts.status} status events · {job.counts
             .comment} comments
         </p>
-        {#if step}<p class="text-sm">{step}</p>{/if}
+        {#if step && step !== job.message}<p class="text-sm">{step}</p>{/if}
         {#if job.message}<p class="rounded border border-border p-3 text-sm">{job.message}</p>{/if}
       </div>
       <p class="text-sm">{urls?.cloneUrls[0]}</p>
@@ -367,7 +415,7 @@
   </div>
   <footer class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-border p-4">
     {#if busy}
-      <button class="btn" onclick={stop}
+      <button class="btn" onclick={stop} disabled={!controller}
         >{job?.publicStarted ? "Stop further work" : "Cancel"}</button
       >
     {:else}
@@ -397,8 +445,7 @@
           {#if !completed}<button class="btn" onclick={keepPartial}
               >Keep repository; stop history</button
             >{/if}
-          <button class="btn btn-primary" onclick={() => onOpenRepo?.(job!)}>Open repository</button
-          >
+          <button class="btn btn-primary" onclick={openRepo}>Open repository</button>
         {/if}
       {/if}
       <button class="btn" onclick={onClose}>Close</button>

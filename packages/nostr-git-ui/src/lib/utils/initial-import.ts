@@ -1,8 +1,6 @@
 import { ImportAbortController, type NostrEvent } from "@nostr-git/core";
-import { createRepoAnnouncementEvent, createRepoStateEvent } from "@nostr-git/core/events";
 import { getEventHash, verifyEvent } from "nostr-tools";
 import {
-  buildGraspRepoUrls,
   extractPublishRelayAck,
   type FetchRelayEvents,
   type PublishRepoEvent,
@@ -13,6 +11,8 @@ import {
   initialImportSourceKey,
   initialImportTemplate,
   inspectInitialImportSource,
+  isInitialImportName,
+  isInitialImportRef,
   type ImportEventTemplate,
   type InitialImportSource,
 } from "./initial-import-source.js";
@@ -23,6 +23,12 @@ import {
   type InitialImportRef,
   type InitialImportStore,
 } from "./initial-import-store.js";
+import {
+  initialImportAddress,
+  initialImportUrls,
+  initialImportMetadata,
+} from "./initial-import-metadata.js";
+export { initialImportAddress, initialImportUrls } from "./initial-import-metadata.js";
 
 export interface InitialImportGit {
   refs(url: string): Promise<InitialImportRef[]>;
@@ -78,10 +84,6 @@ export function normalizeInitialImportRelay(value: string): string {
   }
   return url.toString().replace(/\/$/, "");
 }
-export const initialImportAddress = (job: Pick<InitialImportJob, "owner" | "name">) =>
-  `30617:${job.owner}:${job.name}`;
-export const initialImportUrls = (job: Pick<InitialImportJob, "owner" | "name" | "relay">) =>
-  buildGraspRepoUrls({ relayUrls: [job.relay], ownerPubkey: job.owner, repoName: job.name });
 
 export function selectInitialImportRefs(
   refs: InitialImportRef[],
@@ -94,7 +96,7 @@ export function selectInitialImportRefs(
     !selected.length ||
     selected.length > INITIAL_IMPORT_LIMITS.refs ||
     !selected.some((r) => r.ref === `refs/heads/${defaultBranch}`) ||
-    selected.some((r) => !/^[0-9a-f]{40}$/.test(r.oid)) ||
+    selected.some((r) => !isInitialImportRef(r)) ||
     new Set(selected.map((r) => r.ref)).size !== selected.length
   ) {
     throw new Error("Source must expose its default branch and at most 100 valid branch/tag refs");
@@ -132,11 +134,7 @@ export async function prepareInitialImport(
   runtime: InitialImportRuntime,
   signal: AbortSignal
 ): Promise<InitialImportJob> {
-  if (
-    !/^[0-9a-f]{64}$/.test(input.owner) ||
-    !/^[a-zA-Z0-9][\w.-]{0,63}$/.test(input.name) ||
-    input.name.endsWith(".git")
-  ) {
+  if (!/^[0-9a-f]{64}$/.test(input.owner) || !isInitialImportName(input.name)) {
     throw new Error(
       "Use a signed-in account and a new repository name (1–64 letters, digits, dots, underscores or hyphens; no .git suffix)"
     );
@@ -147,6 +145,7 @@ export async function prepareInitialImport(
     input.sourceUrl,
     signal
   );
+  signal.throwIfAborted();
   const refs = selectInitialImportRefs(
     await runtime.git.refs(`${source.url}.git`),
     source.defaultBranch
@@ -259,22 +258,27 @@ export async function runInitialImport(
       );
     }
   };
+  const assertMetadataUnchanged = async () => {
+    active();
+    const metadata = await runtime.fetchEvents({
+      relays: [job!.relay],
+      filters: [{ kinds: [30617, 30618], authors: [job!.owner], "#d": [job!.name], limit: 3 }],
+      timeoutMs: 10_000,
+      throwOnTimeout: true,
+    });
+    active();
+    const expectedIds = new Set([job!.pending?.event.id, job!.announcement?.id, job!.state?.id]);
+    if (metadata.some((event) => !expectedIds.has(event.id)))
+      throw new Error(
+        "Destination metadata changed; no replacement import event or Git push was started"
+      );
+  };
   const deliverPending = async () => {
     if (!job!.pending) return;
     const pending = job!.pending;
     active();
     // Announcement/state admission always requires a real ACK (purgatory is not readable before push).
-    if (["announcement", "state"].includes(pending.type)) {
-      const metadata = await runtime.fetchEvents({
-        relays: [job!.relay],
-        filters: [{ kinds: [30617, 30618], authors: [job!.owner], "#d": [job!.name], limit: 3 }],
-        timeoutMs: 10_000,
-        throwOnTimeout: true,
-      });
-      const expectedIds = new Set([pending.event.id, job!.announcement?.id, job!.state?.id]);
-      if (metadata.some((event) => !expectedIds.has(event.id)))
-        throw new Error("Destination metadata changed; no replacement import event was sent");
-    }
+    if (["announcement", "state"].includes(pending.type)) await assertMetadataUnchanged();
     if (!["announcement", "state"].includes(pending.type) && (await exactVisible(pending.event))) {
       job = await runtime.store.confirm(job!);
       return;
@@ -321,9 +325,9 @@ export async function runInitialImport(
       throw new Error(
         "A previous signer request is still open. Resolve it in your signer before resuming."
       );
-    outstandingSignatures.add(job!.owner);
     const owner = job!.owner;
     const plannedId = getEventHash({ ...template, pubkey: owner });
+    outstandingSignatures.add(owner);
     const signing = Promise.resolve()
       .then(() => {
         active();
@@ -387,27 +391,23 @@ export async function runInitialImport(
     );
     if (source.id !== job.source.id) throw new Error("Source repository identity changed");
     if (!job.publicStarted) await assertNewCoordinate(job, runtime);
-    if (job.workerOperation && !(await runtime.git.settle(job)))
-      throw new Error(
-        "Previous Git operation is still active or unknown; no new mutation was started"
-      );
+    if (job.workerOperation) {
+      if (!(await runtime.git.settle(job)))
+        throw new Error(
+          "Previous Git operation is still active or unknown; no new mutation was started"
+        );
+      active();
+      await save({ workerOperation: undefined });
+    }
     if (job.gitStage === "verified") await assertAnnouncementUnchanged();
     await save({ status: "pending", message: undefined });
     await deliverPending();
     const urls = initialImportUrls(job);
     if (!job.announcement) {
       progress("Admitting repository announcement before Git work…");
-      const event = createRepoAnnouncementEvent({
-        repoId: job.name,
-        name: job.name,
-        description: job.source.description,
-        clone: urls.cloneUrls,
-        web: urls.webUrls,
-        relays: [job.relay],
-        maintainers: [job.owner],
-        created_at: job.createdAt,
-      });
-      await deliver("announcement", "announcement", () => event);
+      await deliver("announcement", "announcement", () =>
+        initialImportMetadata(job!, "announcement")
+      );
     }
     if (job.gitStage !== "verified") {
       progress("Waiting for GRASP read/write provisioning…");
@@ -423,19 +423,11 @@ export async function runInitialImport(
       active();
       if (job.gitStage === "cloning") await save({ gitStage: "cloned" });
       if (!job.state) {
-        const state = createRepoStateEvent({
-          repoId: job.name,
-          head: job.source.defaultBranch,
-          refs: job.refs.map((r) => ({
-            type: r.ref.startsWith("refs/heads/") ? "heads" : "tags",
-            name: r.ref.split("/").slice(2).join("/"),
-            commit: r.oid,
-          })),
-          created_at: job.createdAt,
-        });
         progress("Admitting the exact repository state before pushing…");
-        await deliver("state", "state", () => state);
+        await deliver("state", "state", () => initialImportMetadata(job!, "state"));
       }
+      // Resume may already hold a state ACK from before another action changed this coordinate.
+      await assertMetadataUnchanged();
       const current = await runtime.git.refs(urls.cloneUrls[0]);
       active();
       const remote = new Map(
@@ -451,10 +443,14 @@ export async function runInitialImport(
         progress(`Pushing ${missing.length} pinned branch/tag refs…`);
         await mutate("pushToRemote", (id) => runtime.git.push(job!, missing, id));
       }
-      const verified = new Map(
-        (await runtime.git.refs(urls.cloneUrls[0])).map((r) => [r.ref, r.oid])
+      const verified = selectInitialImportRefs(
+        await runtime.git.refs(urls.cloneUrls[0]),
+        job.source.defaultBranch
       );
-      if (job.refs.some((r) => verified.get(r.ref) !== r.oid))
+      if (
+        verified.length !== job.refs.length ||
+        job.refs.some((r) => !verified.some((v) => v.ref === r.ref && v.oid === r.oid))
+      )
         throw new Error(
           "Destination Git refs are not all confirmed; repository retained for inspection"
         );

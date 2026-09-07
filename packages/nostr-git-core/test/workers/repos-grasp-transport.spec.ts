@@ -2,6 +2,7 @@ import {afterEach, describe, it, expect, vi} from "vitest"
 
 import {cloneRemoteRepoUtil} from "../../src/worker/workers/repos.js"
 import type {GitProvider} from "../../src/git/provider.js"
+import {setAuthConfig, getAuthCallback} from "../../src/worker/workers/auth.js"
 
 function makeGitMock(partial: Record<string, unknown> = {}): GitProvider {
   return {
@@ -26,12 +27,32 @@ function makeCacheMock() {
 const GRASP_URL =
   "https://relay.ngit.dev/npub15qydau2hjma6ngxkl2cyar74wzyjshvl65za5k5rl69264ar2exs5cyejr/gitworkshop.git"
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  setAuthConfig({tokens: []})
+})
 
 describe("cloneRemoteRepoUtil GRASP transport selection", () => {
+  it.each([{token: "disposable-test-token"}, {depth: 1}])(
+    "rejects authenticated or shallow initial-import clone options: %j",
+    async overrides => {
+      const git = makeGitMock()
+      await expect(
+        cloneRemoteRepoUtil(git, makeCacheMock() as any, {
+          url: "https://github.com/owner/repo.git",
+          dir: "/repos/owner/initial-test",
+          initialImport: true,
+          ...overrides,
+        }),
+      ).rejects.toThrow("anonymous Git access and complete history")
+      expect(git.clone).not.toHaveBeenCalled()
+    },
+  )
   it("initial import bounds discovery/clone HTTP and skips checkout without truncating history", async () => {
+    setAuthConfig({tokens: [{host: "github.com", token: "disposable-test-token"}]})
     const git = makeGitMock()
-    await cloneRemoteRepoUtil(git, makeCacheMock() as any, {
+    const cache = makeCacheMock()
+    await cloneRemoteRepoUtil(git, cache as any, {
       url: "https://github.com/owner/repo.git",
       dir: "/repos/owner/initial-test",
       initialImport: true,
@@ -48,6 +69,12 @@ describe("cloneRemoteRepoUtil GRASP transport selection", () => {
     )
     expect((git.clone as any).mock.calls[0][0]).not.toHaveProperty("depth")
     expect(git.checkout).not.toHaveBeenCalled()
+    expect((git.clone as any).mock.calls[0][0].onAuth).toBeUndefined()
+    expect((git.listServerRefs as any).mock.calls[0][0].onAuth).toBeUndefined()
+    expect(getAuthCallback("https://github.com/owner/other")?.()).toMatchObject({
+      password: "disposable-test-token",
+    })
+    expect(cache.setRepoCache).not.toHaveBeenCalled()
   })
   it("uses direct transport first for GRASP clone URLs", async () => {
     const listServerRefs = vi.fn(async () => [{ref: "refs/heads/main", oid: "abcd"}])
