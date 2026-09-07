@@ -129,6 +129,10 @@
         </div>
       </a>
       <div class="flex shrink-0 gap-2 self-end sm:self-center">
+        <CommunityShareButton
+          {value}
+          definitionRelays={definition?.relays || []}
+          class="btn btn-square btn-sm" />
         <a
           {href}
           class="btn btn-primary btn-sm !border-primary !bg-primary !text-primary-content !no-underline hover:!border-primary/80 hover:!bg-primary/80 hover:!text-primary-content hover:!no-underline"
@@ -136,10 +140,6 @@
           data-stop-tap>
           Open
         </a>
-        <CommunityShareButton
-          {value}
-          definitionRelays={definition?.relays || []}
-          class="btn btn-square btn-sm" />
       </div>
     </div>
   </div>

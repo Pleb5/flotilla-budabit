@@ -1,7 +1,7 @@
 <script lang="ts">
   import TimeAgo from "../../TimeAgo.svelte";
   import ImportedProvenance from "./ImportedProvenance.svelte";
-  import { FileCode, MessageSquare, Pencil, Reply } from "@lucide/svelte";
+  import { FileCode, MessageSquare } from "@lucide/svelte";
   import { type NostrEvent } from "nostr-tools";
   import {
     createCommentEvent,
@@ -10,6 +10,7 @@
   } from "@nostr-git/core/events";
   import type { CommentEvent, CommentTag, Profile } from "@nostr-git/core/events";
   import type {
+    RichCommentComposerHandle,
     RichComposerContext,
     RichComposerMode,
     RichContentPayload,
@@ -19,6 +20,7 @@
   import { slide } from "svelte/transition";
   import RichText from "../RichText.svelte";
   import { toast } from "../../stores/toast";
+  import { NOSTR_EVENT_LINK_COPIED } from "../../utils/clipboard";
   import { getEventRelayHints, makeEventNevent } from "../../utils/eventLink";
   const {
     Button,
@@ -101,6 +103,9 @@
   let replyParent = $state<CommentEvent | null>(null);
   let editingComment = $state<CommentEvent | null>(null);
   let threadElement = $state<HTMLElement | null>(null);
+  let composerElement = $state<HTMLElement | null>(null);
+  let textareaElement = $state<HTMLTextAreaElement | null>(null);
+  let richComposer: RichCommentComposerHandle | undefined;
   let commentHashRequest = $state({ hash: "", request: 0 });
   let commentHashGeneration = 0;
   let completedCommentHashRequest = 0;
@@ -206,6 +211,35 @@
     newComment = "";
   };
 
+  const revealComposer = async () => {
+    if (typeof window === "undefined") return;
+    const target = composerKey;
+    // Target changes remount the rich editor. Wait for its focus handle and the reply preview.
+    await tick();
+    if (target !== composerKey || !composerElement) return;
+
+    if (RichCommentComposer) {
+      await richComposer?.focus({ preventScroll: true });
+    } else {
+      textareaElement?.focus({ preventScroll: true });
+    }
+
+    if (target !== composerKey) return;
+    composerElement?.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "instant"
+        : "smooth",
+      block: "center",
+    });
+  };
+
+  const startReply = (comment: CommentEvent) => {
+    editingComment = null;
+    newComment = "";
+    replyParent = comment;
+    void revealComposer();
+  };
+
   const scrollToComment = async (id: string) => {
     if (!id || typeof window === "undefined") return;
     await tick();
@@ -258,7 +292,7 @@
     try {
       await navigator.clipboard.writeText(link);
       toast.push({
-        message: "Event Link Copied!",
+        message: NOSTR_EVENT_LINK_COPIED,
         timeout: 2000,
       });
     } catch (error) {
@@ -422,6 +456,7 @@
     replyParent = null;
     editingComment = comment;
     newComment = comment.content || "";
+    void revealComposer();
   }
 </script>
 
@@ -447,6 +482,14 @@
         {@const canHideSpam = Boolean(
           ownerPubkey && currentCommenter === ownerPubkey && c.raw.pubkey !== currentCommenter
         )}
+        {@const reply =
+          enableReplies && currentCommenter && onCommentCreated
+            ? () => startReply(c.raw)
+            : undefined}
+        {@const edit =
+          currentCommenter && onCommentEdited && canEditComment(c.raw)
+            ? () => startEditingComment(c.raw)
+            : undefined}
         <div
           id={`comment-${c.id}`}
           data-event={c.id}
@@ -516,88 +559,24 @@
             </div>
           </div>
           <div class="mt-3 flex flex-wrap items-center gap-2">
-            {#if eventActionUrl}
-              <EventActions
-                event={c.raw}
-                url={eventActionUrl}
-                noun="comment"
-                relays={commentActionRelays}
-                repoAddress={repoAddress}
-                strictZapRelays={Boolean(repoAddress)}
-                ownerPubkey={canHideSpam ? ownerPubkey : ""}
-                showReport={canHideSpam}
-                showModeration={false}
-                readOnly={!currentCommenter}
-                class="text-muted-foreground"
-              />
-            {/if}
-            {#if enableReplies && currentCommenter && onCommentCreated}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                class="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onclick={() => {
-                  editingComment = null;
-                  newComment = "";
-                  replyParent = c.raw;
-                }}
-                aria-label="Reply to comment"
-                title="Reply"
-              >
-                <Reply class="h-4 w-4" />
-              </Button>
-            {/if}
-            {#if currentCommenter && onCommentEdited && canEditComment(c.raw)}
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                class="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onclick={() => startEditingComment(c.raw)}
-                aria-label="Edit comment"
-                title="Edit"
-              >
-                <Pencil class="h-4 w-4" />
-              </Button>
-            {/if}
-            <Button
-              variant="ghost"
-              size="icon"
-              class="h-7 w-7 text-muted-foreground hover:text-foreground"
-              onclick={() => copyEventLink(c.raw)}
-              aria-label="Share comment"
-              title="Share"
-            >
-              <svg
-                class="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                ></path>
-                <path
-                  d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                ></path>
-              </svg>
-            </Button>
+            <EventActions
+              event={c.raw}
+              url={eventActionUrl}
+              noun="comment"
+              relays={commentActionRelays}
+              repoAddress={repoAddress}
+              strictZapRelays={Boolean(repoAddress)}
+              ownerPubkey={canHideSpam ? ownerPubkey : ""}
+              showReport={canHideSpam}
+              showModeration={false}
+              readOnly={!currentCommenter}
+              menuOnly
+              reply={reply}
+              edit={edit}
+              infoLabel="Message Info"
+              class="text-muted-foreground"
+              onShare={() => copyEventLink(c.raw)}
+            />
             {#if ReactionSummary && deleteReaction && createReaction}
               <ReactionSummary
                 event={c.raw as any}
@@ -619,7 +598,12 @@
       {/each}
 
       {#if currentCommenter && (onCommentCreated || onCommentEdited)}
-        <div class="flex flex-col gap-3 pt-4 border-t">
+        <div
+          bind:this={composerElement}
+          class="flex flex-col gap-3 pt-4 border-t"
+          role="group"
+          aria-label="Comment composer"
+        >
           {#if editingComment}
             <div
               class="flex items-center justify-between rounded border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
@@ -664,6 +648,10 @@
               <div class="min-w-0 flex-1">
                 {#key composerKey}
                   <RichCommentComposer
+                    onReady={(handle) => {
+                      richComposer = handle;
+                    }}
+                    autofocus={false}
                     initialContent={composerInitialContent}
                     placeholder={composerPlaceholder}
                     submitLabel={editingComment ? "Save edit" : "Comment"}
@@ -689,6 +677,7 @@
                 </div>
                 <div class="flex-1">
                   <Textarea
+                    bind:ref={textareaElement}
                     bind:value={newComment}
                     placeholder={composerPlaceholder}
                     class="min-h-[64px] resize-none w-full text-sm sm:min-h-[80px]"

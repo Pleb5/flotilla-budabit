@@ -111,6 +111,41 @@
   {#if h && showRoom}
     <span class="btn btn-neutral btn-xs rounded-full">Posted in #<RoomName {h} {url} /></span>
   {/if}
+  <EventActions
+    {url}
+    relays={actionRelays}
+    reactionRelays={reactionRelayTargets}
+    {scopeH}
+    {communitySectionName}
+    {readOnly}
+    {event}
+    noun="Event"
+    allowAdminDelete={false}>
+    {#snippet customActions()}
+      {#if canExport}
+        <li>
+          <Button onclick={addToGoogleCalendar}>
+            <Icon size={4} icon={CalendarAdd} />
+            Add to Google Calendar
+          </Button>
+        </li>
+        <li>
+          <Button onclick={downloadCalendarEvent}>
+            <Icon size={4} icon={FileDownload} />
+            Download calendar file
+          </Button>
+        </li>
+      {/if}
+      {#if event.pubkey === $pubkey}
+        <li>
+          <Button onclick={editEvent}>
+            <Icon size={4} icon={Pen2} />
+            Edit Event
+          </Button>
+        </li>
+      {/if}
+    {/snippet}
+  </EventActions>
   <ReactionSummary
     {url}
     {relays}
@@ -153,39 +188,4 @@
       </Button>
     </div>
   {/if}
-  <EventActions
-    {url}
-    relays={actionRelays}
-    reactionRelays={reactionRelayTargets}
-    {scopeH}
-    {communitySectionName}
-    {readOnly}
-    {event}
-    noun="Event"
-    allowAdminDelete={false}>
-    {#snippet customActions()}
-      {#if canExport}
-        <li>
-          <Button onclick={addToGoogleCalendar}>
-            <Icon size={4} icon={CalendarAdd} />
-            Add to Google Calendar
-          </Button>
-        </li>
-        <li>
-          <Button onclick={downloadCalendarEvent}>
-            <Icon size={4} icon={FileDownload} />
-            Download calendar file
-          </Button>
-        </li>
-      {/if}
-      {#if event.pubkey === $pubkey}
-        <li>
-          <Button onclick={editEvent}>
-            <Icon size={4} icon={Pen2} />
-            Edit Event
-          </Button>
-        </li>
-      {/if}
-    {/snippet}
-  </EventActions>
 </div>

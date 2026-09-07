@@ -3,6 +3,8 @@
   import { onMount } from "svelte";
   import { Activity, Copy } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
+  import { toast } from "../../stores/toast";
+  import { getCopySuccessMessage } from "../../utils/clipboard";
   import { getReferenceRelayHints, makeNaddrFromAddress } from "../../utils/eventLink";
 
   const { Card, Button, ProfileLink, Badge } = useRegistry();
@@ -103,6 +105,8 @@
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      const message = getCopySuccessMessage(text, "");
+      if (message) toast.push({ message, timeout: 2000 });
     } catch (error) {
       console.error("Failed to copy to clipboard:", error);
     }

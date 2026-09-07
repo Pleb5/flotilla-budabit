@@ -91,6 +91,7 @@
   </div>
 
   <div class="-my-1 flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+    <EventShareButton {event} {relays} noun="pull request" />
     {#if reviewerCount > 0}
       <span
         class="flex items-center gap-1"
@@ -107,6 +108,5 @@
       <MessageCircle class="h-3.5 w-3.5" />
       {commentCount}
     </span>
-    <EventShareButton {event} {relays} noun="pull request" />
   </div>
 </div>

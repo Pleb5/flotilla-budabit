@@ -9,11 +9,11 @@
   } from "@nostr-git/core/events"
   import {CircleCheck, CircleDot, FileCode, ArrowUpRight, XCircle} from "@lucide/svelte"
   import {goto} from "$app/navigation"
-  import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import ReactionSummary from "@app/components/ReactionSummary.svelte"
+  import EventShareButton from "@app/components/EventShareButton.svelte"
   import ChannelMessageEmojiButton from "@app/components/ChannelMessageEmojiButton.svelte"
   import RepoFeedGitItemMenuMobile from "@app/components/RepoFeedGitItemMenuMobile.svelte"
   import RepoActivityThreadCreate from "@app/components/RepoActivityThreadCreate.svelte"
@@ -25,8 +25,6 @@
     COMMUNITY_WRITE_TARGETS,
     communityWritableSectionsSupportTarget,
   } from "@app/core/community-permissions"
-  import {makeEventShareEntityForEvent} from "@app/util/event-share"
-  import {clip} from "@app/util/toast"
   import {pushModal} from "@app/util/modal"
 
   type RepoFeedStatusState = "open" | "draft" | "closed" | "applied"
@@ -176,11 +174,6 @@
 
   const openItem = () => goto(openHref)
 
-  const shareItem = (domEvent?: Event) => {
-    domEvent?.stopPropagation()
-    clip(makeEventShareEntityForEvent(event, {url, relays: relayTargets}))
-  }
-
   const createThread = (domEvent?: Event) => {
     domEvent?.stopPropagation()
     if (!canCreateThread) return
@@ -237,15 +230,13 @@
 
           <div
             class="flex shrink-0 items-center gap-1 rounded-full border border-neutral bg-base-100/90 p-1">
+            <EventShareButton
+              {url}
+              {event}
+              relays={relayTargets}
+              noun="activity"
+              class="btn btn-xs" />
             <ChannelMessageEmojiButton {url} {event} relays={relayTargets} {scopeH} {repoAddress} />
-            <Button
-              class="btn btn-xs"
-              onclick={shareItem}
-              data-stop-tap
-              aria-label="Share activity"
-              title="Share activity">
-              <Icon icon={ShareCircle} size={4} />
-            </Button>
             <Button
               class="btn btn-xs"
               onclick={createThread}

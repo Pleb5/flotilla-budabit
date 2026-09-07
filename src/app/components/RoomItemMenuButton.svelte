@@ -9,6 +9,9 @@
   const {
     url,
     event,
+    reply,
+    edit,
+    scopeH = "",
     readOnly = false,
     relays = [],
     communitySectionName = "",
@@ -38,9 +41,9 @@
   <Tippy
     bind:popover
     component={RoomItemMenu}
-    props={{url, event, onClick, readOnly, relays, communitySectionName}}
+    props={{url, event, onClick, readOnly, relays, communitySectionName, reply, edit, scopeH}}
     params={{trigger: "manual", interactive: true}}>
-    <Button class={buttonClass} onclick={open}>
+    <Button class={buttonClass} onclick={open} aria-label="Open message actions">
       <Icon icon={MenuDots} size={4} />
     </Button>
   </Tippy>

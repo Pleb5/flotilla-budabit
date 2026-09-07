@@ -273,16 +273,16 @@
     <div
       class="z-10 pointer-events-none absolute right-2 top-1 hidden items-center gap-1 text-xs opacity-0 transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 sm:flex">
       <div class={actionGroupClass}>
+        {#if reply}
+          <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
+            <Icon icon={Reply} size={4} />
+          </Button>
+        {/if}
         {#if ENABLE_ZAPS && !readOnly}
           <RoomItemZapButton {event} relays={actionRelayTargets} {scopeH} />
         {/if}
         {#if !readOnly}
           <RoomItemEmojiButton {url} {event} relays={actionRelayTargets} {scopeH} />
-        {/if}
-        {#if reply}
-          <Button class="btn join-item btn-xs" onclick={reply}>
-            <Icon icon={Reply} size={4} />
-          </Button>
         {/if}
         {#if edit}
           <Button class="btn join-item btn-xs" onclick={edit}>
@@ -295,6 +295,9 @@
           {readOnly}
           class={menuButtonClass}
           relays={actionRelayTargets}
+          {reply}
+          {edit}
+          {scopeH}
           {communitySectionName} />
       </div>
       {#if !readOnly && community}

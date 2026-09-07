@@ -2,13 +2,12 @@
   import {onMount} from "svelte"
   import type {Snippet} from "svelte"
   import type {TrustedEvent} from "@welshman/util"
-  import {COMMENT} from "@welshman/util"
   import {GIT_PULL_REQUEST, GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
   import {pubkey, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
-  import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
   import Danger from "@assets/icons/danger.svg?dataurl"
+  import Pen from "@assets/icons/pen.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
@@ -19,9 +18,8 @@
   import IssueDeleteConfirm from "@app/components/IssueDeleteConfirm.svelte"
   import PullRequestDeleteConfirm from "@app/components/PullRequestDeleteConfirm.svelte"
   import {clearModals, pushModal} from "@app/util/modal"
-  import {clip, pushToast} from "@app/util/toast"
+  import {pushToast} from "@app/util/toast"
   import {publishReport} from "@app/core/commands"
-  import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import {goto} from "$app/navigation"
 
   type Props = {
@@ -30,6 +28,9 @@
     event: TrustedEvent
     onClick: () => void
     customActions?: Snippet
+    primaryActions?: Snippet
+    edit?: () => void
+    infoLabel?: string
     relays?: string[]
     repoAddress?: string
     scopeH?: string
@@ -45,6 +46,9 @@
     event,
     onClick,
     customActions,
+    primaryActions,
+    edit,
+    infoLabel,
     relays = [],
     repoAddress = "",
     scopeH = "",
@@ -54,7 +58,6 @@
     showModeration = true,
   }: Props = $props()
 
-  const isRoot = event.kind !== COMMENT
   const canDeleteEvent = event.kind !== GIT_REPO_ANNOUNCEMENT
   const report = () => pushModal(Report, {url, event, relays, repoAddress})
   const failedHideThunks = new Map<string, ReturnType<typeof publishReport>>()
@@ -125,10 +128,6 @@
 
   const showInfo = () => pushModal(EventInfo, {url, event, relays})
 
-  const share = () => {
-    clip(makeEventShareEntityForEvent(event, {url, relays}))
-  }
-
   const showDelete = () => {
     if (event.kind === 1621) {
       const deleteRelays = repoAddress ? relays : relays.length > 0 ? relays : url ? [url] : []
@@ -151,30 +150,21 @@
 </script>
 
 <ul class="menu whitespace-nowrap rounded-box bg-base-100 p-2 shadow-md" bind:this={ul}>
-  {#if isRoot}
-    <li>
-      <Button onclick={share}>
-        <Icon size={4} icon={ShareCircle} />
-        Share
-      </Button>
-    </li>
-  {/if}
+  {@render primaryActions?.()}
   {@render customActions?.()}
   <li>
     <Button onclick={showInfo}>
       <Icon size={4} icon={Code2} />
-      {noun} Details
+      {infoLabel || `${noun} Details`}
     </Button>
   </li>
-  {#if event.pubkey === $pubkey}
-    {#if canDeleteEvent}
-      <li>
-        <Button onclick={showDelete} class="text-error">
-          <Icon size={4} icon={TrashBin2} />
-          Delete {noun}
-        </Button>
-      </li>
-    {/if}
+  {#if edit}
+    <li>
+      <Button onclick={edit}>
+        <Icon size={4} icon={Pen} />
+        Edit {noun}
+      </Button>
+    </li>
   {/if}
   {#if ownerPubkey && ownerPubkey === $pubkey && event.pubkey !== $pubkey && showReport && !communitySectionName}
     <li>
@@ -193,5 +183,13 @@
   {/if}
   {#if showModeration}
     <ModerationAction {event} sectionName={communitySectionName} {onClick} />
+  {/if}
+  {#if event.pubkey === $pubkey && canDeleteEvent}
+    <li>
+      <Button onclick={showDelete} class="text-error">
+        <Icon size={4} icon={TrashBin2} />
+        Delete {noun}
+      </Button>
+    </li>
   {/if}
 </ul>

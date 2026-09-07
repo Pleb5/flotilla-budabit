@@ -5,6 +5,8 @@
   import {Address, type TrustedEvent} from "@welshman/util"
   import NoteCard from "./NoteCard.svelte"
   import GitActions from "./GitActions.svelte"
+  import EventShareButton from "./EventShareButton.svelte"
+  import {sanitizeRelays} from "@nostr-git/core/utils"
   import Markdown from "@lib/components/Markdown.svelte"
   import {getInteractiveCardTarget} from "@lib/html"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
@@ -51,6 +53,7 @@
   } = $props()
 
   const name = event.tags.find(nthEq(0, "name"))?.[1]
+  const shareRelays = $derived(sanitizeRelays(event.tags.find(nthEq(0, "relays"))?.slice(1) || []))
   const description = event.tags.find(nthEq(0, "description"))?.[1]
   const community = $derived.by(() => parseRepoCommunityBinding(event))
   const communityPointer = $derived.by(() =>
@@ -200,60 +203,53 @@
         Opening...
       </span>
     {/if}
-    {#if name}
-      <div class="flex w-full items-start justify-between gap-2 {compact ? 'px-2' : ''}">
-        <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <a href={browseHref} class="block min-w-0" onclick={handleRepoLinkClick}>
-            <p
-              class="overflow-wrap-anywhere break-words {compact
-                ? 'text-base font-semibold leading-tight'
-                : 'text-xl'}">
-              {name}
-            </p>
+    <div class="flex w-full items-start justify-between gap-2 {compact ? 'px-2' : ''}">
+      <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <a href={browseHref} class="block min-w-0" onclick={handleRepoLinkClick}>
+          <p
+            class="overflow-wrap-anywhere break-words {compact
+              ? 'text-base font-semibold leading-tight'
+              : 'text-xl'}">
+            {name || "Name missing!"}
+          </p>
+        </a>
+        {#if community && communityPointer}
+          <a
+            href={makeExactCommunityPath(communityPointer)}
+            class="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+            onclick={(event: MouseEvent) => event.stopPropagation()}
+            title={`Community: ${communityLabel}`}>
+            {communityLabel}
           </a>
-          {#if community && communityPointer}
-            <a
-              href={makeExactCommunityPath(communityPointer)}
-              class="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
-              onclick={(event: MouseEvent) => event.stopPropagation()}
-              title={`Community: ${communityLabel}`}>
-              {communityLabel}
-            </a>
-          {/if}
-        </div>
-        <div class="flex items-center gap-2 {showActions ? 'mr-9' : ''}">
-          {#if showCollectionButton}
-            <RepoCollectButton
-              {event}
-              relayHint={url}
-              relayHints={profileRelays}
-              {collectionState} />
-          {:else if onToggleBookmark}
-            <button
-              type="button"
-              class={`rounded-full border p-1.5 transition-colors ${
-                bookmarked
-                  ? "border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-400"
-                  : "border-border bg-background/80 text-muted-foreground hover:text-foreground"
-              }`}
-              onclick={onToggleBookmark}
-              disabled={bookmarkDisabled}
-              aria-label={bookmarked ? "Unstar repository" : "Star repository"}
-              title={bookmarked ? "Unstar repository" : "Star repository"}>
-              <Star class={`h-4 w-4 ${bookmarked ? "fill-current" : ""}`} />
-            </button>
-          {/if}
-          {#if hasNotifications}
-            <span
-              class="h-2 w-2 rounded-full bg-primary"
-              aria-label="Unread repository updates"
-              title="Unread updates"></span>
-          {/if}
-        </div>
+        {/if}
       </div>
-    {:else}
-      <p class="mb-3 h-0 text-xs opacity-75">Name missing!</p>
-    {/if}
+      <div class="flex shrink-0 items-center gap-2 {showActions && showActivity ? 'mr-9' : ''}">
+        <EventShareButton {url} {event} relays={shareRelays} noun="repository" />
+        {#if showCollectionButton}
+          <RepoCollectButton {event} relayHint={url} relayHints={profileRelays} {collectionState} />
+        {:else if onToggleBookmark}
+          <button
+            type="button"
+            class={`rounded-full border p-1.5 transition-colors ${
+              bookmarked
+                ? "border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-400"
+                : "border-border bg-background/80 text-muted-foreground hover:text-foreground"
+            }`}
+            onclick={onToggleBookmark}
+            disabled={bookmarkDisabled}
+            aria-label={bookmarked ? "Unstar repository" : "Star repository"}
+            title={bookmarked ? "Unstar repository" : "Star repository"}>
+            <Star class={`h-4 w-4 ${bookmarked ? "fill-current" : ""}`} />
+          </button>
+        {/if}
+        {#if hasNotifications}
+          <span
+            class="h-2 w-2 rounded-full bg-primary"
+            aria-label="Unread repository updates"
+            title="Unread updates"></span>
+        {/if}
+      </div>
+    </div>
     {#if description}
       <div
         class="flex w-full items-start {compact ? 'pointer-events-none px-2 pb-2' : ''}"

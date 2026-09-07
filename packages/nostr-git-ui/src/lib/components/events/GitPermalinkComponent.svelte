@@ -3,7 +3,9 @@
   import { ArrowUpRight, FileCode, GitCommit } from "@lucide/svelte";
   import { githubPermalinkDiffId } from "@nostr-git/core/git";
   import { useRegistry } from "../../useRegistry";
+  import ShareIcon from "../ShareIcon.svelte";
   import { toast } from "../../stores/toast";
+  import { NOSTR_EVENT_LINK_COPIED } from "../../utils/clipboard";
   import {
     getEventRelayHints,
     getReferenceRelayHints,
@@ -333,7 +335,7 @@
     try {
       await navigator.clipboard.writeText(link);
       setShareState("copied");
-      toast.push({ message: "Event Link Copied!", timeout: 2000 });
+      toast.push({ message: NOSTR_EVENT_LINK_COPIED, timeout: 2000 });
     } catch {
       setShareState("error");
       toast.push({ message: "Failed to copy to clipboard", timeout: 3000, theme: "error" });
@@ -377,55 +379,28 @@
                   {/if}
                 </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                class="git-share-button shrink-0 w-9 p-0 sm:hidden"
-                onclick={(event) => copyShareLink(event)}
-                disabled={!shareLink}
-                data-stop-tap
-                aria-label="Share"
-                title={shareTitle}
-              >
-                <svg
-                  class="h-4 w-4"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  ></path>
-                  <path
-                    d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  ></path>
-                  <path
-                    d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                  ></path>
-                  <path
-                    d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                  ></path>
-                </svg>
-              </Button>
             </div>
           </div>
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2 sm:ml-auto sm:flex-nowrap">
+        <Button
+          variant="outline"
+          size="sm"
+          class="git-share-button shrink-0 w-9 p-0"
+          onclick={(event) => copyShareLink(event)}
+          disabled={!shareLink}
+          data-stop-tap
+          aria-label="Share"
+          title={shareTitle}
+        >
+          <ShareIcon />
+        </Button>
         {#if hasLink}
           <Button
             variant="outline"
             size="sm"
-            class="shrink-0 w-full sm:w-auto"
+            class="shrink-0"
             href={targetHref}
             onclick={onOpen}
             aria-busy={isOpening}
@@ -440,7 +415,7 @@
         <Button
           variant="outline"
           size="sm"
-          class="git-copy-button shrink-0 w-full sm:w-auto"
+          class="git-copy-button shrink-0"
           onclick={copyContent}
           disabled={!event.content}
           aria-live="polite"
@@ -452,40 +427,6 @@
           {:else}
             Copy
           {/if}
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          class="git-share-button hidden shrink-0 w-9 p-0 sm:inline-flex"
-          onclick={(event) => copyShareLink(event)}
-          disabled={!shareLink}
-          data-stop-tap
-          aria-label="Share"
-          title={shareTitle}
-        >
-          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-              stroke="currentColor"
-              stroke-width="1.5"
-            ></path>
-            <path
-              d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-              stroke="currentColor"
-              stroke-width="1.5"
-            ></path>
-            <path
-              d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-              stroke="currentColor"
-              stroke-width="1.5"
-            ></path>
-            <path
-              d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-            ></path>
-          </svg>
         </Button>
       </div>
     </div>

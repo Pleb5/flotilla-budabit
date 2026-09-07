@@ -4,7 +4,6 @@
   import {ArrowUpRight} from "@lucide/svelte"
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import NotesMinimalistic from "@assets/icons/notes-minimalistic.svg?dataurl"
-  import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
   import Button from "@lib/components/Button.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
@@ -14,9 +13,7 @@
     COMMUNITY_WRITE_TARGETS,
     communityWritableSectionsSupportTarget,
   } from "@app/core/community-permissions"
-  import {makeEventShareEntityForEvent} from "@app/util/event-share"
   import {clearModals, pushModal} from "@app/util/modal"
-  import {clip} from "@app/util/toast"
 
   type Props = {
     url: string
@@ -49,11 +46,6 @@
 
   const showInfo = () =>
     pushModal(EventInfo, {url, event, relays: relayTargets}, {replaceState: true})
-
-  const shareItem = () => {
-    clip(makeEventShareEntityForEvent(event, {url, relays: relayTargets}))
-    history.back()
-  }
 
   const createThread = () => {
     if (!canCreateThread) return
@@ -91,11 +83,6 @@
       : "No thread-writable community available"}>
     <Icon size={4} icon={NotesMinimalistic} />
     Create Thread
-  </Button>
-
-  <Button class="btn btn-neutral w-full" onclick={shareItem}>
-    <Icon size={4} icon={ShareCircle} />
-    Share
   </Button>
 
   <Button class="btn btn-neutral" onclick={showInfo}>

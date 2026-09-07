@@ -19,6 +19,10 @@ export type RichComposerContext = {
   blossomContext?: unknown;
 };
 
+export type RichCommentComposerHandle = {
+  focus: (options?: FocusOptions) => void | Promise<void>;
+};
+
 export type RichCommentComposerProps = {
   initialContent?: string;
   placeholder?: string;
@@ -28,7 +32,9 @@ export type RichCommentComposerProps = {
   compact?: boolean;
   disabled?: boolean;
   submitting?: boolean;
+  autofocus?: boolean;
   context?: RichComposerContext;
+  onReady?: (handle: RichCommentComposerHandle) => void;
   onSubmit: (payload: RichContentPayload) => void | Promise<void>;
   onCancel?: () => void;
   onEscape?: () => void;

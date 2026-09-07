@@ -1,4 +1,19 @@
+<style>
+  .repo-rich-comment-composer {
+    min-width: 0;
+  }
+
+  .repo-rich-comment-composer :global(form) {
+    padding: 0;
+  }
+
+  .repo-rich-comment-composer--compact :global(.chat-editor .tiptap) {
+    max-height: 9rem;
+  }
+</style>
+
 <script lang="ts">
+  import {onMount} from "svelte"
   import RoomCompose from "@app/components/RoomCompose.svelte"
   import type {BlossomUploadContext} from "@app/core/blossom"
   import {isMobile} from "@lib/html"
@@ -13,11 +28,23 @@
     compact = false,
     disabled = false,
     submitting = false,
+    autofocus = !isMobile && mode !== "comment",
     context,
+    onReady,
     onSubmit,
     onCancel,
     onEscape,
   }: RichCommentComposerProps = $props()
+
+  let composer: RoomCompose | undefined = $state()
+
+  onMount(() => {
+    onReady?.({
+      focus: async options => {
+        await composer?.focus(options)
+      },
+    })
+  })
 
   const getUrl = (context?: RichComposerContext) =>
     context?.url || context?.relayHint || context?.relays?.[0] || ""
@@ -38,7 +65,8 @@
 </script>
 
 {#if disabled}
-  <div class="rounded-box border border-dashed border-base-content/20 bg-base-200/50 p-3 text-sm opacity-70">
+  <div
+    class="rounded-box border border-dashed border-base-content/20 bg-base-200/50 p-3 text-sm opacity-70">
     Commenting is currently unavailable.
   </div>
 {:else}
@@ -47,12 +75,13 @@
     data-mode={mode}>
     {#key `${mode}:${initialContent}`}
       <RoomCompose
+        bind:this={composer}
         url={getUrl(context)}
         blossomContext={getBlossomContext(context)}
         content={initialContent}
         {placeholder}
         {submitLabel}
-        autofocus={!isMobile && mode !== "comment"}
+        {autofocus}
         showMenu={false}
         {disabled}
         {submitting}
@@ -61,17 +90,3 @@
     {/key}
   </div>
 {/if}
-
-<style>
-  .repo-rich-comment-composer {
-    min-width: 0;
-  }
-
-  .repo-rich-comment-composer :global(form) {
-    padding: 0;
-  }
-
-  .repo-rich-comment-composer--compact :global(.chat-editor .tiptap) {
-    max-height: 9rem;
-  }
-</style>

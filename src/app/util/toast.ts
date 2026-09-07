@@ -2,6 +2,7 @@ import type {Component} from "svelte"
 import {writable} from "svelte/store"
 import {randomId} from "@welshman/lib"
 import {copyToClipboard} from "@lib/html"
+import {getCopySuccessMessage} from "@nostr-git/ui/clipboard"
 
 export type ToastParams = {
   message?: string
@@ -47,7 +48,7 @@ export const pushToast = (params: ToastParams) => {
 
 export const popToast = (id: string) => toast.update(list => list.filter(item => item.id !== id))
 
-export const clip = (value: string, message = "Copied to clipboard!") => {
+export const clip = (value: string, message = getCopySuccessMessage(value)) => {
   copyToClipboard(value)
   pushToast({message})
 }

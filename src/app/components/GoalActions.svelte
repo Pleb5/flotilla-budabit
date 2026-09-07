@@ -66,6 +66,15 @@
   {#if h && showRoom}
     <span class="btn btn-neutral btn-xs rounded-full">Posted in #<RoomName {h} {url} /></span>
   {/if}
+  <EventActions
+    {url}
+    relays={actionRelays}
+    {scopeH}
+    {communitySectionName}
+    {readOnly}
+    {event}
+    hideZap
+    noun="Goal" />
   <ReactionSummary
     {url}
     {relays}
@@ -90,13 +99,4 @@
       {allowedAuthors}
       coreCommunityLiveCovered={activityLiveCovered} />
   {/if}
-  <EventActions
-    {url}
-    relays={actionRelays}
-    {scopeH}
-    {communitySectionName}
-    {readOnly}
-    {event}
-    hideZap
-    noun="Goal" />
 </div>

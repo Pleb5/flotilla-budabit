@@ -961,15 +961,6 @@
               {/if}
             </div>
             <div class="flex items-center gap-2">
-              <ReactionSummary
-                event={issueEvent as any}
-                url={repoBoundRelays[0] || ""}
-                relays={repoBoundRelays}
-                zapScopeH={repoCommunityScope}
-                strictZapRelays={true}
-                {deleteReaction}
-                {createReaction}
-                reactionClass="tooltip-left" />
               <EventActions
                 event={issueEvent as any}
                 url={repoBoundRelays[0] || ""}
@@ -979,6 +970,15 @@
                 repoAddress={issueEditRepoAddress}
                 ownerPubkey={currentRepoOwner}
                 noun="issue" />
+              <ReactionSummary
+                event={issueEvent as any}
+                url={repoBoundRelays[0] || ""}
+                relays={repoBoundRelays}
+                zapScopeH={repoCommunityScope}
+                strictZapRelays={true}
+                {deleteReaction}
+                {createReaction}
+                reactionClass="tooltip-left" />
             </div>
           </div>
           <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">

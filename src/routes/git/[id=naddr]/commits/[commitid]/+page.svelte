@@ -17,6 +17,7 @@
 </style>
 
 <script lang="ts">
+  import {NOSTR_EVENT_LINK_COPIED} from "@nostr-git/ui/clipboard"
   import {page} from "$app/stores"
   import {
     ChevronDown,
@@ -384,7 +385,7 @@
               relays: published.relays,
             })
             await navigator.clipboard.writeText(nevent)
-            toast.push({message: "Permalink copied to clipboard", timeout: 2000})
+            toast.push({message: NOSTR_EVENT_LINK_COPIED, timeout: 2000})
             resolve(true)
           } catch (error) {
             clearModals()

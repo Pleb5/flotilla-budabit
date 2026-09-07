@@ -14,11 +14,12 @@
   import EmojiPicker from "@lib/components/EmojiPicker.svelte"
   import ZapButton from "@app/components/ZapButton.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
+  import EventShareButton from "@app/components/EventShareButton.svelte"
   import ModerationAction from "@app/components/community/ModerationAction.svelte"
   import EventDeleteConfirm from "@app/components/EventDeleteConfirm.svelte"
   import {ENABLE_ZAPS} from "@app/core/state"
   import {publishReactionOperation} from "@app/core/commands"
-  import {pushModal} from "@app/util/modal"
+  import {closeTopModal, pushModal} from "@app/util/modal"
 
   type Props = {
     url: string
@@ -94,34 +95,26 @@
     })
 </script>
 
-<div class="flex flex-col gap-2">
-  {#if event.pubkey === $pubkey && !readOnly}
-    <Button class="btn btn-neutral text-error" onclick={showDelete}>
-      <Icon size={4} icon={TrashBin2} />
-      Delete Message
-    </Button>
-  {/if}
-  <Button class="btn btn-neutral" onclick={showInfo}>
-    <Icon size={4} icon={Code2} />
-    Message Info
-  </Button>
-  {#if ENABLE_ZAPS && !readOnly}
-    <ZapButton replaceState {event} relayHints={relays} {scopeH} class="btn btn-neutral w-full">
-      <Icon size={4} icon={Bolt} />
-      Send Zap
-    </ZapButton>
-  {/if}
+<div class="flex flex-col gap-2" role="group" aria-label="Message actions">
   {#if reply && !readOnly}
     <Button class="btn btn-neutral w-full" onclick={sendReply}>
       <Icon size={4} icon={Reply} />
       Send Reply
     </Button>
   {/if}
-  {#if edit && !readOnly}
-    <Button class="btn btn-neutral w-full" onclick={editMessage}>
-      <Icon size={4} icon={Pen} />
-      Edit Message
-    </Button>
+  <EventShareButton
+    {url}
+    {event}
+    {relays}
+    noun="message"
+    label="Share Message"
+    class="btn btn-neutral w-full"
+    onComplete={closeTopModal} />
+  {#if ENABLE_ZAPS && !readOnly}
+    <ZapButton replaceState {event} relayHints={relays} {scopeH} class="btn btn-neutral w-full">
+      <Icon size={4} icon={Bolt} />
+      Send Zap
+    </ZapButton>
   {/if}
   {#if !readOnly}
     <Button class="btn btn-neutral w-full" onclick={showEmojiPicker}>
@@ -129,5 +122,21 @@
       Send Reaction
     </Button>
   {/if}
+  <Button class="btn btn-neutral" onclick={showInfo}>
+    <Icon size={4} icon={Code2} />
+    Message Info
+  </Button>
+  {#if edit && !readOnly}
+    <Button class="btn btn-neutral w-full" onclick={editMessage}>
+      <Icon size={4} icon={Pen} />
+      Edit Message
+    </Button>
+  {/if}
   <ModerationAction {event} sectionName={communitySectionName} mode="buttons" replaceState />
+  {#if event.pubkey === $pubkey && !readOnly}
+    <Button class="btn btn-neutral text-error" onclick={showDelete}>
+      <Icon size={4} icon={TrashBin2} />
+      Delete Message
+    </Button>
+  {/if}
 </div>

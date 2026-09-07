@@ -3997,7 +3997,7 @@
     <div class="rounded-lg border border-border bg-card p-4 sm:p-6">
       <div class="mb-4 flex flex-col items-start justify-between gap-2">
         <div class="flex w-full flex-wrap items-start justify-between gap-3">
-          <div class="flex min-w-0 flex-1 items-start gap-4">
+          <div class="flex w-full min-w-0 items-start gap-4 sm:w-auto sm:flex-1">
             <div class="mt-1 shrink-0">
               <div class="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/10">
                 <GitCommit class="h-5 w-5 text-amber-500" />
@@ -4012,17 +4012,6 @@
           </div>
 
           <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {#key prEvent.id}
-              <ReactionSummary
-                event={prEvent}
-                url={commentRelayHint || ""}
-                relays={strictRepoRelays}
-                zapScopeH={repoCommunityScope}
-                strictZapRelays={true}
-                {deleteReaction}
-                {createReaction}
-                reactionClass="tooltip-left" />
-            {/key}
             <EventActions
               event={prEvent}
               url={commentRelayHint || ""}
@@ -4034,6 +4023,17 @@
               zapScopeH={repoCommunityScope}
               showReport={true}
               class="shrink-0" />
+            {#key prEvent.id}
+              <ReactionSummary
+                event={prEvent}
+                url={commentRelayHint || ""}
+                relays={strictRepoRelays}
+                zapScopeH={repoCommunityScope}
+                strictZapRelays={true}
+                {deleteReaction}
+                {createReaction}
+                reactionClass="tooltip-left" />
+            {/key}
           </div>
         </div>
 

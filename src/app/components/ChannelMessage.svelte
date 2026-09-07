@@ -200,9 +200,9 @@
 
 <TapTarget
   data-event={event.id}
-  onTap={inert || effectiveReadOnly || censorReason ? null : onTap}
+  onTap={inert || censorReason ? null : onTap}
   class="group relative flex w-full cursor-default flex-col p-2 pb-3 text-left">
-  {#if !inert && !effectiveReadOnly && !censorReason}
+  {#if !inert && !censorReason}
     <div class="z-10 absolute right-2 top-2 sm:hidden">
       <Button
         class="btn btn-neutral btn-xs rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur"
@@ -302,15 +302,15 @@
         class="join rounded-full border border-solid border-neutral bg-base-100/90 text-xs shadow-sm backdrop-blur"
         data-stop-link
         data-stop-tap>
-        {#if ENABLE_ZAPS}
-          <ChannelMessageZapButton {event} relays={actionRelayTargets} {scopeH} />
-        {/if}
-        <ChannelMessageEmojiButton {url} {event} relays={actionRelayTargets} {scopeH} />
         {#if reply}
           <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
             <Icon icon={Reply} size={4} />
           </Button>
         {/if}
+        {#if ENABLE_ZAPS}
+          <ChannelMessageZapButton {event} relays={actionRelayTargets} {scopeH} />
+        {/if}
+        <ChannelMessageEmojiButton {url} {event} relays={actionRelayTargets} {scopeH} />
         {#if edit}
           <Button class="btn join-item btn-xs" onclick={edit} aria-label="Edit message">
             <Icon icon={Pen} size={4} />
@@ -340,16 +340,16 @@
     <div class="z-10 absolute right-2 top-2 hidden items-center gap-1 text-xs sm:flex">
       <div
         class="join rounded-full border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur">
+        {#if reply}
+          <Button class="btn join-item btn-xs" onclick={reply} aria-label="Reply to message">
+            <Icon icon={Reply} size={4} />
+          </Button>
+        {/if}
         {#if ENABLE_ZAPS && !effectiveReadOnly}
           <ChannelMessageZapButton {event} relays={actionRelayTargets} {scopeH} />
         {/if}
         {#if !effectiveReadOnly}
           <ChannelMessageEmojiButton {url} {event} relays={actionRelayTargets} {scopeH} />
-        {/if}
-        {#if reply}
-          <Button class="btn join-item btn-xs" onclick={reply}>
-            <Icon icon={Reply} size={4} />
-          </Button>
         {/if}
         {#if edit}
           <Button class="btn join-item btn-xs" onclick={edit}>
@@ -360,6 +360,9 @@
           url={communityContextUrl}
           {event}
           relays={actionRelayTargets}
+          {reply}
+          {edit}
+          {scopeH}
           {communitySectionName}
           readOnly={inert || effectiveReadOnly} />
       </div>

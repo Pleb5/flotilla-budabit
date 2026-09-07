@@ -13,6 +13,11 @@
       "import": "./dist/index.js",
       "require": "./dist/index.js"
     },
+    "./clipboard": {
+      "types": "./dist/utils/clipboard.d.ts",
+      "import": "./dist/utils/clipboard.js",
+      "require": "./dist/utils/clipboard.js"
+    },
     "./tailwind.preset.js": "./tailwind.preset.js",
     "./index.css": "./dist/index.css"
   },

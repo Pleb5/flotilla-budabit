@@ -14,6 +14,8 @@
     BookmarkCheck,
   } from "@lucide/svelte";
   import { useRegistry } from "../../useRegistry";
+  import { toast } from "../../stores/toast";
+  import { getCopySuccessMessage } from "../../utils/clipboard";
   import {
     getReferenceRelayHints,
     makeGitIssueHref,
@@ -146,6 +148,8 @@
   const copyToClipboard = async (text: string) => {
     try {
       await navigator.clipboard.writeText(text);
+      const message = getCopySuccessMessage(text, "");
+      if (message) toast.push({ message, timeout: 2000 });
     } catch (error) {
       console.error("Failed to copy to clipboard:", error);
     }
@@ -181,10 +185,7 @@
               </h3>
             </a>
           {:else}
-            <h3
-              class="text-base font-semibold mb-0.5 leading-tight"
-              title={displayTitle}
-            >
+            <h3 class="text-base font-semibold mb-0.5 leading-tight" title={displayTitle}>
               {displayTitle}
             </h3>
           {/if}

@@ -1,14 +1,8 @@
 <script lang="ts">
-  import { useRegistry } from "../../useRegistry";
-  import {
-    MessageSquare,
-    Heart,
-    Bookmark,
-    Share2,
-    MoreHorizontal,
-    Link as LinkIcon,
-  } from "@lucide/svelte";
-  import TimeAgo from "../../TimeAgo.svelte";
+  import { toast } from "../../stores/toast";
+  import { getCopySuccessMessage } from "../../utils/clipboard";
+  import { MessageSquare, Heart, Bookmark, MoreHorizontal } from "@lucide/svelte";
+  import ShareIcon from "../ShareIcon.svelte";
   import type { Profile } from "@nostr-git/core/events";
 
   interface Props {
@@ -39,15 +33,20 @@
     onShare,
   }: Props = $props();
 
-  let isHovered = $state(false);
-  let showActions = $derived(isHovered && showQuickActions);
-
-  const authorName = $derived(
-    author?.name || author?.display_name || author?.nip05?.split("@")[0] || "Anonymous"
-  );
-
-  const handleCopyLink = () => {
-    if (eventLink) navigator.clipboard.writeText(eventLink);
+  const handleCopyLink = async (event: MouseEvent) => {
+    event.stopPropagation();
+    if (onShare) {
+      onShare();
+      return;
+    }
+    if (!eventLink) return;
+    try {
+      await navigator.clipboard.writeText(eventLink);
+      const message = getCopySuccessMessage(eventLink, "");
+      if (message) toast.push({ message, timeout: 2000 });
+    } catch (error) {
+      console.error("Failed to copy event link:", error);
+    }
   };
 </script>
 
@@ -55,8 +54,6 @@
   class={`group relative px-4 py-2.5 hover:bg-muted/30 transition-colors duration-150 ${
     isHighlighted ? "bg-blue-500/10 border-l-2 border-blue-500" : ""
   }`}
-  onmouseenter={() => (isHovered = true)}
-  onmouseleave={() => (isHovered = false)}
   role="article"
 >
   <div class="flex gap-3">
@@ -77,12 +74,25 @@
       {/if}
     </div>
 
-    <!-- Quick Actions (appear on hover) -->
-    {#if showActions}
+    <!-- Sharing stays visible even when optional quick actions are disabled. -->
+    {#if eventLink || onShare || showQuickActions}
       <div
-        class="absolute top-2 right-4 flex items-center gap-1 bg-popover border border-border rounded-lg shadow-lg px-1 py-1 opacity-0 group-hover:opacity-100 transition-opacity duration-200"
+        class="flex shrink-0 flex-wrap self-start items-center gap-1 bg-popover border border-border rounded-lg px-1 py-1"
       >
-        {#if onReact}
+        {#if eventLink || onShare}
+          <button
+            type="button"
+            onclick={handleCopyLink}
+            class="p-1.5 hover:bg-muted rounded transition-colors"
+            title="Share"
+            aria-label="Share"
+            data-stop-link
+            data-stop-tap
+          >
+            <ShareIcon class="w-4 h-4 text-muted-foreground" />
+          </button>
+        {/if}
+        {#if showQuickActions && onReact}
           <button
             onclick={onReact}
             class="p-1.5 hover:bg-muted rounded transition-colors"
@@ -93,7 +103,7 @@
           </button>
         {/if}
 
-        {#if onReply}
+        {#if showQuickActions && onReply}
           <button
             onclick={onReply}
             class="p-1.5 hover:bg-muted rounded transition-colors"
@@ -104,35 +114,28 @@
           </button>
         {/if}
 
-        {#if onBookmark}
+        {#if showQuickActions && onBookmark}
           <button
             onclick={onBookmark}
             class="p-1.5 hover:bg-muted rounded transition-colors"
             title="Bookmark"
             aria-label="Bookmark"
           >
-            <Bookmark class="w-4 h-4 text-muted-foreground hover:text-yellow-600 dark:hover:text-yellow-400" />
+            <Bookmark
+              class="w-4 h-4 text-muted-foreground hover:text-yellow-600 dark:hover:text-yellow-400"
+            />
           </button>
         {/if}
 
-        {#if eventLink}
+        {#if showQuickActions}
           <button
-            onclick={handleCopyLink}
             class="p-1.5 hover:bg-muted rounded transition-colors"
-            title="Copy link"
-            aria-label="Copy link"
+            title="More options"
+            aria-label="More options"
           >
-            <LinkIcon class="w-4 h-4 text-muted-foreground hover:text-foreground" />
+            <MoreHorizontal class="w-4 h-4 text-muted-foreground" />
           </button>
         {/if}
-
-        <button
-          class="p-1.5 hover:bg-muted rounded transition-colors"
-          title="More options"
-          aria-label="More options"
-        >
-          <MoreHorizontal class="w-4 h-4 text-muted-foreground" />
-        </button>
       </div>
     {/if}
   </div>

@@ -178,15 +178,17 @@
       </div>
       <p class="break-words text-xs leading-snug opacity-70 sm:text-sm">{info}</p>
     </button>
-    {#if community && showActions}
+    {#if community}
       <CommunityShareButton
         value={community}
         definitionRelays={shareRelays}
         class="btn btn-square btn-sm shrink-0 self-center" />
-      <CommunityStarButton
-        {community}
-        {publishRelayHints}
-        class="btn btn-square btn-sm shrink-0 self-center" />
+      {#if showActions}
+        <CommunityStarButton
+          {community}
+          {publishRelayHints}
+          class="btn btn-square btn-sm shrink-0 self-center" />
+      {/if}
     {/if}
   </div>
 {/snippet}

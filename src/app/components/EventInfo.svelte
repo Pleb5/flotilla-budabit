@@ -91,7 +91,7 @@
       <label class="input input-bordered flex w-full items-center gap-2">
         <Icon icon={FileText} />
         <input type="text" class="ellipsize min-w-0 grow" value={nostrURI} />
-        <Button onclick={copyLink} class="flex items-center">
+        <Button onclick={copyLink} class="flex items-center" aria-label="Copy Nostr event link">
           <Icon icon={Copy} />
         </Button>
       </label>
@@ -105,7 +105,7 @@
       <label class="input input-bordered flex w-full items-center gap-2">
         <Icon icon={UserCircle} />
         <input type="text" class="ellipsize min-w-0 grow" value={npub1} />
-        <Button onclick={copyPubkey} class="flex items-center">
+        <Button onclick={copyPubkey} class="flex items-center" aria-label="Copy author public key">
           <Icon icon={Copy} />
         </Button>
       </label>

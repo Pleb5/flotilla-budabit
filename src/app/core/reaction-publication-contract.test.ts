@@ -19,6 +19,7 @@ describe("reaction publication source contracts", () => {
       "../components/ChannelMessageMenuMobile.svelte",
       "../components/ChannelMessageEmojiButton.svelte",
       "../components/RoomItemMenuMobile.svelte",
+      "../components/RoomItemMenu.svelte",
       "../components/RoomItemEmojiButton.svelte",
       "../../routes/git/[id=naddr]/issues/[issueid]/+page.svelte",
       "../../routes/git/[id=naddr]/commits/[commitid]/+page.svelte",

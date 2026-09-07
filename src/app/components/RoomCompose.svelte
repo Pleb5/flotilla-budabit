@@ -69,7 +69,11 @@
   let attachments = $state<DraftAttachment[]>([])
   let submitInFlight = $state(false)
 
-  export const focus = () => editor.then(ed => ed.chain().focus().run())
+  export const focus = (options: FocusOptions = {}) =>
+    editor.then(ed => {
+      if (isDestroyed || disabled) return false
+      return ed.chain().focus(undefined, {scrollIntoView: !options.preventScroll}).run()
+    })
 
   export const canEnterEditPrevious = () =>
     editor.then(ed => ed.getText({blockSeparator: "\n"}) === "" && attachments.length === 0)

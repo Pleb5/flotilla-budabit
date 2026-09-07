@@ -73,6 +73,7 @@
   </div>
 
   <div class="-my-1 flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+    <EventShareButton {event} {relays} noun="issue" />
     <span
       class="flex min-w-7 items-center justify-end gap-1"
       title={`${commentCount} ${commentCount === 1 ? "comment" : "comments"}`}
@@ -80,6 +81,5 @@
       <MessageCircle class="h-3.5 w-3.5" />
       {commentCount}
     </span>
-    <EventShareButton {event} {relays} noun="issue" />
   </div>
 </div>

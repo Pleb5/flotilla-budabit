@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {NOSTR_EVENT_LINK_COPIED} from "@nostr-git/ui/clipboard"
   import {FileView, Input, type RepoCommunityOption} from "@nostr-git/ui"
   import {fade} from "svelte/transition"
   import {goto} from "$app/navigation"
@@ -653,7 +654,7 @@
               relays: published.relays,
             })
             await navigator.clipboard.writeText(nevent)
-            pushToast({message: "Permalink copied to clipboard"})
+            pushToast({message: NOSTR_EVENT_LINK_COPIED})
             resolve(true)
           } catch (error) {
             clearModals()

@@ -83,6 +83,9 @@
   import {FileCode, GitCommit} from "@lucide/svelte"
   import {githubPermalinkDiffId} from "@nostr-git/core/git"
   import Button from "@lib/components/Button.svelte"
+  import Icon from "@lib/components/Icon.svelte"
+  import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
+  import {getInteractiveCardTarget} from "@lib/html"
   import Spinner from "@lib/components/Spinner.svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
@@ -102,6 +105,7 @@
   import {goToEvent, goToEventPath, makeGitPath} from "@app/util/routes"
   import {makeRepoHrefFromEvent} from "@app/util/repo-links"
   import {pushToast} from "@app/util/toast"
+  import {getCopySuccessMessage} from "@nostr-git/ui/clipboard"
   import {getQuoteRelayHints, getQuoteTagRelayHints} from "@app/util/git-quote"
   import {makeEventNevent} from "@app/util/event-links"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
@@ -242,6 +246,7 @@
   }
 
   const openCardHref = (event: MouseEvent, href: string) => {
+    if (getInteractiveCardTarget(event.target, event.currentTarget)) return
     event.stopPropagation()
     if (!isPlainLeftClick(event)) return
 
@@ -251,6 +256,7 @@
 
   const openCardHrefFromKeyboard = (event: KeyboardEvent, href: string) => {
     if (event.key !== "Enter" && event.key !== " ") return
+    if (getInteractiveCardTarget(event.target, event.currentTarget)) return
 
     event.stopPropagation()
     event.preventDefault()
@@ -310,7 +316,7 @@
     try {
       await navigator.clipboard.writeText(link)
       setShareState("copied")
-      pushToast({message: "Event Link Copied!", timeout: 2000})
+      pushToast({message: getCopySuccessMessage(link), timeout: 2000})
     } catch (error) {
       console.error("Failed to copy share link", error)
       setShareState("error")
@@ -735,6 +741,21 @@
   }
 </script>
 
+{#snippet shareButton()}
+  <GitButton
+    variant="outline"
+    size="sm"
+    class="w-9 shrink-0 justify-center p-0"
+    onclick={event => copyShareLink(entity, event)}
+    disabled={!entity}
+    data-stop-link
+    data-stop-tap
+    aria-label="Share"
+    title={shareTitle}>
+    <Icon icon={ShareCircle} size={4} />
+  </GitButton>
+{/snippet}
+
 {#if censorReason}
   <div class="my-2 block w-full max-w-full text-left">
     <ModeratedContent reason={censorReason} compact />
@@ -789,7 +810,8 @@
           </div>
         </div>
         <div
-          class="grid w-full grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2.25rem] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
+          class="grid w-full grid-cols-[2.25rem_minmax(0,1fr)_minmax(0,1fr)] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
+          {@render shareButton()}
           {#if permalinkHref}
             <GitButton
               variant="outline"
@@ -818,35 +840,6 @@
             {:else}
               Copy
             {/if}
-          </GitButton>
-          <GitButton
-            variant="outline"
-            size="sm"
-            class="w-9 shrink-0 justify-center p-0"
-            onclick={event => copyShareLink(entity, event)}
-            disabled={!entity}
-            data-stop-tap
-            aria-label="Share"
-            title={shareTitle}>
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-                stroke="currentColor"
-                stroke-width="1.5"></path>
-              <path
-                d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-                stroke="currentColor"
-                stroke-width="1.5"></path>
-              <path
-                d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-                stroke="currentColor"
-                stroke-width="1.5"></path>
-              <path
-                d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"></path>
-            </svg>
           </GitButton>
         </div>
       </div>
@@ -938,10 +931,12 @@
       </div>
       <div class="mt-3 flex flex-wrap items-center justify-end gap-2">
         <Button
-          class="btn btn-ghost btn-sm"
+          class="btn btn-square btn-ghost btn-sm"
           onclick={event => copyShareLink(entity, event)}
+          aria-label="Share"
+          title={shareTitle}
           data-stop-tap>
-          {shareTitle}
+          <Icon icon={ShareCircle} size={4} />
         </Button>
         <Button
           class="btn btn-primary btn-sm"
@@ -959,6 +954,7 @@
   </div>
 {:else if gitCard}
   {@const openHref = gitCard.href || entityLink(entity)}
+  {@const isCommentQuote = $quote?.kind === GIT_COMMENT}
   <div class="my-2 block w-full min-w-0 max-w-full text-left">
     <div
       class="w-full min-w-0 cursor-pointer rounded-lg border bg-card p-3 shadow-sm"
@@ -966,7 +962,10 @@
       tabindex="0"
       onclick={event => openCardHref(event, openHref)}
       onkeydown={event => openCardHrefFromKeyboard(event, openHref)}>
-      <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+      <div
+        class={isCommentQuote
+          ? "grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3"
+          : "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"}>
         <div class="min-w-0">
           <div class="text-sm font-semibold">{gitCard.label}</div>
           {#if gitCard.meta?.length}
@@ -977,8 +976,16 @@
             </div>
           {/if}
         </div>
+        {#if isCommentQuote}
+          {@render shareButton()}
+        {/if}
         <div
-          class="grid w-full grid-cols-[minmax(0,1fr)_2.25rem] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center">
+          class={isCommentQuote
+            ? "col-span-2 grid w-full grid-cols-1"
+            : "grid w-full grid-cols-[2.25rem_minmax(0,1fr)] gap-2 sm:flex sm:w-auto sm:flex-nowrap sm:items-center"}>
+          {#if !isCommentQuote}
+            {@render shareButton()}
+          {/if}
           <GitButton
             variant="outline"
             size="sm"
@@ -990,35 +997,6 @@
               <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
             {/if}
             Open
-          </GitButton>
-          <GitButton
-            variant="outline"
-            size="sm"
-            class="w-9 shrink-0 justify-center p-0"
-            onclick={event => copyShareLink(entity, event)}
-            disabled={!entity}
-            data-stop-tap
-            aria-label="Share"
-            title={shareTitle}>
-            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M12 9C10.3431 9 9 7.65685 9 6C9 4.34315 10.3431 3 12 3C13.6569 3 15 4.34315 15 6C15 7.65685 13.6569 9 12 9Z"
-                stroke="currentColor"
-                stroke-width="1.5"></path>
-              <path
-                d="M5.5 21C3.84315 21 2.5 19.6569 2.5 18C2.5 16.3431 3.84315 15 5.5 15C7.15685 15 8.5 16.3431 8.5 18C8.5 19.6569 7.15685 21 5.5 21Z"
-                stroke="currentColor"
-                stroke-width="1.5"></path>
-              <path
-                d="M18.5 21C16.8431 21 15.5 19.6569 15.5 18C15.5 16.3431 16.8431 15 18.5 15C20.1569 15 21.5 16.3431 21.5 18C21.5 19.6569 20.1569 21 18.5 21Z"
-                stroke="currentColor"
-                stroke-width="1.5"></path>
-              <path
-                d="M20 13C20 10.6106 18.9525 8.46589 17.2916 7M4 13C4 10.6106 5.04752 8.46589 6.70838 7M10 20.748C10.6392 20.9125 11.3094 21 12 21C12.6906 21 13.3608 20.9125 14 20.748"
-                stroke="currentColor"
-                stroke-width="1.5"
-                stroke-linecap="round"></path>
-            </svg>
           </GitButton>
         </div>
       </div>
