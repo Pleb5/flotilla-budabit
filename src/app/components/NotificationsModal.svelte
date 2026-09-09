@@ -19,6 +19,7 @@
   import Bolt from "@assets/icons/bolt.svg?dataurl"
   import Chat from "@assets/icons/chat-round-line.svg?dataurl"
   import Check from "@assets/icons/check.svg?dataurl"
+  import Close from "@assets/icons/close.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import Heart from "@assets/icons/heart.svg?dataurl"
   import Mailbox from "@assets/icons/mailbox.svg?dataurl"
@@ -45,7 +46,7 @@
     publicationOperationsNeedingAttention,
     recoverablePublicationOperations,
   } from "@app/core/publication-operations"
-  import {clearModals, pushModal, retainTopModal} from "@app/util/modal"
+  import {clearModals, closeTopModal, pushModal, retainTopModal} from "@app/util/modal"
   import {goToEventIdPath} from "@app/util/routes"
   import {
     getNotificationNavigationKey,
@@ -415,13 +416,24 @@
     openNavigationTarget(event, notificationSettingsTarget)
 </script>
 
-<div
-  class="flex max-h-[82vh] min-h-[28rem] flex-col gap-4 sm:min-w-[28rem]"
-  aria-busy={navigationPending}>
-  <header class="flex items-center justify-between gap-3 px-1">
-    <h1 class="text-lg font-semibold leading-none">Notifications</h1>
+<div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4" aria-busy={navigationPending}>
+  <header class="flex shrink-0 items-center justify-between gap-3">
     <Button
-      class="btn btn-square btn-ghost btn-sm"
+      class="btn btn-square btn-ghost h-11 min-h-11 w-11 shrink-0"
+      aria-label="Close notifications"
+      data-modal-initial-focus
+      disabled={navigationPending}
+      onclick={closeTopModal}>
+      <Icon icon={Close} size={7} />
+    </Button>
+    <!-- Keep drag touch-action off the close and settings buttons. -->
+    <h1
+      data-swipe-dismiss-handle
+      class="flex min-w-0 flex-1 items-center justify-center self-stretch text-lg font-semibold leading-none">
+      Notifications
+    </h1>
+    <Button
+      class="btn btn-square btn-ghost h-11 min-h-11 w-11 shrink-0"
       aria-label="Notification settings"
       data-tip="Notification settings"
       disabled={navigationPending}
@@ -435,7 +447,7 @@
     </Button>
   </header>
 
-  <div class="grid gap-3">
+  <div class="grid shrink-0 gap-3">
     <label class="input input-sm input-bordered flex min-w-0 flex-1 items-center gap-2">
       <Icon icon={Magnifier} size={4} />
       <input
@@ -490,7 +502,9 @@
     {/if}
   </div>
 
-  <div class="scroll-container -mx-2 min-h-0 flex-1 overflow-auto px-2">
+  <div
+    data-testid="notification-list"
+    class="scroll-container -mx-2 min-h-0 flex-1 overflow-auto overscroll-contain px-2">
     <div class="grid gap-3 pb-2">
       {#if visibleRows.length > 0}
         <section class="grid gap-2">

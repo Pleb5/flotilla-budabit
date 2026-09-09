@@ -14,6 +14,8 @@ export type ModalOptions = {
   drawer?: boolean
   noEscape?: boolean
   fullscreen?: boolean
+  swipeToDismiss?: boolean
+  ariaLabel?: string
   replaceState?: boolean
   path?: string
   kind?: string
@@ -148,7 +150,7 @@ export const pushDrawer = (
 ) => pushModal(component, props, {...options, drawer: true})
 
 export const closeTopModal = () => {
-  if (get(retainedModalId)) return
+  if (get(retainedModalId)) return false
 
   const currentId = getCurrentModalId()
   const currentModals = get(modals)
@@ -158,7 +160,8 @@ export const closeTopModal = () => {
 
   if (!currentModal) {
     retainModalIds([])
-    return clearModalHash()
+    clearModalHash()
+    return true
   }
 
   emitter.emit("close")
@@ -166,16 +169,17 @@ export const closeTopModal = () => {
   if (plan.previousId && currentModals[plan.previousId]) {
     if (shouldUseHistoryForTopClose(plan, currentModal.options, typeof window !== "undefined")) {
       window.history.back()
-      return
+      return true
     }
 
     retainModalIds(plan.retainedIds)
     replaceModalHash(plan.previousId)
-    return
+    return true
   }
 
   retainModalIds([])
   clearModalHash()
+  return true
 }
 
 export const retainTopModal = (modalId = getCurrentModalId()) => {

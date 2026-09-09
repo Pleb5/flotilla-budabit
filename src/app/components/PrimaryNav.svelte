@@ -39,7 +39,11 @@
   const showNotifications = async () => {
     notificationsModalPromise ||= import("@app/components/NotificationsModal.svelte")
     const {default: NotificationsModal} = await notificationsModalPromise
-    pushModal(NotificationsModal, {}, {kind: NOTIFICATION_CENTER_MODAL_KIND})
+    pushModal(
+      NotificationsModal,
+      {},
+      {kind: NOTIFICATION_CENTER_MODAL_KIND, swipeToDismiss: true, ariaLabel: "Notifications"},
+    )
   }
 
   const openChat = () => {

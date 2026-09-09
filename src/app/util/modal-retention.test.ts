@@ -28,7 +28,7 @@ describe("modal retention", () => {
     const release = retainTopModal("notifications")
 
     syncModalStoresToActiveId("event-target")
-    closeTopModal()
+    expect(closeTopModal()).toBe(false)
 
     expect(get(modalIds)).toEqual(["notifications"])
     expect(get(modalStack).map(modal => modal.id)).toEqual(["notifications"])
