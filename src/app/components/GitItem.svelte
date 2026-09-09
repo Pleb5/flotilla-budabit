@@ -261,7 +261,7 @@
           variant={compact ? "inline" : "comment"} />
       </div>
     {:else}
-      <p class="mb-3 h-0 text-xs opacity-75">Description missing!</p>
+      <p class="text-xs opacity-75 {compact ? 'px-2 pb-2' : 'mb-3'}">Description missing!</p>
     {/if}
     {#if showActions}
       <div class="flex w-full min-w-0 flex-col items-stretch justify-between gap-2 sm:flex-row">
