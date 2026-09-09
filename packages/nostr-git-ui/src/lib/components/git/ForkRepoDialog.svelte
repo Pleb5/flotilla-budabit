@@ -1181,7 +1181,8 @@
     if (isOpen) {
       queueMicrotask(() => {
         if (initialFocusEl && typeof initialFocusEl.focus === "function") {
-          initialFocusEl.focus();
+          // The modal's opening transition can temporarily change the input's position.
+          initialFocusEl.focus({ preventScroll: true });
         }
       });
     }
