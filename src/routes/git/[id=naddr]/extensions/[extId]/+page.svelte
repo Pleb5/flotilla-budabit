@@ -58,16 +58,17 @@
   import {pubkey} from "@welshman/app"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {ExtensionBridge} from "@app/extensions/bridge"
-  import {
-    buildRepoExtensionContext,
-    buildRepoExtensionUpdate,
-    getRepoExtensionInstanceId,
-  } from "@app/extensions/repo-context"
+  import {buildRepoExtensionContext, getRepoExtensionInstanceId} from "@app/extensions/repo-context"
   import {REPO_KEY, REPO_RELAYS_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
   import type {LoadedWidgetExtension, SmartWidgetEvent, RepoContext} from "@app/extensions/types"
-  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
+  import {
+    isSecureEmbeddableUrl,
+    REPO_TAB_SANDBOX,
+    SECURE_EMBED_URL_REQUIREMENT,
+  } from "@app/extensions/url-policy"
+  import {postRepoTabContext, postRepoTabInit} from "@app/extensions/repo-tab-context"
   import {theme} from "@app/util/theme"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -141,20 +142,32 @@
   let error = $state<string | null>(null)
   let retryCount = $state(0)
   let iframeSrc = $state<string | undefined>(undefined)
+  let initializedOrigin = ""
 
   // Tracks which extension entrypoint the iframe is currently bound to so
   // switching between extensions (same route, different param) reloads it.
-  let currentEntrypoint = $state<string | undefined>(undefined)
+  let currentFrameKey = $state<string | undefined>(undefined)
 
   // Initialize/refresh iframe src when the widget app URL changes.
   $effect(() => {
-    if (!hasRepoRelayAuthority || !secureExtEntrypoint) {
-      currentEntrypoint = undefined
+    if (!isEnabled || !hasRepoRelayAuthority || !secureExtEntrypoint) {
+      bridge?.detach()
+      bridge = null
+      extInstance = null
+      ready = false
+      currentFrameKey = undefined
       iframeSrc = undefined
       return
     }
 
-    if (currentEntrypoint !== secureExtEntrypoint) {
+    const frameKey = JSON.stringify([
+      resolvedExtId,
+      naddr,
+      secureExtEntrypoint,
+      extPermissions,
+      extension?.tags,
+    ])
+    if (currentFrameKey !== frameKey) {
       // New extension (or first load): tear down the previous bridge and
       // reset iframe state before pointing the iframe at the new app.
       bridge?.detach()
@@ -164,7 +177,7 @@
       error = null
       loading = true
       retryCount = 0
-      currentEntrypoint = secureExtEntrypoint
+      currentFrameKey = frameKey
       iframeSrc = secureExtEntrypoint
     }
   })
@@ -235,11 +248,16 @@
   }
 
   function sendContext(): void {
-    if (!bridge || !iframeEl?.contentWindow || !hasRepoRelayAuthority) return
+    if (!bridge || !extInstance || !iframeEl?.contentWindow) return
 
     const repoContext = buildRepoContext()
-    if (!repoContext) return
-    bridge.post("context:update", buildRepoExtensionUpdate(repoContext, $pubkey))
+    postRepoTabContext(bridge, extInstance, repoContext, $pubkey)
+  }
+
+  function sendInit(): void {
+    if (!bridge || !extInstance) return
+    extInstance.repoContext = buildRepoContext()
+    postRepoTabInit(bridge, extInstance, $pubkey, appTheme, getHostBackgroundColor())
   }
 
   function handleIframeLoad(): void {
@@ -252,19 +270,22 @@
     }
 
     try {
+      bridge?.detach()
       const ext = createExtensionInstance()
       if (!ext) {
         error = "Extension has no app URL configured."
         return
       }
       // Add iframe reference so bridge.post() can send messages
-      ;(ext as any).iframe = iframeEl
+      ext.iframe = iframeEl
       const b = new ExtensionBridge(ext)
       b.attachHandlers(iframeEl.contentWindow)
       extInstance = ext
       bridge = b
+      initializedOrigin = ""
       ready = true
       retryCount = 0
+      sendInit()
       // Context will be sent reactively when repo data is available
     } catch (e) {
       error = `Failed to initialize extension: ${String(e)}`
@@ -281,6 +302,10 @@
     if (!hasRepoRelayAuthority) return
     error = null
     loading = true
+    bridge?.detach()
+    bridge = null
+    extInstance = null
+    ready = false
     retryCount++
     // Force iframe reload by updating src with cache buster
     if (secureExtEntrypoint) {
@@ -296,7 +321,6 @@
     if (!ready || !bridge) return
     // Wait for repo context to be available
     const repoContext = buildRepoContext()
-    if (!repoContext) return
 
     // Keep repoContext on the extension object in sync so context:getRepo handler works
     if (extInstance) {
@@ -319,10 +343,16 @@
   // the embedded app mounts its handlers, so the first context post may arrive
   // unheard.
   function handleWidgetReadyMessage(event: MessageEvent): void {
-    if (!iframeEl || event.source !== iframeEl.contentWindow) return
+    if (!bridge?.acceptOrigin(event)) return
     try {
       const {kind, type, action} = (event.data || {}) as Record<string, unknown>
-      if (kind === "app-loaded" || (type === "event" && action === "widget:ready")) {
+      if (
+        initializedOrigin !== event.origin ||
+        kind === "app-loaded" ||
+        (type === "event" && action === "widget:ready")
+      ) {
+        initializedOrigin = event.origin
+        sendInit()
         sendContext()
         sendTheme()
       }
@@ -424,14 +454,16 @@
       </div>
     {/if}
 
-    <iframe
-      bind:this={iframeEl}
-      src={iframeSrc}
-      title={extName}
-      class="extension-iframe"
-      class:loading
-      sandbox="allow-scripts allow-same-origin allow-forms"
-      onload={handleIframeLoad}
-      onerror={handleIframeError}></iframe>
+    {#key currentFrameKey}
+      <iframe
+        bind:this={iframeEl}
+        src={iframeSrc}
+        title={extName}
+        class="extension-iframe"
+        class:loading
+        sandbox={REPO_TAB_SANDBOX}
+        onload={handleIframeLoad}
+        onerror={handleIframeError}></iframe>
+    {/key}
   </div>
 {/if}

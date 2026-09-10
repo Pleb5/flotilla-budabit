@@ -372,7 +372,7 @@ const sendBridgeRequest = async (
   action: string,
   payload: Record<string, any>,
 ) => {
-  const source = makeSourceWindow()
+  const source = extension.iframeWindow
   await bridge.handleMessage({
     data: {id: `${action}-request`, type: "request", action, payload},
     source,
@@ -401,6 +401,7 @@ beforeEach(() => {
   mocks.getPubkeyOutboxRelays.mockReturnValue([])
   mocks.goto.mockResolvedValue(undefined)
   mocks.pubkey.set(undefined)
+  mocks.signer.set(null)
   mocks.activeRepoClass.set(null)
   mocks.activeExactCommunityDefinition.set(undefined)
   mocks.activeExactCommunityPointer.set(communityPointer)
@@ -423,6 +424,112 @@ afterEach(() => {
 })
 
 describe("ExtensionBridge", () => {
+  it("synchronizes only approved origins from the expected iframe and refuses detached messages", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeExtension({origin: "https://blossom.primal.net"})
+    const bridge = new ExtensionBridge(extension as any)
+    const message = (origin: string, source = extension.iframeWindow) =>
+      ({origin, source}) as unknown as MessageEvent
+    expect(bridge.acceptOrigin(message("https://primal.net.evil.example"))).toBe(false)
+    expect(bridge.acceptOrigin(message("https://r2a.primal.net", makeSourceWindow()))).toBe(false)
+    expect(bridge.acceptOrigin(message("https://r2a.primal.net"))).toBe(true)
+    bridge.post("context:update", {repo: null})
+    expect(extension.iframeWindow.postMessage).toHaveBeenLastCalledWith(
+      expect.anything(),
+      "https://r2a.primal.net",
+    )
+    bridge.detach()
+    expect(bridge.acceptOrigin(message("https://r2a.primal.net"))).toBe(false)
+  })
+
+  it("enforces declared write kinds and pins signing, publication and storage scope", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const owner = testPubkey(1)
+    mocks.pubkey.set(owner)
+    const extension = makeExtension({
+      repoContext: {pubkey: owner, name: "exact:Repo", maintainers: [owner]},
+      widget: {
+        permissions: ["nostr:sign", "nostr:publish", "storage:set"],
+        tags: [["nostrKinds", "3063"]],
+      },
+    })
+    const bridge = new ExtensionBridge(extension as any)
+    const scope = {expectedPubkey: owner, expectedRepoAddress: `30617:${owner}:exact:Repo`}
+    const template = {kind: 3063, created_at: 1, content: "", tags: []}
+    const sign = vi.fn(async (value: typeof template) =>
+      finalizeEvent(value, new Uint8Array(32).fill(1)),
+    )
+    mocks.signer.set({sign} as any)
+    expect(
+      await sendBridgeRequest(bridge, extension, "nostr:sign", {...template, ...scope, kind: 1}),
+    ).toMatchObject({error: expect.stringContaining("not declared")})
+    expect(sign).not.toHaveBeenCalled()
+    expect(
+      await sendBridgeRequest(bridge, extension, "nostr:sign", {...template, ...scope}),
+    ).toMatchObject({status: "ok", event: {pubkey: owner}})
+    expect(
+      await sendBridgeRequest(bridge, extension, "nostr:publish", {
+        ...scope,
+        event: {...template, kind: 1},
+        relays: ["wss://relay.example/"],
+      }),
+    ).toMatchObject({error: expect.stringContaining("not declared")})
+    expect(
+      await sendBridgeRequest(bridge, extension, "storage:set", {
+        ...scope,
+        expectedRepoAddress: "wrong",
+        key: "journal",
+        data: {},
+      }),
+    ).toMatchObject({error: "Repository context changed"})
+    mocks.pubkey.set(outsiderPubkey)
+    expect(
+      await sendBridgeRequest(bridge, extension, "nostr:publish", {
+        ...scope,
+        event: finalizeEvent(template, new Uint8Array(32).fill(1)),
+        relays: ["wss://relay.example/"],
+      }),
+    ).toMatchObject({error: "Signing account changed"})
+    expect(mocks.publishThunk).not.toHaveBeenCalled()
+    mocks.pubkey.set(owner)
+    sign.mockImplementationOnce(async value => {
+      mocks.pubkey.set(outsiderPubkey)
+      return finalizeEvent(value, new Uint8Array(32).fill(1))
+    })
+    expect(
+      await sendBridgeRequest(bridge, extension, "nostr:sign", {...template, ...scope}),
+    ).toMatchObject({error: "Signing account changed"})
+  })
+
+  it("requires unsubscribe permission and releases only subscriptions owned by that widget", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const {extensionSubscriptionRegistry} = await import("./extension-subscriptions")
+    const extension = makeExtension({
+      widget: {permissions: ["nostr:subscribe", "nostr:unsubscribe"]},
+    })
+    const bridge = new ExtensionBridge(extension as any)
+    const result = await sendBridgeRequest(bridge, extension, "nostr:subscribe", {
+      relays: ["wss://relay.example/"],
+      filter: {kinds: [5401]},
+    })
+    const unsubscribe = vi.spyOn(extensionSubscriptionRegistry, "unsubscribe")
+    const denied = makeExtension({id: "denied", widget: {permissions: ["nostr:subscribe"]}})
+    expect(
+      await sendBridgeRequest(new ExtensionBridge(denied as any), denied, "nostr:unsubscribe", {
+        subscriptionId: result.subscriptionId,
+      }),
+    ).toMatchObject({code: "CAPABILITY_NOT_AUTHORIZED"})
+    expect(unsubscribe).not.toHaveBeenCalled()
+    expect(
+      await sendBridgeRequest(bridge, extension, "nostr:unsubscribe", {
+        subscriptionId: result.subscriptionId,
+      }),
+    ).toEqual({status: "ok"})
+    expect(unsubscribe).toHaveBeenCalledWith(extension.id, result.subscriptionId)
+    expect(unsubscribe.mock.results[0].value).toBe(true)
+    bridge.detach()
+  })
+
   it("posts events to the extension origin and uses '*' only for sandboxed iframes", async () => {
     const {ExtensionBridge} = await import("./bridge")
 
@@ -578,7 +685,7 @@ describe("ExtensionBridge", () => {
 
     const extension = makeExtension()
     const bridge = new ExtensionBridge(extension as any)
-    const source = makeSourceWindow()
+    const source = extension.iframeWindow
 
     await bridge.handleMessage({
       data: {id: "req-1", type: "request", action: "storage:get", payload: {key: "secret"}},
@@ -3397,17 +3504,24 @@ describe("ExtensionBridge", () => {
   it("validates nostr query payloads and deduplicates returned events", async () => {
     const {ExtensionBridge} = await import("./bridge")
 
-    mocks.load.mockImplementation(async ({onEvent}: any) => {
-      onEvent?.({id: "evt-1"})
-      onEvent?.({id: "evt-1"})
-      onEvent?.({id: "evt-2"})
+    const events = [1, 2].map(created_at =>
+      finalizeEvent(
+        {kind: 30301, created_at, content: "", tags: [["d", "widget-1"]]},
+        new Uint8Array(32).fill(1),
+      ),
+    )
+    mocks.load.mockImplementation(async ({onEvent, onEose, relays}: any) => {
+      onEvent?.(events[0])
+      onEvent?.(events[0])
+      onEvent?.(events[1])
+      onEose?.(relays[0])
     })
 
     const extension = makeExtension({
       widget: {permissions: ["nostr:query"]},
     })
     const bridge = new ExtensionBridge(extension as any)
-    const source = makeSourceWindow()
+    const source = extension.iframeWindow
 
     await bridge.handleMessage({
       data: {
@@ -3433,7 +3547,14 @@ describe("ExtensionBridge", () => {
         id: "query-ok",
         type: "response",
         action: "nostr:query",
-        payload: {status: "ok", events: [{id: "evt-1"}, {id: "evt-2"}]},
+        payload: {
+          status: "ok",
+          events,
+          complete: true,
+          completedRelays: ["wss://relay.example.com/"],
+          failedRelays: [],
+          timedOutRelays: [],
+        },
       },
       extension.origin,
     )

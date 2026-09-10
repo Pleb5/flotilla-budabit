@@ -34,7 +34,13 @@ describe("repository extension context", () => {
     )
     expect(buildRepoExtensionUpdate(after, null)).toMatchObject({
       contextId: buildRepoExtensionUpdate(before, null).contextId,
-      repo: {repoName: "Legacy:Case", repoDisplayName: "名前 with spaces!"},
+      repo: {
+        repoName: "Legacy:Case",
+        repoDisplayName: "名前 with spaces!",
+        repoAddress: `30617:${owner}:Legacy:Case`,
+        userPubkey: null,
+        maintainers: [owner],
+      },
     })
   })
   it("separates equal display names by the exact owner/identifier coordinate", () => {

@@ -1,7 +1,26 @@
 import {describe, expect, it} from "vitest"
-import {isSecureEmbeddableUrl} from "./url-policy"
+import {isAllowedExtensionOrigin, isSecureEmbeddableUrl, REPO_TAB_SANDBOX} from "./url-policy"
 
 describe("extension URL policy", () => {
+  it("allows only explicit redirect origins and keeps popup sandbox restrictions", () => {
+    expect(isAllowedExtensionOrigin("https://blossom.primal.net", "https://r2a.primal.net")).toBe(
+      true,
+    )
+    for (const origin of [
+      "https://primal.net.evil.example",
+      "https://evil-primal.net",
+      "http://r2a.primal.net",
+      "https://r2a.primal.net:444",
+      "null",
+    ]) {
+      expect(isAllowedExtensionOrigin("https://blossom.primal.net", origin)).toBe(false)
+    }
+    expect(isAllowedExtensionOrigin("https://other.example", "https://r2a.primal.net")).toBe(false)
+    expect(REPO_TAB_SANDBOX).toContain("allow-popups")
+    expect(REPO_TAB_SANDBOX).toContain("allow-downloads")
+    expect(REPO_TAB_SANDBOX).not.toContain("allow-popups-to-escape-sandbox")
+    expect(REPO_TAB_SANDBOX).not.toContain("allow-top-navigation")
+  })
   it("allows HTTPS URLs", () => {
     expect(isSecureEmbeddableUrl("https://example.com/widget")).toBe(true)
   })

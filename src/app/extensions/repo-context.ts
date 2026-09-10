@@ -1,5 +1,6 @@
 import type {RepoAnnouncementEvent} from "@nostr-git/core/events"
 import type {RepoContext} from "./types"
+import {getRepoAddress} from "./types"
 
 export function buildRepoExtensionContext(
   repo: {
@@ -20,7 +21,7 @@ export function buildRepoExtensionContext(
     displayName: repo.name || identifier,
     naddr,
     relays: [...relays],
-    maintainers: [...(repo.maintainers || [])],
+    maintainers: [...new Set([pubkey, ...(repo.maintainers || [])])],
   }
 }
 
@@ -39,6 +40,8 @@ export const buildRepoExtensionUpdate = (
     repoName: repo.name,
     repoDisplayName: repo.displayName,
     repoNaddr: repo.naddr,
+    repoAddress: getRepoAddress(repo),
+    userPubkey: userPubkey || null,
     repoRelays: [...(repo.relays || [])],
     maintainers: [...(repo.maintainers || [])],
   },

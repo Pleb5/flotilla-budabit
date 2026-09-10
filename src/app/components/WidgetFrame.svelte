@@ -16,7 +16,11 @@
   } from "@app/extensions/host-capabilities"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
-  import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
+  import {
+    isAllowedExtensionOrigin,
+    isSecureEmbeddableUrl,
+    SECURE_EMBED_URL_REQUIREMENT,
+  } from "@app/extensions/url-policy"
   import {theme} from "@app/util/theme"
 
   type Props = {
@@ -332,9 +336,8 @@
     const expectedOrigin = getAppOrigin()
 
     return Boolean(
-      origin === expectedOrigin ||
-      (origin === "null" && iframeRef?.contentWindow && source === iframeRef.contentWindow) ||
-      (expectedOrigin.includes("blossom.primal.net") && origin.includes("primal.net")),
+      isAllowedExtensionOrigin(expectedOrigin, origin) ||
+      (origin === "null" && iframeRef?.contentWindow && source === iframeRef.contentWindow),
     )
   }
 

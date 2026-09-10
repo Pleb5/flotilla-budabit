@@ -58,7 +58,12 @@ import type {
   WidgetResizeRequest,
 } from "./types"
 import {getRepoAddress} from "./types"
-import {extensionSubscriptionRegistry} from "./extension-subscriptions"
+import {
+  extensionSubscriptionRegistry,
+  MAX_EXTENSION_RELAYS_PER_SUBSCRIPTION,
+} from "./extension-subscriptions"
+import {queryExtensionRelays} from "./nostr-query"
+import {isAllowedExtensionOrigin} from "./url-policy"
 import {BoundedRefreshCache} from "./bounded-refresh-cache"
 import {
   getCommunitySharedConfigDescriptorKey,
@@ -226,6 +231,43 @@ const getDeclaredNostrKinds = (ext?: {widget?: {tags?: string[][]}}): Set<number
   return kinds
 }
 
+const assertDeclaredWriteKind = (kind: unknown, ext: LoadedExtension) => {
+  if (!Number.isSafeInteger(kind) || (kind as number) < 0) throw new Error("Invalid event kind")
+  if (
+    ext.widget.tags?.some(tag => tag[0] === "nostrKinds") &&
+    !getDeclaredNostrKinds(ext).has(kind as number)
+  ) {
+    throw new Error(`Event kind ${kind} is not declared by this extension`)
+  }
+}
+
+const assertExpectedScope = (payload: any, ext: LoadedExtension, publishing = false) => {
+  if (
+    payload?.expectedRepoAddress !== undefined &&
+    (!ext.repoContext || getRepoAddress(ext.repoContext) !== payload.expectedRepoAddress)
+  ) {
+    throw new Error("Repository context changed")
+  }
+  if (payload?.expectedPubkey !== undefined) {
+    if (
+      typeof payload.expectedPubkey !== "string" ||
+      !/^[0-9a-f]{64}$/.test(payload.expectedPubkey) ||
+      get(activeUserPubkey) !== payload.expectedPubkey
+    )
+      throw new Error("Signing account changed")
+    if (
+      publishing &&
+      payload.expectedRepoAddress !== undefined &&
+      ext.repoContext &&
+      ![ext.repoContext.pubkey, ...(ext.repoContext.maintainers || [])].includes(
+        payload.expectedPubkey,
+      )
+    ) {
+      throw new Error("Signing account is not a repository maintainer")
+    }
+  }
+}
+
 const normalizeNostrFilter = (
   filterRaw: unknown,
   extraAllowedKinds?: Set<number>,
@@ -286,6 +328,8 @@ const parseNostrQueryPayload = (
   if (relays.length === 0) {
     throw new Error("No valid relays provided")
   }
+  if (relays.length > MAX_EXTENSION_RELAYS_PER_SUBSCRIPTION)
+    throw new Error("Too many query relays (maximum 8)")
 
   const filter = normalizeNostrFilter((payload as any).filter, extraAllowedKinds)
 
@@ -470,8 +514,11 @@ export class ExtensionBridge {
   private listener?: (e: MessageEvent) => void
   private allowedActions: Set<string> = new Set()
   private targetWindow: Window | null = null
+  private readonly entrypointOrigin: string
+  private detached = false
 
   constructor(private extension: LoadedExtension) {
+    this.entrypointOrigin = extension.origin
     // Widgets default to empty permissions, denying privileged bridge actions.
     const permissions = extension.widget.permissions
     if (permissions) {
@@ -481,6 +528,8 @@ export class ExtensionBridge {
 
   attachHandlers(target: Window | null): void {
     if (!target) return
+    if (this.listener) window.removeEventListener("message", this.listener)
+    this.detached = false
     this.targetWindow = target
     this.listener = (e: MessageEvent) => this.handleMessage(e)
     window.addEventListener("message", this.listener)
@@ -497,6 +546,7 @@ export class ExtensionBridge {
   }
 
   detach(): void {
+    this.detached = true
     if (this.listener) window.removeEventListener("message", this.listener)
     cleanupExtensionSubscriptions(this.extension.id)
     this.pending.clear()
@@ -524,18 +574,10 @@ export class ExtensionBridge {
 
   async handleMessage(event: MessageEvent): Promise<void> {
     const {data, source, origin} = event
-    if (this.targetWindow && source !== this.targetWindow) return
+    if (!this.acceptOrigin(event)) return
     if (!data || typeof data !== "object" || !("action" in data)) return
 
     const msg = data as ExtensionMessage
-    // Check origin - allow Blossom CDN redirects (r2a.primal.net serves blossom.primal.net content)
-    const isOriginMatch =
-      this.extension.origin === origin ||
-      (this.extension.origin.includes("blossom.primal.net") && origin.includes("primal.net"))
-    if (!isOriginMatch) {
-      console.log(`[bridge] origin mismatch: expected ${this.extension.origin}, got ${origin}`)
-      return
-    }
 
     if (msg.type === "response" && msg.id && this.pending.has(msg.id)) {
       const resolve = this.pending.get(msg.id)!
@@ -581,7 +623,22 @@ export class ExtensionBridge {
     }
   }
 
+  /** Synchronize redirect origin only from this iframe's window and a known deployment origin. */
+  acceptOrigin(event: MessageEvent): boolean {
+    const expectedWindow = this.targetWindow ?? this.extension.iframe?.contentWindow
+    if (
+      this.detached ||
+      !expectedWindow ||
+      event.source !== expectedWindow ||
+      !isAllowedExtensionOrigin(this.entrypointOrigin, event.origin)
+    )
+      return false
+    this.extension.origin = event.origin
+    return true
+  }
+
   post(action: string, payload: any): void {
+    if (this.detached) return
     // Use targetWindow if available (for sandboxed iframes), otherwise fall back to iframe.contentWindow
     const targetWindow = this.targetWindow ?? this.extension.iframe?.contentWindow
     // Use the extension's known origin to prevent message leaks if the iframe navigates.
@@ -615,6 +672,14 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
   if (ext) console.log(`[bridge] nostr:publish from ${ext.id}`)
   try {
     const {event, relays} = parseNostrPublishPayload(payload)
+    assertDeclaredWriteKind(event?.kind, ext)
+    assertExpectedScope(payload, ext, true)
+    if (
+      payload?.expectedPubkey !== undefined &&
+      (event.pubkey !== payload.expectedPubkey || !event.id || !event.sig)
+    ) {
+      throw new Error("Pinned publication requires an event already signed by the intended account")
+    }
     if (!relays?.length) throw new Error("No valid publish relays provided")
     if (
       event?.kind === TARGETED_PUBLICATION_KIND ||
@@ -624,6 +689,7 @@ registerBridgeHandler("nostr:publish", async (payload, ext) => {
       throw new Error("Community-scoped events must use a dedicated community publish capability")
     }
     await authenticatePublishCommunityRelays(relays)
+    assertExpectedScope(payload, ext, true)
     const hasIdAndSig =
       event &&
       typeof event === "object" &&
@@ -701,57 +767,7 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
       relays.map(safeRelayEndpoint),
     )
 
-    // Use @welshman/net load() for better relay connection management
-    const events: any[] = []
-    const seenIds = new Set<string>()
-    let resolved = false
-    let resolveEarly: (() => void) | null = null
-
-    // Promise that resolves when we get events (after a short delay to collect more)
-    const earlyResolvePromise = new Promise<void>(resolve => {
-      resolveEarly = resolve
-    })
-
-    // Timeout after 5s (reduced from 10s)
-    const timeoutPromise = new Promise<void>(resolve => {
-      setTimeout(() => {
-        if (!resolved) {
-          console.log(`[bridge] nostr:query timeout after 5s, got ${events.length} events`)
-          resolved = true
-          resolve()
-        }
-      }, 5000)
-    })
-
-    const loadPromise = load({
-      relays,
-      filters: [filter as any],
-      onEvent: (event: any) => {
-        if (!seenIds.has(event.id)) {
-          seenIds.add(event.id)
-          events.push(event)
-          console.log(`[bridge] nostr:query received event ${event.id}, total: ${events.length}`)
-          // Once we have events, wait 500ms for more then resolve early
-          if (!resolved && resolveEarly) {
-            setTimeout(() => {
-              if (!resolved) {
-                console.log(`[bridge] nostr:query early resolve with ${events.length} events`)
-                resolved = true
-                resolveEarly!()
-              }
-            }, 500)
-          }
-        }
-      },
-    }).catch((e: any) => {
-      console.log(`[bridge] nostr:query load error:`, e?.message || e)
-    })
-
-    // Wait for load to complete, early resolve (events found), or timeout
-    await Promise.race([loadPromise, earlyResolvePromise, timeoutPromise])
-
-    console.log(`[bridge] nostr:query got ${events.length} events`)
-    return {status: "ok", events}
+    return await queryExtensionRelays(relays, filter as any)
   } catch (err: any) {
     console.error("Error in nostr:query bridge handler:", err)
     return {error: err.message}
@@ -2424,6 +2440,7 @@ const removeStorageKey = (ext: LoadedExtension, repoScoped: boolean, key: string
 registerBridgeHandler("storage:get", (payload, ext) => {
   if (ext) console.log(`[bridge] storage:get from ${ext.id}`, payload)
   try {
+    assertExpectedScope(payload, ext)
     const {key, repoScoped = false} = payload || {}
     if (typeof key !== "string" || key.length === 0) {
       throw new Error("Invalid key: expected non-empty string")
@@ -2452,6 +2469,7 @@ registerBridgeHandler("storage:get", (payload, ext) => {
 registerBridgeHandler("storage:set", (payload, ext) => {
   if (ext) console.log(`[bridge] storage:set from ${ext.id}`, payload)
   try {
+    assertExpectedScope(payload, ext)
     const {key, data, repoScoped = false} = payload || {}
     if (typeof key !== "string" || key.length === 0) {
       throw new Error("Invalid key: expected non-empty string")
@@ -2659,6 +2677,8 @@ registerBridgeHandler("nostr:sign", async (payload, ext) => {
     if (typeof template.kind !== "number") {
       throw new Error("Invalid event template: missing numeric `kind`")
     }
+    assertDeclaredWriteKind(template.kind, ext)
+    assertExpectedScope(payload, ext, true)
     const $signer = signer.get()
     if (!$signer) {
       throw new Error("No active signer available")
@@ -2670,6 +2690,9 @@ registerBridgeHandler("nostr:sign", async (payload, ext) => {
       tags: Array.isArray(template.tags) ? template.tags : [],
     }
     const signed = await $signer.sign(event)
+    assertExpectedScope(payload, ext, true)
+    if (payload.expectedPubkey !== undefined && signed.pubkey !== payload.expectedPubkey)
+      throw new Error("Signer returned a different account")
     return {status: "ok", event: signed}
   } catch (err: any) {
     console.error("Error in nostr:sign bridge handler:", err)

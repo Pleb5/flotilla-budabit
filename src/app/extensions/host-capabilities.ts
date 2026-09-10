@@ -67,6 +67,9 @@ export const getHostCapabilitySnapshot = ({
     features: {
       "nostr.subscriptionBackfill": "finite-live",
       "nostr.subscriptionEose": "per-relay",
+      "nostr.queryCompleteness": true,
+      "nostr.expectedSigner": true,
+      "nostr.declaredWriteKinds": true,
       "community.sharedConfigRefresh": true,
       "widget.theme": true,
     },
