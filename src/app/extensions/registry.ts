@@ -264,6 +264,7 @@ class ExtensionRegistry {
           ? {
               pubkey: repoContext.pubkey,
               name: repoContext.name,
+              displayName: repoContext.displayName,
               naddr: repoContext.naddr,
               relays: repoContext.relays,
               address: getRepoAddress(repoContext),
@@ -339,6 +340,7 @@ class ExtensionRegistry {
       initPayload.repoContext = {
         pubkey: ext.repoContext.pubkey,
         name: ext.repoContext.name,
+        displayName: ext.repoContext.displayName,
         naddr: ext.repoContext.naddr,
         relays: ext.repoContext.relays,
         address: getRepoAddress(ext.repoContext),

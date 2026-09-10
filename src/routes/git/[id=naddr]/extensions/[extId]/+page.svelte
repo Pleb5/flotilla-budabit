@@ -58,6 +58,11 @@
   import {pubkey} from "@welshman/app"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {ExtensionBridge} from "@app/extensions/bridge"
+  import {
+    buildRepoExtensionContext,
+    buildRepoExtensionUpdate,
+    getRepoExtensionInstanceId,
+  } from "@app/extensions/repo-context"
   import {REPO_KEY, REPO_RELAYS_KEY} from "@app/core/git-state"
   import type {Repo} from "@nostr-git/ui"
   import type {Readable} from "svelte/store"
@@ -129,7 +134,8 @@
   // Iframe state
   let iframeEl: HTMLIFrameElement | null = $state(null)
   let bridge: ExtensionBridge | null = $state(null)
-  let extInstance: LoadedWidgetExtension | null = $state(null)
+  // The bridge must retain this same object when context changes, not a deep state proxy.
+  let extInstance: LoadedWidgetExtension | null = $state.raw(null)
   let ready = $state(false)
   let loading = $state(true)
   let error = $state<string | null>(null)
@@ -164,27 +170,22 @@
   })
 
   function buildRepoContext(): RepoContext | undefined {
-    if (!repoClass.repoEvent?.pubkey || !repoClass.name || !hasRepoRelayAuthority) return undefined
-    return {
-      pubkey: repoClass.repoEvent.pubkey,
-      name: repoClass.name,
-      naddr: naddr,
-      relays: [...repoRelays],
-      maintainers: repoClass.maintainers ? [...repoClass.maintainers] : [],
-    }
+    return buildRepoExtensionContext(repoClass, naddr, repoRelays)
   }
 
   function createExtensionInstance(): LoadedWidgetExtension | null {
     if (!secureExtEntrypoint || !hasRepoRelayAuthority) return null
+    const repoContext = buildRepoContext()
+    if (!repoContext) return null
 
     const origin = new URL(secureExtEntrypoint).origin
-    const identifier = `${resolvedExtId}:${repoClass.repoEvent?.pubkey}:${repoClass.name}`
+    const identifier = getRepoExtensionInstanceId(resolvedExtId, repoContext)
 
     return {
       type: "widget",
       id: identifier,
       origin,
-      repoContext: buildRepoContext(),
+      repoContext,
       widget: {
         id: `ext-${identifier}`,
         kind: 30033,
@@ -236,24 +237,9 @@
   function sendContext(): void {
     if (!bridge || !iframeEl?.contentWindow || !hasRepoRelayAuthority) return
 
-    // Spread arrays to avoid reactive proxy serialization issues with postMessage
-    const maintainers = repoClass.maintainers ? [...repoClass.maintainers] : []
-    const relays = [...repoRelays]
-
-    const ctx = {
-      contextId: `repo:${repoClass.repoEvent?.pubkey}:${repoClass.name}`,
-      userPubkey: $pubkey,
-      relays,
-      repo: {
-        repoPubkey: repoClass.repoEvent?.pubkey,
-        repoName: repoClass.name,
-        repoNaddr: naddr,
-        repoRelays: relays,
-        maintainers,
-      },
-    }
-
-    bridge.post("context:update", ctx)
+    const repoContext = buildRepoContext()
+    if (!repoContext) return
+    bridge.post("context:update", buildRepoExtensionUpdate(repoContext, $pubkey))
   }
 
   function handleIframeLoad(): void {
@@ -309,11 +295,12 @@
   $effect(() => {
     if (!ready || !bridge) return
     // Wait for repo context to be available
-    if (!repoClass.repoEvent?.pubkey || !repoClass.name || !hasRepoRelayAuthority) return
+    const repoContext = buildRepoContext()
+    if (!repoContext) return
 
     // Keep repoContext on the extension object in sync so context:getRepo handler works
     if (extInstance) {
-      extInstance.repoContext = buildRepoContext()
+      extInstance.repoContext = repoContext
     }
 
     sendContext()

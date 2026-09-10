@@ -211,8 +211,10 @@ export type SmartWidgetEvent = {
 export type RepoContext = {
   /** Repository owner's pubkey */
   pubkey: string
-  /** Repository name (d-tag identifier) */
+  /** Exact d-tag identifier (legacy field name; never presentation text). */
   name: string
+  /** Human-readable display name, independent of repository identity. */
+  displayName?: string
   /** Full naddr for the repository */
   naddr?: string
   /** Relays associated with this repository */

@@ -2627,6 +2627,7 @@ registerBridgeHandler("context:getRepo", (payload, ext) => {
       repoContext: {
         pubkey: ext.repoContext.pubkey,
         name: ext.repoContext.name,
+        displayName: ext.repoContext.displayName,
         naddr: ext.repoContext.naddr,
         relays: ext.repoContext.relays,
         maintainers: ext.repoContext.maintainers,

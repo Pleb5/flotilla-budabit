@@ -3,6 +3,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {EVENT_TIME, THREAD, type TrustedEvent} from "@welshman/util"
 import {finalizeEvent, getPublicKey} from "nostr-tools/pure"
+import {buildRepoExtensionContext, getRepoExtensionInstanceId} from "./repo-context"
 import {
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SUBTYPE_ROOM,
@@ -878,6 +879,63 @@ describe("ExtensionBridge", () => {
       }),
     ).resolves.toEqual({status: "ok", data: {status: "green"}})
   })
+
+  it.each([false, true])(
+    "keeps repo-tab storage across renames and isolates equal display names (repoScoped=%s)",
+    async repoScoped => {
+      const {ExtensionBridge} = await import("./bridge")
+      const owner = "a".repeat(64)
+      const makeRepoTab = (identifier: string, displayName: string) => {
+        const repoContext = buildRepoExtensionContext(
+          {
+            repoEvent: {pubkey: owner, tags: [["d", identifier]]},
+            identifier,
+            name: displayName,
+          },
+          "naddr",
+          ["wss://repo.example/"],
+        )!
+        const extension = makeStorageExtension({
+          id: getRepoExtensionInstanceId("builds", repoContext),
+          repoContext,
+        })
+        return {extension, bridge: new ExtensionBridge(extension as any)}
+      }
+      const initial = makeRepoTab("stable-id", "My Great Repo")
+      await expect(
+        sendBridgeRequest(initial.bridge, initial.extension, "storage:set", {
+          key: "cursor",
+          data: {page: 3},
+          repoScoped,
+        }),
+      ).resolves.toEqual({status: "ok"})
+      const renamed = makeRepoTab("stable-id", "名前 with spaces!")
+      expect(renamed.extension.id).toBe(initial.extension.id)
+      await expect(
+        sendBridgeRequest(renamed.bridge, renamed.extension, "storage:get", {
+          key: "cursor",
+          repoScoped,
+        }),
+      ).resolves.toEqual({status: "ok", data: {page: 3}})
+      await expect(
+        sendBridgeRequest(renamed.bridge, renamed.extension, "context:getRepo", {}),
+      ).resolves.toMatchObject({
+        status: "ok",
+        repoContext: {
+          name: "stable-id",
+          displayName: "名前 with spaces!",
+          address: `30617:${owner}:stable-id`,
+        },
+      })
+      const other = makeRepoTab("different-id", "名前 with spaces!")
+      await expect(
+        sendBridgeRequest(other.bridge, other.extension, "storage:get", {
+          key: "cursor",
+          repoScoped,
+        }),
+      ).resolves.toEqual({status: "ok", data: null})
+    },
+  )
 
   it("migrates shipped global storage namespaces and removes every copy", async () => {
     const {ExtensionBridge} = await import("./bridge")
