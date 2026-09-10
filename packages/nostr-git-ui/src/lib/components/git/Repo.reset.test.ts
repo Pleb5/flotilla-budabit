@@ -4,6 +4,9 @@ import { nip19 } from "nostr-tools";
 import { Repo } from "./Repo.svelte";
 import { tokens } from "$lib/stores/tokens";
 import { orderReadUrlsByPreference, updateUrlPreferenceCache } from "@nostr-git/core/utils";
+import { getGitProvider, setGitProvider } from "@nostr-git/core/api";
+import { listBranchesFromEvent, rootDir } from "@nostr-git/core/git";
+import { VendorReadRouter } from "./VendorReadRouter";
 
 vi.hoisted(() => {
   const values = new Map<string, string>();
@@ -28,56 +31,90 @@ vi.mock("$lib/stores/tokens", () => ({
 }));
 
 describe("Repo reset", () => {
-  it("anchors storage and announcement edits to d, not to the display name or foreign announcements", async () => {
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    const owner = "a".repeat(64);
-    const announcement = {
-      kind: 30617,
-      pubkey: owner,
-      id: "original",
-      sig: "fixture",
-      created_at: 1,
-      content: "Keep content",
-      tags: [
-        ["d", "Legacy.Case"],
-        ["clone", "https://github.com/fixture/Legacy.Case.git"],
-        ["future", "retain"],
-      ],
-    } as any;
-    const events = writable(announcement);
-    const viewer = writable<string | null>(owner);
-    const repo = new Repo({
-      repoEvent: events,
-      repoStateEvent: readable(undefined as any),
-      issues: readable([]),
-      viewerPubkey: viewer,
-      workerManager: {
-        isReady: false,
-        setProgressCallback: vi.fn(),
-        setAuthConfig: vi.fn().mockResolvedValue(undefined),
-        initialize: vi.fn().mockResolvedValue(undefined),
-        dispose: vi.fn(),
-      } as any,
-    });
-    await repo.waitForReady();
-    try {
-      const key = repo.key;
-      expect(repo.name).toBe("Legacy.Case");
-      expect(key).toContain("/Legacy.Case");
-      const edited = repo.createRepoAnnouncementEvent({ name: "名前 with spaces" });
-      expect(edited.tags).toContainEqual(["d", "Legacy.Case"]);
-      expect(edited.tags).toContainEqual(["future", "retain"]);
-      events.set({ ...edited, id: "replacement", sig: "fixture" });
-      expect(repo.key).toBe(key);
-      expect(repo.name).toBe("名前 with spaces");
-      events.set({ ...announcement, id: "foreign", pubkey: "b".repeat(64) });
-      expect(repo.repoEvent?.id).toBe("replacement");
-      viewer.set("b".repeat(64));
-      expect(() => repo.createRepoAnnouncementEvent({ name: "Forbidden" })).toThrow(/owner/);
-    } finally {
-      repo.dispose();
+  it.each(["conventional", "grasp"])(
+    "anchors %s storage, local fallback and edits to d after renaming",
+    async (hosting) => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("Fixture: network disabled"));
+      vi.mocked(tokens.waitForInitialization).mockResolvedValue([]);
+      const owner = "a".repeat(64);
+      const announcement = {
+        kind: 30617,
+        pubkey: owner,
+        id: "original",
+        sig: "fixture",
+        created_at: 1,
+        content: "Keep content",
+        tags: [
+          ["d", "Legacy.Case"],
+          [
+            "clone",
+            hosting === "grasp"
+              ? `https://git.example/${nip19.npubEncode(owner)}/Legacy.Case.git`
+              : "https://github.com/fixture/Legacy.Case.git",
+          ],
+          ["future", "retain"],
+        ],
+      } as any;
+      const events = writable(announcement);
+      const viewer = writable<string | null>(owner);
+      const repo = new Repo({
+        repoEvent: events,
+        repoStateEvent: readable(undefined as any),
+        issues: readable([]),
+        viewerPubkey: viewer,
+        workerManager: {
+          isReady: false,
+          setProgressCallback: vi.fn(),
+          setAuthConfig: vi.fn().mockResolvedValue(undefined),
+          initialize: vi.fn().mockResolvedValue(undefined),
+          listServerRefs: vi.fn().mockRejectedValue(new Error("Fixture: remote offline")),
+          listBranchesFromEvent: vi.fn().mockResolvedValue([]),
+          dispose: vi.fn(),
+        } as any,
+      });
+      await repo.waitForReady();
+      const originalGit = getGitProvider();
+      try {
+        const key = repo.key;
+        expect(repo.name).toBe("Legacy.Case");
+        expect(key).toContain("/Legacy.Case");
+        const edited = repo.createRepoAnnouncementEvent({ name: "名前 with spaces" });
+        expect(edited.tags).toContainEqual(["d", "Legacy.Case"]);
+        expect(edited.tags).toContainEqual(["future", "retain"]);
+        events.set({ ...edited, id: "replacement", sig: "fixture" });
+        expect(repo.key).toBe(key);
+        expect(repo.name).toBe("名前 with spaces");
+        const listBranches = vi.fn(async ({ dir }: { dir: string }) => {
+          if (dir !== `${rootDir}/${key}`) throw new Error(`No local clone at ${dir}`);
+          return ["main", "release"];
+        });
+        setGitProvider({ listBranches } as any);
+        const router = new VendorReadRouter({
+          getTokens: async () => [],
+          preferVendorReads: false,
+          gitNaturalReads: "disabled",
+        });
+        const listServerRefs = vi.fn().mockRejectedValue(new Error("Fixture: remote offline"));
+        const result = await router.listRefs({
+          workerManager: { listServerRefs, listBranchesFromEvent } as any,
+          repoEvent: repo.repoEvent!,
+          cloneUrls: repo.clone,
+        });
+        expect(listServerRefs).toHaveBeenCalled();
+        expect(result.source.kind).toBe("local");
+        expect(result.refs.map((ref) => ref.name)).toEqual(["main", "release"]);
+        expect(listBranches).toHaveBeenCalledWith({ dir: `${rootDir}/${key}` });
+        events.set({ ...announcement, id: "foreign", pubkey: "b".repeat(64) });
+        expect(repo.repoEvent?.id).toBe("replacement");
+        viewer.set("b".repeat(64));
+        expect(() => repo.createRepoAnnouncementEvent({ name: "Forbidden" })).toThrow(/owner/);
+      } finally {
+        setGitProvider(originalGit);
+        repo.dispose();
+      }
     }
-  });
+  );
   afterEach(() => {
     vi.restoreAllMocks();
   });

@@ -25,12 +25,10 @@ import {
   type RepoAnnouncementChanges,
   createRepoStateEvent,
 } from "@nostr-git/core/events";
-import { nip19 } from "nostr-tools";
 import {
   clearUrlPreferenceCache,
   getCachedUrlPreference,
   isPushCapableCloneUrl,
-  parseRepoId,
 } from "@nostr-git/core/utils";
 import { context } from "$lib/stores/context";
 import { toast } from "$lib/stores/toast";
@@ -44,6 +42,7 @@ import { BranchManager, type RefDiscoverySource } from "./BranchManager";
 import { FileManager, type FileInfo, type FileListingResult } from "./FileManager";
 import {
   RepoCore,
+  getRepoStorageKey,
   type RepoContext,
   type EffectiveLabels,
   detectVendorFromUrl,
@@ -648,8 +647,7 @@ export class Repo {
           this.name = this.#repo!.name || identifier;
           this.description = this.#repo!.description!;
           // Storage keys use the exact identifier, never presentation text.
-          const _owner = this.getCanonicalRepoOwner();
-          this.key = parseRepoId(`${_owner}:${identifier}`);
+          this.key = getRepoStorageKey(event);
           this.commitManager.setRepoKeys({
             canonicalKey: this.key,
             workerRepoId: this.key,
@@ -928,27 +926,6 @@ export class Repo {
     const owner = this.#repo?.owner?.trim();
     if (owner && owner.length > 0) return owner;
     return (this.repoEvent?.pubkey || "").trim();
-  }
-
-  private isGraspRepo(): boolean {
-    const cloneUrls = this.#repo?.clone || [];
-    return cloneUrls.some((url) => {
-      try {
-        return detectVendorFromUrl(url) === "grasp-rest";
-      } catch {
-        return /^wss?:\/\//i.test(String(url || ""));
-      }
-    });
-  }
-
-  private getCanonicalRepoOwner(): string {
-    const owner = this.getOwnerPubkey();
-    if (!owner || !this.isGraspRepo()) return owner;
-    try {
-      return owner.startsWith("npub1") ? owner : nip19.npubEncode(owner);
-    } catch {
-      return owner;
-    }
   }
 
   /** Build a RepoCore context snapshot from current reactive state */

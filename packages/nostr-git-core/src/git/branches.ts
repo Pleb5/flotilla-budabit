@@ -1,8 +1,8 @@
 import { getGitProvider } from '../api/git-provider.js';
 import { rootDir } from './git.js';
-import { parseRepoId } from '../utils/index.js';
-import { parseRepoAnnouncementEvent, RepoAnnouncementEvent } from '../events/index.js';
+import type { RepoAnnouncementEvent } from '../events/index.js';
 import { assertRepoAnnouncementEvent } from '../events/index.js';
+import { getRepoStorageKey } from './repo-storage-key.js';
 
 export interface Branch {
   name: string;
@@ -14,16 +14,7 @@ export async function listBranchesFromEvent(opts: {
   repoEvent: RepoAnnouncementEvent;
 }): Promise<Branch[]> {
   assertRepoAnnouncementEvent(opts.repoEvent);
-  const repo = parseRepoAnnouncementEvent(opts.repoEvent);
-  // Some repos announce only the name (e.g., "grasp") in tag d. Build a canonical key if needed.
-  let canonicalKey: string;
-  try {
-    canonicalKey = parseRepoId(repo.repoId);
-  } catch (_) {
-    // Fallback: combine pubkey with repo name or repoId and canonicalize again
-    const fallbackId = `${opts.repoEvent.pubkey}:${repo.name || repo.repoId}`;
-    canonicalKey = parseRepoId(fallbackId);
-  }
+  const canonicalKey = getRepoStorageKey(opts.repoEvent);
 
   const dir = `${rootDir}/${canonicalKey}`;
   const git = getGitProvider();
