@@ -169,7 +169,6 @@ export const EMPTY_GIT_TREE_COMMIT_HASH = "0".repeat(40)
 const COMMIT_HISTORY_BATCH_SIZE = 15
 const DIFF_BLOB_BATCH_SIZE = 16
 const DIFF_BLOB_BATCH_CONCURRENCY = 16
-const DIFF_BLOB_TRANSIENT_HTTP_RETRIES = 1
 
 export class GitNaturalReadProvider {
   private readonly enabled: boolean
@@ -787,34 +786,24 @@ export class GitNaturalReadProvider {
     infoRefs: GitNaturalInfoRefs,
     blobHashes: readonly string[],
   ): Promise<Map<string, GitNaturalParsedObject>> {
-    for (let retry = 0; ; retry += 1) {
-      try {
-        const pack = await this.adapter.fetchObjectsByHash({
-          url: params.url,
-          objectHashes: blobHashes,
-          serverCapabilities: infoRefs.capabilities,
-          corsProxy: this.resolveCorsProxy(params.corsProxy),
-          signal: params.signal,
-        })
-        const objects = parsedObjectsFromApiObjects(pack.pack.objects)
-        const requiredObjects = new Map(
-          blobHashes.map(blobHash => {
-            const normalizedHash = normalizeObjectHash(blobHash)
-            return [normalizedHash, this.getObject(objects, normalizedHash, "blob")]
-          }),
-        )
-        this.storeObjects(objects)
-        return requiredObjects
-      } catch (error) {
-        if (
-          retry >= DIFF_BLOB_TRANSIENT_HTTP_RETRIES ||
-          params.signal?.aborted ||
-          !isTransientServerError(error)
-        ) {
-          throw error
-        }
-      }
-    }
+    // Transient HTTP retries belong to the adapter, shared with refs/tree/file reads.
+    // Retrying here as well would multiply the request budget on persistent failures.
+    const pack = await this.adapter.fetchObjectsByHash({
+      url: params.url,
+      objectHashes: blobHashes,
+      serverCapabilities: infoRefs.capabilities,
+      corsProxy: this.resolveCorsProxy(params.corsProxy),
+      signal: params.signal,
+    })
+    const objects = parsedObjectsFromApiObjects(pack.pack.objects)
+    const requiredObjects = new Map(
+      blobHashes.map(blobHash => {
+        const normalizedHash = normalizeObjectHash(blobHash)
+        return [normalizedHash, this.getObject(objects, normalizedHash, "blob")]
+      }),
+    )
+    this.storeObjects(objects)
+    return requiredObjects
   }
 
   private async getSameCommitBatches(
@@ -1225,16 +1214,6 @@ function firstParentContinuation(commits: GitNaturalCommit[]): string | undefine
   const included = new Set(commits.map(commit => normalizeObjectHash(commit.hash)))
   const firstParent = normalizeObjectHash(commits[commits.length - 1]?.parents?.[0])
   return firstParent && !included.has(firstParent) ? firstParent : undefined
-}
-
-function isTransientServerError(error: unknown): boolean {
-  return (
-    error instanceof GitNaturalReadError &&
-    error.code === "http-error" &&
-    error.status !== undefined &&
-    error.status >= 500 &&
-    error.status <= 599
-  )
 }
 
 function directoryEntryFromTreeEntry(

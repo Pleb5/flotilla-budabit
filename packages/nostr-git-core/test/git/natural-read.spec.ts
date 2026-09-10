@@ -22,6 +22,11 @@ import {
   resolveNaturalReadTransport,
 } from "../../src/git/natural-read-transport.js"
 import type {GitNaturalCommit} from "../../src/git/natural-read-types.js"
+import {
+  clearUrlPreferenceCache,
+  getCachedUrlPreference,
+  withUrlFallback,
+} from "../../src/utils/clone-url-fallback.js"
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder()
@@ -649,6 +654,204 @@ describe("natural read API adapter", () => {
     expect(fetcher).toHaveBeenCalledTimes(1)
   })
 
+  it.each([500, 502, 503, 504])(
+    "recovers an initial HTTP %s without advancing the repository's fallback cursor",
+    async status => {
+      const remoteUrl = "https://github.com/Pleb5/zap.stream.git"
+      const repoId = `transient-primary-${status}`
+      const cancel = vi.fn(async () => {})
+      const fetcher = vi
+        .fn()
+        .mockResolvedValueOnce({
+          ok: false,
+          status,
+          body: {cancel},
+          arrayBuffer: async () => new ArrayBuffer(0),
+        })
+        .mockResolvedValue({
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => arrayBuffer(encoder.encode(buildAdvertisement())),
+        })
+      const adapter = new GitNaturalApiAdapter({fetcher, corsProxy: "https://cors.example"})
+
+      try {
+        const result = await withUrlFallback(
+          [remoteUrl, GRASP_URL],
+          url => adapter.fetchInfoRefs({url}),
+          {repoId, perUrlTimeoutMs: 0},
+        )
+
+        expect(result.usedUrl).toBe(remoteUrl)
+        expect(result.attempts).toMatchObject([{url: remoteUrl, success: true}])
+        expect(result.result?.infoRefs.headCommit).toBe("1".repeat(40))
+        expect(getCachedUrlPreference(repoId)).toMatchObject({
+          preferredUrl: remoteUrl,
+          failedUrls: [],
+        })
+        expect(fetcher.mock.calls.map(([url]) => url)).toEqual([
+          "https://cors.example/github.com/Pleb5/zap.stream.git/info/refs?service=git-upload-pack",
+          "https://cors.example/github.com/Pleb5/zap.stream.git/info/refs?service=git-upload-pack",
+        ])
+        expect(cancel).toHaveBeenCalledTimes(1)
+
+        await adapter.fetchInfoRefs({url: remoteUrl})
+        expect(fetcher).toHaveBeenCalledTimes(2)
+      } finally {
+        clearUrlPreferenceCache(repoId)
+      }
+    },
+  )
+
+  it("still advances to the mirror after a persistent primary HTTP error", async () => {
+    const remoteUrl = "https://github.com/Pleb5/zap.stream.git"
+    const repoId = "persistent-primary-http-error"
+    const fetcher = vi.fn(async (url: string) => ({
+      ok: !url.includes("github.com"),
+      status: url.includes("github.com") ? 503 : 200,
+      arrayBuffer: async () => arrayBuffer(encoder.encode(buildAdvertisement())),
+    }))
+    const adapter = new GitNaturalApiAdapter({fetcher, corsProxy: "https://cors.example"})
+
+    try {
+      const read = () =>
+        withUrlFallback([remoteUrl, GRASP_URL], url => adapter.fetchInfoRefs({url}), {
+          repoId,
+          perUrlTimeoutMs: 0,
+        })
+      const result = await read()
+
+      expect(result.usedUrl).toBe(GRASP_URL)
+      expect(result.attempts).toMatchObject([
+        {url: remoteUrl, success: false, errorCode: "http-error", status: 503},
+        {url: GRASP_URL, success: true},
+      ])
+      expect(fetcher.mock.calls.filter(([url]) => url.includes("github.com"))).toHaveLength(2)
+      expect(getCachedUrlPreference(repoId)).toMatchObject({
+        preferredUrl: GRASP_URL,
+        failedUrls: [remoteUrl],
+      })
+      expect((await read()).attempts).toMatchObject([{url: GRASP_URL, success: true}])
+      expect(fetcher).toHaveBeenCalledTimes(3)
+    } finally {
+      clearUrlPreferenceCache(repoId)
+    }
+  })
+
+  it.each([401, 403, 404, 429])("does not retry HTTP %s", async status => {
+    const fetcher = vi.fn(async () => ({
+      ok: false,
+      status,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    }))
+    const adapter = new GitNaturalApiAdapter({fetcher})
+
+    await expect(adapter.fetchInfoRefs({url: GRASP_URL})).rejects.toMatchObject({
+      code: "http-error",
+      status,
+    })
+    expect(fetcher).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["caller", "timeout"])("cancels the HTTP retry delay on %s cancellation", async cause => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const fetcher = vi.fn(async () => ({
+      ok: false,
+      status: 502,
+      arrayBuffer: async () => new ArrayBuffer(0),
+    }))
+    const adapter = new GitNaturalApiAdapter({fetcher, requestTimeoutMs: 100})
+
+    try {
+      const result = adapter.fetchInfoRefs({url: GRASP_URL, signal: controller.signal})
+      const rejection = expect(result).rejects.toMatchObject(
+        cause === "caller" ? {name: "AbortError"} : {code: "transient-network-failure"},
+      )
+      await vi.advanceTimersByTimeAsync(50)
+      if (cause === "caller") controller.abort()
+      await vi.advanceTimersByTimeAsync(500)
+      await rejection
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("keeps the second HTTP attempt within the original request deadline", async () => {
+    vi.useFakeTimers()
+    const fetcher = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise(resolve =>
+            setTimeout(
+              () =>
+                resolve({
+                  ok: false,
+                  status: 502,
+                  arrayBuffer: async () => new ArrayBuffer(0),
+                }),
+              200,
+            ),
+          ),
+      )
+      .mockImplementationOnce(
+        (_url: string, init?: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("Aborted", "AbortError")),
+              {once: true},
+            )
+          }),
+      )
+    const adapter = new GitNaturalApiAdapter({fetcher, requestTimeoutMs: 500})
+
+    try {
+      const result = adapter.fetchInfoRefs({url: GRASP_URL})
+      const rejection = expect(result).rejects.toMatchObject({
+        code: "transient-network-failure",
+        message: expect.stringContaining("timed out after 500ms"),
+      })
+      await vi.advanceTimersByTimeAsync(449)
+      expect(fetcher).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(fetcher).toHaveBeenCalledTimes(2)
+      expect(fetcher.mock.calls[1][1].signal).toBe(fetcher.mock.calls[0][1].signal)
+      await vi.advanceTimersByTimeAsync(50)
+      await rejection
+      expect(fetcher.mock.calls[1][1].signal.aborted).toBe(true)
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("preserves the final HTTP error without caching the failed infoRefs request", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ok: false, status: 502, arrayBuffer: async () => new ArrayBuffer(0)})
+      .mockResolvedValueOnce({ok: false, status: 503, arrayBuffer: async () => new ArrayBuffer(0)})
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => arrayBuffer(encoder.encode(buildAdvertisement())),
+      })
+    const adapter = new GitNaturalApiAdapter({fetcher})
+
+    await expect(adapter.fetchInfoRefs({url: GRASP_URL})).rejects.toMatchObject({
+      code: "http-error",
+      status: 503,
+      effectiveUrl: `${GRASP_URL}/info/refs?service=git-upload-pack`,
+    })
+    await expect(adapter.fetchInfoRefs({url: GRASP_URL})).resolves.toMatchObject({
+      infoRefs: {headCommit: "1".repeat(40)},
+    })
+    expect(fetcher).toHaveBeenCalledTimes(3)
+  })
+
   it("classifies a stalled request timeout after confirmed cancellation", async () => {
     let transportSignal: AbortSignal | undefined
     const fetcher = vi.fn((_url: string, init?: RequestInit) => {
@@ -866,6 +1069,32 @@ describe("natural read API adapter", () => {
     expect(fetcher.mock.calls.some(([calledUrl]) => String(calledUrl).includes("/info/refs"))).toBe(
       false,
     )
+  })
+
+  it("retries the same read-only upload-pack request after HTTP 502", async () => {
+    const blob = buildBlobPack("recovered README\n")
+    const response = concatBytes(
+      pktBytes("NAK\n"),
+      sideBandPacket(1, blob.packfile),
+      encoder.encode("0000"),
+    )
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ok: false, status: 502, arrayBuffer: async () => new ArrayBuffer(0)})
+      .mockResolvedValue({ok: true, status: 200, arrayBuffer: async () => arrayBuffer(response)})
+    const adapter = new GitNaturalApiAdapter({fetcher, authorizationForUrl: () => "Basic test"})
+
+    const result = await adapter.fetchObjectByHash({
+      url: GRASP_URL,
+      objectHash: blob.hash,
+      serverCapabilities: CAPABILITIES,
+    })
+
+    expect(decoder.decode(result.object.data)).toBe("recovered README\n")
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(fetcher.mock.calls[1]).toEqual(fetcher.mock.calls[0])
+    expect(fetcher.mock.calls[1][1].method).toBe("POST")
+    expect(new Headers(fetcher.mock.calls[1][1].headers).get("Authorization")).toBe("Basic test")
   })
 
   it("requests and validates multiple unique object OIDs in one upload-pack request", async () => {

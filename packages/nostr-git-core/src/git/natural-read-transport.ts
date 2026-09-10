@@ -125,6 +125,7 @@ export type FetchLike = (
   ok: boolean
   status: number
   statusText?: string
+  body?: {cancel: () => Promise<void>} | null
   text?: () => Promise<string>
   arrayBuffer: () => Promise<ArrayBuffer>
 }>

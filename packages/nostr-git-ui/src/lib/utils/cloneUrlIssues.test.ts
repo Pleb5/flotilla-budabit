@@ -73,6 +73,19 @@ describe("cloneUrlIssues", () => {
     );
   });
 
+  it.each([
+    {status: 502, detail: "HTTP 502"},
+    {status: undefined, detail: "an HTTP error"},
+  ])("does not attribute $detail to the origin rather than a proxy", ({status, detail}) => {
+    expect(
+      getReadFallbackMessage({
+        operation: "listRefs",
+        activeFallbackUrl: "https://grasp.budabit.club/repo.git",
+        failures: [{url: "https://github.com/Pleb5/zap.stream.git", kind: "http-endpoint", status}],
+      })
+    ).toBe(`Read from github.com failed with ${detail}; reading from fallback grasp.budabit.club.`);
+  });
+
   it("describes reuse of an already-active fallback without inventing a failure", () => {
     expect(
       getReadFallbackMessage({

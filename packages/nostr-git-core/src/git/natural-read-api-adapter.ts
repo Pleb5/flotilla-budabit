@@ -514,6 +514,8 @@ function transportNetworkError(
   )
 }
 
+const TRANSIENT_HTTP_RETRY_DELAY_MS = 250
+
 function createCheckedFetch(fetcher: FetchLike, authorization?: string): FetchLike {
   return async (input: string, init?: RequestInit) => {
     throwIfAborted(init?.signal ?? undefined)
@@ -523,10 +525,34 @@ function createCheckedFetch(fetcher: FetchLike, authorization?: string): FetchLi
       if (!headers.has("Authorization")) headers.set("Authorization", authorization)
       requestInit = {...init, headers}
     }
-    const response = await fetcher(input, requestInit)
+    let response = await fetcher(input, requestInit)
+    if (response.status >= 500 && response.status <= 599) {
+      // Both info/refs GET and upload-pack POST are read-only. Retry a server/gateway
+      // hiccup once before the router commits to a sticky mirror fallback. Keep this
+      // inside requestBytes' signal/deadline so retries cannot extend its budget.
+      await response.body?.cancel().catch(() => undefined)
+      await waitForHttpRetry(init?.signal ?? undefined)
+      throwIfAborted(init?.signal ?? undefined)
+      response = await fetcher(input, requestInit)
+    }
     throwForHttpError(response, input)
     return response
   }
+}
+
+function waitForHttpRetry(signal?: AbortSignal): Promise<void> {
+  throwIfAborted(signal)
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timeout)
+      reject(new DOMException("Aborted", "AbortError"))
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener("abort", abort)
+      resolve()
+    }, TRANSIENT_HTTP_RETRY_DELAY_MS)
+    signal?.addEventListener("abort", abort, {once: true})
+  })
 }
 
 function throwForHttpError(

@@ -165,7 +165,7 @@ export function getReadFallbackMessage(input: ReadFallbackMessageInput): string 
   }
   if (failure.kind === "http-endpoint") {
     const status = failure.status ? ` HTTP ${failure.status}` : " an HTTP error";
-    return `${failedHost} returned${status}; reading from fallback ${fallbackHost}.`;
+    return `Read from ${failedHost} failed with${status}; reading from fallback ${fallbackHost}.`;
   }
   return `${failedHost} could not complete the ${readOperationLabel(
     input.operation
