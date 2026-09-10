@@ -84,6 +84,8 @@ export interface ReconciledRepoCreationEvents {
 }
 
 export interface PublishRepoEventContext {
+  /** Recheck a settings draft immediately before signing and before delivery. */
+  assertCurrent?: () => void;
   relays: string[];
   additionalRelays?: string[];
   stage?: "provisional" | "final";
@@ -381,7 +383,7 @@ export interface RepoSettingsRelayState {
 
 export interface PublishRepoSettingsEventsParams {
   announcementEvent: RepoAnnouncementEvent;
-  stateEvent: RepoStateEvent;
+  stateEvent?: RepoStateEvent;
   relayUrls: string[];
   previousRelayUrls?: string[];
   coupling?: {
@@ -471,17 +473,20 @@ export async function publishRepoSettingsEvents({
     throw new Error("No configured repository relay acknowledged the updated announcement");
   }
 
-  onStage?.("state");
-  const stateResult = await onPublishEvent(stateEvent, {
-    relays: announcementRelays,
-    stage: "final",
-  });
-  const stateAck = extractPublishRelayAck(stateResult);
-  const ackedRelays = announcementRelays.filter((relay) => didRelayAckGraspEvents(stateAck, relay));
-  if (!stateAck.hasRelayOutcomes || ackedRelays.length === 0) {
-    throw new Error(
-      "No configured repository relay acknowledged both the updated announcement and state"
-    );
+  let ackedRelays = announcementRelays;
+  if (stateEvent) {
+    onStage?.("state");
+    const stateResult = await onPublishEvent(stateEvent, {
+      relays: announcementRelays,
+      stage: "final",
+    });
+    const stateAck = extractPublishRelayAck(stateResult);
+    ackedRelays = announcementRelays.filter((relay) => didRelayAckGraspEvents(stateAck, relay));
+    if (!stateAck.hasRelayOutcomes || ackedRelays.length === 0) {
+      throw new Error(
+        "No configured repository relay acknowledged both the updated announcement and state"
+      );
+    }
   }
 
   const ackedRelaySet = new Set(ackedRelays.map(normalizeRelayForCompare));

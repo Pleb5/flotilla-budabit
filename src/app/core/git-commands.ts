@@ -307,7 +307,11 @@ export const publishEvent = <T extends NostrEvent>(
   })
 }
 
-export type RepoPublishOptions = {publishLocally?: boolean; repoAddress?: string}
+export type RepoPublishOptions = {
+  publishLocally?: boolean
+  repoAddress?: string
+  assertCurrent?: () => void
+}
 type RepoPublishExecutionOptions = RepoPublishOptions & {signal?: AbortSignal}
 
 const publishRepoEventWithRelayOutcomesUsingPool = async (
@@ -317,6 +321,7 @@ const publishRepoEventWithRelayOutcomesUsingPool = async (
   options: RepoPublishExecutionOptions = {},
 ) => {
   const scopedRelays = getScopedRelayUrls(event, relays, options.repoAddress)
+  options.assertCurrent?.()
   const activePubkey = pubkey.get()
   const activeSigner = signer.get()
   const signedEvent = isSignedEvent(event as TrustedEvent)
@@ -333,6 +338,7 @@ const publishRepoEventWithRelayOutcomesUsingPool = async (
     throw new Error("Repository event signing failed")
   }
   options.signal?.throwIfAborted()
+  options.assertCurrent?.()
 
   if (options.publishLocally !== false) {
     repository.publish(signedEvent as TrustedEvent)

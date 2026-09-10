@@ -9,6 +9,8 @@
   } from "../../utils/cloneUrlIssues";
   import { AlertTriangle, X } from "@lucide/svelte";
   import { Repo } from "./Repo.svelte";
+  import { getRepoUpstreamTags } from "@nostr-git/core/events";
+  import { repoUpstreamLink } from "../../utils/repo-upstream-link.js";
 
   const {
     repoClass,
@@ -54,6 +56,10 @@
       );
     }
   };
+
+  const upstreams = $derived(
+    repoClass.repoEvent ? getRepoUpstreamTags(repoClass.repoEvent).map(repoUpstreamLink) : []
+  );
 
   const getRepoTabsScrollKey = () => {
     if (typeof window === "undefined") return "";
@@ -126,8 +132,8 @@
 
   const cloneUrlErrors = $derived.by(() => {
     const errors = repoClass.cloneUrlErrors || [];
-    return errors.filter((error) =>
-      classifyRemoteReadFailure(error.error, error.status, error.errorCode).endpointIssue
+    return errors.filter(
+      (error) => classifyRemoteReadFailure(error.error, error.status, error.errorCode).endpointIssue
     );
   });
 
@@ -179,6 +185,22 @@
   }
 </script>
 
+{#if activeTab === "overview" && upstreams.length > 0}
+  <div class="px-1 py-2 text-sm text-muted-foreground" aria-label="Repository upstreams">
+    <span>Upstream:</span>
+    {#each upstreams as upstream}
+      {#if upstream.href}
+        <a
+          class="ml-2 break-all underline"
+          href={upstream.href}
+          target={upstream.external ? "_blank" : undefined}
+          rel={upstream.external ? "noopener noreferrer" : undefined}>{upstream.label}</a
+        >
+      {:else}<span class="ml-2 break-all">{upstream.label}</span>{/if}
+    {/each}
+  </div>
+{/if}
+
 {#if readFallbackMessage && repoClass.readFallbackObservation?.activeFallbackUrl}
   <div
     class={cn(
@@ -194,9 +216,7 @@
         <p
           class={cn(
             "text-sm",
-            readFallbackHasFailures
-              ? "text-amber-700 dark:text-amber-300"
-              : "text-muted-foreground"
+            readFallbackHasFailures ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground"
           )}
         >
           {readFallbackMessage}
@@ -235,7 +255,9 @@
       <div class="flex items-start gap-2 min-w-0">
         <AlertTriangle class="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600 dark:text-amber-400" />
         <div class="min-w-0">
-          <p class="text-sm font-medium text-amber-700 dark:text-amber-300">{cloneUrlBannerTitle}</p>
+          <p class="text-sm font-medium text-amber-700 dark:text-amber-300">
+            {cloneUrlBannerTitle}
+          </p>
           <ul class="mt-1 text-sm text-muted-foreground space-y-1">
             {#each displayCloneUrlErrors as error}
               <li class="truncate" title={error.error}>{formatError(error)}</li>

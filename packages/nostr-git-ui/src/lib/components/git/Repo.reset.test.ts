@@ -28,6 +28,56 @@ vi.mock("$lib/stores/tokens", () => ({
 }));
 
 describe("Repo reset", () => {
+  it("anchors storage and announcement edits to d, not to the display name or foreign announcements", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const owner = "a".repeat(64);
+    const announcement = {
+      kind: 30617,
+      pubkey: owner,
+      id: "original",
+      sig: "fixture",
+      created_at: 1,
+      content: "Keep content",
+      tags: [
+        ["d", "Legacy.Case"],
+        ["clone", "https://github.com/fixture/Legacy.Case.git"],
+        ["future", "retain"],
+      ],
+    } as any;
+    const events = writable(announcement);
+    const viewer = writable<string | null>(owner);
+    const repo = new Repo({
+      repoEvent: events,
+      repoStateEvent: readable(undefined as any),
+      issues: readable([]),
+      viewerPubkey: viewer,
+      workerManager: {
+        isReady: false,
+        setProgressCallback: vi.fn(),
+        setAuthConfig: vi.fn().mockResolvedValue(undefined),
+        initialize: vi.fn().mockResolvedValue(undefined),
+        dispose: vi.fn(),
+      } as any,
+    });
+    await repo.waitForReady();
+    try {
+      const key = repo.key;
+      expect(repo.name).toBe("Legacy.Case");
+      expect(key).toContain("/Legacy.Case");
+      const edited = repo.createRepoAnnouncementEvent({ name: "名前 with spaces" });
+      expect(edited.tags).toContainEqual(["d", "Legacy.Case"]);
+      expect(edited.tags).toContainEqual(["future", "retain"]);
+      events.set({ ...edited, id: "replacement", sig: "fixture" });
+      expect(repo.key).toBe(key);
+      expect(repo.name).toBe("名前 with spaces");
+      events.set({ ...announcement, id: "foreign", pubkey: "b".repeat(64) });
+      expect(repo.repoEvent?.id).toBe("replacement");
+      viewer.set("b".repeat(64));
+      expect(() => repo.createRepoAnnouncementEvent({ name: "Forbidden" })).toThrow(/owner/);
+    } finally {
+      repo.dispose();
+    }
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -150,11 +200,9 @@ describe("Repo reset", () => {
     await repo.waitForReady();
     repo.key = "owner/repo";
     repo.currentReadRemoteUrl = "https://primary.example/repo.git";
-    updateUrlPreferenceCache(
-      "owner/repo",
-      "https://secondary.example/repo.git",
-      ["https://primary.example/repo.git"]
-    );
+    updateUrlPreferenceCache("owner/repo", "https://secondary.example/repo.git", [
+      "https://primary.example/repo.git",
+    ]);
 
     repo.recordCloneUrlError("https://primary.example/repo.git", "primary failed", undefined, {
       errorCode: "network-error",
@@ -191,14 +239,16 @@ describe("Repo reset", () => {
     expect(repo.currentReadRemoteUrl).toBe("https://secondary.example/repo.git");
     expect(repo.readFallbackObservation).toMatchObject({
       operation: "listDirectory",
-      failures: [expect.objectContaining({errorCode: "protocol-error"})],
+      failures: [expect.objectContaining({ errorCode: "protocol-error" })],
     });
     repo.recordCloneUrlSuccess("https://primary.example/repo.git");
     expect(repo.currentReadRemoteUrl).toBe("https://secondary.example/repo.git");
-    expect(orderReadUrlsByPreference(
-      ["https://primary.example/repo.git", "https://secondary.example/repo.git"],
-      "owner/repo"
-    )).toEqual(["https://secondary.example/repo.git"]);
+    expect(
+      orderReadUrlsByPreference(
+        ["https://primary.example/repo.git", "https://secondary.example/repo.git"],
+        "owner/repo"
+      )
+    ).toEqual(["https://secondary.example/repo.git"]);
     repo.dispose();
   });
 
@@ -220,11 +270,9 @@ describe("Repo reset", () => {
     await repo.waitForReady();
     repo.key = "owner/all-failed";
     repo.currentReadRemoteUrl = "https://primary.example/repo.git";
-    updateUrlPreferenceCache(
-      repo.key,
-      "https://secondary.example/repo.git",
-      ["https://primary.example/repo.git"]
-    );
+    updateUrlPreferenceCache(repo.key, "https://secondary.example/repo.git", [
+      "https://primary.example/repo.git",
+    ]);
 
     repo.recordReadFallback({
       operation: "listRefs",
@@ -318,7 +366,7 @@ describe("Repo reset", () => {
     repo.recordReadFallback({
       operation: "getFileContent",
       activeFallbackUrl: cloneUrls[0],
-      failures: [{url: cloneUrls[1], error: "late failure", kind: "connectivity"}],
+      failures: [{ url: cloneUrls[1], error: "late failure", kind: "connectivity" }],
     });
     expect(repo.currentReadRemoteUrl).toBe(cloneUrls[2]);
     expect(repo.readFallbackObservation).toEqual({
@@ -329,9 +377,7 @@ describe("Repo reset", () => {
 
     repo.recordReadFallback({
       operation: "listRefs",
-      failures: [
-        {url: cloneUrls[0], error: "late primary failure", kind: "connectivity"},
-      ],
+      failures: [{ url: cloneUrls[0], error: "late primary failure", kind: "connectivity" }],
     });
     expect(repo.currentReadRemoteUrl).toBe(cloneUrls[2]);
     expect(repo.readFallbackObservation).toEqual({
@@ -343,8 +389,8 @@ describe("Repo reset", () => {
     repo.recordReadFallback({
       operation: "diff",
       failures: [
-        {url: cloneUrls[1], error: "secondary failed", kind: "connectivity"},
-        {url: cloneUrls[2], error: "tertiary failed", kind: "connectivity"},
+        { url: cloneUrls[1], error: "secondary failed", kind: "connectivity" },
+        { url: cloneUrls[2], error: "tertiary failed", kind: "connectivity" },
       ],
     });
     expect(repo.currentReadRemoteUrl).toBe("");

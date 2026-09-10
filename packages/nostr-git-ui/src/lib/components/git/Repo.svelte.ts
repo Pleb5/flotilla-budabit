@@ -21,7 +21,8 @@ import {
 import {
   parseRepoAnnouncementEvent,
   parseRepoStateEvent,
-  createRepoAnnouncementEvent,
+  editRepoAnnouncementEvent,
+  type RepoAnnouncementChanges,
   createRepoStateEvent,
 } from "@nostr-git/core/events";
 import { nip19 } from "nostr-tools";
@@ -92,6 +93,7 @@ export interface CloneUrlErrorRecord extends CloneUrlErrorDetails {
 
 export class Repo {
   name: string = $state("");
+  identifier: string = $state("");
   description: string = $state("");
   key: string = $state("");
   issues = $state<IssueEvent[]>([]);
@@ -630,14 +632,24 @@ export class Repo {
       repoEvent.subscribe((event) => {
         if (event) {
           if (this.repoEvent?.id === event.id) return;
+          const identifier = event.tags.find((tag) => tag[0] === "d")?.[1];
+          if (event.kind !== 30617 || !identifier) return;
+          // One owner/identifier, not a union of maintainer announcements.
+          if (
+            initialRepoEvent &&
+            (event.pubkey !== initialRepoEvent.pubkey ||
+              identifier !== initialRepoEvent.tags.find((tag) => tag[0] === "d")?.[1])
+          )
+            return;
           this.repoEvent = event;
           this.#repo = parseRepoAnnouncementEvent(event);
           this.#updateEffectiveCloneUrls();
-          this.name = this.#repo!.name!;
+          this.identifier = identifier;
+          this.name = this.#repo!.name || identifier;
           this.description = this.#repo!.description!;
-          // Compute canonical key from "pubkey:name" string (matches current @nostr-git/core signature)
+          // Storage keys use the exact identifier, never presentation text.
           const _owner = this.getCanonicalRepoOwner();
-          this.key = parseRepoId(`${_owner}:${this.#repo!.name}`);
+          this.key = parseRepoId(`${_owner}:${identifier}`);
           this.commitManager.setRepoKeys({
             canonicalKey: this.key,
             workerRepoId: this.key,
@@ -2371,38 +2383,15 @@ export class Repo {
     earliestUniqueCommit?: string;
     community?: RepoCommunityBinding;
   }): RepoAnnouncementEvent {
-    // Use the shared-types utility function
-    // Resolve a robust earliestUniqueCommit:
-    // - Prefer provided value if valid 40-hex
-    // - Otherwise, try to resolve from the default branch using BranchManager (nip34Ref.commitId or oid)
-    const providedEuc = repoData.earliestUniqueCommit?.trim();
-    const is40Hex = (v?: string) => !!v && /^[a-f0-9]{40}$/.test(v);
-    const branchObj = repoData.defaultBranch
-      ? this.branchManager.getBranch(repoData.defaultBranch)
-      : undefined;
-    const resolvedFromBranch = branchObj?.nip34Ref?.commitId || branchObj?.oid || branchObj?.commit;
-    const euc = is40Hex(providedEuc)
-      ? providedEuc
-      : is40Hex(resolvedFromBranch)
-        ? resolvedFromBranch
-        : undefined;
-
-    // Pass the canonical repo key for addressable a-tags; name is used for NIP-34 d-tag (short id)
-    return createRepoAnnouncementEvent({
-      repoId: parseRepoId(`${this.getCanonicalRepoOwner()}:${repoData.name}`),
-      name: repoData.name,
-      description: repoData.description,
-      // Support both legacy single URLs and new array format
-      clone: repoData.clone || (repoData.cloneUrl ? [repoData.cloneUrl] : undefined),
-      web: repoData.web || (repoData.webUrl ? [repoData.webUrl] : undefined),
-      relays: repoData.relays,
-      maintainers: repoData.maintainers,
-      hashtags: repoData.hashtags,
-      earliestUniqueCommit: euc,
-      community: Object.prototype.hasOwnProperty.call(repoData, "community")
-        ? repoData.community
-        : this.community,
-    });
+    if (!this.repoEvent || !this.isAuthorized(this.viewerPubkey || undefined)) {
+      throw new Error("Only the repository owner can edit its announcement");
+    }
+    const { defaultBranch: _defaultBranch, cloneUrl, webUrl, ...changes } = repoData;
+    const edits: RepoAnnouncementChanges = { ...changes };
+    if (cloneUrl !== undefined && changes.clone === undefined)
+      edits.clone = cloneUrl ? [cloneUrl] : [];
+    if (webUrl !== undefined && changes.web === undefined) edits.web = webUrl ? [webUrl] : [];
+    return editRepoAnnouncementEvent(this.repoEvent, edits);
   }
 
   /**
@@ -2420,6 +2409,7 @@ export class Repo {
     // Use the shared-types utility function
     return createRepoStateEvent({
       repoId: stateData.repositoryId,
+      identifier: this.identifier || undefined,
       head: stateData.headBranch,
       refs: stateData.refs || [
         // Convert branches to refs format

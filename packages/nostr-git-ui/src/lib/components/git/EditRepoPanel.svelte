@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import {
     Settings,
     X,
@@ -19,8 +19,18 @@
     CheckCircle2,
     Loader2,
   } from "@lucide/svelte";
-  import { sanitizeRelays } from "@nostr-git/core/utils";
-  import { nip19 } from "nostr-tools";
+  import { sanitizeRelays, validateRepoDisplayName } from "@nostr-git/core/utils";
+  import {
+    editRepoAnnouncementEvent,
+    editRepoStateHead,
+    getRepoUpstreamTags,
+    validateRepoUpstream,
+    type RepoAnnouncementChanges,
+    type RepoUpstreamTag,
+    type RepoAnnouncementEvent,
+    type RepoStateEvent,
+  } from "@nostr-git/core/events";
+  import { getEventHash, nip19 } from "nostr-tools";
   import { PeoplePicker } from "@nostr-git/ui";
   import { Repo } from "./Repo.svelte";
   import { commonHashtags } from "../../stores/hashtags";
@@ -74,10 +84,12 @@
     hashtags: string[];
     earliestUniqueCommit: string;
     communityAddress: string;
+    upstreams: RepoUpstreamTag[];
   }
 
   interface SaveCompleteResult {
-    renamed: boolean;
+    displayNameChanged: boolean;
+    identifier: string;
     previousName: string;
     nextName: string;
     relays: string[];
@@ -148,6 +160,21 @@
   let saveFeedback = $state<SaveFeedback | undefined>();
   let preserveFormAfterSaveFailure = $state(false);
   let lastReplacementCreatedAt = 0;
+  let editingAnnouncement = $state.raw(repo.repoEvent);
+  let editingStateId = $state(repo.repoStateEvent?.id);
+  // Keep exact event payloads for delivery retries, including a requested HEAD edit.
+  let pendingSave:
+    | {
+        snapshot: string;
+        sourceId: string;
+        stateId?: string;
+        announcement: RepoAnnouncementEvent;
+        state?: RepoStateEvent;
+        signedAnnouncement?: RepoAnnouncementEvent;
+        signedState?: RepoStateEvent;
+      }
+    | undefined;
+  const identifier = $derived(repo.repoEvent?.tags.find((tag) => tag[0] === "d")?.[1] || "");
   let closeNotified = false;
 
   function searchMaintainerProfiles(query: string) {
@@ -200,6 +227,7 @@
     webUrls: copyList(data.webUrls),
     cloneUrls: copyList(data.cloneUrls),
     hashtags: copyList(data.hashtags),
+    upstreams: data.upstreams.map((tag) => [...tag] as RepoUpstreamTag),
   });
 
   // Extract current values from repo
@@ -217,11 +245,17 @@
         hashtags: copyList(),
         earliestUniqueCommit: "",
         communityAddress: "",
+        upstreams: [],
       };
     }
 
-    // Get default branch from repo's mainBranch property (already resolved)
-    const defaultBranch = repo.mainBranch || "";
+    // Prefer signed HEAD. A browsing fallback must not manufacture a state edit.
+    const defaultBranch =
+      repo.repoStateEvent?.tags
+        .find((tag) => tag[0] === "HEAD")?.[1]
+        ?.replace(/^ref: refs\/heads\//, "") ||
+      repo.mainBranch ||
+      "";
 
     // Determine visibility from clone URL (basic heuristic)
     const editableCloneUrls = getEditableRepoCloneUrls(copyList(repo.clone));
@@ -240,6 +274,7 @@
       hashtags: copyList(repo.hashtags),
       earliestUniqueCommit: repo.earliestUniqueCommit || "",
       communityAddress: repo.community?.address || "",
+      upstreams: repo.repoEvent ? getRepoUpstreamTags(repo.repoEvent) : [],
     };
   }
 
@@ -293,7 +328,7 @@
       cloneUrls: formData.cloneUrls,
       knownServices: resolvedGraspServices,
       ownerPubkey: repo.repoEvent?.pubkey || "",
-      identifier: formData.name.trim(),
+      identifier,
     })
   );
 
@@ -528,25 +563,7 @@
     }
   });
 
-  // Auto-fill earliest unique commit from default branch's commitId when available
-  $effect(() => {
-    // Only set if empty and refs are loaded
-    if (
-      !loadingRefs &&
-      !earliestUniqueCommitTouched &&
-      !originalFormData.earliestUniqueCommit?.trim() &&
-      !formData.earliestUniqueCommit?.trim() &&
-      formData.defaultBranch
-    ) {
-      const ref = availableRefs.find(
-        (r) => r.type === "heads" && r.name === formData.defaultBranch
-      );
-      const commitId = ref?.commitId || "";
-      if (commitId && /^[a-f0-9]{40}$/i.test(commitId)) {
-        formData.earliestUniqueCommit = commitId;
-      }
-    }
-  });
+  // EUC is provenance, not the default branch tip. Only change it explicitly.
 
   // Get available branches for dropdown
   let availableBranches = $derived(availableRefs.filter((ref) => ref.type === "heads"));
@@ -692,38 +709,47 @@
 
   // Update form data when repo changes
   $effect(() => {
+    void repo?.repoStateEvent;
     if (repo && repo.repoEvent && !isEditing && !preserveFormAfterSaveFailure) {
-      const next = extractCurrentValues();
-      formData = cloneFormData(next);
-      originalFormData = cloneFormData(next);
-      commitSearchQuery = "";
-      showCommitDropdown = false;
-      earliestUniqueCommitTouched = false;
+      untrack(() => {
+        if (isFormDirty && editingAnnouncement) return;
+        const next = extractCurrentValues();
+        formData = cloneFormData(next);
+        originalFormData = cloneFormData(next);
+        editingAnnouncement = repo.repoEvent;
+        editingStateId = repo.repoStateEvent?.id;
+        commitSearchQuery = "";
+        showCommitDropdown = false;
+        earliestUniqueCommitTouched = false;
+      });
     }
   });
 
   function validateForm(): Record<string, string> {
     const errors: Record<string, string> = {};
+    const changed = (field: keyof FormData) =>
+      JSON.stringify(formData[field]) !== JSON.stringify(originalFormData[field]);
 
     // Repository name validation
-    if (!formData.name.trim()) {
-      errors.name = "Repository name is required";
-    } else if (formData.name.length < 1 || formData.name.length > 100) {
-      errors.name = "Repository name must be between 1 and 100 characters";
-    } else if (!/^[a-zA-Z0-9._-]+$/.test(formData.name)) {
-      errors.name =
-        "Repository name can only contain letters, numbers, dots, hyphens, and underscores";
-    }
+    const nameError = validateRepoDisplayName(formData.name);
+    if (changed("name") && nameError) errors.name = nameError;
 
     // Description validation
-    if (formData.description.length > 500) {
+    if (changed("description") && formData.description.length > 500) {
       errors.description = "Description must be 500 characters or less";
     }
 
     // Default branch validation
-    if (!formData.defaultBranch.trim()) {
+    if (
+      formData.defaultBranch !== originalFormData.defaultBranch &&
+      !formData.defaultBranch.trim()
+    ) {
       errors.defaultBranch = "Default branch is required";
-    } else if (!/^[a-zA-Z0-9._/-]+$/.test(formData.defaultBranch)) {
+    } else if (
+      changed("defaultBranch") &&
+      formData.defaultBranch &&
+      !/^[a-zA-Z0-9._/-]+$/.test(formData.defaultBranch)
+    ) {
       errors.defaultBranch = "Invalid branch name format";
     }
 
@@ -735,7 +761,7 @@
       if (!v) return false;
       return !/^npub1[ac-hj-np-z02-9]{58}$/i.test(v) && !/^[a-fA-F0-9]{64}$/.test(v);
     });
-    if (invalidMaintainers.length > 0) {
+    if (changed("maintainers") && invalidMaintainers.length > 0) {
       errors.maintainers = "Maintainers must be npub or 64-char hex pubkeys";
     }
 
@@ -757,7 +783,7 @@
     const invalidWebUrls = (Array.isArray(formData.webUrls) ? formData.webUrls : []).filter(
       (w) => w?.trim?.() && !w.match(/^https?:\/\/.+/)
     );
-    if (invalidWebUrls.length > 0) {
+    if (changed("webUrls") && invalidWebUrls.length > 0) {
       errors.webUrls = "Web URLs must be valid HTTP/HTTPS URLs";
     }
 
@@ -765,7 +791,7 @@
     const invalidCloneUrls = (Array.isArray(formData.cloneUrls) ? formData.cloneUrls : []).filter(
       (c) => c?.trim?.() && !c.match(/^(https?:\/\/|git@).+/)
     );
-    if (invalidCloneUrls.length > 0) {
+    if (changed("cloneUrls") && invalidCloneUrls.length > 0) {
       errors.cloneUrls = "Clone URLs must be valid git URLs (https:// or git@...)";
     }
 
@@ -773,18 +799,24 @@
     const invalidHashtags = (Array.isArray(formData.hashtags) ? formData.hashtags : []).filter(
       (h) => h?.trim?.() && !h.match(/^[a-zA-Z0-9-]+$/)
     );
-    if (invalidHashtags.length > 0) {
+    if (changed("hashtags") && invalidHashtags.length > 0) {
       errors.hashtags = "Hashtags can only contain letters, numbers, and hyphens";
     }
 
     // Earliest unique commit validation (40-character hex)
     if (
+      changed("earliestUniqueCommit") &&
       formData.earliestUniqueCommit.trim() &&
       !formData.earliestUniqueCommit.match(/^[a-f0-9]{40}$/i)
     ) {
       errors.earliestUniqueCommit = "Must be a valid 40-character commit hash";
     }
 
+    for (const [, target] of formData.upstreams) {
+      if (originalFormData.upstreams.some((tag) => tag[1] === target)) continue;
+      const upstreamError = validateRepoUpstream(target, repo.address);
+      if (upstreamError) errors.upstreams = upstreamError;
+    }
     return errors;
   }
 
@@ -799,16 +831,20 @@
   };
 
   function handleCancel() {
-    const hadSaveFailure = saveFeedback?.type === "error";
     saveFeedback = undefined;
     localProgress = undefined;
 
     if (isPage) {
-      formData = cloneFormData(originalFormData);
+      pendingSave = undefined;
+      const latest = extractCurrentValues();
+      formData = cloneFormData(latest);
+      originalFormData = cloneFormData(latest);
+      editingAnnouncement = repo.repoEvent;
+      editingStateId = repo.repoStateEvent?.id;
       commitSearchQuery = "";
       showCommitDropdown = false;
       earliestUniqueCommitTouched = false;
-      preserveFormAfterSaveFailure = hadSaveFailure;
+      preserveFormAfterSaveFailure = false;
       return;
     }
 
@@ -843,6 +879,7 @@
   });
 
   async function handleSave() {
+    if (isEditing) return;
     const errors = validateForm();
     if (Object.keys(errors).length > 0) {
       validationErrors = errors;
@@ -860,6 +897,29 @@
     };
 
     try {
+      const source = repo.repoEvent;
+      if (!source || !repo.isAuthorized(repo.viewerPubkey || undefined)) {
+        throw new Error("Only the repository owner can edit repository settings");
+      }
+      const retry = pendingSave?.snapshot === JSON.stringify(formData) ? pendingSave : undefined;
+      if (
+        source.id !== editingAnnouncement?.id &&
+        source.id !== (retry && getEventHash(retry.announcement))
+      ) {
+        throw new Error(
+          "Repository settings changed while you were editing. Cancel to reload the latest settings before saving."
+        );
+      }
+      const headChanged = formData.defaultBranch.trim() !== originalFormData.defaultBranch.trim();
+      if (
+        (headChanged || retry?.state) &&
+        repo.repoStateEvent?.id !== editingStateId &&
+        repo.repoStateEvent?.id !== (retry?.state && getEventHash(retry.state))
+      ) {
+        throw new Error(
+          "Repository state changed while you were editing. Reload before changing the default branch."
+        );
+      }
       // Filter out empty strings from arrays
       const cleanMaintainers = formData.maintainers.filter((m) => m.trim());
       const normalizedMaintainers = Array.from(
@@ -898,7 +958,7 @@
           : undefined;
       const previousName = retryCompletion?.previousName ?? originalFormData.name.trim();
       const nextName = formData.name.trim();
-      const renamed = retryCompletion?.renamed ?? previousName !== nextName;
+      const displayNameChanged = retryCompletion?.displayNameChanged ?? previousName !== nextName;
       const now = Math.floor(Date.now() / 1000);
       const replacementCreatedAt = Math.max(
         now,
@@ -908,46 +968,43 @@
       );
       lastReplacementCreatedAt = replacementCreatedAt;
 
-      // Create updated repository announcement event using all NIP-34 fields
-      const updatedAnnouncementEvent = repo.createRepoAnnouncementEvent({
-        name: nextName,
-        description: formData.description,
-        cloneUrl: cleanCloneUrls[0] ?? "", // Primary clone URL
-        webUrl: cleanWebUrls[0] ?? "", // Primary web URL
-        defaultBranch: formData.defaultBranch,
-        maintainers: normalizedMaintainers,
-        relays: cleanRelays,
-        hashtags: cleanHashtags,
-        earliestUniqueCommit: formData.earliestUniqueCommit.trim().toLowerCase() || undefined,
-        community: getRepoCommunityOptionBinding(
+      const changed = (field: keyof FormData) =>
+        JSON.stringify(formData[field]) !== JSON.stringify(originalFormData[field]);
+      const changes: RepoAnnouncementChanges = {};
+      if (changed("name")) changes.name = nextName;
+      if (changed("description")) changes.description = formData.description;
+      if (changed("maintainers")) changes.maintainers = normalizedMaintainers;
+      if (changed("webUrls")) changes.web = cleanWebUrls;
+      if (changed("cloneUrls")) changes.clone = cleanCloneUrls;
+      if (changed("relays") || changed("cloneUrls")) changes.relays = cleanRelays;
+      if (changed("hashtags")) changes.hashtags = cleanHashtags;
+      if (changed("earliestUniqueCommit"))
+        changes.earliestUniqueCommit = formData.earliestUniqueCommit.trim().toLowerCase();
+      if (changed("communityAddress"))
+        changes.community = getRepoCommunityOptionBinding(
           findRepoCommunityOption(communityOptions, formData.communityAddress)
-        ),
-        // Include all URLs in the event
-        web: cleanWebUrls,
-        clone: cleanCloneUrls,
-      });
-      updatedAnnouncementEvent.created_at = replacementCreatedAt;
-
-      // Create updated repository state event using existing repo state
-      // Convert ProcessedBranch[] to string[] for branch names
-      const branchNames = repo.branches?.map((branch) => branch.name) || [];
-
-      // Convert repo.state.refs to the expected format if available
-      const refs =
-        repo.refs?.map((ref) => ({
-          type: ref.fullRef.startsWith("refs/heads/") ? ("heads" as const) : ("tags" as const),
-          name: ref.fullRef.replace(/^refs\/(heads|tags)\//, ""),
-          commit: ref.commitId,
-          //ancestry: ref.lineage,
-        })) || [];
-
-      const updatedStateEvent = repo.createRepoStateEvent({
-        repositoryId: nextName,
-        headBranch: formData.defaultBranch,
-        branches: branchNames,
-        refs: refs,
-      });
-      updatedStateEvent.created_at = replacementCreatedAt;
+        );
+      if (changed("upstreams")) {
+        changes.upstreams = formData.upstreams.map((tag) => [...tag] as RepoUpstreamTag);
+      }
+      pendingSave = retry || {
+        snapshot: JSON.stringify(formData),
+        sourceId: source.id,
+        stateId: repo.repoStateEvent?.id,
+        announcement: editRepoAnnouncementEvent(source, changes, replacementCreatedAt),
+        state: headChanged
+          ? editRepoStateHead(
+              repo.repoStateEvent,
+              identifier,
+              formData.defaultBranch.trim(),
+              source.pubkey,
+              replacementCreatedAt
+            )
+          : undefined,
+      };
+      const draft = pendingSave;
+      const updatedAnnouncementEvent = draft.signedAnnouncement || draft.announcement;
+      const updatedStateEvent = draft.signedState || draft.state;
 
       // Sign and publish the events
       localProgress = {
@@ -977,9 +1034,47 @@
         coupling: {
           knownServices: resolvedGraspServices,
           ownerPubkey: repo.repoEvent?.pubkey || "",
-          identifier: nextName,
+          identifier,
         },
-        onPublishEvent,
+        onPublishEvent: async (event, context) => {
+          const assertCurrent = () => {
+            if (
+              !repo.isAuthorized(repo.viewerPubkey || undefined) ||
+              repo.repoEvent?.pubkey !== source.pubkey ||
+              repo.repoEvent?.tags.find((tag) => tag[0] === "d")?.[1] !==
+                draft.announcement.tags.find((tag) => tag[0] === "d")?.[1]
+            ) {
+              throw new Error("Restore the repository owner account before saving settings");
+            }
+            if (
+              repo.repoEvent.id !== draft.sourceId &&
+              repo.repoEvent.id !== getEventHash(draft.announcement)
+            ) {
+              throw new Error("Repository settings changed. Reload before saving.");
+            }
+            if (
+              draft.state &&
+              repo.repoStateEvent?.id !== draft.stateId &&
+              repo.repoStateEvent?.id !== getEventHash(draft.state)
+            ) {
+              throw new Error(
+                "Repository state changed. Reload before changing the default branch."
+              );
+            }
+          };
+          assertCurrent();
+          const result = await onPublishEvent(event, {
+            ...context,
+            relays: context?.relays || cleanRelays,
+            assertCurrent,
+          });
+          if (result?.event) {
+            if (event.kind === 30617)
+              draft.signedAnnouncement = result.event as RepoAnnouncementEvent;
+            else draft.signedState = result.event as RepoStateEvent;
+          }
+          return result;
+        },
         onStage: (stage) => {
           if (stage !== "state") return;
           localProgress = {
@@ -992,18 +1087,22 @@
 
       const savedFormData: FormData = {
         ...formData,
-        name: nextName,
-        defaultBranch: formData.defaultBranch.trim(),
-        maintainers: normalizedMaintainers,
-        relays: cleanRelays,
-        webUrls: cleanWebUrls,
-        cloneUrls: getEditableRepoCloneUrls(cleanCloneUrls),
-        hashtags: cleanHashtags,
-        earliestUniqueCommit: formData.earliestUniqueCommit.trim().toLowerCase(),
-        communityAddress: formData.communityAddress.trim().toLowerCase(),
+        ...(changed("name") ? { name: nextName } : {}),
+        ...(changed("defaultBranch") ? { defaultBranch: formData.defaultBranch.trim() } : {}),
+        ...(changed("maintainers") ? { maintainers: normalizedMaintainers } : {}),
+        ...(changed("relays") || changed("cloneUrls") ? { relays: cleanRelays } : {}),
+        ...(changed("webUrls") ? { webUrls: cleanWebUrls } : {}),
+        ...(changed("cloneUrls") ? { cloneUrls: getEditableRepoCloneUrls(cleanCloneUrls) } : {}),
+        ...(changed("hashtags") ? { hashtags: cleanHashtags } : {}),
+        ...(changed("earliestUniqueCommit")
+          ? { earliestUniqueCommit: formData.earliestUniqueCommit.trim().toLowerCase() }
+          : {}),
       };
       formData = cloneFormData(savedFormData);
       originalFormData = cloneFormData(savedFormData);
+      draft.snapshot = JSON.stringify(savedFormData);
+      editingAnnouncement = draft.signedAnnouncement || source;
+      editingStateId = draft.signedState?.id || repo.repoStateEvent?.id;
 
       let completionWarning = "";
       if (onSaveComplete) {
@@ -1014,7 +1113,8 @@
         };
         try {
           await onSaveComplete({
-            renamed,
+            displayNameChanged,
+            identifier,
             previousName,
             nextName,
             relays: cleanRelays,
@@ -1051,7 +1151,8 @@
           ...(completionWarning
             ? {
                 retryCompletion: {
-                  renamed,
+                  displayNameChanged,
+                  identifier,
                   previousName,
                   nextName,
                   relays: cleanRelays,
@@ -1069,9 +1170,7 @@
 
       if (isPage) return;
 
-      if (!renamed || !onSaveComplete) {
-        back();
-      }
+      back();
     } catch (saveError) {
       console.error("Failed to save repository changes:", saveError);
       saveFeedback = {
@@ -1126,7 +1225,8 @@
       JSON.stringify(norm(formData.relays)) !== JSON.stringify(norm(original.relays)) ||
       JSON.stringify(norm(formData.webUrls)) !== JSON.stringify(norm(original.webUrls)) ||
       JSON.stringify(norm(formData.cloneUrls)) !== JSON.stringify(norm(original.cloneUrls)) ||
-      JSON.stringify(norm(formData.hashtags)) !== JSON.stringify(norm(original.hashtags));
+      JSON.stringify(norm(formData.hashtags)) !== JSON.stringify(norm(original.hashtags)) ||
+      JSON.stringify(formData.upstreams) !== JSON.stringify(original.upstreams);
 
     return basicChanged || arraysChanged;
   });
@@ -1181,7 +1281,7 @@
           <!-- Repository Name -->
           <div>
             <label for="repo-name" class="block text-sm font-medium text-gray-300 mb-2">
-              Repository name *
+              Display name *
             </label>
             <input
               id="repo-name"
@@ -1190,7 +1290,7 @@
               disabled={isEditing}
               class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed"
               class:border-red-500={validationErrors.name}
-              placeholder="Enter repository name"
+              placeholder="My Awesome Project"
               aria-describedby={validationErrors.name ? "repo-name-error" : undefined}
               aria-invalid={validationErrors.name ? "true" : "false"}
               required
@@ -1208,6 +1308,61 @@
             {/if}
           </div>
         </div>
+
+        <div>
+          <label for="repo-identifier" class="block text-sm font-medium text-gray-300 mb-2"
+            >Repository identifier (d)</label
+          >
+          <input
+            id="repo-identifier"
+            value={identifier}
+            readonly
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-gray-400"
+          />
+          <p class="text-gray-400 text-xs mt-1">
+            Fixed after creation. Changing the display name keeps URLs, Git paths, and issue/PR
+            references unchanged.
+          </p>
+        </div>
+
+        <section class="space-y-3" aria-labelledby="repo-upstreams-title">
+          <h3 id="repo-upstreams-title" class="text-sm font-medium text-gray-300">
+            Upstream repositories
+          </h3>
+          <p class="text-gray-400 text-xs">
+            The immediate source of a fork: a repository coordinate or Git URL. Upstreams do not
+            grant permissions.
+          </p>
+          {#each formData.upstreams as upstream, index}
+            <div class="flex gap-2">
+              <input
+                aria-label={`Upstream ${index + 1}`}
+                value={upstream[1]}
+                oninput={(event) => (formData.upstreams[index] = ["u", event.currentTarget.value])}
+                disabled={isEditing}
+                placeholder="30617:owner:identifier or https://host/repo.git"
+                class="min-w-0 flex-1 px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white"
+              />
+              <button
+                type="button"
+                aria-label={`Remove upstream ${index + 1}`}
+                disabled={isEditing}
+                class="min-h-10 px-2"
+                onclick={() => formData.upstreams.splice(index, 1)}
+                ><Trash2 class="w-4 h-4" /></button
+              >
+            </div>
+          {/each}
+          <button
+            type="button"
+            disabled={isEditing}
+            class="min-h-10 text-sm text-blue-600 dark:text-blue-400"
+            onclick={() => formData.upstreams.push(["u", ""])}>Add upstream</button
+          >
+          {#if validationErrors.upstreams}<p class="text-red-400 text-sm">
+              {validationErrors.upstreams}
+            </p>{/if}
+        </section>
 
         <!-- Description -->
         <div>

@@ -1,6 +1,6 @@
 import type { Event } from "nostr-tools";
 import type { RepoAnnouncementEvent, RepoStateEvent } from "@nostr-git/core/events";
-import { createRepoAnnouncementEvent, getTags, getTagValue } from "@nostr-git/core/events";
+import { editRepoAnnouncementEvent, getTags, getTagValue } from "@nostr-git/core/events";
 import { assertGitRemoteUrlEnabled, detectVendorFromUrl } from "@nostr-git/core/git";
 import { isGraspRepoHttpUrl, sanitizeRelays } from "@nostr-git/core/utils";
 import { tokens as tokensStore } from "../stores/tokens.js";
@@ -120,7 +120,7 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
 
       // Extract current repository info
       const repoId = getTagValue(currentAnnouncement as any, "d") || "";
-      const currentName = getTagValue(currentAnnouncement as any, "name") || "";
+      const currentName = getTagValue(currentAnnouncement as any, "name") || repoId;
 
       // Parse owner/repo from clone URL and extract hostname
       let owner: string, repo: string, providerHost: string;
@@ -154,7 +154,6 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
 
       // Step 1: Update remote repository metadata if needed
       const metadataChanged =
-        config.name !== currentName ||
         config.description !== (getTagValue(currentAnnouncement as any, "description") || "") ||
         config.visibility !== (cloneUrl.includes("private") ? "private" : "public");
 
@@ -175,7 +174,6 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
               owner,
               repo,
               updates: {
-                name: config.name !== currentName ? config.name : undefined,
                 description: config.description,
                 private: config.visibility === "private",
               },
@@ -249,30 +247,21 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
       };
 
       // Create updated repository announcement event
-      const updatedCloneUrl =
-        metadataChanged && config.name !== currentName
-          ? cloneUrl.replace(`/${repo}.git`, `/${config.name}.git`)
-          : cloneUrl;
-
-      const cloneUrls = [updatedCloneUrl];
-
-      const announcementEvent = createRepoAnnouncementEvent({
-        repoId: repoId,
+      const announcementEvent = editRepoAnnouncementEvent(currentAnnouncement, {
         name: config.name,
         description: config.description,
-        clone: cloneUrls,
-        relays: repoRelays,
-        created_at: Math.floor(Date.now() / 1000),
       });
 
       // Preserve known refs when replacing addressable state. A HEAD-only state
       // event would discard branches/tags from the latest known repo state.
-      const stateEvent = createGraspStateEventFromExistingState({
-        repoId: repoId,
-        currentState,
-        head: config.defaultBranch,
-        created_at: Math.floor(Date.now() / 1000),
-      });
+      const stateEvent = filesChanged
+        ? createGraspStateEventFromExistingState({
+            repoId: repoId,
+            currentState,
+            head: config.defaultBranch,
+            created_at: Math.floor(Date.now() / 1000),
+          })
+        : undefined;
 
       progress = {
         stage: "Publishing repository events...",
@@ -301,7 +290,7 @@ export function useEditRepo(hookOptions: UseEditRepoOptions = {}) {
           description: config.description,
           visibility: config.visibility,
           defaultBranch: config.defaultBranch,
-          cloneUrl: updatedCloneUrl,
+          cloneUrl,
         });
       }
 

@@ -236,6 +236,28 @@ describe("grasp-pipeline", () => {
     });
   });
 
+  it("publishes only the announcement for a metadata-only edit", async () => {
+    const announcementEvent = createRepoAnnouncementEvent({
+      repoId: "Fixed",
+      name: "New display name",
+    });
+    const publisher = vi.fn(async (event: any) => ({
+      event: signedEvent(event),
+      ackedRelays: ["wss://relay.one/"],
+      failedRelays: [],
+      hasRelayOutcomes: true,
+    }));
+    await expect(
+      publishRepoSettingsEvents({
+        announcementEvent,
+        relayUrls: ["wss://relay.one/"],
+        onPublishEvent: publisher,
+      })
+    ).resolves.toEqual({ ackedRelays: ["wss://relay.one/"], failedRelays: [] });
+    expect(publisher).toHaveBeenCalledTimes(1);
+    expect(publisher.mock.calls[0][0].kind).toBe(30617);
+  });
+
   it("reports failed replacement delivery to removed relays without failing the save", async () => {
     const announcementEvent = createRepoAnnouncementEvent({
       repoId: "repo",

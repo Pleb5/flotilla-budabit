@@ -166,7 +166,8 @@ type RepoProfileSummary = {
 export type RepoSettingsActions = {
   publishRepoEvent: PublishRepoEvent
   onSaveComplete: (result: {
-    renamed: boolean
+    displayNameChanged: boolean
+    identifier: string
     previousName: string
     nextName: string
     relays: string[]

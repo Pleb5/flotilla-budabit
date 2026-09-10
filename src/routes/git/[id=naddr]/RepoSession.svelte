@@ -34,7 +34,7 @@
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {pushModal, clearModals} from "@app/util/modal"
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
-  import {getRepoRenameAddresses, recordRepoRename} from "@app/util/repo-rename-history"
+  import {getRepoRenameAddresses} from "@app/util/repo-rename-history"
   import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
   import RemoteFixHelperModal from "@app/components/RemoteFixHelperModal.svelte"
@@ -2557,7 +2557,7 @@
   setContext(REPO_SETTINGS_ACTIONS_KEY, {
     publishRepoEvent: async (
       event: RepoAnnouncementEvent | RepoStateEvent,
-      context?: {relays: string[]; additionalRelays?: string[]},
+      context?: {relays: string[]; additionalRelays?: string[]; assertCurrent?: () => void},
     ) => {
       if (!$pubkey || repoPubkey !== $pubkey) {
         throw new Error("Only the owner can edit this repo announcement")
@@ -2569,30 +2569,12 @@
         relaysForPublish,
         context?.additionalRelays,
         getRepoSettingsPagePublishTransport(),
+        context?.assertCurrent,
       )
     },
-    onSaveComplete: async ({
-      renamed,
-      previousName,
-      nextName,
-      relays,
-    }: {
-      renamed: boolean
-      previousName: string
-      nextName: string
-      relays: string[]
-    }) => {
+    onSaveComplete: async () => {
       disposeRepoSettingsPagePublishTransport()
-      if (!renamed) {
-        await refreshRepo({throwOnError: true})
-        return
-      }
-      recordRepoRename({
-        owner: repoPubkey,
-        previousIdentifier: previousName,
-        nextIdentifier: nextName,
-      })
-      await navigateToRenamedRepo(nextName, relays)
+      await refreshRepo({throwOnError: true})
     },
     disposePublishTransport: disposeRepoSettingsPagePublishTransport,
     openDeleteRepoModal: () => openDeleteRepoModal(),
@@ -3603,37 +3585,6 @@
 
   const searchRepoRelays = async (query: string) => $relaySearch.searchValues(query)
 
-  async function navigateToRenamedRepo(nextName: string, relays: string[]) {
-    if (!nextName || !repoPubkey) return
-
-    const fallbackRelay = url
-
-    const targetRelays = relays.length > 0 ? relays : getRepoRelaysForModal()
-    const effectiveRelay =
-      (fallbackRelay && isGitRelay(fallbackRelay) ? fallbackRelay : "") ||
-      targetRelays.find(isGitRelay) ||
-      GIT_RELAYS[0] ||
-      ""
-
-    if (!effectiveRelay) {
-      pushToast({
-        message: "Repository renamed, but no platform relay was available for navigation.",
-        theme: "error",
-      })
-      return
-    }
-
-    const naddr = nip19.naddrEncode({
-      kind: 30617,
-      pubkey: repoPubkey,
-      identifier: nextName,
-      relays: targetRelays.length > 0 ? targetRelays : undefined,
-    })
-
-    const targetPath = makeGitPath(effectiveRelay, naddr)
-    await goto(targetPath)
-  }
-
   const getUserOutboxRelays = (): string[] => {
     try {
       return Router.get().FromUser().getUrls() || []
@@ -3764,7 +3715,19 @@
     requiredRelayUrls: string[],
     additionalRelayUrls: string[] = [],
     transport?: RepoPublishTransport,
+    assertCurrent?: () => void,
   ) {
+    const assertOwner = () => {
+      if (
+        !$pubkey ||
+        $pubkey !== repoPubkey ||
+        event.pubkey !== repoPubkey ||
+        event.tags.find(tag => tag[0] === "d")?.[1] !== repoName
+      ) {
+        throw new Error("Only the repository owner can save settings at this coordinate")
+      }
+      assertCurrent?.()
+    }
     const requiredRelays = Array.from(
       new Set(requiredRelayUrls.map(safeNormalizeRelayUrl).filter(Boolean)),
     )
@@ -3782,8 +3745,11 @@
           })
         : requiredRelays
     const result = await (transport
-      ? transport.publish(event, publishRelays, {publishLocally: false})
-      : publishRepoEventWithRelayOutcomes(event, publishRelays, {publishLocally: false}))
+      ? transport.publish(event, publishRelays, {publishLocally: false, assertCurrent: assertOwner})
+      : publishRepoEventWithRelayOutcomes(event, publishRelays, {
+          publishLocally: false,
+          assertCurrent: assertOwner,
+        }))
     const ackedRelaySet = new Set(result.ackedRelays.map(safeNormalizeRelayUrl).filter(Boolean))
     const hasRequiredAck = requiredRelays.some(relay => ackedRelaySet.has(relay))
 
@@ -4012,7 +3978,7 @@
         repo: repoClass,
         onPublishEvent: async (
           event: RepoAnnouncementEvent | RepoStateEvent,
-          context?: {relays: string[]; additionalRelays?: string[]},
+          context?: {relays: string[]; additionalRelays?: string[]; assertCurrent?: () => void},
         ) => {
           const eventRelays = context?.relays?.length ? context.relays : relaysForPublish
           return publishRepoSettingsEventWithOutcomes(
@@ -4020,30 +3986,12 @@
             eventRelays,
             context?.additionalRelays,
             getPublishTransport(),
+            context?.assertCurrent,
           )
         },
-        onSaveComplete: async ({
-          renamed,
-          previousName,
-          nextName,
-          relays,
-        }: {
-          renamed: boolean
-          previousName: string
-          nextName: string
-          relays: string[]
-        }) => {
+        onSaveComplete: async () => {
           disposePublishTransport()
-          if (!renamed) {
-            await refreshRepo({throwOnError: true})
-            return
-          }
-          recordRepoRename({
-            owner: repoPubkey,
-            previousIdentifier: previousName,
-            nextIdentifier: nextName,
-          })
-          await navigateToRenamedRepo(nextName, relays)
+          await refreshRepo({throwOnError: true})
         },
         canDelete: !!$pubkey && repoPubkey === $pubkey,
         onRequestDelete: () => openDeleteRepoModal(),

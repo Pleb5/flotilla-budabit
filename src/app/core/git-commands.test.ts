@@ -155,6 +155,32 @@ describe("budabit commands", () => {
   })
 
   describe("publishRepoEventWithRelayOutcomes", () => {
+    it("rechecks the settings owner/draft after signing, before any delivery", async () => {
+      const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [
+          ["d", "repo"],
+          ["relays", "wss://grasp.example.com"],
+        ],
+      }
+      let current = true
+      mockSignerSign.mockImplementation(async value => {
+        current = false
+        return {...(value as object), sig: "signature"}
+      })
+      const assertCurrent = () => {
+        if (!current) throw new Error("Owner or draft changed")
+      }
+      await expect(
+        publishRepoEventWithRelayOutcomes(event as any, ["wss://grasp.example.com"], {
+          assertCurrent,
+        }),
+      ).rejects.toThrow("Owner or draft changed")
+      expect(mockPublish).not.toHaveBeenCalled()
+    })
     it("keeps native auth-required rejections hidden for Welshman retry", async () => {
       const {parseNativeRepoPublishAck} = await import("./git-commands")
       const relay = "wss://grasp.example.com/"
