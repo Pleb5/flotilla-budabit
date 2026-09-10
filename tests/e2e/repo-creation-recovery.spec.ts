@@ -1,6 +1,6 @@
 import {expect, test} from "@playwright/test"
 import {MockRelay} from "./helpers/mock-relay"
-import {signTestEvent, TEST_PUBKEYS} from "./fixtures/events"
+import {createRepoState, signTestEvent, TEST_PUBKEYS} from "./fixtures/events"
 
 const owner = TEST_PUBKEYS.alice
 const relay = "wss://recovery-fixture.test/"
@@ -35,7 +35,7 @@ for (const failState of [false, true]) {
     await page.evaluate(async failState => {
       const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
       const fixture = await import(/* @vite-ignore */ path)
-      fixture.installRecoveryFixture(failState)
+      await fixture.installRecoveryFixture(failState)
     }, failState)
     const recovery = page.getByRole("region", {name: "Pending repository operations"})
     await expect(
@@ -82,6 +82,90 @@ for (const failState of [false, true]) {
       const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
       return (await import(/* @vite-ignore */ path)).recoveryEvidence()
     })
-    expect(after).toEqual({records: [], signedCount: 2})
+    expect(after).toMatchObject({
+      records: [],
+      signedCount: 2,
+      attemptedMutations: 0,
+      stateStoredLocally: true,
+    })
+    expect(after.refReads).toBeGreaterThan(0)
   })
 }
+
+test("reviewing owner metadata cannot overwrite an intervening repository state", async ({
+  page,
+}) => {
+  const newerState = signTestEvent(
+    createRepoState({
+      identifier,
+      pubkey: owner,
+      created_at: 102,
+      head: "main",
+      refs: [{type: "heads", name: "main", commit: "2".repeat(40)}],
+    }),
+  )
+  const mock = new MockRelay({seedEvents: [current, newerState]})
+  await mock.setup(page)
+  await page.route("https://**", route =>
+    route.fulfill({status: 503, body: "Fixture: external services blocked"}),
+  )
+  await page.goto("/git")
+  await expect(page.getByRole("button", {name: "New Repo", exact: true})).toBeVisible()
+  await page.evaluate(async () => {
+    const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
+    await (await import(/* @vite-ignore */ path)).installRecoveryFixture()
+  })
+  const recovery = page.getByRole("region", {name: "Pending repository operations"})
+  await recovery.getByText("Review current owner metadata", {exact: true}).click()
+  await recovery.getByRole("button", {name: "Use current metadata and finish hosting"}).click()
+  await expect(recovery.getByRole("status")).toContainText("Authoritative repository state differs")
+  await recovery.getByRole("button", {name: "Retry recovery", exact: true}).click()
+  await expect(recovery.getByRole("button", {name: "Retry recovery", exact: true})).toBeEnabled()
+  await expect(recovery.getByRole("status")).toContainText("recovery will not reset Git refs")
+  expect(mock.getPublishedEvents().filter(event => [30617, 30618].includes(event.kind))).toEqual([])
+  const evidence = await page.evaluate(async () => {
+    const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
+    return (await import(/* @vite-ignore */ path)).recoveryEvidence()
+  })
+  expect(evidence.signedCount).toBe(0)
+  expect(evidence.attemptedMutations).toBe(0)
+  expect(evidence.records[0].stateConflictEvent.id).toBe(newerState.id)
+  expect(evidence.records[0].targets[0]).toMatchObject({
+    stage: "verified",
+    refs: [{ref: "refs/heads/main", commit: "1".repeat(40)}],
+  })
+})
+
+test("recovery stops signed checkpoint state before delivery if Git advances while signing", async ({
+  page,
+}) => {
+  const mock = new MockRelay({seedEvents: [current]})
+  await mock.setup(page)
+  await page.route("https://**", route =>
+    route.fulfill({status: 503, body: "Fixture: external services blocked"}),
+  )
+  await page.goto("/git")
+  await expect(page.getByRole("button", {name: "New Repo", exact: true})).toBeVisible()
+  await page.evaluate(async () => {
+    const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
+    await (await import(/* @vite-ignore */ path)).installRecoveryFixture(false, true)
+  })
+  const recovery = page.getByRole("region", {name: "Pending repository operations"})
+  await recovery.getByText("Review current owner metadata", {exact: true}).click()
+  await recovery.getByRole("button", {name: "Use current metadata and finish hosting"}).click()
+  await expect(recovery.getByRole("status")).toContainText("Git refs changed")
+  expect(
+    mock
+      .getPublishedEvents()
+      .filter(event => [30617, 30618].includes(event.kind))
+      .map(event => event.kind),
+  ).toEqual([30617])
+  const evidence = await page.evaluate(async () => {
+    const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
+    return (await import(/* @vite-ignore */ path)).recoveryEvidence()
+  })
+  expect(evidence.signedCount).toBe(2)
+  expect(evidence.attemptedMutations).toBe(0)
+  expect(evidence.stateStoredLocally).toBe(false)
+  expect(evidence.records[0].publishedEvents.map((item: any) => item.event.kind)).toEqual([30617])
+})

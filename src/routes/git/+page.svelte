@@ -84,12 +84,11 @@
   import {CodeXml, Folder, ListFilter, Star, X} from "@lucide/svelte"
   import {
     GIT_REPO_ANNOUNCEMENT,
-    GIT_REPO_STATE,
     parseRepoAnnouncementEvent,
     type BookmarkAddress,
     type RepoAnnouncementEvent,
   } from "@nostr-git/core/events"
-  import {getTaggedRelaysFromRepoEvent, resolveRepoRelayPolicy} from "@nostr-git/core/utils"
+  import {getTaggedRelaysFromRepoEvent} from "@nostr-git/core/utils"
   import {GIT_PERMALINK} from "@nostr-git/core/types"
   import {
     repositoriesStore,
@@ -118,7 +117,6 @@
   import {
     loadRepoAnnouncements,
     GIT_RELAYS,
-    getRepoAnnouncementPublishRelays,
     repoAnnouncementRelaysStore,
     repoAnnouncements,
     REPO_LIST_HYDRATION_READY_KEY,
@@ -4086,39 +4084,6 @@
 
   const defaultRepoRelays = $state<string[]>([])
 
-  const getUserOutboxRelays = (): string[] => {
-    try {
-      return Router.get().FromUser().getUrls() || []
-    } catch {
-      return []
-    }
-  }
-
-  const resolveRepoEventPublishRelays = (
-    event: any,
-    fallbackRelays: string[] = defaultRepoRelays,
-  ) => {
-    const policy = resolveRepoRelayPolicy({
-      event,
-      fallbackRepoRelays: fallbackRelays,
-    })
-
-    if (policy.isGrasp && policy.repoRelays.length === 0) {
-      throw new Error("GRASP repository event is missing explicit relay targets")
-    }
-
-    if (event?.kind === GIT_REPO_ANNOUNCEMENT) {
-      return getRepoAnnouncementPublishRelays({
-        repoEvent: event,
-        repoRelays: policy.repoRelays,
-        userOutboxRelays: getUserOutboxRelays(),
-        gitIndexerRelays: GIT_RELAYS,
-      })
-    }
-
-    return policy.repoRelays
-  }
-
   const deleteExactRepoEvent = async (
     event: NostrEvent,
     relayUrls: string[],
@@ -4439,6 +4404,11 @@
       pushModal(LogIn)
       return
     }
+    const creationOwner = $pubkey
+    const assertCreationOwner = () => {
+      if (pubkey.get() !== creationOwner)
+        throw new Error("The active account changed. Reopen New Repo before publishing.")
+    }
 
     // Ensure worker is initialized before opening wizard
     if (!workerApi || !workerInstance) {
@@ -4472,6 +4442,7 @@
 
     let publishTransport: RepoPublishTransport | undefined
     try {
+      assertCreationOwner()
       publishTransport = createTrackedRepoPublishTransport()
       const operationPublishTransport = publishTransport
       const modalId = pushModal(
@@ -4501,19 +4472,15 @@
           platformRelays: [...GIT_RELAYS],
           platformUrl: $APP_URL,
           makeRepoPath: makeGitPath,
-          userPubkey: $pubkey,
+          userPubkey: creationOwner,
           communityOptions: repoPublishCommunityOptions,
-          onPublishEvent: async (repoEvent: NostrEvent, context?: {relays: string[]}) => {
-            const explicitRelays = context?.relays || []
-            const targetRelays =
-              (repoEvent.kind === GIT_REPO_STATE && context?.relays !== undefined) ||
-              explicitRelays.length > 0
-                ? explicitRelays
-                : resolveRepoEventPublishRelays(repoEvent, defaultRepoRelays)
-            return operationPublishTransport.publish(repoEvent, targetRelays)
-          },
+          onPublishEvent: createRepoCreationPublisher({
+            ownerPubkey: creationOwner,
+            getActivePubkey: () => pubkey.get(),
+            transport: operationPublishTransport,
+          }),
           onDeleteEvent: async (event: NostrEvent, relays: string[]) => {
-            await deleteExactRepoEvent(event, relays)
+            await deleteExactRepoEvent(event, relays, assertCreationOwner)
           },
           onFetchRelayEvents: fetchRelayEvents,
           getKnownRepoEvents: (owner: string, identifier: string) =>

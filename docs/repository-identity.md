@@ -73,6 +73,17 @@ recovery never changes a signed event's identity to make it fit.
   invalidates that approval; freshness is checked before signing and delivery.
 - Exact signed-pair retries do not mint newer timestamps. If partial relay ACKs
   require a new relay-pruned replacement, the same freshness/review guard applies.
+- Verified push receipts are historical, not proof of current branch state. Before
+  signing new state, recovery re-reads Git refs/HEAD on verified targets and current
+  announced clone endpoints, plus the latest owner or directly declared maintainer
+  state. Conflicting refs, HEAD, state contents, or unavailable reads leave the
+  journal pending for manual resolution. Reviewing owner metadata does not
+  authorize overwriting branch/tag state. Recovery never
+  resets remote refs to make a checkpoint match. Exact signed-state replay remains
+  separate and does not generate a new timestamp.
+- New Repo captures its approved owner before worker initialization and uses the
+  guarded creation publisher. Its journal coordinate and account assertions reach
+  the transport before signing and again before local or relay delivery.
 
 These checks are scoped to the available relay evidence, not a global Nostr lock.
 Unknown Git outcomes and mismatched legacy journals still require manual attention.

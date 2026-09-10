@@ -25,6 +25,7 @@ import {
   type RepoCreationTargetRecord,
 } from "./repo-creation-transaction.js";
 import { reserveRepoCreation } from "./repo-creation-preflight.js";
+import { assertRecoveryStateCurrent, RepoRecoveryStateConflict } from "./repo-creation-state.js";
 import {
   assertRecoveryAnnouncementCurrent,
   metadataValues,
@@ -294,9 +295,28 @@ async function finalizeVerifiedTargets(
   });
   const journal = RepoCreationTransactionJournal.resume(record);
   const trackedPublisher = trackRepoCreationPublisher(journal, deps.publisher)!;
+  const stateSnapshot = {
+    ...stateEvent,
+    tags: stateEvent.tags.map((tag) => [...tag] as typeof tag),
+  };
+  const assertStateCurrent = () =>
+    assertRecoveryStateCurrent({
+      record: journal.record,
+      announcement: current,
+      state: stateSnapshot,
+      targets: verifiedTargets,
+      fetchEvents: deps.fetchRelayEvents,
+      listServerRefs: (params) => deps.workerApi.listServerRefs(params),
+    });
+  // Check before either final event is delivered. Check again around state signing
+  // so an intervening push/state publication cannot be hidden by signing latency.
+  await assertStateCurrent();
   const publisher: PublishRepoEvent = async (event, context) => {
-    const assertFresh = () =>
-      assertRecoveryAnnouncementCurrent(journal.record, current, deps.fetchRelayEvents);
+    const signsState = event.kind === 30618 && !(event.id && event.sig);
+    const assertFresh = async () => {
+      await assertRecoveryAnnouncementCurrent(journal.record, current, deps.fetchRelayEvents);
+      if (signsState) await assertStateCurrent();
+    };
     await assertFresh();
     return trackedPublisher(event, { ...context, relays: context?.relays || [], assertFresh });
   };
@@ -519,8 +539,9 @@ async function recoverRecord(
   );
   const targets = await Promise.all(
     record.targets.map((target) =>
-      // Completed Git receipts survive metadata review and offline delivery retries.
-      metadataOnly && target.stage === "verified" ? target : probeTarget(record, target, deps)
+      // Keep historical proof intact. Unsigned state generation separately checks
+      // current refs; an advanced branch must not become a failed-creation cleanup.
+      target.stage === "verified" ? target : probeTarget(record, target, deps)
     )
   );
   record = persistRepoCreationRecoveryRecord({ ...record, targets });
@@ -631,11 +652,15 @@ export async function recoverRepoCreationRecord(
     const persisted =
       getPendingRepoCreationTransactions().find((item) => item.id === record.id) || record;
     const review = error instanceof RepoMetadataReviewRequired;
+    const stateConflict = error instanceof RepoRecoveryStateConflict;
     const reason = error instanceof Error ? error.message : String(error);
     const pending = persistRepoCreationRecoveryRecord({
       ...persisted,
-      phase: review ? "metadata-review" : persisted.phase,
+      phase: review ? "metadata-review" : stateConflict ? "metadata-preparing" : persisted.phase,
       ...(review ? { reviewAnnouncement: error.announcement || persisted.reviewAnnouncement } : {}),
+      ...(stateConflict
+        ? { stateConflictEvent: error.stateEvent || persisted.stateConflictEvent }
+        : {}),
       manualAttention: { required: true, reason },
       lastError: reason,
     });

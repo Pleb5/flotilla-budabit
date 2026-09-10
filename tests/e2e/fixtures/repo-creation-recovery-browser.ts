@@ -1,6 +1,6 @@
 /** Disposable recovery fixtures. Never use a real account, signer, or Git target. */
 import {mount} from "svelte"
-import {pubkey, signer} from "@welshman/app"
+import {pubkey, repository, signer} from "@welshman/app"
 import {
   RepoCreationTransactionJournal,
   getPendingRepoCreationTransactions,
@@ -9,6 +9,7 @@ import {
 import RepoCreationRecovery from "../../../src/app/components/RepoCreationRecovery.svelte"
 import {signTestEvent, TEST_PUBKEYS} from "./events"
 import type {NostrEvent} from "nostr-tools"
+import {getInitializedGitWorker} from "../../../src/app/core/worker-singleton"
 
 export const identifier = "legacy:stable-id"
 export const relay = "wss://recovery-fixture.test/"
@@ -79,9 +80,41 @@ export const recoveryRecord = (): RepoCreationRecoveryRecord => ({
 })
 
 let signedCount = 0
-export function installRecoveryFixture(failState = false) {
+let refReads = 0
+let attemptedMutations = 0
+let lastSignedState: NostrEvent | undefined
+export async function installRecoveryFixture(failState = false, advanceRefsOnStateSign = false) {
   if (!import.meta.env.DEV || !(window as any).__mockRelayPublish || pubkey.get())
     throw new Error("Anonymous isolated MockRelay session required")
+  const worker = await getInitializedGitWorker()
+  let liveCommit = "1".repeat(40)
+  // Only the read-only ref endpoint is mocked. Unexpected URLs fail closed;
+  // recovery must not perform any provider or Git mutation in this fixture.
+  worker.api = new Proxy(worker.api, {
+    get(target, property) {
+      if (["createRemoteRepo", "pushToRemote", "deleteRepo"].includes(String(property)))
+        return () => {
+          attemptedMutations++
+          throw new Error("Fixture: Git/provider mutations are forbidden")
+        }
+      if (property !== "listServerRefs") return Reflect.get(target, property)
+      return async ({url}: {url: string}) => {
+        if (
+          ![
+            "https://github.com/fixture/recovery.git",
+            "https://current-host.test/repo.git",
+            "https://old-host.test/repo.git",
+          ].includes(url)
+        )
+          throw new Error("Unexpected Git ref read")
+        refReads++
+        return [
+          {ref: "refs/heads/main", oid: liveCommit},
+          {ref: "HEAD", target: "refs/heads/main", oid: liveCommit},
+        ]
+      }
+    },
+  })
   RepoCreationTransactionJournal.resume(recoveryRecord())
   let shouldFailState = failState
   // The transport and route remain real; only the signer is replaced with the
@@ -99,13 +132,22 @@ export function installRecoveryFixture(failState = false) {
         throw new Error("Fixture state signer interrupted")
       }
       signedCount++
-      return signTestEvent(event)
+      if (event.kind === 30618 && advanceRefsOnStateSign) liveCommit = "2".repeat(40)
+      const signed = signTestEvent(event)
+      if (event.kind === 30618) lastSignedState = signed
+      return signed
     },
   })) as typeof signer.get
   pubkey.set(owner)
 }
 
-export const recoveryEvidence = () => ({records: getPendingRepoCreationTransactions(), signedCount})
+export const recoveryEvidence = () => ({
+  records: getPendingRepoCreationTransactions(),
+  signedCount,
+  refReads,
+  attemptedMutations,
+  stateStoredLocally: Boolean(lastSignedState && repository.getEvent(lastSignedState.id)),
+})
 
 /** Read-only visual fixture: no auth, journal, network, or publication callback. */
 export function mountRecoveryReviewFixture() {

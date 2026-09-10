@@ -123,6 +123,9 @@ export interface RepoCreationRecoveryRecord {
   phase: RepoCreationPhase;
   /** Exact current owner announcement presented for explicit recovery review. */
   reviewAnnouncement?: NostrEvent;
+  /** Keep observed conflicting state across reloads/relay outages; owner metadata
+   * review alone cannot authorize overwriting this branch/tag state. */
+  stateConflictEvent?: NostrEvent;
   /** Active signed delivery pair. Older attempts remain in publishedEvents as
    * immutable receipts, but must not accidentally complete a newer half-pair. */
   metadataAttempt?: { announcementEventId?: string; stateEventId?: string };
