@@ -48,6 +48,7 @@ export type RepoAnnouncementTag =
   | ["a", string]
   | ["a", string, string]
   | ["name", string]
+  | ["u", string, ...string[]]
   | ["description", string]
   | ["web", ...string[]]
   | ["clone", ...string[]]
@@ -57,6 +58,7 @@ export type RepoAnnouncementTag =
   | ["t", string]
   | ["deleted"]
   | ["deleted", string]
+  | [string, ...string[]] // Preserve future/third-party announcement metadata when editing.
 
 export interface RepoAnnouncementEvent extends NostrEvent {
   kind: typeof GIT_REPO_ANNOUNCEMENT

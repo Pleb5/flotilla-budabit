@@ -6,6 +6,7 @@ export * from "./nip32/nip32.js"
 export * from "./nip32/labels.js"
 
 export * from "./nip34/nip34-utils.js"
+export * from "./nip34/repo-metadata.js"
 export {isDeletedRepoAnnouncement} from "./nip34/nip34-utils.js"
 export * from "./nip34/nip34.js"
 export * from "./nip34/issues.js"

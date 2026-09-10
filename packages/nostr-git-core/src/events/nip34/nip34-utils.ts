@@ -392,6 +392,8 @@ function extractRepoName(repoId: string): string {
  */
 export function createRepoAnnouncementEvent(opts: {
   repoId: string
+  /** Exact d tag, independent of the display name; preferred over legacy repoId extraction. */
+  identifier?: string
   community?: RepoCommunityBinding
   name?: string
   description?: string
@@ -401,11 +403,12 @@ export function createRepoAnnouncementEvent(opts: {
   maintainers?: string[]
   hashtags?: string[]
   earliestUniqueCommit?: string
+  upstreams?: Array<["u", string, ...string[]]>
   created_at?: number
 }): RepoAnnouncementEvent {
   const tags: RepoAnnouncementTag[] = [
     // NIP-34: use only the repository name for the identifier (d tag)
-    ["d", extractRepoName(opts.repoId)],
+    ["d", opts.identifier ?? extractRepoName(opts.repoId)],
   ]
   if (opts.name) tags.push(["name", opts.name])
   if (opts.community) {
@@ -433,6 +436,7 @@ export function createRepoAnnouncementEvent(opts: {
     tags.push(["maintainers", ...opts.maintainers])
   if (opts.hashtags) opts.hashtags.forEach(t => tags.push(["t", t]))
   if (opts.earliestUniqueCommit) tags.push(["r", opts.earliestUniqueCommit, "euc"])
+  if (opts.upstreams) tags.push(...opts.upstreams.map(tag => [...tag] as RepoAnnouncementTag))
   return {
     kind: 30617,
     content: "",
@@ -447,11 +451,13 @@ export function createRepoAnnouncementEvent(opts: {
  */
 export function createRepoStateEvent(opts: {
   repoId: string
+  /** Exact existing identifier; does not introduce a new state-addressing convention. */
+  identifier?: string
   refs?: Array<{type: "heads" | "tags"; name: string; commit: string; ancestry?: string[]}>
   head?: string
   created_at?: number
 }): RepoStateEvent {
-  const tags: RepoStateTag[] = [["d", extractRepoName(opts.repoId)]]
+  const tags: RepoStateTag[] = [["d", opts.identifier ?? extractRepoName(opts.repoId)]]
 
   // Add refs (branches and tags) according to NIP-34
   if (opts.refs) {
@@ -971,6 +977,7 @@ export interface RepoAnnouncement {
   maintainers?: string[]
   hashtags?: string[]
   earliestUniqueCommit?: string // NIP-34 r tag with 'euc' marker
+  upstreams?: Array<["u", string, ...string[]]>
   deleted?: boolean
   createdAt: string
   raw: RepoAnnouncementEvent
@@ -1012,6 +1019,9 @@ export function parseRepoAnnouncementEvent(event: RepoAnnouncementEvent): RepoAn
     maintainers: getMultiTag("maintainers"),
     hashtags: getAllTags("t"),
     earliestUniqueCommit,
+    upstreams: event.tags
+      .filter(tag => tag[0] === "u" && tag.length > 1)
+      .map(tag => [...tag] as ["u", string, ...string[]]),
     deleted,
     createdAt: new Date(event.created_at * 1000).toISOString(),
     raw: event,
