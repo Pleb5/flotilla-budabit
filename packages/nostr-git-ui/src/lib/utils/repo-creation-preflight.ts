@@ -140,7 +140,7 @@ export async function assertLocalRepoCoordinateAvailable(
     }
     if (exists) {
       throw new Error(
-        `A local repository already exists for identifier "${identifier}". Open it or resolve its recorded creation before making a new fork.`
+        `A local repository already exists for identifier "${identifier}". Open it or resolve its recorded creation before creating another repository.`
       );
     }
   }

@@ -2590,7 +2590,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
       // Publish the repository coordinate before any imported collaboration events reference it.
       currentPhaseRef.current = "metadata";
       const repoEvents = convertRepoEvents(context);
-      transactionJournal.setPhase("metadata-pending");
+      transactionJournal.setPhase("metadata-preparing");
       const publishedRepoEvents = await publishRepoEvents(context, repoEvents);
       transactionJournal.setTargetResults(context.remotePushResults);
       transactionJournal.setPendingCompensations(publishedRepoEvents.cleanupFailures);
@@ -2734,7 +2734,10 @@ export function useImportRepo(options: UseImportRepoOptions) {
         transactionJournal.complete();
       } else {
         transactionJournal?.setPhase(
-          transactionJournal?.record.phase === "metadata-pending" ? "metadata-pending" : "failed",
+          transactionJournal &&
+            ["metadata-preparing", "metadata-pending"].includes(transactionJournal.record.phase)
+            ? transactionJournal.record.phase
+            : "failed",
           err
         );
       }

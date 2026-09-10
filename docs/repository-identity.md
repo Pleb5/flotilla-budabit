@@ -44,6 +44,39 @@ that authority or combine different coordinates.
   the existing conventional hex-owner and GRASP npub-owner storage conventions.
 - Entries previously written under incorrect display-name extension namespaces
   are left untouched; there is no automatic migration or combining of those keys.
+- New Repo and fork preflight check both local owner-key conventions, regardless
+  of the newly selected host. An unavailable local check does not prove absence.
+
+## Interrupted creation and hosting
+
+`/git` shows pending repository operations for the active owner. Recovery uses the
+journal's exact owner and identifier for announcement and state publication,
+including opaque legacy identifiers containing `:` or `/`. It validates saved
+events before replay or cleanup and rechecks the account before delivery. A saved
+event with a different owner or identifier stays pending for manual resolution;
+recovery never changes a signed event's identity to make it fit.
+
+- **Metadata preparation** is distinct from **signed delivery**. New journals use
+  `metadata-preparing` until an exact final pair exists. Older `metadata-pending`
+  journals with zero or one final event also enter preparation safely.
+- Each returned signed event and its relay receipts are saved before continuing.
+  An active-pair record keeps archived attempts from being mistaken for a newly
+  completed pair. Failed delivery retries reuse saved signed payloads.
+- Before generating replacement metadata, recovery checks current exact-coordinate
+  owner announcements on the recorded/source relays. Timeouts block replacement.
+  If owner metadata changed, the operation enters `metadata-review` without
+  discarding completed target receipts or repeating Git creation/push operations.
+- Expand **Review current owner metadata**, inspect the name, maintainers,
+  upstreams and full announcement, then choose **Use current metadata and finish
+  hosting**. This applies only verified hosting changes to the reviewed owner
+  announcement, preserving its content and unrelated tags. Another owner edit
+  invalidates that approval; freshness is checked before signing and delivery.
+- Exact signed-pair retries do not mint newer timestamps. If partial relay ACKs
+  require a new relay-pruned replacement, the same freshness/review guard applies.
+
+These checks are scoped to the available relay evidence, not a global Nostr lock.
+Unknown Git outcomes and mismatched legacy journals still require manual attention.
+Recovery does not delete an unresolved journal merely to unblock a fresh creation.
 
 ## PR/status compatibility
 

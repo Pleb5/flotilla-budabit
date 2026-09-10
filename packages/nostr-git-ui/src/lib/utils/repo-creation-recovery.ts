@@ -10,6 +10,11 @@ import {
   type PublishRepoEvent,
 } from "./grasp-pipeline.js";
 import {
+  assertRepoCreationEvent,
+  getLatestPublishedEvent,
+  RepoCreationTransactionJournal,
+  scopeRepoCreationPublisher,
+  trackRepoCreationPublisher,
   getRepoCreationProvisionalEvents,
   getPendingRepoCreationTransactions,
   persistRepoCreationRecoveryRecord,
@@ -19,12 +24,23 @@ import {
   type RepoCreationRecoveryRecord,
   type RepoCreationTargetRecord,
 } from "./repo-creation-transaction.js";
+import { reserveRepoCreation } from "./repo-creation-preflight.js";
+import {
+  assertRecoveryAnnouncementCurrent,
+  metadataValues,
+  readCurrentRecoveryAnnouncement,
+  RepoMetadataReviewRequired,
+} from "./repo-creation-metadata.js";
 
 export interface RepoCreationRecoveryDependencies {
   workerApi: any;
   publisher: PublishRepoEvent;
   fetchRelayEvents: FetchRelayEvents;
   onDeleteEvent: DeleteRepoEvent;
+  /** Explicit owner approval of the announcement shown by the recovery UI. */
+  reviewedAnnouncement?: NostrEvent;
+  /** Rechecked before recovery side effects, including exact deletion. */
+  assertCurrent?: () => void;
 }
 
 export interface RepoCreationRecoveryResult {
@@ -138,7 +154,8 @@ async function probeTarget(
 
 async function cleanupLocalResource(
   record: RepoCreationRecoveryRecord,
-  workerApi: any
+  workerApi: any,
+  assertCurrent?: () => void
 ): Promise<RepoCreationRecoveryRecord> {
   const local = record.localResource;
   const shouldDelete =
@@ -160,6 +177,7 @@ async function cleanupLocalResource(
   }
 
   try {
+    assertCurrent?.();
     const result = await workerApi.deleteRepo({ repoId: local.id || record.localRepoId });
     if (result?.success === false) throw new Error(result.error || "Local deletion failed");
     return { ...record, localResource: { ...local, stage: "cleaned", error: undefined } };
@@ -193,7 +211,12 @@ function buildRecoveredState(
   });
   const head = parsedRefs.find((ref) => ref.type === "heads")?.name;
   if (parsedRefs.length === 0 || !head) return undefined;
-  return createRepoStateEvent({ repoId: record.repoName, refs: parsedRefs, head });
+  return createRepoStateEvent({
+    repoId: record.repoName,
+    identifier: record.repoName,
+    refs: parsedRefs,
+    head,
+  });
 }
 
 async function finalizeVerifiedTargets(
@@ -202,9 +225,9 @@ async function finalizeVerifiedTargets(
   deps: RepoCreationRecoveryDependencies
 ): Promise<RepoCreationRecoveryResult> {
   const provisionalAnnouncement = latestEvent(record, 30617);
-  const sourceAnnouncement = record.sourceMetadata?.announcementEvent;
-  const announcementBase = sourceAnnouncement || provisionalAnnouncement;
-  const stateEvent = buildRecoveredState(record, verifiedTargets);
+  let sourceAnnouncement = record.sourceMetadata?.announcementEvent;
+  let announcementBase = sourceAnnouncement || provisionalAnnouncement;
+  let stateEvent = buildRecoveredState(record, verifiedTargets);
   if (!announcementBase || !stateEvent) {
     const pending = persistRepoCreationRecoveryRecord({
       ...record,
@@ -214,6 +237,69 @@ async function finalizeVerifiedTargets(
     });
     return { status: "pending", record: pending, reason: pending.manualAttention.reason };
   }
+
+  const current = await readCurrentRecoveryAnnouncement(
+    record,
+    announcementBase,
+    deps.fetchRelayEvents
+  );
+  if (deps.reviewedAnnouncement) assertRepoCreationEvent(record, deps.reviewedAnnouncement, true);
+  const expectedId = deps.reviewedAnnouncement?.id || announcementBase.id;
+  if (
+    current.id !== expectedId ||
+    (record.phase === "metadata-review" && !deps.reviewedAnnouncement)
+  )
+    throw new RepoMetadataReviewRequired(
+      "Review the current owner metadata before finishing this repository operation.",
+      current
+    );
+  const rebased = announcementBase.id !== current.id;
+  if (rebased) {
+    const oldRelays = new Set(sanitizeRelays(metadataValues(announcementBase, "relays")));
+    record = {
+      ...record,
+      sourceMetadata: {
+        announcementEvent: current,
+        cloneUrls: metadataValues(current, "clone"),
+        webUrls: metadataValues(current, "web"),
+      },
+      repositoryRelayUrls: sanitizeRelays([
+        ...metadataValues(current, "relays"),
+        ...(record.repositoryRelayUrls || []).filter(
+          (relay) => !oldRelays.has(normalizeRelayUrl(relay))
+        ),
+      ]),
+    };
+    sourceAnnouncement = current;
+    announcementBase = current;
+  }
+  // Preserve a returned signed half-pair instead of recreating it on retry.
+  const previousState = getLatestPublishedEvent(record, 30618)?.event;
+  const sameTags = (left: string[][], right: string[][]) =>
+    JSON.stringify(left.map((tag) => JSON.stringify(tag)).sort()) ===
+    JSON.stringify(right.map((tag) => JSON.stringify(tag)).sort());
+  if (previousState && sameTags(previousState.tags, stateEvent.tags))
+    stateEvent = previousState as typeof stateEvent;
+  const previousAnnouncement = !rebased ? getLatestPublishedEvent(record, 30617)?.event : undefined;
+  let firstRound = true;
+  record = persistRepoCreationRecoveryRecord({
+    ...record,
+    phase: "metadata-preparing",
+    reviewAnnouncement: undefined,
+    manualAttention: { required: false },
+    metadataAttempt: {
+      announcementEventId: previousAnnouncement?.id,
+      stateEventId: stateEvent.id || undefined,
+    },
+  });
+  const journal = RepoCreationTransactionJournal.resume(record);
+  const trackedPublisher = trackRepoCreationPublisher(journal, deps.publisher)!;
+  const publisher: PublishRepoEvent = async (event, context) => {
+    const assertFresh = () =>
+      assertRecoveryAnnouncementCurrent(journal.record, current, deps.fetchRelayEvents);
+    await assertFresh();
+    return trackedPublisher(event, { ...context, relays: context?.relays || [], assertFresh });
+  };
 
   const taggedRelays =
     record.repositoryRelayUrls && record.repositoryRelayUrls.length > 0
@@ -275,7 +361,7 @@ async function finalizeVerifiedTargets(
     provisionalRelayUrls: record.publishedEvents.flatMap((item) => item.relayUrls),
     graspTargets,
     stateEvent,
-    onPublishEvent: deps.publisher,
+    onPublishEvent: publisher,
     fetchRelayEvents: deps.fetchRelayEvents,
     provisionalEvents: getRepoCreationProvisionalEvents(record),
     onDeleteEvent: deps.onDeleteEvent,
@@ -307,7 +393,7 @@ async function finalizeVerifiedTargets(
           ...activeGraspWebUrls,
         ])
       );
-      return {
+      const built = {
         ...announcementTemplate,
         created_at: createdAt,
         tags: [
@@ -317,11 +403,20 @@ async function finalizeVerifiedTargets(
           ["relays", ...nextRelays],
         ],
       } as RepoAnnouncementEvent;
+      const reuse =
+        firstRound &&
+        previousAnnouncement &&
+        previousAnnouncement.content === built.content &&
+        sameTags(previousAnnouncement.tags, built.tags);
+      if (firstRound && previousAnnouncement && !reuse)
+        journal.setMetadataAttempt({ stateEventId: stateEvent.id || undefined });
+      firstRound = false;
+      return reuse ? (previousAnnouncement as RepoAnnouncementEvent) : built;
     },
   });
 
   let next: RepoCreationRecoveryRecord = {
-    ...record,
+    ...journal.record,
     phase: reconciled.cleanupFailures.length > 0 ? "cleanup-pending" : "failed",
     targets: record.targets.map(
       (target) => verifiedTargets.find((verified) => verified.id === target.id) || target
@@ -340,18 +435,16 @@ async function finalizeVerifiedTargets(
       provisionalAnnouncementEvent: record.targetResults.find((result) => result.id === target.id)
         ?.provisionalAnnouncementEvent,
     })),
-    publishedEvents: [
-      ...record.publishedEvents,
-      { event: reconciled.announcementEvent, relayUrls: reconciled.relays, stage: "final" },
-      { event: reconciled.stateEvent, relayUrls: reconciled.relays, stage: "final" },
-    ],
     pendingCompensations: reconciled.cleanupFailures,
     manualAttention:
       reconciled.cleanupFailures.length > 0
         ? { required: true, reason: "Metadata cleanup is pending" }
         : { required: false },
   };
-  next = await cleanupLocalResource(next, deps.workerApi);
+  // Metadata has completed even if local cleanup is interrupted by a reload.
+  next = persistRepoCreationRecoveryRecord({ ...next, phase: "cleanup-pending" });
+  deps.assertCurrent?.();
+  next = await cleanupLocalResource(next, deps.workerApi, deps.assertCurrent);
   if (
     next.pendingCompensations.length === 0 &&
     (!next.localResource.ownedByTransaction ||
@@ -365,7 +458,7 @@ async function finalizeVerifiedTargets(
   return { status: "pending", record: next, reason: next.manualAttention.reason };
 }
 
-export async function recoverRepoCreationRecord(
+async function recoverRecord(
   record: RepoCreationRecoveryRecord,
   deps: RepoCreationRecoveryDependencies
 ): Promise<RepoCreationRecoveryResult> {
@@ -383,11 +476,15 @@ export async function recoverRepoCreationRecord(
     return { status: "pending", record: pending, reason: pending.manualAttention.reason };
   }
 
-  if (record.phase === "metadata-pending") {
+  if (
+    record.phase === "metadata-pending" &&
+    getLatestPublishedEvent(record, 30617) &&
+    getLatestPublishedEvent(record, 30618)
+  ) {
     await retryPendingRepoCreationMetadata(record, deps.publisher, deps.fetchRelayEvents);
     const persisted =
       getPendingRepoCreationTransactions().find((item) => item.id === record.id) || record;
-    const next = await cleanupLocalResource(persisted, deps.workerApi);
+    const next = await cleanupLocalResource(persisted, deps.workerApi, deps.assertCurrent);
     if (
       next.pendingCompensations.length === 0 &&
       (next.operation === "new" ||
@@ -403,7 +500,7 @@ export async function recoverRepoCreationRecord(
 
   if (record.phase === "cleanup-pending") {
     let next = await retryRepoCreationCompensations(record, deps.onDeleteEvent, deps.publisher);
-    next = await cleanupLocalResource(next, deps.workerApi);
+    next = await cleanupLocalResource(next, deps.workerApi, deps.assertCurrent);
     if (
       next.pendingCompensations.length === 0 &&
       (next.operation === "new" ||
@@ -417,13 +514,30 @@ export async function recoverRepoCreationRecord(
     return { status: "pending", record: next, reason: next.manualAttention.reason };
   }
 
-  const targets = await Promise.all(
-    record.targets.map((target) => probeTarget(record, target, deps))
+  const metadataOnly = ["metadata-preparing", "metadata-review", "metadata-pending"].includes(
+    record.phase
   );
+  const targets = await Promise.all(
+    record.targets.map((target) =>
+      // Completed Git receipts survive metadata review and offline delivery retries.
+      metadataOnly && target.stage === "verified" ? target : probeTarget(record, target, deps)
+    )
+  );
+  record = persistRepoCreationRecoveryRecord({ ...record, targets });
   const verified = targets.filter((target) => target.stage === "verified");
   const unknown = targets.filter((target) => target.stage === "unknown");
   if (verified.length > 0) {
     return finalizeVerifiedTargets({ ...record, targets }, verified, deps);
+  }
+
+  if (metadataOnly) {
+    const reason =
+      "Metadata preparation needs verified target receipts. Completed resources were retained; retry when verification is available.";
+    const pending = persistRepoCreationRecoveryRecord({
+      ...record,
+      manualAttention: { required: true, reason },
+    });
+    return { status: "pending", record: pending, reason };
   }
 
   if (unknown.length === 0 && !targets.some((target) => target.createdRemote)) {
@@ -444,7 +558,8 @@ export async function recoverRepoCreationRecord(
     }
     let next = await cleanupLocalResource(
       { ...record, targets, pendingCompensations: failures },
-      deps.workerApi
+      deps.workerApi,
+      deps.assertCurrent
     );
     if (failures.length === 0 && ["cleaned", "planned"].includes(next.localResource.stage)) {
       removeRepoCreationRecoveryRecord(record.id);
@@ -468,4 +583,64 @@ export async function recoverRepoCreationRecord(
     },
   });
   return { status: "pending", record: pending, reason: pending.manualAttention.reason };
+}
+
+export async function recoverRepoCreationRecord(
+  record: RepoCreationRecoveryRecord,
+  deps: RepoCreationRecoveryDependencies
+): Promise<RepoCreationRecoveryResult> {
+  const release = reserveRepoCreation(record.ownerPubkey, record.repoName);
+  try {
+    deps.assertCurrent?.();
+    // Validate the entire persisted inventory before any replay or cleanup. Bad
+    // legacy records remain durable, never "repaired" by changing a signed d.
+    const recorded = [
+      ...record.publishedEvents.map((item) => item.event),
+      ...record.targets.flatMap((target) =>
+        target.announcementEvent ? [target.announcementEvent] : []
+      ),
+      ...record.targetResults.flatMap((target) =>
+        target.provisionalAnnouncementEvent ? [target.provisionalAnnouncementEvent] : []
+      ),
+      ...(record.sourceMetadata?.announcementEvent
+        ? [record.sourceMetadata.announcementEvent]
+        : []),
+    ];
+    for (const event of recorded) assertRepoCreationEvent(record, event, true);
+    const publisher = scopeRepoCreationPublisher(record, deps.publisher);
+    return await recoverRecord(record, {
+      ...deps,
+      publisher: (event, context) => {
+        deps.assertCurrent?.();
+        return publisher(event, {
+          ...context,
+          relays: context?.relays || [],
+          assertCurrent: () => {
+            deps.assertCurrent?.();
+            context?.assertCurrent?.();
+          },
+        });
+      },
+      onDeleteEvent: (event, relays) => {
+        deps.assertCurrent?.();
+        assertRepoCreationEvent(record, event, true);
+        return deps.onDeleteEvent(event, relays);
+      },
+    });
+  } catch (error) {
+    const persisted =
+      getPendingRepoCreationTransactions().find((item) => item.id === record.id) || record;
+    const review = error instanceof RepoMetadataReviewRequired;
+    const reason = error instanceof Error ? error.message : String(error);
+    const pending = persistRepoCreationRecoveryRecord({
+      ...persisted,
+      phase: review ? "metadata-review" : persisted.phase,
+      ...(review ? { reviewAnnouncement: error.announcement || persisted.reviewAnnouncement } : {}),
+      manualAttention: { required: true, reason },
+      lastError: reason,
+    });
+    return { status: "pending", record: pending, reason };
+  } finally {
+    release();
+  }
 }

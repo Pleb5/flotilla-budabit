@@ -311,6 +311,7 @@ export type RepoPublishOptions = {
   publishLocally?: boolean
   repoAddress?: string
   assertCurrent?: () => void
+  assertFresh?: () => Promise<void>
 }
 type RepoPublishExecutionOptions = RepoPublishOptions & {signal?: AbortSignal}
 
@@ -321,6 +322,8 @@ const publishRepoEventWithRelayOutcomesUsingPool = async (
   options: RepoPublishExecutionOptions = {},
 ) => {
   const scopedRelays = getScopedRelayUrls(event, relays, options.repoAddress)
+  options.assertCurrent?.()
+  await options.assertFresh?.()
   options.assertCurrent?.()
   const activePubkey = pubkey.get()
   const activeSigner = signer.get()
@@ -338,7 +341,16 @@ const publishRepoEventWithRelayOutcomesUsingPool = async (
     throw new Error("Repository event signing failed")
   }
   options.signal?.throwIfAborted()
+  await options.assertFresh?.()
+  options.signal?.throwIfAborted()
   options.assertCurrent?.()
+
+  // A signer response must still match the approved repository, not just the draft.
+  getScopedRelayUrls(signedEvent, relays, options.repoAddress)
+  if (signedEvent.kind !== event.kind)
+    throw new Error("Repository event signer returned a different event kind")
+  if (!isSignedEvent(event as TrustedEvent) && signedEvent.pubkey !== activePubkey)
+    throw new Error("Repository event signer returned a different owner")
 
   if (options.publishLocally !== false) {
     repository.publish(signedEvent as TrustedEvent)

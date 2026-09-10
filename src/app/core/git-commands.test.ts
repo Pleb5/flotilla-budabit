@@ -155,6 +155,54 @@ describe("budabit commands", () => {
   })
 
   describe("publishRepoEventWithRelayOutcomes", () => {
+    it("awaits recovery freshness before signing and again before any delivery", async () => {
+      const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [
+          ["d", "repo"],
+          ["relays", "wss://metadata.test/"],
+        ],
+      }
+      let signingFinished = false
+      mockSignerSign.mockImplementation(async value => {
+        signingFinished = true
+        return {...value, sig: "signature"}
+      })
+      const assertFresh = vi.fn(async () => {
+        if (signingFinished) throw new Error("Owner metadata changed while signing")
+      })
+      await expect(
+        publishRepoEventWithRelayOutcomes(event as any, ["wss://metadata.test/"], {
+          repoAddress: `30617:${"a".repeat(64)}:repo`,
+          assertFresh,
+        }),
+      ).rejects.toThrow("Owner metadata changed while signing")
+      expect(assertFresh).toHaveBeenCalledTimes(2)
+      expect(mockSignerSign).toHaveBeenCalledOnce()
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
+      expect(mockPublish).not.toHaveBeenCalled()
+    })
+
+    it("rejects a signer response with another coordinate before delivery", async () => {
+      const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
+      const event = {kind: 30618, content: "", created_at: 1, tags: [["d", "legacy:repo"]]}
+      mockSignerSign.mockImplementation(async value => ({
+        ...value,
+        sig: "signature",
+        tags: [["d", "repo"]],
+      }))
+      await expect(
+        publishRepoEventWithRelayOutcomes(event as any, ["wss://metadata.test/"], {
+          repoAddress: `30617:${"a".repeat(64)}:legacy:repo`,
+        }),
+      ).rejects.toThrow(/authoritative repository/)
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
+      expect(mockPublish).not.toHaveBeenCalled()
+    })
+
     it("rechecks the settings owner/draft after signing, before any delivery", async () => {
       const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
       const event = {

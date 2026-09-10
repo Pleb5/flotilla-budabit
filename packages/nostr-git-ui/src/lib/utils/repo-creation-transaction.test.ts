@@ -946,4 +946,45 @@ describe("RepoCreationTransactionJournal", () => {
     expect(onDeleteEvent).toHaveBeenCalledWith(event, ["wss://relay.example/"]);
     expect(getPendingRepoCreationTransactions()).toHaveLength(0);
   });
+
+  it.each(["owner", "kind", "identifier", "signed id"])(
+    "rejects a changed %s in the returned publication receipt",
+    async (field) => {
+      Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: new MemoryStorage(),
+      });
+      const ownerPubkey = "f".repeat(64);
+      const journal = new RepoCreationTransactionJournal({
+        id: "receipt-validation",
+        operation: "fork",
+        ownerPubkey,
+        repoName: "legacy:repo",
+      });
+      const event = {
+        id: "exact-signed-id",
+        sig: "fixture",
+        pubkey: ownerPubkey,
+        kind: 30618,
+        created_at: 1,
+        tags: [["d", "legacy:repo"]],
+        content: "",
+      };
+      const wrong = {
+        ...event,
+        ...(field === "owner" ? { pubkey: "a".repeat(64) } : {}),
+        ...(field === "kind" ? { kind: 30617 } : {}),
+        ...(field === "identifier" ? { tags: [["d", "repo"]] } : {}),
+        ...(field === "signed id" ? { id: "resigned" } : {}),
+      };
+      const publisher = trackRepoCreationPublisher(
+        journal,
+        vi.fn(async () => ({ event: wrong, ackedRelays: [], failedRelays: [] }))
+      )!;
+      await expect(
+        publisher(event, { relays: ["wss://metadata.test/"], stage: "final" })
+      ).rejects.toThrow(/exact|requested kind/);
+      expect(journal.record.publishedEvents).toEqual([]);
+    }
+  );
 });

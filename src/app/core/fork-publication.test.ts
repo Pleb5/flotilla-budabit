@@ -1,6 +1,6 @@
 import {describe, expect, it, vi} from "vitest"
 import {createRepoAnnouncementEvent, createRepoStateEvent} from "@nostr-git/core/events"
-import {createForkRepoPublisher} from "./fork-publication"
+import {createForkRepoPublisher, createRepoCreationPublisher} from "./fork-publication"
 import {requireRepoPublicationScope} from "./repo-publication"
 
 const sourceOwner = "a".repeat(64)
@@ -11,7 +11,11 @@ const repoAddress = `30617:${owner}:${identifier}`
 const announcement = createRepoAnnouncementEvent({repoId: identifier, relays: [relay]})
 const state = createRepoStateEvent({repoId: identifier, head: "main", refs: []})
 
-describe("fork route publication", () => {
+describe("creation/recovery route publication", () => {
+  const createPublisher = createRepoCreationPublisher
+  it("shares the destination guard with the fork route", () => {
+    expect(createForkRepoPublisher).toBe(createRepoCreationPublisher)
+  })
   it("delivers announcement and state at the approved destination, not the source", async () => {
     const publish = vi.fn(async (event, relays, options) => {
       options.assertCurrent()
@@ -26,7 +30,7 @@ describe("fork route publication", () => {
         relayOutcomes: [],
       }
     })
-    const publisher = createForkRepoPublisher({
+    const publisher = createPublisher({
       ownerPubkey: owner,
       getActivePubkey: () => owner,
       transport: {publish},
@@ -55,7 +59,7 @@ describe("fork route publication", () => {
       hasRelayOutcomes: true,
       relayOutcomes: [],
     }))
-    const publisher = createForkRepoPublisher({
+    const publisher = createPublisher({
       ownerPubkey: owner,
       getActivePubkey: () => owner,
       transport: {publish},
@@ -66,7 +70,7 @@ describe("fork route publication", () => {
 
   it("rejects a missing destination, wrong owner, or mismatched metadata before delivery", async () => {
     const publish = vi.fn()
-    const publisher = createForkRepoPublisher({
+    const publisher = createPublisher({
       ownerPubkey: owner,
       getActivePubkey: () => owner,
       transport: {publish},
@@ -104,7 +108,7 @@ describe("fork route publication", () => {
         relayOutcomes: [],
       }
     })
-    const publisher = createForkRepoPublisher({
+    const publisher = createPublisher({
       ownerPubkey: owner,
       getActivePubkey: () => active,
       transport: {publish},
@@ -117,5 +121,24 @@ describe("fork route publication", () => {
       /account changed/,
     )
     expect(publish).toHaveBeenCalledOnce()
+  })
+
+  it("forwards the asynchronous recovery freshness guard to the transport", async () => {
+    const assertFresh = vi.fn(async () => {
+      throw new Error("Owner metadata changed")
+    })
+    const publish = vi.fn(async (_event, _relays, options) => {
+      await options.assertFresh()
+      throw new Error("must not deliver")
+    })
+    const publisher = createPublisher({
+      ownerPubkey: owner,
+      getActivePubkey: () => owner,
+      transport: {publish},
+    })
+    await expect(publisher(state, {relays: [relay], repoAddress, assertFresh})).rejects.toThrow(
+      "Owner metadata changed",
+    )
+    expect(assertFresh).toHaveBeenCalledOnce()
   })
 })

@@ -88,6 +88,8 @@ export interface PublishRepoEventContext {
   repoAddress?: string;
   /** Recheck a settings draft immediately before signing and before delivery. */
   assertCurrent?: () => void;
+  /** Recovery freshness reads, awaited before signing and before delivery. */
+  assertFresh?: () => Promise<void>;
   relays: string[];
   additionalRelays?: string[];
   stage?: "provisional" | "final";

@@ -21,10 +21,19 @@ import type {
 import type { RemoteTargetSelection } from "./remote-targets.js";
 import type { OperationStatus } from "@nostr-git/core";
 import { assertGraspCloneRelayCoupling } from "./grasp-service-coupling.js";
-import { assertRepoAnnouncementCurrent } from "./repo-creation-preflight.js";
+import {
+  assertRecoveryAnnouncementCurrent,
+  RepoMetadataReviewRequired,
+} from "./repo-creation-metadata.js";
 
 export type RepoCreationOperation = "new" | "import" | "fork";
-export type RepoCreationPhase = "syncing" | "metadata-pending" | "cleanup-pending" | "failed";
+export type RepoCreationPhase =
+  | "syncing"
+  | "metadata-preparing"
+  | "metadata-review"
+  | "metadata-pending"
+  | "cleanup-pending"
+  | "failed";
 export type RepoCreationTargetStage =
   | "planned"
   | "creating"
@@ -112,6 +121,11 @@ export interface RepoCreationRecoveryRecord {
   };
   localResource: RepoCreationLocalResource;
   phase: RepoCreationPhase;
+  /** Exact current owner announcement presented for explicit recovery review. */
+  reviewAnnouncement?: NostrEvent;
+  /** Active signed delivery pair. Older attempts remain in publishedEvents as
+   * immutable receipts, but must not accidentally complete a newer half-pair. */
+  metadataAttempt?: { announcementEventId?: string; stateEventId?: string };
   targets: RepoCreationTargetRecord[];
   targetResults: Array<
     Pick<
@@ -451,22 +465,32 @@ export class RepoCreationTransactionJournal {
   #record: RepoCreationRecoveryRecord;
   #secrets = new Set<string>();
 
-  constructor(params: {
-    id: string;
-    operation: RepoCreationOperation;
-    ownerPubkey: string;
-    repoName: string;
-    repositoryRelayUrls?: string[];
-    localRepoId?: string;
-    sourceMetadata?: {
-      cloneUrls?: string[];
-      webUrls?: string[];
-      announcementEvent?: NostrEvent;
-    };
-    localResource?: Partial<
-      Pick<RepoCreationLocalResource, "ownedByTransaction" | "stage" | "error">
-    >;
-  }) {
+  constructor(
+    params: {
+      id: string;
+      operation: RepoCreationOperation;
+      ownerPubkey: string;
+      repoName: string;
+      repositoryRelayUrls?: string[];
+      localRepoId?: string;
+      sourceMetadata?: {
+        cloneUrls?: string[];
+        webUrls?: string[];
+        announcementEvent?: NostrEvent;
+      };
+      localResource?: Partial<
+        Pick<RepoCreationLocalResource, "ownedByTransaction" | "stage" | "error">
+      >;
+    },
+    savedRecord?: RepoCreationRecoveryRecord
+  ) {
+    if (savedRecord) {
+      // Match the durable JSON representation, including when a Svelte review
+      // surface supplies a reactive proxy (which structuredClone cannot copy).
+      this.#record = JSON.parse(JSON.stringify(savedRecord));
+      writeRecord(this.#record);
+      return;
+    }
     const now = Date.now();
     this.#record = {
       version: 2,
@@ -527,6 +551,16 @@ export class RepoCreationTransactionJournal {
 
   get record(): RepoCreationRecoveryRecord {
     return this.#record;
+  }
+
+  static resume(record: RepoCreationRecoveryRecord): RepoCreationTransactionJournal {
+    return new RepoCreationTransactionJournal(record, record);
+  }
+
+  setMetadataAttempt(
+    metadataAttempt: NonNullable<RepoCreationRecoveryRecord["metadataAttempt"]>
+  ): void {
+    this.#update({ metadataAttempt });
   }
 
   setLocalRepoId(localRepoId: string): void {
@@ -697,6 +731,7 @@ export class RepoCreationTransactionJournal {
         : phase;
     this.#update({
       phase: nextPhase,
+      ...(phase === "metadata-preparing" && !error ? { metadataAttempt: {} } : {}),
       ...(lastError ? { lastError } : {}),
       ...(phase === "failed"
         ? {
@@ -762,7 +797,24 @@ export class RepoCreationTransactionJournal {
       })),
       recordedAt: Date.now(),
     };
-    this.#update({ publishedEvents: next, eventAcks: [...this.#record.eventAcks, evidence] });
+    const metadataAttempt = {
+      ...(this.#record.metadataAttempt || {
+        announcementEventId: getLatestPublishedEvent(this.#record, 30617)?.event.id,
+        stateEventId: getLatestPublishedEvent(this.#record, 30618)?.event.id,
+      }),
+      ...(stage === "final" && event.kind === 30617 ? { announcementEventId: event.id } : {}),
+      ...(stage === "final" && event.kind === 30618 ? { stateEventId: event.id } : {}),
+    };
+    this.#update({
+      publishedEvents: next,
+      eventAcks: [...this.#record.eventAcks, evidence],
+      ...(stage === "final" ? { metadataAttempt } : {}),
+      ...(this.#record.phase === "metadata-preparing" &&
+      metadataAttempt.announcementEventId &&
+      metadataAttempt.stateEventId
+        ? { phase: "metadata-pending" as const }
+        : {}),
+    });
   }
 
   setPendingCompensations(failures: RepoCreationRecoveryRecord["pendingCompensations"]): void {
@@ -911,10 +963,19 @@ export function getRepoCreationProvisionalEvents(
   return record.publishedEvents.filter((item) => item.stage === "provisional");
 }
 
-function getLatestPublishedEvent(
+export function getLatestPublishedEvent(
   record: RepoCreationRecoveryRecord,
   kind: number
 ): RepoCreationPublishedEvent | undefined {
+  if (record.metadataAttempt) {
+    const id =
+      kind === 30617
+        ? record.metadataAttempt.announcementEventId
+        : record.metadataAttempt.stateEventId;
+    return record.publishedEvents.find(
+      (item) => item.stage === "final" && item.event.kind === kind && item.event.id === id
+    );
+  }
   return record.publishedEvents
     .filter((item) => item.event.kind === kind && item.stage === "final")
     .sort((a, b) => {
@@ -947,6 +1008,10 @@ export async function retryPendingRepoCreationMetadata(
   if (!announcement || !state) {
     throw new Error("Metadata recovery requires exact signed announcement and state events");
   }
+  assertRepoCreationEvent(record, announcement.event, true);
+  assertRepoCreationEvent(record, state.event, true);
+  const journal = RepoCreationTransactionJournal.resume(record);
+  publisher = trackRepoCreationPublisher(journal, publisher)!;
 
   const taggedRelays = getAnnouncementRelays(announcement.event);
   const relays = sanitizeRelays(taggedRelays.length > 0 ? taggedRelays : announcement.relayUrls);
@@ -1028,19 +1093,16 @@ export async function retryPendingRepoCreationMetadata(
   };
   let recoveryCleanupFailures: RepoCreationRecoveryRecord["pendingCompensations"] = [];
   if (statePublish.ackedRelays.length < relays.length) {
-    const source = record.sourceMetadata?.announcementEvent;
-    if (source) {
-      if (!fetchRelayEvents)
-        throw new Error(
-          "Hosting recovery needs current announcement reads before replacing metadata"
-        );
-      await assertRepoAnnouncementCurrent(
-        source,
-        relays,
-        fetchRelayEvents,
-        record.publishedEvents.map((item) => item.event.id)
+    const source = record.sourceMetadata?.announcementEvent || announcement.event;
+    if (!fetchRelayEvents)
+      throw new RepoMetadataReviewRequired(
+        "Recovery needs current announcement reads before replacing metadata"
       );
-    }
+    const assertFresh = () =>
+      assertRecoveryAnnouncementCurrent(journal.record, source, fetchRelayEvents);
+    await assertFresh();
+    journal.setPhase("metadata-preparing");
+    journal.setMetadataAttempt({ stateEventId: state.event.id });
     const graspCloneUrls = new Set(successfulGraspTargets.map((target) => target.cloneUrl));
     const graspWebUrls = new Set(
       record.targetResults
@@ -1072,7 +1134,10 @@ export async function retryPendingRepoCreationMetadata(
         retainedRelaySet.has(normalizeRelayUrl(target.relayUrl))
       ),
       stateEvent: state.event,
-      onPublishEvent: publisher,
+      onPublishEvent: async (event, context) => {
+        await assertFresh();
+        return publisher(event, { ...context, relays: context?.relays || [], assertFresh });
+      },
       fetchRelayEvents,
       minCreatedAt: Math.max(announcement.event.created_at, state.event.created_at),
       ownerPubkey: record.ownerPubkey,
@@ -1146,13 +1211,13 @@ export async function retryPendingRepoCreationMetadata(
   ];
   const recoveredEventIds = new Set(recoveredEvents.map((item) => item.event.id));
   const recoveredRecord: RepoCreationRecoveryRecord = {
-    ...record,
+    ...journal.record,
     publishedEvents: [
-      ...record.publishedEvents.filter((item) => !recoveredEventIds.has(item.event.id)),
+      ...journal.record.publishedEvents.filter((item) => !recoveredEventIds.has(item.event.id)),
       ...recoveredEvents,
     ],
     eventAcks: [
-      ...record.eventAcks.filter((item) => !recoveredEventIds.has(item.eventId)),
+      ...journal.record.eventAcks.filter((item) => !recoveredEventIds.has(item.eventId)),
       ...recoveredEvents.map((item) => ({
         eventId: item.event.id,
         stage: "final" as const,
@@ -1178,6 +1243,12 @@ export async function retryPendingRepoCreationMetadata(
       pendingCompensations,
       updatedAt: Date.now(),
     });
+  } else if (
+    recoveredRecord.operation !== "new" &&
+    recoveredRecord.localResource.ownedByTransaction &&
+    !["planned", "cleaned"].includes(recoveredRecord.localResource.stage)
+  ) {
+    writeRecord({ ...recoveredRecord, phase: "cleanup-pending", updatedAt: Date.now() });
   } else {
     removeRecord(record.id);
   }
@@ -1189,6 +1260,7 @@ export async function retryRepoCreationCompensations(
   onDeleteEvent: DeleteRepoEvent,
   publisher?: PublishRepoEvent
 ): Promise<RepoCreationRecoveryRecord> {
+  if (publisher) publisher = scopeRepoCreationPublisher(record, publisher);
   const remaining: RepoCreationRecoveryRecord["pendingCompensations"] = [];
   for (const compensation of record.pendingCompensations) {
     const event = record.publishedEvents.find(
@@ -1200,6 +1272,7 @@ export async function retryRepoCreationCompensations(
     }
 
     try {
+      assertRepoCreationEvent(record, event, true);
       if (compensation.action === "republish") {
         if (!publisher) throw new Error("Repository event publisher is unavailable");
         const result = await publisher(event, {
@@ -1230,7 +1303,13 @@ export async function retryRepoCreationCompensations(
     pendingCompensations: remaining,
     updatedAt: Date.now(),
   };
-  if (remaining.length > 0) writeRecord(next);
+  if (
+    remaining.length > 0 ||
+    (record.operation !== "new" &&
+      record.localResource.ownedByTransaction &&
+      !["planned", "cleaned"].includes(record.localResource.stage))
+  )
+    writeRecord(next);
   else removeRecord(record.id);
   return next;
 }
@@ -1241,15 +1320,53 @@ export function trackRepoCreationPublisher(
 ): PublishRepoEvent | undefined {
   if (!publisher) return undefined;
 
-  const repoAddress = `30617:${journal.record.ownerPubkey}:${journal.record.repoName}`;
+  const scoped = scopeRepoCreationPublisher(journal.record, publisher);
   return async (event, context): Promise<PublishRepoEventResult> => {
+    const result = await scoped(event, context);
+    if (event.kind === 30617 || event.kind === 30618) {
+      journal.recordPublishedEvent(result, context?.relays || [], context?.stage || "provisional");
+    }
+    return result;
+  };
+}
+
+/** Opaque identifiers are not parsed as paths, slugs, or display names. */
+export function assertRepoCreationEvent(
+  record: Pick<RepoCreationRecoveryRecord, "ownerPubkey" | "repoName">,
+  event: Pick<NostrEvent, "kind" | "pubkey" | "tags">,
+  requireOwner = false
+): void {
+  const identifiers = event.tags.filter((tag) => tag[0] === "d");
+  if (
+    !/^[0-9a-f]{64}$/.test(record.ownerPubkey) ||
+    !record.repoName ||
+    ![30617, 30618].includes(event.kind) ||
+    identifiers.length !== 1 ||
+    identifiers[0][1] !== record.repoName ||
+    ((requireOwner || event.pubkey) && event.pubkey !== record.ownerPubkey)
+  )
+    throw new Error("Repository metadata does not match the journal's exact owner and identifier");
+}
+
+export function scopeRepoCreationPublisher(
+  record: Pick<RepoCreationRecoveryRecord, "ownerPubkey" | "repoName">,
+  publisher: PublishRepoEvent
+): PublishRepoEvent {
+  const { ownerPubkey, repoName } = record;
+  const identity = { ownerPubkey, repoName };
+  return async (event, context) => {
+    assertRepoCreationEvent(identity, event);
     const result = await publisher(event, {
       ...context,
       relays: context?.relays || [],
-      repoAddress,
+      repoAddress: `30617:${ownerPubkey}:${repoName}`,
     });
-    if (event.kind === 30617 || event.kind === 30618) {
-      journal.recordPublishedEvent(result, context?.relays || [], context?.stage || "provisional");
+    if (result?.event) {
+      assertRepoCreationEvent(identity, result.event, true);
+      if (result.event.kind !== event.kind || (event.id && result.event.id !== event.id))
+        throw new Error(
+          "Repository publication changed the requested kind or exact signed payload"
+        );
     }
     return result;
   };

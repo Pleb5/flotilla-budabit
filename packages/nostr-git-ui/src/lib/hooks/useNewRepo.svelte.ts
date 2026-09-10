@@ -47,6 +47,7 @@ import {
 } from "../utils/git-operation-progress.js";
 import {
   assertRepoCoordinateAvailable,
+  assertLocalRepoCoordinateAvailable,
   reserveRepoCreation,
   assertRepoCreationPrerequisites,
 } from "../utils/repo-creation-preflight.js";
@@ -875,9 +876,9 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         onFetchRelayEvents: options.onFetchRelayEvents!,
         knownEvents: options.getKnownRepoEvents?.(creationPubkey, config.name),
       });
-      if (workerApi.isRepoCloned && (await workerApi.isRepoCloned({ repoId: canonicalKey }))) {
-        throw new Error("A local repository already exists for this owner and name");
-      }
+      await assertLocalRepoCoordinateAvailable(creationPubkey, config.name, (params) =>
+        workerApi.isRepoCloned(params)
+      );
       targets = await preflightNewRemoteTargets({
         targets,
         tokenList: availableTokens,
@@ -1127,7 +1128,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       updateProgress("events", "Nostr events created successfully", "completed");
 
       if (transactionPublisher) {
-        transactionJournal.setPhase("metadata-pending");
+        transactionJournal.setPhase("metadata-preparing");
         updateProgress("publish", "Publishing to Nostr relays...", "running");
         const allSuccessfulGraspCloneUrls = new Set(
           successfulGraspRepos.map((remoteRepo) => remoteRepo.url)
@@ -1353,7 +1354,9 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         );
       }
       transactionJournal?.setPhase(
-        transactionJournal.record.phase === "metadata-pending" ? "metadata-pending" : "failed",
+        ["metadata-preparing", "metadata-pending"].includes(transactionJournal.record.phase)
+          ? transactionJournal.record.phase
+          : "failed",
         err
       );
       const errorMessage = err instanceof Error ? err.message : "Unknown error occurred";

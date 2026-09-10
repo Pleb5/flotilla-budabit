@@ -1154,7 +1154,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       updateProgress("events", "Final Nostr events created", "completed");
 
       updateProgress("publish-announcement", "Publishing final repo metadata...", "running");
-      transactionJournal.setPhase("metadata-pending");
+      transactionJournal.setPhase("metadata-preparing");
       const successfulGraspTargets = successfulTargets
         .filter((result) => result.provider === "grasp" && result.relayUrl && result.remoteUrl)
         .map((result) => ({
@@ -1488,8 +1488,10 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       }
 
       transactionJournal?.setTargetResults(remotePushResults);
-      if (transactionJournal?.record.phase === "metadata-pending") {
-        transactionJournal?.setPhase("metadata-pending", err);
+      if (
+        ["metadata-preparing", "metadata-pending"].includes(transactionJournal?.record.phase || "")
+      ) {
+        transactionJournal?.setPhase(transactionJournal.record.phase, err);
       } else if (rollbackPlan.hasAnyRollback && rollbackFailures.length === 0) {
         transactionJournal?.complete();
       } else {

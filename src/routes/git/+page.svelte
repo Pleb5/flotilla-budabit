@@ -64,6 +64,8 @@
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import RepoMaintainerList from "@app/components/RepoMaintainerList.svelte"
   import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
+  import RepoCreationRecovery from "@app/components/RepoCreationRecovery.svelte"
+  import {createRepoCreationPublisher} from "@app/core/fork-publication"
   import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
@@ -97,6 +99,7 @@
     EventRenderer,
     getPendingRepoCreationTransactions,
     recoverRepoCreationRecord,
+    type RepoCreationRecoveryRecord,
     toast,
     NewRepoWizard,
     InitialImportDialog,
@@ -4116,7 +4119,11 @@
     return policy.repoRelays
   }
 
-  const deleteExactRepoEvent = async (event: NostrEvent, relayUrls: string[]) => {
+  const deleteExactRepoEvent = async (
+    event: NostrEvent,
+    relayUrls: string[],
+    assertCurrent?: () => void,
+  ) => {
     const repoAddress = getRepoPublicationAddress(event)
     const targetRelays =
       event.kind === GIT_REPO_ANNOUNCEMENT ? getDeclaredRepoRelays(event) : relayUrls
@@ -4125,7 +4132,7 @@
     const result = await publishRepoEventWithRelayOutcomes(
       makeExactEventDelete({event: event as any}) as any,
       relays,
-      {repoAddress},
+      {repoAddress, assertCurrent},
     )
     if (result.successCount !== relays.length) {
       throw new Error(`Exact event deletion failed on: ${result.failedRelays.join(", ")}`)
@@ -4133,13 +4140,64 @@
   }
 
   let recoveredPendingCreationsFor = ""
+  let recoveryRecords = $state<RepoCreationRecoveryRecord[]>([])
+  let recoveryBusy = $state<string[]>([])
+  const refreshRecoveryRecords = () => {
+    recoveryRecords = getPendingRepoCreationTransactions().filter(
+      record => record.ownerPubkey === pubkey.get(),
+    )
+  }
+  const runCreationRecovery = async (
+    record: RepoCreationRecoveryRecord,
+    reviewedAnnouncement?: NostrEvent,
+  ) => {
+    if (recoveryBusy.includes(record.id)) return
+    const ownerPubkey = record.ownerPubkey
+    const assertCurrent = () => {
+      if (!ownerPubkey || pubkey.get() !== ownerPubkey)
+        throw new Error("The active account changed. Reopen repository recovery before publishing.")
+    }
+    const transport = createTrackedRepoPublishTransport()
+    recoveryBusy = [...recoveryBusy, record.id]
+    try {
+      assertCurrent()
+      const workerApi = (await getInitializedGitWorker()).api
+      const recovery = await recoverRepoCreationRecord(record, {
+        workerApi,
+        publisher: createRepoCreationPublisher({
+          ownerPubkey,
+          getActivePubkey: () => pubkey.get(),
+          transport,
+        }),
+        fetchRelayEvents,
+        onDeleteEvent: (event, relays) => deleteExactRepoEvent(event, relays, assertCurrent),
+        reviewedAnnouncement,
+        assertCurrent,
+      })
+      if (recovery.status === "recovered") {
+        loadRepoAnnouncements(repoAnnouncementRelays)
+        pushToast({message: `Recovered repository operation for ${record.repoName}.`})
+      }
+    } catch (error) {
+      console.warn(`[repo-creation] Recovery remains pending for ${record.repoName}:`, error)
+      pushToast({message: `Repository recovery remains pending: ${String(error)}`, theme: "error"})
+    } finally {
+      transport.dispose()
+      recoveryBusy = recoveryBusy.filter(id => id !== record.id)
+      refreshRecoveryRecords()
+    }
+  }
   $effect(() => {
     const ownerPubkey = $pubkey || ""
-    if (!ownerPubkey || recoveredPendingCreationsFor === ownerPubkey) return
+    if (!ownerPubkey) {
+      recoveredPendingCreationsFor = ""
+      recoveryRecords = []
+      return
+    }
+    if (recoveredPendingCreationsFor === ownerPubkey) return
     recoveredPendingCreationsFor = ownerPubkey
 
     void (async () => {
-      let recoveredCount = 0
       let pendingRecords: ReturnType<typeof getPendingRepoCreationTransactions>
       try {
         pendingRecords = getPendingRepoCreationTransactions().filter(
@@ -4149,34 +4207,12 @@
         console.warn("[repo-creation] Failed to read recovery journals:", error)
         return
       }
+      recoveryRecords = pendingRecords
       if (pendingRecords.length === 0) return
 
-      let recoveryWorkerApi: any
-      try {
-        recoveryWorkerApi = (await getInitializedGitWorker()).api
-      } catch (error) {
-        console.warn("[repo-creation] Git worker is unavailable for recovery:", error)
-        return
-      }
-
       for (const record of pendingRecords) {
-        try {
-          const recovery = await recoverRepoCreationRecord(record, {
-            workerApi: recoveryWorkerApi,
-            publisher: (event, context) =>
-              publishRepoEventWithRelayOutcomes(event, context?.relays || []),
-            fetchRelayEvents,
-            onDeleteEvent: deleteExactRepoEvent,
-          })
-          if (recovery.status === "recovered") recoveredCount += 1
-        } catch (error) {
-          console.warn(`[repo-creation] Recovery remains pending for ${record.repoName}:`, error)
-        }
-      }
-
-      if (recoveredCount > 0) {
-        loadRepoAnnouncements(repoAnnouncementRelays)
-        pushToast({message: `Recovered ${recoveredCount} pending repository operation(s).`})
+        if (pubkey.get() !== ownerPubkey) break
+        await runCreationRecovery(record)
       }
     })()
   })
@@ -4668,6 +4704,10 @@
   data-perf-tab={activeTab}
   data-perf-loading={repoListLoading || repoSearchUpdating ? "true" : "false"}
   data-perf-cards={repoCardModelsForEnrichment.length}>
+  <RepoCreationRecovery
+    records={recoveryRecords}
+    busy={recoveryBusy}
+    onRecover={runCreationRecovery} />
   <div class="flex flex-col gap-2 sm:hidden">
     <Button class="btn btn-primary btn-sm w-full" onclick={() => onNewRepo()}>
       <Icon icon={AddCircle} />

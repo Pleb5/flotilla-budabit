@@ -2,7 +2,14 @@ import { nip19 } from "nostr-tools";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { recoverRepoCreationRecord } from "./repo-creation-recovery.js";
-import type { RepoCreationRecoveryRecord } from "./repo-creation-transaction.js";
+import {
+  getPendingRepoCreationTransactions,
+  persistRepoCreationRecoveryRecord,
+  type RepoCreationRecoveryRecord,
+} from "./repo-creation-transaction.js";
+import { createRepoStateEvent } from "@nostr-git/core/events";
+import { reserveRepoCreation } from "./repo-creation-preflight.js";
+import type { PublishRepoEvent } from "./grasp-pipeline.js";
 
 function record(overrides: Partial<RepoCreationRecoveryRecord> = {}): RepoCreationRecoveryRecord {
   return {
@@ -159,7 +166,7 @@ describe("repository creation recovery", () => {
           pushToRemote,
         },
         publisher,
-        fetchRelayEvents: vi.fn(),
+        fetchRelayEvents: vi.fn().mockResolvedValue([]),
         onDeleteEvent: vi.fn(),
       }
     );
@@ -275,5 +282,449 @@ describe("repository creation recovery", () => {
     expect(result.reason).toContain("unknown outcome");
     expect(deleteRepo).not.toHaveBeenCalled();
     expect(onDeleteEvent).not.toHaveBeenCalled();
+  });
+});
+
+const owner = "a".repeat(64);
+const commit = "b".repeat(40);
+const relay = "wss://metadata.test/";
+const hosted = "https://github.com/fixture/repo.git";
+const sourceEvent = (identifier = "repo") => ({
+  id: "source",
+  sig: "fixture",
+  kind: 30617,
+  pubkey: owner,
+  created_at: 10,
+  content: "old content",
+  tags: [
+    ["d", identifier],
+    ["name", "Old name"],
+    ["maintainers", "c".repeat(64)],
+    ["u", "https://old-upstream.test/repo.git"],
+    ["clone", "https://old-host.test/repo.git"],
+    ["relays", relay],
+  ],
+});
+const currentEvent = (identifier = "repo") => ({
+  ...sourceEvent(identifier),
+  id: "current",
+  created_at: 20,
+  content: "Current owner content",
+  tags: [
+    ["d", identifier],
+    ["name", "Current name"],
+    ["description", "Owner edited this"],
+    ["u", "https://new-upstream.test/repo.git", "hint"],
+    ["x-extension", "keep", "exactly"],
+    ["clone", "https://current-host.test/repo.git"],
+    ["web", "https://current-host.test/repo"],
+    ["relays", relay],
+  ],
+});
+function hostedRecord(identifier = "repo", overrides: Partial<RepoCreationRecoveryRecord> = {}) {
+  const announcement = sourceEvent(identifier);
+  return record({
+    operation: "fork",
+    repoName: identifier,
+    localResource: { ownedByTransaction: false, stage: "created" },
+    repositoryRelayUrls: [relay],
+    sourceMetadata: {
+      announcementEvent: announcement,
+      cloneUrls: ["https://old-host.test/repo.git"],
+      webUrls: [],
+    },
+    targets: [
+      {
+        id: "git:github.com",
+        label: "GitHub",
+        provider: "github",
+        stage: "verified",
+        remoteUrl: hosted,
+        refs: [{ ref: "refs/heads/main", commit, stage: "verified" }],
+        cleanup: { stage: "not-needed", manualAttention: false },
+        manualAttention: false,
+        updatedAt: 1,
+      },
+    ],
+    targetResults: [
+      {
+        id: "git:github.com",
+        label: "GitHub",
+        provider: "github",
+        remoteUrl: hosted,
+        success: true,
+        outcome: "ok",
+      },
+    ],
+    ...overrides,
+  });
+}
+function recoveryDeps() {
+  let id = 0;
+  const publisher = vi.fn<PublishRepoEvent>(async (event, context) => ({
+    event: event.id ? event : { ...event, id: `signed-${++id}`, sig: "fixture", pubkey: owner },
+    ackedRelays: context?.relays || [],
+    failedRelays: [],
+    relayOutcomes: (context?.relays || []).map((relay) => ({
+      relay,
+      status: "success",
+      detail: "mock ACK",
+    })),
+  }));
+  return {
+    workerApi: {
+      listServerRefs: vi.fn().mockResolvedValue([{ ref: "refs/heads/main", oid: commit }]),
+      createRemoteRepo: vi.fn(),
+      pushToRemote: vi.fn(),
+      deleteRepo: vi.fn(),
+    },
+    publisher,
+    fetchRelayEvents: vi.fn().mockResolvedValue([]),
+    onDeleteEvent: vi.fn(),
+  };
+}
+
+describe("metadata recovery safety", () => {
+  beforeEach(() => vi.stubGlobal("localStorage", storage()));
+
+  it("parks stale owner metadata, then applies only verified hosting after explicit review", async () => {
+    const pending = persistRepoCreationRecoveryRecord(hostedRecord());
+    const deps = recoveryDeps();
+    const current = currentEvent();
+    deps.fetchRelayEvents.mockResolvedValue([current]);
+    const paused = await recoverRepoCreationRecord(pending, deps);
+    expect(paused).toMatchObject({
+      status: "pending",
+      record: { phase: "metadata-review", reviewAnnouncement: current },
+    });
+    expect(deps.publisher).not.toHaveBeenCalled();
+    expect(paused.record?.targets[0].stage).toBe("verified");
+    expect(() => reserveRepoCreation(owner, "repo", getPendingRepoCreationTransactions())).toThrow(
+      /needs recovery/
+    );
+    expect(deps.fetchRelayEvents).toHaveBeenCalledWith({
+      relays: [relay],
+      filters: [{ kinds: [30617], authors: [owner], "#d": ["repo"] }],
+      timeoutMs: 5000,
+      throwOnTimeout: true,
+    });
+
+    deps.workerApi.listServerRefs.mockClear();
+    const result = await recoverRepoCreationRecord(paused.record!, {
+      ...deps,
+      reviewedAnnouncement: current,
+    });
+    expect(result).toEqual({ status: "recovered" });
+    const announcement = deps.publisher.mock.calls.find(([event]) => event.kind === 30617)![0];
+    expect(announcement.content).toBe(current.content);
+    for (const tag of current.tags.filter((tag) => !["clone", "web", "relays"].includes(tag[0])))
+      expect(announcement.tags).toContainEqual(tag);
+    expect(announcement.tags).toContainEqual([
+      "clone",
+      "https://current-host.test/repo.git",
+      hosted,
+    ]);
+    expect(announcement.tags).toContainEqual(["web", "https://current-host.test/repo"]);
+    expect(announcement.tags.some((tag) => tag[0] === "maintainers")).toBe(false);
+    expect(JSON.stringify(announcement)).not.toContain("old-");
+    expect(deps.workerApi.listServerRefs).not.toHaveBeenCalled();
+    expect(deps.workerApi.createRemoteRepo).not.toHaveBeenCalled();
+    expect(deps.workerApi.pushToRemote).not.toHaveBeenCalled();
+    expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
+    expect(getPendingRepoCreationTransactions()).toEqual([]);
+    reserveRepoCreation(owner, "repo", getPendingRepoCreationTransactions())();
+  });
+
+  it("invalidates review when the owner edits again", async () => {
+    const current = currentEvent();
+    const newer = { ...current, id: "newer", created_at: 30 };
+    const deps = recoveryDeps();
+    deps.fetchRelayEvents.mockResolvedValue([newer]);
+    const result = await recoverRepoCreationRecord(
+      hostedRecord("repo", { phase: "metadata-review", reviewAnnouncement: current }),
+      {
+        ...deps,
+        reviewedAnnouncement: current,
+      }
+    );
+    expect(result.record).toMatchObject({ phase: "metadata-review", reviewAnnouncement: newer });
+    expect(deps.publisher).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on unavailable current-announcement reads", async () => {
+    const deps = recoveryDeps();
+    deps.fetchRelayEvents.mockRejectedValue(new Error("timed out"));
+    const result = await recoverRepoCreationRecord(hostedRecord(), deps);
+    expect(result).toMatchObject({ status: "pending", record: { phase: "metadata-review" } });
+    expect(result.reason).toMatch(/Could not verify/);
+    expect(deps.publisher).not.toHaveBeenCalled();
+    expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
+  });
+
+  it("does not forget a newer observed announcement after a read timeout", async () => {
+    const deps = recoveryDeps();
+    deps.fetchRelayEvents.mockRejectedValueOnce(new Error("timed out"));
+    const result = await recoverRepoCreationRecord(
+      hostedRecord("repo", {
+        phase: "metadata-review",
+        reviewAnnouncement: currentEvent(),
+      }),
+      deps
+    );
+    expect(result.record?.reviewAnnouncement).toEqual(currentEvent());
+    deps.fetchRelayEvents.mockResolvedValue([]);
+    const retry = await recoverRepoCreationRecord(result.record!, deps);
+    expect(retry.record?.reviewAnnouncement).toEqual(currentEvent());
+    expect(deps.publisher).not.toHaveBeenCalled();
+  });
+
+  it("forwards freshness checks so an edit while signing stops delivery", async () => {
+    const deps = recoveryDeps();
+    deps.publisher.mockImplementation(async (_event, context) => {
+      deps.fetchRelayEvents.mockResolvedValue([currentEvent()]);
+      await context?.assertFresh?.();
+      throw new Error("must not deliver");
+    });
+    const result = await recoverRepoCreationRecord(hostedRecord(), deps);
+    expect(result.record).toMatchObject({
+      phase: "metadata-review",
+      reviewAnnouncement: currentEvent(),
+    });
+    expect(result.reason).not.toContain("must not deliver");
+  });
+
+  it.each(["legacy:stable-id", "legacy/stable-id"])(
+    "keeps exact recovered announcement and state identity: %s",
+    async (identifier) => {
+      const deps = recoveryDeps();
+      const result = await recoverRepoCreationRecord(hostedRecord(identifier), deps);
+      expect(result).toEqual({ status: "recovered" });
+      expect(deps.publisher.mock.calls.map(([event]) => event.kind)).toEqual([30617, 30618]);
+      for (const [event, context] of deps.publisher.mock.calls) {
+        expect(event.tags).toContainEqual(["d", identifier]);
+        expect(context?.repoAddress).toBe(`30617:${owner}:${identifier}`);
+        expect(context?.assertCurrent).toBeTypeOf("function");
+      }
+    }
+  );
+
+  it.each(["wrong identifier", "wrong owner", "duplicate d", "wrong kind"])(
+    "rejects recorded metadata with %s before any side effects",
+    async (variant) => {
+      let event = { ...sourceEvent("legacy:stable-id"), kind: 30618 };
+      if (variant === "wrong identifier") event.tags = [["d", "stable-id"]];
+      if (variant === "wrong owner") event.pubkey = "d".repeat(64);
+      if (variant === "duplicate d") event.tags.push(["d", "legacy:stable-id"]);
+      if (variant === "wrong kind") event.kind = 1;
+      const deps = recoveryDeps();
+      const result = await recoverRepoCreationRecord(
+        hostedRecord("legacy:stable-id", {
+          phase: "metadata-pending",
+          publishedEvents: [{ event, relayUrls: [relay], stage: "final" }],
+        }),
+        deps
+      );
+      expect(result).toMatchObject({ status: "pending" });
+      expect(result.reason).toMatch(/exact owner and identifier/);
+      expect(result.record?.publishedEvents[0].event).toEqual(event);
+      expect(deps.publisher).not.toHaveBeenCalled();
+      expect(deps.onDeleteEvent).not.toHaveBeenCalled();
+      expect(deps.workerApi.listServerRefs).not.toHaveBeenCalled();
+      expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(["metadata-pending", "metadata-preparing"] as const)(
+    "recovers %s with no final signed events",
+    async (phase) => {
+      const deps = recoveryDeps();
+      const result = await recoverRepoCreationRecord(hostedRecord("repo", { phase }), deps);
+      expect(result).toEqual({ status: "recovered" });
+      expect(deps.publisher).toHaveBeenCalledTimes(2);
+      expect(deps.workerApi.listServerRefs).not.toHaveBeenCalled();
+    }
+  );
+
+  it("persists a signed announcement before state failure and retries that exact payload", async () => {
+    const deps = recoveryDeps();
+    const normalPublish = deps.publisher.getMockImplementation()!;
+    deps.publisher.mockImplementation(async (event, context) => {
+      if (event.kind === 30618) throw new Error("signer unavailable");
+      return normalPublish(event, context);
+    });
+    const first = await recoverRepoCreationRecord(
+      hostedRecord("repo", { phase: "metadata-preparing" }),
+      deps
+    );
+    expect(first).toMatchObject({ status: "pending", record: { phase: "metadata-preparing" } });
+    const saved = getPendingRepoCreationTransactions()[0];
+    expect(saved.publishedEvents).toHaveLength(1);
+    const signed = saved.publishedEvents[0].event;
+    // Losing a second delivery result must not lose the active signed half.
+    deps.publisher.mockImplementationOnce(async () => {
+      throw new Error("delivery interrupted");
+    });
+    const interrupted = await recoverRepoCreationRecord(saved, deps);
+    expect(interrupted.record?.metadataAttempt?.announcementEventId).toBe(signed.id);
+    deps.publisher.mockClear().mockImplementation(normalPublish);
+    expect(await recoverRepoCreationRecord(interrupted.record!, deps)).toEqual({
+      status: "recovered",
+    });
+    expect(deps.publisher.mock.calls[0][0]).toEqual(signed);
+    expect(deps.workerApi.createRemoteRepo).not.toHaveBeenCalled();
+  });
+
+  it("supports a legacy state-only final payload without changing its signed identifier", async () => {
+    const identifier = "legacy:stable-id";
+    const state = {
+      ...createRepoStateEvent({
+        repoId: identifier,
+        identifier,
+        refs: [{ type: "heads", name: "main", commit }],
+        head: "main",
+      }),
+      id: "state-only",
+      sig: "fixture",
+      pubkey: owner,
+    };
+    const deps = recoveryDeps();
+    const result = await recoverRepoCreationRecord(
+      hostedRecord(identifier, {
+        phase: "metadata-pending",
+        publishedEvents: [{ event: state, relayUrls: [relay], stage: "final" }],
+      }),
+      deps
+    );
+    expect(result).toEqual({ status: "recovered" });
+    expect(deps.publisher.mock.calls.find(([event]) => event.kind === 30618)![0]).toEqual(state);
+  });
+
+  it("preserves a complete signed pair across failed exact delivery", async () => {
+    const announcement = { ...sourceEvent(), id: "final-announcement" };
+    const state = { ...sourceEvent(), id: "final-state", kind: 30618 };
+    const pending = hostedRecord("repo", {
+      phase: "metadata-pending",
+      publishedEvents: [announcement, state].map((event) => ({
+        event,
+        relayUrls: [relay],
+        stage: "final",
+      })),
+    });
+    const deps = recoveryDeps();
+    const normal = deps.publisher.getMockImplementation()!;
+    deps.publisher.mockImplementationOnce(async (event) => ({
+      event,
+      ackedRelays: [],
+      failedRelays: [relay],
+      relayOutcomes: [{ relay, status: "failure", detail: "offline" }],
+    }));
+    const failed = await recoverRepoCreationRecord(pending, deps);
+    expect(failed.status).toBe("pending");
+    deps.publisher.mockClear().mockImplementation(normal);
+    expect(await recoverRepoCreationRecord(failed.record!, deps)).toEqual({ status: "recovered" });
+    expect(deps.publisher.mock.calls.map(([event]) => event)).toEqual([announcement, state]);
+    expect(deps.fetchRelayEvents).not.toHaveBeenCalled();
+    expect(deps.workerApi.listServerRefs).not.toHaveBeenCalled();
+  });
+
+  it("retains completed resources if partial metadata recovery cannot verify any target", async () => {
+    const pending = hostedRecord("repo", { phase: "metadata-preparing" });
+    pending.targets[0].stage = "pushing";
+    const deps = recoveryDeps();
+    deps.workerApi.listServerRefs.mockResolvedValue([]);
+    const result = await recoverRepoCreationRecord(pending, deps);
+    expect(result.status).toBe("pending");
+    expect(result.reason).toMatch(/retained/);
+    expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
+    expect(deps.onDeleteEvent).not.toHaveBeenCalled();
+  });
+
+  it("checks the active owner before exact replay or cleanup", async () => {
+    const deps = recoveryDeps();
+    const result = await recoverRepoCreationRecord(
+      hostedRecord("repo", { phase: "cleanup-pending" }),
+      {
+        ...deps,
+        assertCurrent: () => {
+          throw new Error("active account changed");
+        },
+      }
+    );
+    expect(result).toMatchObject({ status: "pending", reason: "active account changed" });
+    expect(deps.publisher).not.toHaveBeenCalled();
+    expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
+  });
+
+  it("requires review before partial ACK pruning can mint newer replacements", async () => {
+    const otherRelay = "wss://other-metadata.test/";
+    const announcement = {
+      ...sourceEvent(),
+      id: "final-announcement",
+      tags: [
+        ...sourceEvent().tags.filter((tag) => tag[0] !== "relays"),
+        ["relays", relay, otherRelay],
+      ],
+    };
+    const state = { ...sourceEvent(), id: "final-state", kind: 30618 };
+    const pending = hostedRecord("repo", {
+      phase: "metadata-pending",
+      repositoryRelayUrls: [relay, otherRelay],
+      publishedEvents: [announcement, state].map((event) => ({
+        event,
+        relayUrls: [relay, otherRelay],
+        stage: "final",
+      })),
+    });
+    const deps = recoveryDeps();
+    deps.publisher.mockImplementation(async (event) => ({
+      event,
+      ackedRelays: [relay],
+      failedRelays: [otherRelay],
+      hasRelayOutcomes: true,
+    }));
+    deps.fetchRelayEvents.mockResolvedValue([currentEvent()]);
+    const result = await recoverRepoCreationRecord(pending, deps);
+    expect(result).toMatchObject({
+      status: "pending",
+      record: { phase: "metadata-review", reviewAnnouncement: currentEvent() },
+    });
+    expect(deps.publisher.mock.calls.map(([event]) => event)).toEqual([announcement, state]);
+    expect(result.record?.publishedEvents.map((item) => item.event)).toEqual([announcement, state]);
+  });
+
+  it("does not combine an archived state with a newer interrupted metadata attempt", async () => {
+    const oldState = {
+      ...sourceEvent(),
+      kind: 30618,
+      id: "archived-state",
+      tags: [
+        ["d", "repo"],
+        ["refs/heads/main", "d".repeat(40)],
+      ],
+    };
+    const pending = hostedRecord("repo", {
+      phase: "metadata-review",
+      reviewAnnouncement: currentEvent(),
+      publishedEvents: [{ event: oldState, stage: "final", relayUrls: [relay] }],
+    });
+    const deps = recoveryDeps();
+    const normal = deps.publisher.getMockImplementation()!;
+    deps.fetchRelayEvents.mockResolvedValue([currentEvent()]);
+    deps.publisher.mockImplementation(async (event, context) => {
+      if (event.kind === 30618) throw new Error("state signing interrupted");
+      return normal(event, context);
+    });
+    const result = await recoverRepoCreationRecord(pending, {
+      ...deps,
+      reviewedAnnouncement: currentEvent(),
+    });
+    expect(result).toMatchObject({ status: "pending", record: { phase: "metadata-preparing" } });
+    expect(result.record?.publishedEvents.map((item) => item.event)).toContainEqual(oldState);
+    expect(result.record?.metadataAttempt?.stateEventId).toBeUndefined();
+    deps.publisher.mockClear().mockImplementation(normal);
+    expect(await recoverRepoCreationRecord(result.record!, deps)).toEqual({ status: "recovered" });
+    const state = deps.publisher.mock.calls.find(([event]) => event.kind === 30618)![0];
+    expect(state.tags).toContainEqual(["refs/heads/main", commit]);
+    expect(state.id).not.toBe(oldState.id);
   });
 });
