@@ -116,11 +116,16 @@ export interface MockRelayOptions {
   publishResponsesByRelay?: Record<string, MockRelayPublishResponse>
   /** Subscription behavior keyed by exact relay URL */
   subscriptionOutcomesByRelay?: Record<string, "eose" | "stall" | "disconnect">
-  /** Subscription behavior selected from the exact filters */
+  /** Subscription behavior selected from the exact filters; may wait for a test-controlled response */
   getSubscriptionOutcome?: (
     filters: NostrFilter[],
     relayUrl: string,
-  ) => "eose" | "stall" | "disconnect" | undefined
+  ) =>
+    | "eose"
+    | "stall"
+    | "disconnect"
+    | undefined
+    | Promise<"eose" | "stall" | "disconnect" | undefined>
 }
 
 /**

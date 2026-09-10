@@ -1,3 +1,22 @@
+<style>
+  @keyframes repo-result-enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .repo-result-card {
+      animation: repo-result-enter 180ms ease-out;
+    }
+  }
+</style>
+
 <script lang="ts">
   import {page} from "$app/stores"
   import {
@@ -468,6 +487,8 @@
   let activeRepoSearchQuery = $state("")
   let activeTextSearchQuery = $state("")
   let repoResultsVisibleLimit = $state(REPO_SEARCH_PAGE_SIZE)
+  let completedRepoResultsLimit = $state(REPO_SEARCH_PAGE_SIZE)
+  const repoResultsExpanding = $derived(repoResultsVisibleLimit > completedRepoResultsLimit)
   let repoDiscoveryRunMode = $state<RepoDiscoveryRunMode>("smart")
   let repoDiscoveryRunNonce = $state(0)
   let repoDiscoverySnapshot = $state<RepoDiscoverySnapshot | null>(null)
@@ -2446,9 +2467,14 @@
     )
   }
 
+  let settledAccountSearchLoadContext = $state("")
   $effect(() => {
     const {pubkey, relayHints} = accountSearch
-    if (!pubkey) return
+    const context = accountSearchRenderedContext
+    if (!pubkey) {
+      settledAccountSearchLoadContext = ""
+      return
+    }
 
     const filter = {
       kinds: [GIT_REPO_ANNOUNCEMENT],
@@ -2462,21 +2488,27 @@
 
     attemptedAccountSearchLoads.add(loadKey)
     const controller = new AbortController()
+    settledAccountSearchLoadContext = ""
 
-    void refreshPubkeyOutboxRelays(pubkey, initialRelays)
-      .then(outboxRelays => {
-        if (controller.signal.aborted) return
-        const relaysToQuery = getAccountSearchRelays(pubkey, [...relayHints, ...outboxRelays])
-        if (relaysToQuery.length > 0) {
-          return requestRepoAnnouncements({
-            relays: relaysToQuery,
-            filters: [filter],
-            signal: controller.signal,
-            owner: "git-list:account-search",
-          })
-        }
-      })
-      .catch(() => undefined)
+    settleRepoLoad({
+      promise: refreshPubkeyOutboxRelays(pubkey, initialRelays)
+        .then(outboxRelays => {
+          if (controller.signal.aborted) return
+          const relaysToQuery = getAccountSearchRelays(pubkey, [...relayHints, ...outboxRelays])
+          if (relaysToQuery.length > 0) {
+            return requestRepoAnnouncements({
+              relays: relaysToQuery,
+              filters: [filter],
+              signal: controller.signal,
+              owner: "git-list:account-search",
+            })
+          }
+        })
+        .catch(() => undefined),
+      onSettled: () => {
+        if (!controller.signal.aborted) settledAccountSearchLoadContext = context
+      },
+    })
 
     return () => {
       controller.abort()
@@ -3166,6 +3198,7 @@
 
     lastRepoResultsVisibleContext = repoResultsVisibleContext
     repoResultsVisibleLimit = REPO_SEARCH_PAGE_SIZE
+    completedRepoResultsLimit = REPO_SEARCH_PAGE_SIZE
   })
   const visibleSearchFilteredRepos = $derived.by(() =>
     searchFilteredRepos.slice(0, repoResultsVisibleLimit),
@@ -3179,6 +3212,7 @@
       (trimmedActiveRepoSearchQuery && canContinueRepoDiscovery),
   )
   const loadMoreRepoResults = () => {
+    if (repoResultsExpanding) return
     repoResultsVisibleLimit += REPO_SEARCH_PAGE_SIZE
     if (
       trimmedActiveRepoSearchQuery &&
@@ -3195,6 +3229,8 @@
   let accountSearchCardsComputeTimer: ReturnType<typeof setTimeout> | null = null
   let accountSearchCardsComputeRequestId = 0
   let renderedAccountSearchContext = $state("")
+  let renderedAccountSearchSourceContext = $state("")
+  let renderedAccountSearchRepoCount = $state(0)
   const accountSearchRenderedContext = $derived.by(() =>
     JSON.stringify([accountSearchContext, repoResultsVisibleLimit]),
   )
@@ -3207,6 +3243,7 @@
 
   // Update account search repo cards
   $effect(() => {
+    const sourceContext = accountSearchContext
     const context = accountSearchRenderedContext
     if (!isAccountSearch) {
       if (accountSearchCardsComputeTimer) {
@@ -3216,10 +3253,13 @@
       accountSearchCardsComputeRequestId += 1
       accountSearchRepoCards = []
       renderedAccountSearchContext = ""
+      renderedAccountSearchSourceContext = ""
+      renderedAccountSearchRepoCount = 0
       return
     }
 
-    if (renderedAccountSearchContext !== context) accountSearchRepoCards = []
+    // Only clear for a different search; pagination must keep the grid mounted to preserve scroll.
+    if (renderedAccountSearchSourceContext !== sourceContext) accountSearchRepoCards = []
 
     const repos = accountSearchVisibleRepos.slice(0, repoResultsVisibleLimit)
     if (repos.length > 0) {
@@ -3240,6 +3280,8 @@
         })
         accountSearchRepoCards = cards
         renderedAccountSearchContext = context
+        renderedAccountSearchSourceContext = sourceContext
+        renderedAccountSearchRepoCount = repos.length
         if (accountSearchCardsComputeTimer === timer) accountSearchCardsComputeTimer = null
       }, 0)
       accountSearchCardsComputeTimer = timer
@@ -3251,6 +3293,8 @@
       accountSearchCardsComputeRequestId += 1
       accountSearchRepoCards = []
       renderedAccountSearchContext = context
+      renderedAccountSearchSourceContext = sourceContext
+      renderedAccountSearchRepoCount = 0
     }
   })
 
@@ -3901,6 +3945,37 @@
         renderedRepoCardsScopeContext = scopeContext
       }
     }
+  })
+
+  // Keep the pagination footer mounted until both the requested data and its cards are ready.
+  $effect(() => {
+    if (!repoResultsExpanding) return
+    const limit = repoResultsVisibleLimit
+
+    if (isAccountSearch) {
+      if (
+        renderedAccountSearchContext !== accountSearchRenderedContext ||
+        renderedAccountSearchRepoCount !== Math.min(accountSearchVisibleRepos.length, limit)
+      ) {
+        return
+      }
+      if (
+        renderedAccountSearchRepoCount < limit &&
+        settledAccountSearchLoadContext !== accountSearchRenderedContext
+      ) {
+        return
+      }
+    } else {
+      if (!hasRenderedRepoCardsForCurrentContext || repoCardsComputing) return
+      if (
+        visibleSearchFilteredRepos.length < limit &&
+        (activeRepoDataLoading || repoDiscoveryStatus.loading)
+      ) {
+        return
+      }
+    }
+
+    completedRepoResultsLimit = limit
   })
 
   const stopGitPageReadWork = () => {
@@ -4824,7 +4899,9 @@
       {/if}
 
       {#if sortedAccountSearchRepoCards.length > 0}
-        <div class="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <div
+          data-testid="repo-card-grid"
+          class="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
           {#each sortedAccountSearchRepoCardModels as model (model.stableKey)}
             {@const g = model.card}
             {@const cardProfileRelays = getRepoCardProfileRelays(model)}
@@ -4837,7 +4914,9 @@
               repoCardNavigationKey && navigatingRepoCardKey === repoCardNavigationKey,
             )}
             <div
-              class="relative flex min-w-0 flex-col rounded-md border border-border bg-card p-2 text-sm transition {repoCardNavigating
+              data-testid="repo-card"
+              data-repo-key={model.stableKey}
+              class="repo-result-card relative flex min-w-0 flex-col rounded-md border border-border bg-card p-2 text-sm transition {repoCardNavigating
                 ? 'cursor-wait opacity-70 ring-2 ring-primary/40'
                 : 'cursor-pointer'}"
               role="link"
@@ -4885,9 +4964,14 @@
             </div>
           {/each}
         </div>
-        {#if hasMoreAccountSearchRepos}
+        {#if hasMoreAccountSearchRepos || repoResultsExpanding}
           <div class="mt-4 flex flex-col items-center gap-2">
-            <button type="button" class="btn btn-outline btn-sm" onclick={loadMoreRepoResults}>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              disabled={repoResultsExpanding}
+              aria-busy={repoResultsExpanding}
+              onclick={loadMoreRepoResults}>
               Show more repositories
             </button>
             <p class="text-xs text-muted-foreground">
@@ -4984,7 +5068,7 @@
             <div
               data-testid="repo-card"
               data-repo-key={model.stableKey}
-              class="relative flex min-w-0 flex-col rounded-md border border-border bg-card p-2 text-sm transition {repoCardNavigating
+              class="repo-result-card relative flex min-w-0 flex-col rounded-md border border-border bg-card p-2 text-sm transition {repoCardNavigating
                 ? 'cursor-wait opacity-70 ring-2 ring-primary/40'
                 : 'cursor-pointer'}"
               role="link"
@@ -5067,16 +5151,21 @@
             </div>
           {/each}
         </div>
-        {#if hasRenderedRepoCardsForCurrentContext && hasMoreRepoResults}
+        {#if (hasRenderedRepoCardsForCurrentContext && hasMoreRepoResults) || repoResultsExpanding}
           <div class="mt-4 flex flex-col items-center gap-2">
-            <button type="button" class="btn btn-outline btn-sm" onclick={loadMoreRepoResults}>
+            <button
+              type="button"
+              class="btn btn-outline btn-sm"
+              disabled={repoResultsExpanding}
+              aria-busy={repoResultsExpanding}
+              onclick={loadMoreRepoResults}>
               Show more repositories
             </button>
             <p class="text-xs text-muted-foreground">
-              {#if searchFilteredRepos.length > visibleSearchFilteredRepos.length}
-                Showing {visibleSearchFilteredRepos.length} of {searchFilteredRepos.length}
+              {#if searchFilteredRepos.length > sortedRepoCardModels.length}
+                Showing {sortedRepoCardModels.length} of {searchFilteredRepos.length}
               {:else}
-                Showing {visibleSearchFilteredRepos.length} repositories
+                Showing {sortedRepoCardModels.length} repositories
               {/if}
             </p>
           </div>
