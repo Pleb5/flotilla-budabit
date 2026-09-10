@@ -4,6 +4,7 @@ import {
   parsePullRequestEvent,
   createStatusEvent,
 } from "../../src/events/nip34/nip34-utils.js"
+import {validatePullRequestEvent, validateStatusEvent} from "../../src/utils/validation.js"
 
 const owner = "a".repeat(64)
 
@@ -29,6 +30,38 @@ describe("PR target and status interoperability", () => {
       }).targetBranch,
     ).toBe("legacy")
   })
+  it.each(["b", "target-branch"])("validates builder output using %s targets", tagName => {
+    const event = {
+      ...root,
+      tags: root.tags.map(tag => (tag[0] === "b" ? [tagName, tag[1]] : tag)),
+    }
+    expect(validatePullRequestEvent(event).success).toBe(true)
+    expect(
+      validatePullRequestEvent({...event, tags: event.tags.filter(tag => tag[0] !== "c")}).success,
+    ).toBe(false)
+  })
+  it.each([1630, 1631, 1632, 1633] as const)(
+    "validates kind %s builder output with hinted and legacy empty references",
+    kind => {
+      for (const relays of [[], ["wss://relay.test"]]) {
+        const event = createStatusEvent({
+          kind,
+          rootId: "pr",
+          replyId: "update",
+          repoAddr: `30617:${owner}:repo`,
+          content: "Status",
+          relays,
+          recipients: [owner],
+          mergedCommit: "1".repeat(40),
+          appliedCommits: ["2".repeat(40)],
+        })
+        expect(validateStatusEvent(event).success).toBe(true)
+        expect(
+          validateStatusEvent({...event, tags: event.tags.filter(tag => tag[0] !== "e")}).success,
+        ).toBe(false)
+      }
+    },
+  )
   it("fails closed on conflicting/empty targets rather than guessing a default", () => {
     for (const value of ["other", ""]) {
       const parsed = parsePullRequestEvent({

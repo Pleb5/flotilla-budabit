@@ -1,5 +1,7 @@
 import {describe, expect, it, vi} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
+import {createPullRequestEvent} from "@nostr-git/core/events"
+import {validatePullRequestEvent} from "@nostr-git/core/utils"
 import type {FiniteRelayResult} from "./finite-relay-request"
 import {
   buildRepoRootGapFilters,
@@ -36,9 +38,32 @@ const makeRootEvent = ({
   kind,
   tags: [
     ...addresses.map(value => ["a", value]),
-    ...(kind === 1618 ? [["c", "1".repeat(40)], ["merge-base", "2".repeat(40)]] : []),
+    ...(kind === 1618
+      ? [
+          ["c", "1".repeat(40)],
+          ["merge-base", "2".repeat(40)],
+        ]
+      : []),
   ],
 })
+
+const makeBuiltPullRequest = (targetTag: "b" | "target-branch"): TrustedEvent => {
+  const event = createPullRequestEvent({
+    repoAddr: address,
+    tipCommitOid: "1".repeat(40),
+    branchName: "contribution",
+    targetBranch: "release",
+    content: "An already-pushed contribution",
+    created_at: 10,
+  })
+  return {
+    ...event,
+    id: "d".repeat(64),
+    pubkey: "b".repeat(64),
+    sig: "fixture-only",
+    tags: event.tags.map(tag => (tag[0] === "b" ? [targetTag, tag[1]] : tag)),
+  }
+}
 
 const result = (
   relay: string,
@@ -53,6 +78,15 @@ const result = (
 })
 
 describe("repository root history", () => {
+  it.each(["b", "target-branch"] as const)(
+    "accepts a built PR with a %s target for repository lists",
+    targetTag => {
+      const root = makeBuiltPullRequest(targetTag)
+      expect(validatePullRequestEvent(root).success).toBe(true)
+      expect(isAcceptedRepoRootEvent(root, [address])).toBe(true)
+      expect(isAcceptedRepoRootEvent(root, [`30617:${"f".repeat(64)}:other`])).toBe(false)
+    },
+  )
   it("builds bounded page and complete compatibility filters", () => {
     expect(buildRepoRootPageFilter({addresses: [address], pageSize: 100, until: 50})).toEqual({
       kinds: [1621, 1618],
@@ -472,6 +506,26 @@ describe("repository root resolution", () => {
     expect(harness.requestFiniteRelay).not.toHaveBeenCalled()
     expect(harness.loadGap).toHaveBeenCalledWith(root.id)
   })
+
+  it.each(["b", "target-branch"] as const)(
+    "resolves built %s PRs from both cache and relay history",
+    async targetTag => {
+      const root = makeBuiltPullRequest(targetTag)
+      const cached = makeResolver({cached: new Map([[root.id, root]])})
+      const remote = makeResolver({
+        requestFiniteRelay: vi.fn(async options => result(options.relay, "eose", [root])),
+      })
+      for (const harness of [cached, remote]) {
+        await expect(harness.ensureRoot(root.id)).resolves.toMatchObject({
+          status: "complete",
+          rootId: root.id,
+          rootKind: 1618,
+        })
+        expect(harness.loadGap).toHaveBeenCalledWith(root.id)
+      }
+      expect(remote.onEvent).toHaveBeenCalledWith(root, relay)
+    },
+  )
 
   it("rejects foreign exact roots and accepts multi-target exact roots", async () => {
     const foreign = makeRootEvent({id: "4", addresses: [foreignAddress]})

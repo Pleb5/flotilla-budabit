@@ -112,8 +112,8 @@ export const CoverLetterTagSchema = z.union([
 export const CoverLetterTagsSchema = z.array(CoverLetterTagSchema)
 
 // Status tags (kinds 1630..1633)
-export const ETagRoot = z.tuple([z.literal("e"), z.string(), z.literal(""), z.literal("root")])
-export const ETagReply = z.tuple([z.literal("e"), z.string(), z.literal(""), z.literal("reply")])
+export const ETagRoot = z.tuple([z.literal("e"), z.string(), z.string(), z.literal("root")])
+export const ETagReply = z.tuple([z.literal("e"), z.string(), z.string(), z.literal("reply")])
 export const QTag = z.tuple([z.literal("q"), z.string(), z.string(), z.string()])
 export const MergeCommitTag = z.tuple([z.literal("merge-commit"), z.string()])
 export const AppliedAsCommitsTag = z
@@ -146,6 +146,7 @@ export const PullRequestTagSchema = z.union([
   CTag,
   CloneTag,
   z.tuple([z.literal("branch-name"), z.string()]),
+  z.tuple([z.literal("b"), z.string()]),
   z.tuple([z.literal("target-branch"), z.string()]),
   z.tuple([z.literal("merge-base"), z.string()]),
   z.tuple([z.literal("e"), z.string()]),
