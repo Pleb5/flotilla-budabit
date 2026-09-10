@@ -299,6 +299,7 @@ vi.mock("@app/core/community-state", () => ({
 vi.mock("@welshman/net", () => ({
   PublishStatus: {Success: "success"},
   load: mocks.load,
+  makeLoader: () => mocks.load,
   request: mocks.request,
 }))
 

@@ -1,4 +1,4 @@
-import {load, type LoadOptions} from "@welshman/net"
+import {makeLoader, type LoadOptions} from "@welshman/net"
 import {matchFilters, type Filter, type TrustedEvent} from "@welshman/util"
 import {verifyEvent} from "nostr-tools/pure"
 
@@ -9,6 +9,9 @@ const publicRelay = (relay: string) => relay.split("?", 1)[0].split("#", 1)[0]
 export async function queryExtensionRelays(relays: string[], filter: Filter) {
   const results = await Promise.all(
     relays.map(async relay => {
+      // The shared load singleton batches even separate bridge requests and deduplicates
+      // across relays. Each page needs its own tracker AND filter union/batch state.
+      const load = makeLoader({delay: 0})
       const controller = new AbortController()
       const events = new Map<string, TrustedEvent>()
       let active = true,

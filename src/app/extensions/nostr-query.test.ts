@@ -4,7 +4,7 @@ import {finalizeEvent} from "nostr-tools/pure"
 import {queryExtensionRelays} from "./nostr-query"
 
 const {load} = vi.hoisted(() => ({load: vi.fn()}))
-vi.mock("@welshman/net", () => ({load}))
+vi.mock("@welshman/net", () => ({makeLoader: () => load}))
 const event = (created_at = 1) =>
   finalizeEvent({kind: 30063, tags: [], content: "", created_at}, new Uint8Array(32).fill(1))
 afterEach(() => {
