@@ -18,6 +18,7 @@
   } from "@lucide/svelte"
   import {fade, fly, slide} from "@lib/transition"
   import Spinner from "@lib/components/Spinner.svelte"
+  import Markdown from "@lib/components/Markdown.svelte"
   import {formatDistanceToNow} from "date-fns"
   import {getTagValue} from "@welshman/util"
   import Button from "@lib/components/Button.svelte"
@@ -310,6 +311,11 @@
   const repoMetadata = $derived({
     name: repoClass.name || "Unknown Repository",
     description: repoClass.description || "",
+    identifier: getTagValue("d", repoClass.repoEvent?.tags || []) || "",
+    earliestUniqueCommit: repoClass.earliestUniqueCommit || "",
+    hashtags: Array.from(
+      new Set((repoClass.hashtags || []).map(tag => tag.trim()).filter(Boolean)),
+    ),
     repoId: repoClass.key || "",
     relays: repoRelayItems.map(item => item.url),
     cloneUrls: repoCloneUrlItems.map(item => item.url),
@@ -875,6 +881,34 @@
             {/if}
           </section>
 
+          {#if repoMetadata.description.trim() || repoMetadata.hashtags.length > 0}
+            <section class="min-w-0 space-y-3 py-3" aria-labelledby="repo-about-heading">
+              <h2 id="repo-about-heading" class="text-sm font-semibold">About</h2>
+              {#if repoMetadata.description.trim()}
+                <div data-testid="repo-description" class="min-w-0 break-words">
+                  <Markdown
+                    content={repoMetadata.description}
+                    event={repoClass.repoEvent}
+                    relays={repoMetadata.relays}
+                    variant="comment" />
+                </div>
+              {/if}
+              {#if repoMetadata.hashtags.length > 0}
+                <div class="space-y-2">
+                  <h3 class="text-xs font-medium text-muted-foreground">Topics</h3>
+                  <ul aria-label="Repository topics" class="flex flex-wrap gap-1.5">
+                    {#each repoMetadata.hashtags as topic (topic)}
+                      <li
+                        class="min-w-0 max-w-full break-all rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+                        {topic}
+                      </li>
+                    {/each}
+                  </ul>
+                </div>
+              {/if}
+            </section>
+          {/if}
+
           <!-- Repository Details -->
           <section class="py-3">
             <div class="space-y-3">
@@ -1143,6 +1177,71 @@
                 </div>
               {/if}
             </div>
+          </section>
+
+          <section class="min-w-0 py-3">
+            <details class="group/technical" data-testid="repo-technical-details">
+              <summary
+                class="flex cursor-pointer list-none items-center justify-between gap-2 rounded py-1 font-medium hover:bg-secondary/20">
+                Technical details
+                <ChevronDown
+                  class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open/technical:rotate-180" />
+              </summary>
+              <dl class="mt-3 space-y-4">
+                <div>
+                  <dt class="text-xs font-medium text-muted-foreground">
+                    Repository identifier (d)
+                  </dt>
+                  <dd class="mt-1 flex min-w-0 items-start gap-2">
+                    {#if repoMetadata.identifier}
+                      <code
+                        data-testid="repo-identifier"
+                        class="min-w-0 flex-1 break-all py-2 font-mono text-xs"
+                        >{repoMetadata.identifier}</code>
+                      <button
+                        type="button"
+                        class="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                        title="Copy repository identifier"
+                        aria-label="Copy repository identifier"
+                        onclick={() => clip(repoMetadata.identifier)}>
+                        <Copy class="h-4 w-4" />
+                      </button>
+                    {:else}
+                      <span class="text-xs text-muted-foreground">Not available</span>
+                    {/if}
+                  </dd>
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    Fixed at creation; independent of the display name.
+                  </p>
+                </div>
+                <div>
+                  <dt class="text-xs font-medium text-muted-foreground">
+                    Earliest unique commit (r:euc)
+                  </dt>
+                  <dd class="mt-1 flex min-w-0 items-start gap-2">
+                    {#if repoMetadata.earliestUniqueCommit}
+                      <code
+                        data-testid="repo-earliest-unique-commit"
+                        class="min-w-0 flex-1 break-all py-2 font-mono text-xs"
+                        >{repoMetadata.earliestUniqueCommit}</code>
+                      <button
+                        type="button"
+                        class="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-secondary/50 hover:text-foreground"
+                        title="Copy earliest unique commit"
+                        aria-label="Copy earliest unique commit"
+                        onclick={() => clip(repoMetadata.earliestUniqueCommit)}>
+                        <Copy class="h-4 w-4" />
+                      </button>
+                    {:else}
+                      <span class="text-xs text-muted-foreground">Not set</span>
+                    {/if}
+                  </dd>
+                  <p class="mt-1 text-xs text-muted-foreground">
+                    Used to identify related repositories and discover their events.
+                  </p>
+                </div>
+              </dl>
+            </details>
           </section>
 
           <!-- Recent Activity -->
