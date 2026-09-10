@@ -26,7 +26,7 @@ for (const viewport of [
       })
 
       const dialog = page.getByRole("dialog", {name: "Fork Repository", exact: true})
-      const name = dialog.getByRole("textbox", {name: "Repository name *", exact: true})
+      const name = dialog.getByRole("textbox", {name: "Repository identifier *", exact: true})
       const scrollBody = dialog.locator("#fork-form").locator("..")
       await expect(name).toHaveValue("scroll-regression")
       // Wait for actual modal layout, not a fixed sleep or unrelated relay traffic.

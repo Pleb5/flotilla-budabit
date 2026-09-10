@@ -2,7 +2,7 @@
 import {ForkRepoDialog, type Repo} from "@nostr-git/ui"
 import {pushModal} from "../../../src/app/util/modal"
 
-export function openForkDialogFixture() {
+export function openForkDialogFixture(sameCoordinate = false) {
   if (!import.meta.env.DEV) throw new Error("Development fixture only")
 
   const commits = [
@@ -36,7 +36,7 @@ export function openForkDialogFixture() {
     ForkRepoDialog,
     {
       repo,
-      pubkey: "2".repeat(64),
+      pubkey: (sameCoordinate ? "1" : "2").repeat(64),
       onPublishEvent: async () => {
         throw new Error("Publishing disabled for scroll fixture")
       },
