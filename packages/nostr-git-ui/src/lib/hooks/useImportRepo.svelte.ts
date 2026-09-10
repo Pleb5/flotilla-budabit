@@ -2016,6 +2016,7 @@ async function syncRepositoryToRemotes(
     workerApi: context.workerApi,
     localRepoId,
     repoName,
+    displayName: context.finalRepo?.name || context.parsed.repo,
     repoDescription,
     defaultBranch: targetBranch,
     refs,
@@ -2088,6 +2089,7 @@ function convertRepoEvents(context: ImportContext): {
       relays,
       userPubkey: context.userPubkey,
       repoName: getDestinationRepoName(context),
+      displayName: context.finalRepo.name,
       importTimestamp: context.importTimestamp,
       latestRepoMetadataCreatedAt: context.latestRepoMetadataCreatedAt,
       remotePushResults: context.remotePushResults,
@@ -2524,6 +2526,7 @@ export function useImportRepo(options: UseImportRepoOptions) {
       const sourceCloneUrls = buildSourceCloneCandidates(sourceCloneUrl, context.parsed?.url);
       const announcementAdmission = await publishRepoSyncAnnouncement({
         repoName,
+        displayName: context.finalRepo?.name || context.parsed.repo,
         repoDescription: context.finalRepo.description || "",
         userPubkey: context.userPubkey,
         targets: remoteTargets,

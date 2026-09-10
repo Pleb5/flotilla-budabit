@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from "svelte";
+  import { suggestRepoIdentifier } from "@nostr-git/core/utils";
   import { graspServersStore } from "../../stores/graspServers.js";
   import {
     prepareInitialImport,
@@ -22,6 +23,8 @@
   const { owner, runtime, subscribeGitProgress, onClose, onDispose, onOpenRepo }: Props = $props();
   let sourceUrl = $state("");
   let name = $state("");
+  let displayName = $state("");
+  let identifierEdited = $state(false);
   let relay = $state("");
   let issues = $state(false);
   let comments = $state(false);
@@ -91,7 +94,7 @@
     try {
       prepared = await withInitialImportLock("review", () =>
         prepareInitialImport(
-          { sourceUrl, name: name.trim(), relay: relay.trim(), owner, issues, comments },
+          { sourceUrl, name, displayName, relay: relay.trim(), owner, issues, comments },
           runtime,
           controller!.signal
         )
@@ -241,18 +244,37 @@
             required
           /></label
         >
+        <label class="block space-y-1" for="initial-display-name"
+          ><span>Display name</span>
+          <input
+            id="initial-display-name"
+            class="input w-full bg-background"
+            value={displayName}
+            oninput={(event) => {
+              displayName = event.currentTarget.value;
+              if (!identifierEdited) name = suggestRepoIdentifier(displayName);
+            }}
+            maxlength="100"
+            disabled={busy}
+            required
+          /></label
+        >
         <label class="block space-y-1" for="initial-name"
-          ><span>New repository name</span>
+          ><span>Repository identifier (fixed after creation)</span>
           <input
             id="initial-name"
             class="input w-full bg-background"
             bind:value={name}
-            maxlength="64"
+            oninput={() => (identifierEdited = true)}
+            maxlength="100"
             placeholder="my-project"
             disabled={busy}
             required
           /></label
         >
+        {#if name}<p class="break-all text-xs text-muted-foreground" aria-label="Import coordinate">
+            30617:{owner}:{name}
+          </p>{/if}
         <label class="block space-y-1" for="initial-relay"
           ><span>GRASP service (one destination)</span>
           <input
@@ -304,8 +326,11 @@
                 step = "";
               }}
             >
-              <span class="font-semibold">{item.name}</span> · {item.status} · {item.counts.events} confirmed
-              history events
+              <span class="font-semibold">{item.displayName || item.name}</span>
+              {#if item.displayName && item.displayName !== item.name}<span
+                  class="text-muted-foreground">({item.name})</span
+                >{/if}
+              · {item.status} · {item.counts.events} confirmed history events
             </button>
           {/each}
         </section>

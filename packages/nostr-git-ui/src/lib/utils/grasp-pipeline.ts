@@ -1277,6 +1277,8 @@ export interface CreateGraspEventsParams {
   relayUrl: string;
   ownerPubkey: string;
   repoName: string;
+  displayName?: string;
+  upstreams?: Array<["u", string, ...string[]]>;
   description?: string;
   relays?: string[];
   cloneUrls?: string[];
@@ -1293,6 +1295,8 @@ export function createGraspAnnouncementAndState({
   relayUrl,
   ownerPubkey,
   repoName,
+  displayName,
+  upstreams,
   description,
   relays = [],
   cloneUrls,
@@ -1332,7 +1336,9 @@ export function createGraspAnnouncementAndState({
 
   const announcementEvent = createRepoAnnouncementEvent({
     repoId: `${ownerNpub}:${repoName}`,
-    name: repoName,
+    identifier: repoName,
+    name: displayName ?? repoName,
+    upstreams,
     description: description || "",
     clone: finalCloneUrls,
     web: finalWebUrls,
@@ -1345,6 +1351,7 @@ export function createGraspAnnouncementAndState({
 
   const stateEvent = createRepoStateEvent({
     repoId: repoName,
+    identifier: repoName,
     refs,
     head,
   });

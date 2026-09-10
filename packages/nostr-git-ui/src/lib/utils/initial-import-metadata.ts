@@ -23,7 +23,9 @@ export function initialImportMetadata(job: InitialImportJob, type: "announcement
   const urls = initialImportUrls(job);
   return createRepoAnnouncementEvent({
     repoId: job.name,
-    name: job.name,
+    identifier: job.name,
+    name: job.displayName ?? job.name,
+    ...(job.upstream ? { upstreams: [["u", job.upstream] as ["u", string]] } : {}),
     description: job.source.description,
     clone: urls.cloneUrls,
     web: urls.webUrls,

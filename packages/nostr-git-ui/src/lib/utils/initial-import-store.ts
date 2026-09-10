@@ -1,5 +1,6 @@
 import type { NostrEvent } from "@nostr-git/core";
 import { getEventHash, verifyEvent } from "nostr-tools";
+import { validateRepoDisplayName, validateRepoIdentifier } from "@nostr-git/core/utils";
 import {
   INITIAL_IMPORT_LIMITS,
   parseInitialImportUrl,
@@ -28,6 +29,9 @@ export interface InitialImportJob {
   id: string;
   owner: string;
   name: string;
+  displayName?: string;
+  /** Present on new jobs only so existing exact signed recovery payloads remain unchanged. */
+  upstream?: string;
   relay: string;
   source: InitialImportSource;
   refs: InitialImportRef[];
@@ -72,7 +76,12 @@ export function validateInitialImportJob(job: InitialImportJob): void {
   if (
     job.version !== 1 ||
     !/^[0-9a-f]{64}$/.test(job.owner) ||
-    !isInitialImportName(job.name) ||
+    // Preserve previously accepted recovery identifiers; new input uses the shared validator.
+    typeof job.name !== "string" ||
+    (!isInitialImportName(job.name) && Boolean(validateRepoIdentifier(job.name))) ||
+    (job.upstream !== undefined && job.upstream !== `${job.source?.url}.git`) ||
+    (job.displayName !== undefined &&
+      (typeof job.displayName !== "string" || Boolean(validateRepoDisplayName(job.displayName)))) ||
     !/^initial-import:[\w-]+$/.test(job.id) ||
     !Number.isSafeInteger(job.createdAt) ||
     job.createdAt <= 0 ||
@@ -222,6 +231,8 @@ const identity = (job: InitialImportJob) =>
   JSON.stringify([
     job.owner,
     job.name,
+    job.displayName,
+    job.upstream,
     job.relay,
     job.source,
     job.refs,

@@ -142,6 +142,25 @@ describe("remote target preflight", () => {
     expect(result.detail).toContain("resume");
   });
 
+  it("does not treat an empty provisioned GRASP destination as available for fresh creation", async () => {
+    checkGraspRepoExists.mockResolvedValue({ exists: false, provisioned: true });
+    await expect(
+      preflightNewRemoteTargets({
+        targets: [
+          {
+            id: "grasp:wss://relay.example",
+            label: "GRASP",
+            provider: "grasp",
+            relayUrl: "wss://relay.example",
+          },
+        ],
+        tokenList: [],
+        userPubkey: "pubkey",
+        repoName: "repo",
+      })
+    ).rejects.toThrow("Repository target preflight failed");
+  });
+
   it("fails the authoritative new-target preflight when any destination exists", async () => {
     checkGraspRepoExists.mockResolvedValue({
       exists: true,

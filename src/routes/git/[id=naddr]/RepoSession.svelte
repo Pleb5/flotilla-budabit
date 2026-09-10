@@ -3929,6 +3929,11 @@
           await deleteExactRepoEvent(event, relays)
         },
         onFetchRelayEvents: fetchRepoRelayEvents,
+        getKnownRepoEvents: (owner: string, identifier: string) =>
+          [30617, 30618].flatMap(kind => {
+            const event = repository.getEvent(`${kind}:${owner}:${identifier}`)
+            return event ? [event] : []
+          }),
         onClose: () => publishTransport.dispose(),
         onOperationComplete: () => publishTransport.dispose(),
         onRollbackPublishedRepoEvents: rollbackPublishedRepoEvents,

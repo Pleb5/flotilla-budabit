@@ -3,6 +3,9 @@
 
   interface Props {
     repoName: string;
+    displayName: string;
+    ownerPubkey?: string;
+    onDisplayNameChange: (name: string) => void;
     description: string;
     initializeWithReadme: boolean;
     defaultBranch: string;
@@ -16,6 +19,7 @@
     onLicenseChange: (template: string) => void;
     validationErrors?: {
       name?: string;
+      displayName?: string;
       description?: string;
     };
     nameAvailabilityResults?: {
@@ -36,6 +40,9 @@
 
   const {
     repoName,
+    displayName,
+    ownerPubkey,
+    onDisplayNameChange,
     description,
     initializeWithReadme,
     defaultBranch,
@@ -95,22 +102,6 @@
     onDefaultBranchChange(target.value);
   }
 
-  function validateRepoName(name: string): string | undefined {
-    if (!name.trim()) {
-      return "Repository name is required";
-    }
-    if (name.length < 3) {
-      return "Repository name must be at least 3 characters";
-    }
-    if (name.length > 100) {
-      return "Repository name must be 100 characters or less";
-    }
-    if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
-      return "Repository name can only contain letters, numbers, dots, hyphens, and underscores";
-    }
-    return undefined;
-  }
-
   function validateDescription(desc: string): string | undefined {
     if (desc.length > 350) {
       return "Description must be 350 characters or less";
@@ -158,8 +149,27 @@
   <div class="space-y-4">
     <!-- Repository Name -->
     <div>
+      <label for="repo-display-name" class="mb-2 block text-sm font-medium text-foreground"
+        >Display name *</label
+      >
+      <input
+        id="repo-display-name"
+        value={displayName}
+        oninput={(event) => onDisplayNameChange(event.currentTarget.value)}
+        placeholder="My Great Repo!"
+        maxlength="100"
+        class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      />
+      <p class="mt-1 text-sm text-muted-foreground">
+        Spaces and Unicode are welcome. This name can be changed later.
+      </p>
+      {#if validationErrors.displayName}<p class="mt-1 text-sm text-red-400">
+          {validationErrors.displayName}
+        </p>{/if}
+    </div>
+    <div>
       <label for="repo-name" class="mb-2 block text-sm font-medium text-foreground">
-        Repository name *
+        Repository identifier *
       </label>
       <div class="relative">
         <input
@@ -196,10 +206,22 @@
         </p>
       {/if}
 
-      <!-- Repository Name Availability Status -->
-      {#if repoName.trim() && tokens.length > 0}
+      <p class="mt-1 text-sm text-muted-foreground">
+        Fixed after creation; used in repository addresses and Git paths. Edit the suggestion to
+        choose a different identifier.
+      </p>
+      {#if ownerPubkey && repoName}
+        <p class="mt-2 break-all text-xs text-muted-foreground" aria-label="Repository coordinate">
+          30617:{ownerPubkey}:{repoName}
+        </p>
+      {/if}
+
+      <!-- These are bounded destination checks, not global name reservation. -->
+      {#if repoName.trim() && (isCheckingAvailability || nameAvailabilityResults)}
         <div class="mt-2 rounded-lg border border-border bg-muted/30 p-3">
-          <h4 class="mb-2 text-sm font-medium text-foreground">Repository Name Availability</h4>
+          <h4 class="mb-2 text-sm font-medium text-foreground">
+            Destination identifier availability
+          </h4>
 
           {#if isCheckingAvailability}
             <div class="flex items-center space-x-2 text-sm text-muted-foreground">
@@ -223,7 +245,7 @@
                   <div class="flex items-center space-x-1 shrink-0">
                     {#if result.error}
                       <span class="text-yellow-600 dark:text-yellow-400" title={result.error}
-                        >⚠ Check failed</span
+                        >⚠ Could not verify</span
                       >
                     {:else if result.available}
                       <span class="text-green-600 dark:text-green-400">✓ Available</span>
@@ -238,8 +260,7 @@
                 <div
                   class="mt-2 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-sm text-red-700 dark:text-red-400"
                 >
-                  <strong>Warning:</strong> This repository name is already taken on the selected
-                  provider{#if nameAvailabilityResults.conflictProviders[0]}
+                  <strong>Already exists:</strong> This identifier is taken on the selected provider{#if nameAvailabilityResults.conflictProviders[0]}
                     ({nameAvailabilityResults.conflictProviders[0]}){/if}.
                 </div>
               {:else if nameAvailabilityResults.results.some((r) => r.error)}
@@ -247,15 +268,15 @@
                 <div
                   class="mt-2 p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded text-sm text-yellow-700 dark:text-yellow-400"
                 >
-                  <strong>Unable to verify:</strong> Could not check name availability ({errorResult?.error ||
-                    "Authentication failed"}). You may proceed, but please verify the name is not
-                  already taken.
+                  <strong>Unable to verify:</strong> Could not check identifier availability ({errorResult?.error ||
+                    "Authentication failed"}). Retry the check before creating the repository.
                 </div>
               {:else if nameAvailabilityResults.availableProviders.length > 0}
                 <div
                   class="mt-2 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded text-sm text-green-700 dark:text-green-400"
                 >
-                  <strong>Good news!</strong> Repository name is available on the selected provider{#if nameAvailabilityResults.availableProviders[0]}
+                  <strong>Available on checked destinations.</strong> The identifier was not found
+                  on the selected provider{#if nameAvailabilityResults.availableProviders[0]}
                     ({nameAvailabilityResults.availableProviders[0]}){/if}.
                 </div>
               {/if}

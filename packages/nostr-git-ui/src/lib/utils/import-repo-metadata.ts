@@ -107,6 +107,7 @@ export function buildImportedRepoEvents(params: {
   relays: string[];
   userPubkey: string;
   repoName?: string;
+  displayName?: string;
   importTimestamp: number;
   latestRepoMetadataCreatedAt?: number;
   remotePushResults?: ImportedRemotePushResultLike[];
@@ -141,6 +142,10 @@ export function buildImportedRepoEvents(params: {
     userPubkey,
     finalRepoMetadataCreatedAt
   );
+  announcement.tags = [
+    ...announcement.tags.filter((tag) => tag[0] !== "name"),
+    ["name", params.displayName ?? repo.name],
+  ];
 
   if (community) announcement = withRepoCommunityBinding(announcement, community);
 

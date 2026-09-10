@@ -1,5 +1,10 @@
 <script lang="ts">
   import RepoDetailsStep from "./RepoDetailsStep.svelte";
+  import {
+    suggestRepoIdentifier,
+    validateRepoIdentifier,
+    validateRepoDisplayName,
+  } from "@nostr-git/core/utils";
   import AdvancedSettingsStep from "./AdvancedSettingsStep.svelte";
   import RepoProgressStep from "./RepoProgressStep.svelte";
   import RepoCommunitySelect from "./RepoCommunitySelect.svelte";
@@ -82,6 +87,10 @@
     platformUrl?: string;
     makeRepoPath?: (relayUrl: string, naddr: string) => string;
     userPubkey?: string; // User's nostr pubkey (required for GRASP repos)
+    getKnownRepoEvents?: (
+      owner: string,
+      identifier: string
+    ) => Array<Pick<NostrEvent, "kind" | "pubkey" | "tags">>;
     getProfile?: (
       pubkey: string
     ) => Promise<{ name?: string; picture?: string; nip05?: string; display_name?: string } | null>;
@@ -125,6 +134,7 @@
     platformUrl = "",
     makeRepoPath,
     userPubkey,
+    getKnownRepoEvents,
     getProfile,
     searchProfiles,
     searchProfilesUpdateSignal,
@@ -166,6 +176,7 @@
       onPublishEvent: onPublishEvent,
       onDeleteEvent,
       onFetchRelayEvents,
+      getKnownRepoEvents,
       subscribeGitProgress,
       userPubkey, // Pass user pubkey for GRASP repos
     });
@@ -450,10 +461,13 @@
 
   // Repository details (Step 1)
   let repoDetails = $state({
+    displayName: "",
     name: "",
     description: "",
     initializeWithReadme: true,
   });
+
+  let identifierEdited = $state(false);
 
   // Advanced settings (Step 2)
   let advancedSettings = $state({
@@ -495,15 +509,19 @@
   // Validation
   interface ValidationErrors {
     name?: string;
+    displayName?: string;
     description?: string;
   }
 
   let validationErrors = $state<ValidationErrors>({});
 
   // Check repository name availability across all providers
+  let nameCheckRun = 0;
   async function checkNameAvailability(name: string): Promise<typeof nameAvailabilityResults> {
-    if (!name.trim() || selectedProviders.length === 0) {
+    const run = ++nameCheckRun;
+    if (validateRepoIdentifier(name) || selectedProviders.length === 0) {
       nameAvailabilityResults = null;
+      isCheckingAvailability = false;
       return null;
     }
 
@@ -526,6 +544,7 @@
         conflictProviders: dedupeStrings(checks.flatMap((result) => result.conflictProviders)),
       };
 
+      if (run !== nameCheckRun || name !== repoDetails.name) return null;
       nameAvailabilityResults = merged;
       return merged;
     } catch (error) {
@@ -537,20 +556,24 @@
           available: false,
           error: error instanceof Error ? error.message : String(error),
         })),
-        hasConflicts: true,
+        hasConflicts: false,
         availableProviders: [] as string[],
-        conflictProviders: [...selectedProviders],
+        conflictProviders: [] as string[],
       };
+      if (run !== nameCheckRun || name !== repoDetails.name) return null;
       nameAvailabilityResults = unavailable;
       return unavailable;
     } finally {
-      isCheckingAvailability = false;
+      if (run === nameCheckRun) isCheckingAvailability = false;
     }
   }
 
   // Debounced name availability check
   let nameCheckTimeout: number | null = null;
   function debouncedNameCheck(name: string) {
+    nameCheckRun++;
+    nameAvailabilityResults = null;
+    isCheckingAvailability = false;
     if (nameCheckTimeout) {
       clearTimeout(nameCheckTimeout);
     }
@@ -561,19 +584,7 @@
 
   // Validation functions
   function validateRepoName(name: string): string | undefined {
-    if (!name.trim()) {
-      return "Repository name is required";
-    }
-    if (name.length < 3) {
-      return "Repository name must be at least 3 characters";
-    }
-    if (name.length > 100) {
-      return "Repository name must be 100 characters or less";
-    }
-    if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
-      return "Repository name can only contain letters, numbers, dots, hyphens, and underscores";
-    }
-    return undefined;
+    return validateRepoIdentifier(name);
   }
 
   function validateDescription(description: string): string | undefined {
@@ -585,6 +596,8 @@
 
   function validateStep1(): boolean {
     const errors: ValidationErrors = {};
+    const displayNameError = validateRepoDisplayName(repoDetails.displayName);
+    if (displayNameError) errors.displayName = displayNameError;
 
     const nameError = validateRepoName(repoDetails.name);
     if (nameError) errors.name = nameError;
@@ -597,6 +610,8 @@
 
   function updateValidationErrors() {
     const errors: ValidationErrors = {};
+    const displayNameError = validateRepoDisplayName(repoDetails.displayName);
+    if (displayNameError) errors.displayName = displayNameError;
 
     const nameError = validateRepoName(repoDetails.name);
     if (nameError) errors.name = nameError;
@@ -728,6 +743,7 @@
       createdResult = null;
       await createRepository({
         name: repoDetails.name,
+        displayName: repoDetails.displayName.trim(),
         description: repoDetails.description,
         initializeWithReadme: repoDetails.initializeWithReadme,
         gitignoreTemplate: advancedSettings.gitignoreTemplate,
@@ -777,7 +793,18 @@
   }
 
   // Step component event handlers
+  function handleDisplayNameChange(name: string) {
+    repoDetails.displayName = name;
+    if (!identifierEdited) {
+      repoDetails.name = suggestRepoIdentifier(name);
+      debouncedNameCheck(repoDetails.name);
+      updateAdvancedDefaults();
+    }
+    updateValidationErrors();
+  }
+
   function handleRepoNameChange(name: string) {
+    identifierEdited = true;
     repoDetails.name = name;
     // Trigger debounced availability check
     debouncedNameCheck(name);
@@ -926,6 +953,9 @@
         {:else if currentStep === 2}
           <RepoDetailsStep
             repoName={repoDetails.name}
+            displayName={repoDetails.displayName}
+            onDisplayNameChange={handleDisplayNameChange}
+            ownerPubkey={userPubkey}
             description={repoDetails.description}
             initializeWithReadme={repoDetails.initializeWithReadme}
             defaultBranch={advancedSettings.defaultBranch}

@@ -115,6 +115,36 @@ async function fixture() {
 }
 
 describe("new repository + initial history", () => {
+  it("uses shared destination naming rules while retaining the separate source constraints", async () => {
+    const { runtime, store } = await fixture();
+    const name = `project-${"a".repeat(85)}`;
+    const prepared = await prepareInitialImport(
+      {
+        sourceUrl: source.url,
+        owner,
+        name,
+        displayName: "名前",
+        relay,
+        issues: false,
+        comments: false,
+      },
+      runtime,
+      new AbortController().signal
+    );
+    expect(prepared.name).toBe(name);
+    expect(prepared.displayName).toBe("名前");
+    expect(prepared.upstream).toBe(`${source.url}.git`);
+    await store.create(prepared);
+    expect((await store.get(prepared.id))?.name).toBe(name);
+    await expect(
+      prepareInitialImport(
+        { sourceUrl: source.url, owner, name: "bad..path", relay, issues: false, comments: false },
+        runtime,
+        new AbortController().signal
+      )
+    ).rejects.toThrow(/identifier/);
+    await store.close();
+  });
   it("journals before send and enforces announcement -> ready/clone -> state -> push -> history", async () => {
     const { runtime, job, order } = await fixture();
     const result = await runInitialImport(job.id, runtime, new AbortController().signal);

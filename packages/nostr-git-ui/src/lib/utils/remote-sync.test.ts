@@ -43,29 +43,35 @@ describe("remote ref outcome helpers", () => {
   });
 
   it("distinguishes confirmed, diverged, and unknown remote observations", async () => {
-    const refs = [{type: "heads" as const, name: "main", ref: "refs/heads/main", commit: "expected"}];
+    const refs = [
+      { type: "heads" as const, name: "main", ref: "refs/heads/main", commit: "expected" },
+    ];
 
     await expect(
       inspectRequestedRemoteRefs({
-        workerApi: {listServerRefs: vi.fn().mockResolvedValue([{ref: "refs/heads/main", oid: "expected"}])},
+        workerApi: {
+          listServerRefs: vi.fn().mockResolvedValue([{ ref: "refs/heads/main", oid: "expected" }]),
+        },
         remoteUrl: "https://git.example/repo.git",
         refs,
       })
-    ).resolves.toEqual({status: "confirmed", refs: ["refs/heads/main"]});
+    ).resolves.toEqual({ status: "confirmed", refs: ["refs/heads/main"] });
     await expect(
       inspectRequestedRemoteRefs({
-        workerApi: {listServerRefs: vi.fn().mockResolvedValue([{ref: "refs/heads/main", oid: "other"}])},
+        workerApi: {
+          listServerRefs: vi.fn().mockResolvedValue([{ ref: "refs/heads/main", oid: "other" }]),
+        },
         remoteUrl: "https://git.example/repo.git",
         refs,
       })
-    ).resolves.toEqual({status: "diverged", refs: ["refs/heads/main"]});
+    ).resolves.toEqual({ status: "diverged", refs: ["refs/heads/main"] });
     await expect(
       inspectRequestedRemoteRefs({
-        workerApi: {listServerRefs: vi.fn().mockRejectedValue(new Error("network timeout"))},
+        workerApi: { listServerRefs: vi.fn().mockRejectedValue(new Error("network timeout")) },
         remoteUrl: "https://git.example/repo.git",
         refs,
       })
-    ).resolves.toMatchObject({status: "unknown"});
+    ).resolves.toMatchObject({ status: "unknown" });
   });
 
   it("classifies network ambiguity as unknown but not deterministic rejection", () => {
@@ -76,7 +82,7 @@ describe("remote ref outcome helpers", () => {
   it("preserves ambiguity through a best-effort fan-out error wrapper", () => {
     const wrapped = new Error("Push failed for all 1 remotes");
     (wrapped as any).details = {
-      results: [{success: false, error: {error: "network timeout after receive-pack"}}],
+      results: [{ success: false, error: { error: "network timeout after receive-pack" } }],
     };
 
     expect(isUnknownRemoteOutcome(wrapped)).toBe(true);
@@ -756,7 +762,7 @@ describe("syncLocalRepoToTargets", () => {
     );
   });
 
-  it("uses configured web URLs for GRASP provisioning announcements", async () => {
+  it("preserves display name, upstreams and configured web URLs in fallback GRASP provisioning", async () => {
     const commit = "c".repeat(40);
     const featureCommit = "d".repeat(40);
     let publishedAnnouncement: any;
@@ -798,6 +804,8 @@ describe("syncLocalRepoToTargets", () => {
       localRepoId: "local/repo",
       repoName: "repo",
       repoDescription: "",
+      displayName: "名前 with spaces",
+      upstreams: [["u", "https://git.test/source.git", "retained-hint"]],
       defaultBranch: "main",
       refs: [
         { type: "heads", name: "main", ref: "refs/heads/main", commit },
@@ -849,6 +857,13 @@ describe("syncLocalRepoToTargets", () => {
       pushOperationIds.every((childOperationId) => childOperationId.startsWith("fork:remote-sync:"))
     ).toBe(true);
     expect(workerApi.createRemoteRepo).not.toHaveBeenCalled();
+    expect(publishedAnnouncement.tags).toContainEqual(["d", "repo"]);
+    expect(publishedAnnouncement.tags).toContainEqual(["name", "名前 with spaces"]);
+    expect(publishedAnnouncement.tags).toContainEqual([
+      "u",
+      "https://git.test/source.git",
+      "retained-hint",
+    ]);
     expect(publishedAnnouncement.tags).toEqual(
       expect.arrayContaining([
         ["web", "https://budabit.club/git/naddr1repo", "https://gitworkshop.dev/npub1example/repo"],

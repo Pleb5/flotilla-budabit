@@ -8,6 +8,7 @@ import {
 
 import type { Token } from "../stores/tokens.js";
 import { checkGraspRepoExists } from "./grasp-availability.js";
+import { validateRepoIdentifier } from "@nostr-git/core/utils";
 import { findExistingTargetRepoConflict } from "./import-targets.js";
 import { matchesHost } from "./tokenMatcher.js";
 import { AllTokensFailedError, TokenNotFoundError } from "./tokenErrors.js";
@@ -132,7 +133,7 @@ export function validateRemoteTargetRepoName(name: string): string | undefined {
     return "Destination repository name cannot contain / or \\\\";
   }
 
-  return undefined;
+  return validateRepoIdentifier(name);
 }
 
 export function buildRemoteTargetOptions(params: {
@@ -304,6 +305,15 @@ export async function preflightRemoteTargets(params: {
           }
 
           if (probe.provisioned) {
+            if (!allowExistingRepoReuse) {
+              return {
+                ...target,
+                status: "failed" as const,
+                existsAlready: true,
+                detail:
+                  "An empty GRASP repository already occupies this destination. Resume its recorded creation or choose another identifier.",
+              };
+            }
             return {
               ...target,
               status: "ready" as const,

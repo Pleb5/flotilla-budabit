@@ -4405,6 +4405,11 @@
             await deleteExactRepoEvent(event, relays)
           },
           onFetchRelayEvents: fetchRelayEvents,
+          getKnownRepoEvents: (owner: string, identifier: string) =>
+            [30617, 30618].flatMap(kind => {
+              const event = repository.getEvent(`${kind}:${owner}:${identifier}`)
+              return event ? [event] : []
+            }),
           getProfile: getProfileForWizard,
           searchProfiles: searchProfilesForWizard,
           searchProfilesUpdateSignal: peopleDiscoverySearch,
@@ -4487,6 +4492,11 @@
       publishTransport = createTrackedRepoPublishTransport()
       const operationPublishTransport = publishTransport
       const runtime: InitialImportRuntime = {
+        getKnownRepoEvents: (owner, identifier) =>
+          [30617, 30618].flatMap(kind => {
+            const event = repository.getEvent(`${kind}:${owner}:${identifier}`)
+            return event ? [event] : []
+          }),
         store: new IndexedInitialImportStore(),
         git: createInitialImportGit(workerApi),
         assertActor,

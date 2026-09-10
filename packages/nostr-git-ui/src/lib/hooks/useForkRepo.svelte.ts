@@ -4,12 +4,18 @@ import type {
   RepoStateEvent,
   NostrEvent,
 } from "@nostr-git/core/events";
-import { createRepoAnnouncementEvent, createRepoStateEvent } from "@nostr-git/core/events";
+import {
+  createRepoAnnouncementEvent,
+  createRepoStateEvent,
+  editRepoAnnouncementEvent,
+  getForkUpstreamTags,
+} from "@nostr-git/core/events";
 import { isGitRemoteUrlEnabled, isGitVendorEnabled } from "@nostr-git/core/git";
 import {
   hasMatchingGraspRepoCloneUrl,
   parseGraspRepoHttpUrl,
   parseRepoId,
+  validateRepoDisplayName,
 } from "@nostr-git/core/utils";
 import { nip19 } from "nostr-tools";
 
@@ -37,6 +43,7 @@ import {
 import { matchesHost } from "../utils/tokenMatcher.js";
 import {
   getRepoCreationProvisionalEvents,
+  getPendingRepoCreationTransactions,
   RepoCreationTransactionJournal,
   trackRepoCreationPublisher,
 } from "../utils/repo-creation-transaction.js";
@@ -58,6 +65,8 @@ import {
 } from "../utils/git-operation-progress.js";
 import {
   assertRepoCoordinateAvailable,
+  assertRepoAnnouncementCurrent,
+  reserveRepoCreation,
   assertRepoCreationPrerequisites,
 } from "../utils/repo-creation-preflight.js";
 import {
@@ -74,7 +83,9 @@ import {
 } from "../utils/grasp-service-coupling.js";
 
 export interface ForkConfig {
+  /** Exact destination identifier (legacy field name). */
   forkName: string;
+  displayName?: string;
   visibility?: "public" | "private";
   targets: RemoteTargetSelection[];
   earliestUniqueCommit?: string;
@@ -113,6 +124,10 @@ export interface ForkResult {
 export type ForkRepositoryResult = ForkResult;
 
 export interface UseForkRepoOptions {
+  getKnownRepoEvents?: (
+    owner: string,
+    identifier: string
+  ) => Array<Pick<NostrEvent, "kind" | "pubkey" | "tags">>;
   workerApi?: any;
   workerInstance?: Worker;
   userPubkey?: string;
@@ -251,7 +266,8 @@ function buildSourceCloneCandidates(...urls: Array<string | undefined>): string[
     const normalized = String(value || "")
       .trim()
       .replace(/\/+$/, "");
-    if (!normalized || !isGitRemoteUrlEnabled(normalized) || candidates.includes(normalized)) return;
+    if (!normalized || !isGitRemoteUrlEnabled(normalized) || candidates.includes(normalized))
+      return;
     candidates.push(normalized);
 
     if (/^https?:\/\//i.test(normalized)) {
@@ -321,11 +337,11 @@ export function isSameLogicalRepoAugmentation(params: {
   userPubkey?: string;
 }): boolean {
   const sourceEvent = params.sourceAnnouncementEvent;
-  const sourceIdentifier = sourceEvent?.tags.find((tag) => tag[0] === "d")?.[1]?.trim() || "";
+  const sourceIdentifier = sourceEvent?.tags.find((tag) => tag[0] === "d")?.[1] || "";
   return (
     sourceEvent?.kind === 30617 &&
     Boolean(sourceIdentifier) &&
-    params.destinationName.trim() === sourceIdentifier &&
+    params.destinationName === sourceIdentifier &&
     isSamePubkeyOwner(sourceEvent.pubkey, params.userPubkey)
   );
 }
@@ -639,7 +655,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       description?: string;
       cloneUrls?: string[];
       webUrls?: string[];
-      sourceAnnouncementEvent?: NostrEvent;
+      sourceAnnouncementEvent?: RepoAnnouncementEvent;
       displayName?: string;
       defaultBranch?: string;
       community?: RepoCommunityBinding;
@@ -677,6 +693,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
     let remotePushResults: RemoteSyncTargetResult[] = [];
     let selectedTargets: RemoteTargetSelection[] = [];
     let transactionJournal: RepoCreationTransactionJournal | undefined;
+    let releaseCoordinate: (() => void) | undefined;
     let transactionPublisher = onPublishEvent;
     let operationSession: WorkerOperationSession | undefined;
 
@@ -691,7 +708,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         throw new Error("Forking requires an onPublishEvent callback");
       }
 
-      const forkName = String(config.forkName || "").trim();
+      const forkName = String(config.forkName || "");
       if (!forkName) {
         throw new Error("Fork name is required");
       }
@@ -700,6 +717,17 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         destinationName: forkName,
         userPubkey,
       });
+      if (!sameLogicalRepo) {
+        const displayNameError = validateRepoDisplayName(
+          config.displayName ?? originalRepo.displayName ?? forkName
+        );
+        if (displayNameError) throw new Error(displayNameError);
+      }
+      releaseCoordinate = reserveRepoCreation(
+        userPubkey,
+        forkName,
+        getPendingRepoCreationTransactions()
+      );
       const effectiveCommunity =
         config.community === null
           ? undefined
@@ -720,9 +748,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       if (selectedTargets.length === 0) {
         throw new Error("Select at least one writable fork target");
       }
-      const disabledTarget = selectedTargets.find(
-        (target) => !isGitVendorEnabled(target.provider)
-      );
+      const disabledTarget = selectedTargets.find((target) => !isGitVendorEnabled(target.provider));
       if (disabledTarget) {
         throw new Error(`${disabledTarget.label} provider is disabled for repository fork`);
       }
@@ -757,6 +783,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         throw new Error(formatUnbackedGraspRelayError(unbackedGraspRelays));
       }
       const verifiedRelayUrls = assertRepoCreationPrerequisites({
+        existingCoordinate: sameLogicalRepo,
         ownerPubkey: userPubkey,
         repoName: forkName,
         targets: selectedTargets,
@@ -772,7 +799,14 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
           repoName: forkName,
           relayUrls: verifiedRelayUrls,
           onFetchRelayEvents: options.onFetchRelayEvents!,
+          knownEvents: options.getKnownRepoEvents?.(userPubkey, forkName),
         });
+      } else {
+        await assertRepoAnnouncementCurrent(
+          originalRepo.sourceAnnouncementEvent!,
+          verifiedRelayUrls,
+          options.onFetchRelayEvents!
+        );
       }
       const availableTokens = await tokensStore.waitForInitialization();
       selectedTargets = await preflightNewRemoteTargets({
@@ -783,6 +817,21 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         allowExistingRepoReuse: sameLogicalRepo,
         existingRepoMessage: "Destination already exists. A renamed fork requires unused targets.",
       });
+
+      if (!gitWorkerApi) {
+        const { getGitWorker } = await import("@nostr-git/core/worker");
+        temporaryWorkerClient = getGitWorker();
+        gitWorkerApi = temporaryWorkerClient.api;
+      }
+      if (
+        !sameLogicalRepo &&
+        gitWorkerApi.isRepoCloned &&
+        (await gitWorkerApi.isRepoCloned({ repoId: parseRepoId(`${userPubkey}:${forkName}`) }))
+      ) {
+        throw new Error(
+          `A local repository already exists for identifier "${forkName}". Open it or resolve its recorded creation before making a new fork.`
+        );
+      }
 
       const rollbackRelays = verifiedRelayUrls;
       publishedRepoRollbackContext = {
@@ -823,6 +872,13 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
             }
           : await publishRepoSyncAnnouncement({
               repoName: forkName,
+              displayName: config.displayName ?? originalRepo.displayName ?? forkName,
+              upstreams: sameLogicalRepo
+                ? undefined
+                : getForkUpstreamTags(originalRepo.sourceAnnouncementEvent, sourceUrlCandidates[0]),
+              sourceAnnouncement: sameLogicalRepo
+                ? originalRepo.sourceAnnouncementEvent
+                : undefined,
               repoDescription,
               userPubkey,
               targets: selectedTargets,
@@ -852,11 +908,6 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         "completed"
       );
 
-      if (!gitWorkerApi) {
-        const { getGitWorker } = await import("@nostr-git/core/worker");
-        temporaryWorkerClient = getGitWorker();
-        gitWorkerApi = temporaryWorkerClient.api;
-      }
       operationSession = new WorkerOperationSession(gitWorkerApi, operationId, 5000, (status) =>
         transactionJournal?.recordWorkerOperationStatus(status)
       );
@@ -959,6 +1010,10 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         workerApi: gitWorkerApi,
         localRepoId,
         repoName: forkName,
+        displayName: config.displayName ?? originalRepo.displayName ?? forkName,
+        upstreams: sameLogicalRepo
+          ? undefined
+          : getForkUpstreamTags(originalRepo.sourceAnnouncementEvent, sourceUrlCandidates[0]),
         repoDescription,
         defaultBranch: preparedSource.defaultBranch,
         refs: preparedSource.refs,
@@ -1090,6 +1145,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
 
       const stateEvent = createRepoStateEvent({
         repoId: finalRepoId,
+        identifier: forkName,
         refs:
           stateRefs.length > 0
             ? stateRefs.map((ref) => ({ type: ref.type, name: ref.name, commit: ref.commit }))
@@ -1131,6 +1187,14 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       const fixedWebUrls = successfulWebUrls.filter(
         (webUrl) => sourceWebUrls.has(webUrl) || !graspWebUrls.has(webUrl)
       );
+      if (sameLogicalRepo) {
+        await assertRepoAnnouncementCurrent(
+          originalRepo.sourceAnnouncementEvent!,
+          verifiedRelayUrls,
+          options.onFetchRelayEvents!,
+          transactionJournal.record.publishedEvents.map((entry) => entry.event.id)
+        );
+      }
       const reconciled = await reconcileRepoCreationEvents({
         relayUrls: relays,
         provisionalRelayUrls: selectedGraspTargetRelays,
@@ -1148,10 +1212,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         ),
         buildAnnouncement: ({ relays: nextRelays, graspCloneUrls, createdAt }) => {
           const retainedCloneUrls = new Set([...fixedCloneUrls, ...graspCloneUrls]);
-          return createRepoAnnouncementEvent({
-            repoId: finalRepoId,
-            name: sameLogicalRepo ? originalRepo.displayName || forkName : forkName,
-            description: repoDescription,
+          const hosting = {
             clone: candidateCloneOrder.filter((cloneUrl) => retainedCloneUrls.has(cloneUrl)),
             web: Array.from(
               new Set(
@@ -1162,6 +1223,24 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
               )
             ),
             relays: nextRelays,
+          };
+          if (sameLogicalRepo) {
+            return editRepoAnnouncementEvent(
+              originalRepo.sourceAnnouncementEvent!,
+              hosting,
+              createdAt
+            );
+          }
+          return createRepoAnnouncementEvent({
+            ...hosting,
+            repoId: finalRepoId,
+            identifier: forkName,
+            name: config.displayName ?? originalRepo.displayName ?? forkName,
+            description: repoDescription,
+            upstreams: getForkUpstreamTags(
+              originalRepo.sourceAnnouncementEvent,
+              sourceUrlCandidates[0]
+            ),
             ...(maintainers.length > 0 ? { maintainers } : {}),
             ...(hashtags.length > 0 ? { hashtags } : {}),
             ...(config.earliestUniqueCommit ||
@@ -1439,6 +1518,7 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
       return null;
     } finally {
       unsubscribeGitProgress?.();
+      releaseCoordinate?.();
       temporaryWorkerClient?.terminate?.();
       isForking = false;
       if (abortController === sessionAbortController) {

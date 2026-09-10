@@ -6,7 +6,7 @@ import {
   createRepoStateEvent as createStateEventShared,
   type RepoCommunityBinding,
 } from "@nostr-git/core/events";
-import { parseRepoId } from "@nostr-git/core/utils";
+import { parseRepoId, validateRepoDisplayName } from "@nostr-git/core/utils";
 import { tryTokensForHost, getTokensForHost } from "../utils/tokenHelpers.js";
 import { checkGraspRepoExists } from "../utils/grasp-availability.js";
 import {
@@ -23,6 +23,7 @@ import {
 } from "../utils/remote-targets.js";
 import {
   getRepoCreationProvisionalEvents,
+  getPendingRepoCreationTransactions,
   RepoCreationTransactionJournal,
   trackRepoCreationPublisher,
 } from "../utils/repo-creation-transaction.js";
@@ -46,6 +47,7 @@ import {
 } from "../utils/git-operation-progress.js";
 import {
   assertRepoCoordinateAvailable,
+  reserveRepoCreation,
   assertRepoCreationPrerequisites,
 } from "../utils/repo-creation-preflight.js";
 import {
@@ -112,17 +114,17 @@ async function checkGraspRepoAvailability(
   repoName: string,
   relayUrl?: string,
   userPubkey?: string
-): Promise<{ available: boolean; reason?: string; username?: string }> {
+): Promise<{ available: boolean; reason?: string; username?: string; error?: string }> {
   if (!relayUrl) {
     return {
       available: false,
-      reason: "GRASP relay URL is required to check repository availability",
+      error: "GRASP relay URL is required to check repository availability",
     };
   }
   if (!userPubkey) {
     return {
       available: false,
-      reason: "User pubkey is required to check GRASP repository availability",
+      error: "User pubkey is required to check GRASP repository availability",
     };
   }
 
@@ -135,10 +137,11 @@ async function checkGraspRepoAvailability(
       repoName,
     });
 
-    if (probe.exists) {
+    if (probe.exists || probe.provisioned) {
       return {
         available: false,
-        reason: "Repository name already exists on this GRASP relay",
+        reason:
+          "This identifier already has a repository or an incomplete creation on this GRASP service",
         username,
       };
     }
@@ -147,7 +150,7 @@ async function checkGraspRepoAvailability(
   } catch (error) {
     return {
       available: false,
-      reason: `Failed to check GRASP availability: ${error instanceof Error ? error.message : String(error)}`,
+      error: `Failed to check GRASP availability: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
 }
@@ -237,11 +240,12 @@ export async function checkProviderRepoAvailability(
           available: check.available,
           reason: check.reason,
           username: check.username,
+          error: check.error,
         },
       ],
-      hasConflicts: !check.available,
+      hasConflicts: !check.available && !check.error,
       availableProviders: check.available ? ["grasp"] : [],
-      conflictProviders: check.available ? [] : ["grasp"],
+      conflictProviders: check.available || check.error ? [] : ["grasp"],
     };
   }
 
@@ -264,12 +268,12 @@ export async function checkProviderRepoAvailability(
           provider,
           host: "unknown",
           available: false,
-          reason: "No token configured; destination availability is unknown.",
+          error: "No token configured; destination availability is unknown.",
         },
       ],
-      hasConflicts: true,
+      hasConflicts: false,
       availableProviders: [],
-      conflictProviders: [provider],
+      conflictProviders: [],
     };
   }
 
@@ -357,9 +361,9 @@ export async function checkProviderRepoAvailability(
                 username,
               },
             ],
-            hasConflicts: true,
+            hasConflicts: false,
             availableProviders: [],
-            conflictProviders: [provider],
+            conflictProviders: [],
           };
         }
       }
@@ -376,9 +380,9 @@ export async function checkProviderRepoAvailability(
           error: String(e?.message || e),
         },
       ],
-      hasConflicts: true,
+      hasConflicts: false,
       availableProviders: [],
-      conflictProviders: [provider],
+      conflictProviders: [],
     };
   }
 }
@@ -500,7 +504,9 @@ export async function checkMultiProviderRepoAvailability(
 }
 
 export interface NewRepoConfig {
+  /** Stable identifier used for coordinates and Git paths (legacy field name). */
   name: string;
+  displayName?: string;
   description?: string;
   defaultBranch: string;
   initializeWithReadme?: boolean;
@@ -556,6 +562,10 @@ export interface NewRepoProgress {
 }
 
 export interface UseNewRepoOptions {
+  getKnownRepoEvents?: (
+    owner: string,
+    identifier: string
+  ) => Array<Pick<NostrEvent, "kind" | "pubkey" | "tags">>;
   workerApi?: any; // Git worker API instance (optional for backward compatibility)
   workerInstance?: Worker; // Worker instance for event signing (required for GRASP)
   onProgress?: (progress: NewRepoProgress[]) => void;
@@ -666,6 +676,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
     }
 
     let transactionRemoteResults: RemoteSyncTargetResult[] = [];
+    let releaseCoordinate: (() => void) | undefined;
     let transactionJournal: RepoCreationTransactionJournal | undefined;
     let transactionPublisher = onPublishEvent;
     let transactionWorkerApi = options.workerApi;
@@ -725,6 +736,13 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       isCreating = true;
       error = null;
       progress = [];
+      const displayNameError = validateRepoDisplayName(config.displayName ?? config.name);
+      if (displayNameError) throw new Error(displayNameError);
+      releaseCoordinate = reserveRepoCreation(
+        userPubkey || config.authorPubkey || "",
+        config.name,
+        getPendingRepoCreationTransactions()
+      );
 
       // Compute canonical key up-front so all subsequent steps use it
       const canonicalKey = await computeCanonicalKey(config);
@@ -739,8 +757,8 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       transactionPublisher = trackRepoCreationPublisher(transactionJournal, onPublishEvent);
 
       const selectedProviders = getSelectedProviders(config);
-      const disabledProvider = selectedProviders.find((provider) =>
-        !isGitVendorEnabled(provider as GitVendor)
+      const disabledProvider = selectedProviders.find(
+        (provider) => !isGitVendorEnabled(provider as GitVendor)
       );
       if (disabledProvider) {
         throw new Error(`${disabledProvider} provider is disabled for repository creation`);
@@ -855,6 +873,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         repoName: config.name,
         relayUrls: verifiedRelayUrls,
         onFetchRelayEvents: options.onFetchRelayEvents!,
+        knownEvents: options.getKnownRepoEvents?.(creationPubkey, config.name),
       });
       if (workerApi.isRepoCloned && (await workerApi.isRepoCloned({ repoId: canonicalKey }))) {
         throw new Error("A local repository already exists for this owner and name");
@@ -872,6 +891,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       updateProgress("remotes", "Publishing repository metadata before Git setup...", "running");
       const announcementAdmission = await publishRepoSyncAnnouncement({
         repoName: config.name,
+        displayName: config.displayName ?? config.name,
         repoDescription: config.description || "",
         userPubkey: creationPubkey,
         targets,
@@ -931,6 +951,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         workerApi,
         localRepoId: canonicalKey,
         repoName: config.name,
+        displayName: config.displayName ?? config.name,
         repoDescription: config.description || "",
         defaultBranch,
         refs: remoteSyncRefs,
@@ -1064,6 +1085,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           relayUrl: primaryRelay,
           ownerPubkey: graspPubkey,
           repoName: config.name,
+          displayName: config.displayName ?? config.name,
           description: config.description || "",
           relays: finalRelays,
           cloneUrls: finalCloneUrls,
@@ -1081,7 +1103,8 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       } else {
         announcementEvent = createAnnouncementEventShared({
           repoId: config.name,
-          name: config.name,
+          identifier: config.name,
+          name: config.displayName ?? config.name,
           description: config.description || "",
           web: finalWebUrls.length > 0 ? finalWebUrls : undefined,
           clone: finalCloneUrls.length > 0 ? finalCloneUrls : undefined,
@@ -1147,7 +1170,8 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
             const retainedCloneUrls = new Set([...fixedCloneUrls, ...graspCloneUrls]);
             return createAnnouncementEventShared({
               repoId: config.name,
-              name: config.name,
+              identifier: config.name,
+              name: config.displayName ?? config.name,
               description: config.description || "",
               clone: candidateCloneOrder.filter((cloneUrl) => retainedCloneUrls.has(cloneUrl)),
               web: normalizeList([
@@ -1345,6 +1369,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       return null;
     } finally {
       unsubscribeGitProgress?.();
+      releaseCoordinate?.();
       isCreating = false;
       if (activeAbortController === sessionAbortController) activeAbortController = null;
       if (activeOperationSession === operationSession) activeOperationSession = null;
@@ -1373,7 +1398,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
 
     const createLocalRepoParams = {
       repoId: canonicalKey ?? config.name,
-      name: config.name,
+      name: config.displayName ?? config.name,
       description: config.description,
       defaultBranch: config.defaultBranch,
       initializeWithReadme: config.initializeWithReadme,

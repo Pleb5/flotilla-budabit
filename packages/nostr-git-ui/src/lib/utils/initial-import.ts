@@ -1,5 +1,7 @@
 import { ImportAbortController, type NostrEvent } from "@nostr-git/core";
 import { getEventHash, verifyEvent } from "nostr-tools";
+import { validateRepoIdentifier, validateRepoDisplayName } from "@nostr-git/core/utils";
+import { assertRepoCoordinateNotKnown } from "./repo-creation-preflight.js";
 import {
   extractPublishRelayAck,
   type FetchRelayEvents,
@@ -11,7 +13,6 @@ import {
   initialImportSourceKey,
   initialImportTemplate,
   inspectInitialImportSource,
-  isInitialImportName,
   isInitialImportRef,
   type ImportEventTemplate,
   type InitialImportSource,
@@ -42,6 +43,10 @@ export interface InitialImportGit {
   cleanup(job: InitialImportJob, operationId: string): Promise<void>;
 }
 export interface InitialImportRuntime {
+  getKnownRepoEvents?: (
+    owner: string,
+    identifier: string
+  ) => Array<Pick<NostrEvent, "kind" | "pubkey" | "tags">>;
   store: InitialImportStore;
   git: InitialImportGit;
   sign(template: ImportEventTemplate): Promise<NostrEvent>;
@@ -57,6 +62,7 @@ export interface InitialImportInput {
   sourceUrl: string;
   owner: string;
   name: string;
+  displayName?: string;
   relay: string;
   issues: boolean;
   comments: boolean;
@@ -108,6 +114,11 @@ async function assertNewCoordinate(
   job: InitialImportJob,
   runtime: InitialImportRuntime
 ): Promise<void> {
+  assertRepoCoordinateNotKnown(
+    job.owner,
+    job.name,
+    runtime.getKnownRepoEvents?.(job.owner, job.name) || []
+  );
   await runtime.git.assertNew(job);
   const events = await runtime.fetchEvents({
     relays: [job.relay],
@@ -134,11 +145,12 @@ export async function prepareInitialImport(
   runtime: InitialImportRuntime,
   signal: AbortSignal
 ): Promise<InitialImportJob> {
-  if (!/^[0-9a-f]{64}$/.test(input.owner) || !isInitialImportName(input.name)) {
-    throw new Error(
-      "Use a signed-in account and a new repository name (1–64 letters, digits, dots, underscores or hyphens; no .git suffix)"
-    );
-  }
+  const identityError =
+    validateRepoIdentifier(input.name) ||
+    (input.displayName !== undefined ? validateRepoDisplayName(input.displayName) : undefined);
+  if (identityError) throw new Error(identityError);
+  if (!/^[0-9a-f]{64}$/.test(input.owner))
+    throw new Error("Use a signed-in account for repository import");
   runtime.assertActor(input.owner);
   signal.throwIfAborted();
   const source = await (runtime.inspectSource || inspectInitialImportSource)(
@@ -155,9 +167,11 @@ export async function prepareInitialImport(
     version: 1,
     id,
     source,
+    upstream: `${source.url}.git`,
     refs,
     owner: input.owner,
     name: input.name,
+    ...(input.displayName !== undefined ? { displayName: input.displayName.trim() } : {}),
     relay: normalizeInitialImportRelay(input.relay),
     issues: input.issues,
     comments: input.issues && input.comments,

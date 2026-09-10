@@ -27,6 +27,11 @@
   import { normalizeGraspServerUrls } from "../../stores/graspServers.js";
   import type { NostrEvent } from "@nostr-git/core";
   import { isGitRemoteUrlEnabled } from "@nostr-git/core/git";
+  import {
+    suggestRepoIdentifier,
+    validateRepoIdentifier,
+    validateRepoDisplayName,
+  } from "@nostr-git/core/utils";
   import type { Token } from "$lib/stores/tokens";
   import type { ForkResult, ForkConfig } from "../../hooks/useForkRepo.svelte";
   import { toast } from "../../stores/toast";
@@ -94,6 +99,10 @@
       timeoutMs?: number;
       throwOnTimeout?: boolean;
     }) => Promise<NostrEvent[]>;
+    getKnownRepoEvents?: (
+      owner: string,
+      identifier: string
+    ) => Array<Pick<NostrEvent, "kind" | "pubkey" | "tags">>;
     onRollbackPublishedRepoEvents?: (params: {
       repoName: string;
       relays: string[];
@@ -140,6 +149,7 @@
     onPublishEvent,
     onDeleteEvent,
     onFetchRelayEvents,
+    getKnownRepoEvents,
     onRollbackPublishedRepoEvents,
     onClose,
     graspServerUrls = [],
@@ -199,6 +209,7 @@
       onPublishEvent,
       onDeleteEvent,
       onFetchRelayEvents,
+      getKnownRepoEvents,
       subscribeGitProgress,
     };
 
@@ -370,6 +381,8 @@
   });
 
   let forkName = $state("");
+  let forkDisplayName = $state("");
+  let forkIdentifierEdited = $state(false);
   let validationError = $state<string | undefined>();
   let resolvedGraspServices = $state<GraspServiceDescriptor[]>([]);
   let resolvingGraspServices = $state(false);
@@ -383,14 +396,9 @@
   );
 
   function validateForkName(name: string): string | undefined {
-    if (!name.trim()) return "Fork name is required";
-    if (name.length < 1 || name.length > 100) {
-      return "Fork name must be between 1 and 100 characters";
-    }
-    if (!/^[a-zA-Z0-9._-]+$/.test(name)) {
-      return "Fork name can only contain letters, numbers, dots, hyphens, and underscores";
-    }
-    return undefined;
+    return isAugmentingExistingRepo
+      ? undefined
+      : validateRepoIdentifier(name) || validateRepoDisplayName(forkDisplayName);
   }
 
   $effect(() => {
@@ -402,7 +410,15 @@
     const currentSeedKey = `${parsedUrl.hostname}/${originalRepo.owner}/${originalRepo.name}`;
     if (currentSeedKey !== formSeedKey) {
       formSeedKey = currentSeedKey;
-      forkName = originalRepo.name;
+      forkDisplayName = originalRepo.displayName || originalRepo.name;
+      forkName = isSameLogicalRepoAugmentation({
+        sourceAnnouncementEvent: originalRepo.sourceAnnouncementEvent,
+        destinationName: originalRepo.name,
+        userPubkey: pubkey,
+      })
+        ? originalRepo.name
+        : suggestRepoIdentifier(forkDisplayName);
+      forkIdentifierEdited = false;
       graspTargetRelayUrls = [""];
       initializedGraspTargetRelayUrls = false;
       selectedForkTargetIds = [];
@@ -642,7 +658,7 @@
         targets: seeds,
         tokenList,
         userPubkey: pubkey,
-        repoName: forkName.trim(),
+        repoName: forkName,
         options: {
           allowExistingRepoReuse: isAugmentingExistingRepo,
           existingRepoMessage:
@@ -1098,7 +1114,8 @@
     validationError = undefined;
 
     const forkConfig: ForkConfig = {
-      forkName: forkName.trim(),
+      forkName,
+      displayName: forkDisplayName.trim(),
       visibility: "public",
       targets: selectedForkTargets,
       includeBranches:
@@ -1303,15 +1320,34 @@
         {#if !isForking && !isProgressComplete}
           <form id="fork-form" class="space-y-5" onsubmit={onFormSubmit}>
             <div>
+              <label for="fork-display-name" class="block text-sm font-medium text-gray-300 mb-2"
+                >Display name *</label
+              >
+              <input
+                id="fork-display-name"
+                value={forkDisplayName}
+                readonly={isAugmentingExistingRepo}
+                oninput={(event) => {
+                  forkDisplayName = event.currentTarget.value;
+                  if (!forkIdentifierEdited) forkName = suggestRepoIdentifier(forkDisplayName);
+                }}
+                class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white"
+              />
+              {#if isAugmentingExistingRepo}<p class="mt-1 text-xs text-gray-400">
+                  Adding hosting preserves repository metadata. Edit the display name in settings.
+                </p>{/if}
+            </div>
+            <div>
               <label for="fork-name" class="block text-sm font-medium text-gray-300 mb-2">
-                Repository name *
+                Repository identifier *
               </label>
               <input
                 id="fork-name"
                 type="text"
                 bind:value={forkName}
+                oninput={() => (forkIdentifierEdited = true)}
                 bind:this={initialFocusEl}
-                placeholder="Enter fork name"
+                placeholder="my-project"
                 class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 aria-invalid={!!validationError}
                 aria-describedby={validationError ? "fork-name-error" : undefined}
@@ -1326,8 +1362,15 @@
                 </p>
               {/if}
               <p class="mt-1 text-xs text-gray-400">
-                Keeping the same name adds new successful remotes to the repo's clone URL list.
+                Fixed after creation. Keeping the same owner and identifier adds hosting; a
+                different owner or identifier creates an independent fork.
               </p>
+              {#if pubkey && forkName}<p
+                  class="mt-2 break-all text-xs text-gray-400"
+                  aria-label="Fork coordinate"
+                >
+                  30617:{pubkey}:{forkName}
+                </p>{/if}
             </div>
 
             <div class="space-y-4 border border-gray-700 rounded-lg p-4 bg-gray-900/60">
@@ -1537,245 +1580,258 @@
               </div>
             {/if}
 
-            <div>
-              <label for="earliest-commit" class="block text-sm font-medium text-gray-300 mb-2">
-                <GitCommit class="w-4 h-4 inline mr-1" />
-                Earliest Unique Commit {loadingCommits ? "(loading...)" : ""}
-              </label>
-              <div class="relative">
-                <input
-                  id="earliest-commit"
-                  type="text"
-                  bind:value={commitSearchQuery}
-                  onfocus={() => {
-                    commitInputFocused = true;
-                    if (availableCommits.length > 0) showCommitDropdown = true;
-                  }}
-                  onblur={() => {
-                    commitInputFocused = false;
-                    setTimeout(() => (showCommitDropdown = false), 200);
-                  }}
-                  disabled={loadingCommits}
-                  autocomplete="off"
-                  class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm"
-                  placeholder={earliestUniqueCommit || "Search commits or paste commit hash..."}
-                />
-                {#if commitInputFocused && loadingCommits}
-                  <div
-                    class="absolute z-10 mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-lg"
-                  >
-                    <div class="flex items-center space-x-2 text-sm text-gray-300">
-                      <Loader2 class="w-4 h-4 animate-spin" />
-                      <span>Loading commits...</span>
-                    </div>
-                  </div>
-                {:else if showCommitDropdown && filteredCommits.length > 0}
-                  <div
-                    class="absolute z-10 mt-1 max-h-[min(24rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
-                  >
-                    {#each filteredCommits as commit}
-                      <button
-                        type="button"
-                        onclick={() => {
-                          earliestUniqueCommit = commit.oid;
-                          commitSearchQuery = "";
-                          showCommitDropdown = false;
-                        }}
-                        class="w-full text-left px-3 py-2 hover:bg-gray-700 border-b border-gray-700 last:border-b-0"
-                      >
-                        <div class="flex items-start gap-2">
-                          <GitCommit class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
-                          <div class="flex-1 min-w-0">
-                            <div class="text-xs font-mono text-blue-700 dark:text-blue-400">
-                              {commit.oid?.slice(0, 7) || "unknown"}
-                            </div>
-                            <div class="break-words text-sm text-white">
-                              {commit.message?.split("\n")[0] ||
-                                commit.commit?.message?.split("\n")[0] ||
-                                "No message"}
-                            </div>
-                            <div class="text-xs text-gray-400 mt-0.5">
-                              {commit.author || commit.commit?.author?.name || "Unknown"} · {new Date(
-                                (commit.timestamp || commit.commit?.author?.timestamp || 0) * 1000
-                              ).toLocaleDateString()}
-                            </div>
-                          </div>
-                        </div>
-                      </button>
-                    {/each}
-                  </div>
-                {/if}
-              </div>
-              {#if earliestUniqueCommit}
-                <div
-                  class="mt-2 flex min-w-0 items-center justify-between rounded bg-gray-800/50 p-2 font-mono text-xs text-gray-300"
-                >
-                  <span class="min-w-0 break-all">{earliestUniqueCommit}</span>
-                  <button
-                    type="button"
-                    onclick={() => (earliestUniqueCommit = "")}
-                    class="ml-2 inline-flex min-h-10 min-w-10 flex-shrink-0 items-center justify-center text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-                    aria-label="Clear commit"
-                  >
-                    <X class="w-4 h-4" />
-                  </button>
-                </div>
-              {/if}
-              <p class="text-gray-400 text-xs mt-1">
-                The commit ID of the earliest unique commit to identify this fork among other forks
-              </p>
-            </div>
-
-            <div class="space-y-4 border-t border-gray-700 pt-4">
+            {#if !isAugmentingExistingRepo}
               <div>
-                <h4 class="text-sm font-medium text-gray-300">Fork metadata</h4>
-                <p class="text-xs text-gray-400">
-                  Optional NIP-34 fields for your fork announcement.
-                </p>
-              </div>
-
-              <RepoCommunitySelect
-                options={communityOptions}
-                bind:value={selectedCommunityPubkey}
-                label="Repository community"
-                description="Optionally bind this fork to one community as part of its identity."
-              />
-
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
-                  <Hash class="w-4 h-4 inline mr-1" />
-                  Tags/Topics
+                <label for="earliest-commit" class="block text-sm font-medium text-gray-300 mb-2">
+                  <GitCommit class="w-4 h-4 inline mr-1" />
+                  Earliest Unique Commit {loadingCommits ? "(loading...)" : ""}
                 </label>
-                {#if tags.length > 0}
-                  <div class="flex flex-wrap gap-2 mb-2">
-                    {#each tags as tag}
-                      <div
-                        class="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-gray-800 py-2 pl-3 text-sm"
-                      >
-                        <Hash class="w-3 h-3 text-gray-400" />
-                        <span class="min-w-0 break-all text-sm text-white">{tag}</span>
-                        <button
-                          type="button"
-                          onclick={() => (tags = tags.filter((value) => value !== tag))}
-                          class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 transition-colors hover:text-gray-200"
-                          aria-label="Remove tag"
-                        >
-                          <X class="w-4 h-4" />
-                        </button>
-                      </div>
-                    {/each}
-                  </div>
-                {/if}
-
                 <div class="relative">
                   <input
-                    bind:this={hashtagInputElement}
+                    id="earliest-commit"
                     type="text"
-                    bind:value={hashtagSearchQuery}
+                    bind:value={commitSearchQuery}
                     onfocus={() => {
-                      if (hashtagSearchQuery.trim()) {
-                        showHashtagAutocomplete =
-                          hashtagSearchResults.length > 0 || canCreateCustomTag();
-                      }
+                      commitInputFocused = true;
+                      if (availableCommits.length > 0) showCommitDropdown = true;
                     }}
                     onblur={() => {
-                      setTimeout(() => {
-                        showHashtagAutocomplete = false;
-                        highlightedHashtagIndex = -1;
-                      }, 250);
+                      commitInputFocused = false;
+                      setTimeout(() => (showCommitDropdown = false), 200);
                     }}
-                    onkeydown={handleHashtagKeydown}
+                    disabled={loadingCommits}
                     autocomplete="off"
-                    class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    placeholder="Search or type to add tags (press Enter)"
+                    class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed font-mono text-sm"
+                    placeholder={earliestUniqueCommit || "Search commits or paste commit hash..."}
                   />
-                  {#if showHashtagAutocomplete}
+                  {#if commitInputFocused && loadingCommits}
                     <div
-                      role="listbox"
-                      aria-label="Hashtag suggestions"
-                      class="absolute z-[50] mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
+                      class="absolute z-10 mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 p-4 shadow-lg"
                     >
-                      {#each hashtagSearchResults as tag, index}
-                        {@const isAlreadyAdded = tagExists(tag)}
+                      <div class="flex items-center space-x-2 text-sm text-gray-300">
+                        <Loader2 class="w-4 h-4 animate-spin" />
+                        <span>Loading commits...</span>
+                      </div>
+                    </div>
+                  {:else if showCommitDropdown && filteredCommits.length > 0}
+                    <div
+                      class="absolute z-10 mt-1 max-h-[min(24rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
+                    >
+                      {#each filteredCommits as commit}
                         <button
                           type="button"
-                          role="option"
-                          aria-selected={index === highlightedHashtagIndex}
-                          disabled={isAlreadyAdded}
-                          onmousedown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
                           onclick={() => {
-                            if (!isAlreadyAdded) addHashtag(tag);
+                            earliestUniqueCommit = commit.oid;
+                            commitSearchQuery = "";
+                            showCommitDropdown = false;
                           }}
-                          class="w-full text-left px-3 py-2 text-sm flex items-center gap-2 {index ===
-                          highlightedHashtagIndex
-                            ? 'bg-gray-700'
-                            : 'hover:bg-gray-700'} {isAlreadyAdded
-                            ? 'opacity-50 cursor-not-allowed'
-                            : ''}"
+                          class="w-full text-left px-3 py-2 hover:bg-gray-700 border-b border-gray-700 last:border-b-0"
                         >
-                          <Hash class="w-3 h-3 text-gray-400" />
-                          <span class="min-w-0 flex-1 break-all">{tag}</span>
-                          {#if isAlreadyAdded}
-                            <span class="text-xs text-gray-400">(already added)</span>
-                          {/if}
+                          <div class="flex items-start gap-2">
+                            <GitCommit class="w-4 h-4 text-gray-400 mt-0.5 flex-shrink-0" />
+                            <div class="flex-1 min-w-0">
+                              <div class="text-xs font-mono text-blue-700 dark:text-blue-400">
+                                {commit.oid?.slice(0, 7) || "unknown"}
+                              </div>
+                              <div class="break-words text-sm text-white">
+                                {commit.message?.split("\n")[0] ||
+                                  commit.commit?.message?.split("\n")[0] ||
+                                  "No message"}
+                              </div>
+                              <div class="text-xs text-gray-400 mt-0.5">
+                                {commit.author || commit.commit?.author?.name || "Unknown"} · {new Date(
+                                  (commit.timestamp || commit.commit?.author?.timestamp || 0) * 1000
+                                ).toLocaleDateString()}
+                              </div>
+                            </div>
+                          </div>
                         </button>
                       {/each}
-                      {#if canCreateCustomTag()}
-                        <button
-                          type="button"
-                          role="option"
-                          aria-selected={highlightedHashtagIndex === hashtagSearchResults.length}
-                          onmousedown={(event) => {
-                            event.preventDefault();
-                            event.stopPropagation();
-                          }}
-                          onclick={() => addHashtag(hashtagSearchQuery)}
-                          class="w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-t border-gray-700 {highlightedHashtagIndex ===
-                          hashtagSearchResults.length
-                            ? 'bg-gray-700'
-                            : 'hover:bg-gray-700'}"
-                        >
-                          <Plus class="w-3 h-3 text-blue-700 dark:text-blue-400" />
-                          <span
-                            class="min-w-0 break-words font-medium text-blue-700 dark:text-blue-400"
-                            >Create tag: {getNormalizedQuery()}</span
-                          >
-                        </button>
-                      {/if}
                     </div>
                   {/if}
                 </div>
-                <p class="mt-1 text-xs text-gray-400">Add tags or topics for this repository</p>
+                {#if earliestUniqueCommit}
+                  <div
+                    class="mt-2 flex min-w-0 items-center justify-between rounded bg-gray-800/50 p-2 font-mono text-xs text-gray-300"
+                  >
+                    <span class="min-w-0 break-all">{earliestUniqueCommit}</span>
+                    <button
+                      type="button"
+                      onclick={() => (earliestUniqueCommit = "")}
+                      class="ml-2 inline-flex min-h-10 min-w-10 flex-shrink-0 items-center justify-center text-red-700 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
+                      aria-label="Clear commit"
+                    >
+                      <X class="w-4 h-4" />
+                    </button>
+                  </div>
+                {/if}
+                <p class="text-gray-400 text-xs mt-1">
+                  The commit ID of the earliest unique commit to identify this fork among other
+                  forks
+                </p>
               </div>
+            {/if}
 
-              <div>
-                <label class="block text-sm font-medium text-gray-300 mb-2">
-                  <Users class="w-4 h-4 inline mr-1" />
-                  Additional Maintainers
-                </label>
-                <PeoplePicker
-                  selected={maintainers}
-                  placeholder="Search by name, nip-05, or npub..."
-                  maxSelections={50}
-                  showAvatars={true}
-                  showSuggestionsOnFocus={true}
-                  compact={false}
-                  getProfile={getProfile}
-                  searchProfiles={searchProfiles ? searchMaintainerProfiles : undefined}
-                  searchProfilesUpdateSignal={searchProfilesUpdateSignal}
-                  searchProfilesContextKey={selectedCommunityPubkey}
-                  add={(value: string) => {
-                    if (!maintainers.includes(value)) maintainers = [...maintainers, value];
-                  }}
-                  remove={(value: string) => {
-                    maintainers = maintainers.filter((entry) => entry !== value);
-                  }}
+            <div class="space-y-4 border-t border-gray-700 pt-4">
+              {#if !isAugmentingExistingRepo}
+                <div>
+                  <h4 class="text-sm font-medium text-gray-300">Fork metadata</h4>
+                  <p class="text-xs text-gray-400">
+                    Optional NIP-34 fields for your fork announcement.
+                  </p>
+                </div>
+
+                <RepoCommunitySelect
+                  options={communityOptions}
+                  bind:value={selectedCommunityPubkey}
+                  label="Repository community"
+                  description="Optionally bind this fork to one community as part of its identity."
                 />
-                <p class="mt-1 text-xs text-gray-400">Maintainer public keys (npub or hex)</p>
-              </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-300 mb-2">
+                    <Hash class="w-4 h-4 inline mr-1" />
+                    Tags/Topics
+                  </label>
+                  {#if tags.length > 0}
+                    <div class="flex flex-wrap gap-2 mb-2">
+                      {#each tags as tag}
+                        <div
+                          class="flex min-w-0 max-w-full items-center gap-2 rounded-lg bg-gray-800 py-2 pl-3 text-sm"
+                        >
+                          <Hash class="w-3 h-3 text-gray-400" />
+                          <span class="min-w-0 break-all text-sm text-white">{tag}</span>
+                          <button
+                            type="button"
+                            onclick={() => (tags = tags.filter((value) => value !== tag))}
+                            class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-gray-400 transition-colors hover:text-gray-200"
+                            aria-label="Remove tag"
+                          >
+                            <X class="w-4 h-4" />
+                          </button>
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+
+                  <div class="relative">
+                    <input
+                      bind:this={hashtagInputElement}
+                      type="text"
+                      bind:value={hashtagSearchQuery}
+                      onfocus={() => {
+                        if (hashtagSearchQuery.trim()) {
+                          showHashtagAutocomplete =
+                            hashtagSearchResults.length > 0 || canCreateCustomTag();
+                        }
+                      }}
+                      onblur={() => {
+                        setTimeout(() => {
+                          showHashtagAutocomplete = false;
+                          highlightedHashtagIndex = -1;
+                        }, 250);
+                      }}
+                      onkeydown={handleHashtagKeydown}
+                      autocomplete="off"
+                      class="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      placeholder="Search or type to add tags (press Enter)"
+                    />
+                    {#if showHashtagAutocomplete}
+                      <div
+                        role="listbox"
+                        aria-label="Hashtag suggestions"
+                        class="absolute z-[50] mt-1 max-h-[min(15rem,50dvh)] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-lg border border-gray-600 bg-gray-800 shadow-lg"
+                      >
+                        {#each hashtagSearchResults as tag, index}
+                          {@const isAlreadyAdded = tagExists(tag)}
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={index === highlightedHashtagIndex}
+                            disabled={isAlreadyAdded}
+                            onmousedown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onclick={() => {
+                              if (!isAlreadyAdded) addHashtag(tag);
+                            }}
+                            class="w-full text-left px-3 py-2 text-sm flex items-center gap-2 {index ===
+                            highlightedHashtagIndex
+                              ? 'bg-gray-700'
+                              : 'hover:bg-gray-700'} {isAlreadyAdded
+                              ? 'opacity-50 cursor-not-allowed'
+                              : ''}"
+                          >
+                            <Hash class="w-3 h-3 text-gray-400" />
+                            <span class="min-w-0 flex-1 break-all">{tag}</span>
+                            {#if isAlreadyAdded}
+                              <span class="text-xs text-gray-400">(already added)</span>
+                            {/if}
+                          </button>
+                        {/each}
+                        {#if canCreateCustomTag()}
+                          <button
+                            type="button"
+                            role="option"
+                            aria-selected={highlightedHashtagIndex === hashtagSearchResults.length}
+                            onmousedown={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                            }}
+                            onclick={() => addHashtag(hashtagSearchQuery)}
+                            class="w-full text-left px-3 py-2 text-sm flex items-center gap-2 border-t border-gray-700 {highlightedHashtagIndex ===
+                            hashtagSearchResults.length
+                              ? 'bg-gray-700'
+                              : 'hover:bg-gray-700'}"
+                          >
+                            <Plus class="w-3 h-3 text-blue-700 dark:text-blue-400" />
+                            <span
+                              class="min-w-0 break-words font-medium text-blue-700 dark:text-blue-400"
+                              >Create tag: {getNormalizedQuery()}</span
+                            >
+                          </button>
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+                  <p class="mt-1 text-xs text-gray-400">Add tags or topics for this repository</p>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-300 mb-2">
+                    <Users class="w-4 h-4 inline mr-1" />
+                    Additional Maintainers
+                  </label>
+                  <PeoplePicker
+                    selected={maintainers}
+                    placeholder="Search by name, nip-05, or npub..."
+                    maxSelections={50}
+                    showAvatars={true}
+                    showSuggestionsOnFocus={true}
+                    compact={false}
+                    getProfile={getProfile}
+                    searchProfiles={searchProfiles ? searchMaintainerProfiles : undefined}
+                    searchProfilesUpdateSignal={searchProfilesUpdateSignal}
+                    searchProfilesContextKey={selectedCommunityPubkey}
+                    add={(value: string) => {
+                      if (!maintainers.includes(value)) maintainers = [...maintainers, value];
+                    }}
+                    remove={(value: string) => {
+                      maintainers = maintainers.filter((entry) => entry !== value);
+                    }}
+                  />
+                  <p class="mt-1 text-xs text-gray-400">
+                    Inherited maintainer defaults (npub or hex). Review these permissions for your
+                    independent fork.
+                  </p>
+                </div>
+              {:else}
+                <p class="text-sm text-gray-400">
+                  Adding hosting preserves the display name, upstreams, maintainers and other
+                  repository metadata. Change those fields in repository settings.
+                </p>
+              {/if}
 
               <div>
                 <label class="block text-sm font-medium text-gray-300 mb-2">

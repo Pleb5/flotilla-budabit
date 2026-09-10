@@ -44,6 +44,21 @@ function record(): InitialImportJob {
 beforeEach(() => vi.stubGlobal("indexedDB", new IDBFactory()));
 
 describe("initial import recovery validation", () => {
+  it("keeps new display names and upstreams immutable without changing legacy recovery metadata", async () => {
+    const legacy = record();
+    expect(initialImportMetadata(legacy, "announcement").tags.some((tag) => tag[0] === "u")).toBe(
+      false
+    );
+    const job = { ...legacy, displayName: "名前", upstream: `${legacy.source.url}.git` };
+    const tags = initialImportMetadata(job, "announcement").tags;
+    expect(tags).toContainEqual(["d", "repo"]);
+    expect(tags).toContainEqual(["name", "名前"]);
+    expect(tags).toContainEqual(["u", `${legacy.source.url}.git`]);
+    const store = new IndexedInitialImportStore();
+    await store.create(job);
+    await expect(store.save({ ...job, displayName: "Changed after review" })).rejects.toThrow();
+    await store.close();
+  });
   it("rejects corrupt states, counters and ref names before reuse", () => {
     for (const changes of [
       { status: "anything" },

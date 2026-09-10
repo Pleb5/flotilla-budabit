@@ -6,7 +6,12 @@ import {
   type OperationStatus,
   type WorkerMutationOperation,
 } from "@nostr-git/core";
-import { createRepoAnnouncementEvent, type RepoCommunityBinding } from "@nostr-git/core/events";
+import {
+  createRepoAnnouncementEvent,
+  editRepoAnnouncementEvent,
+  type RepoAnnouncementEvent,
+  type RepoCommunityBinding,
+} from "@nostr-git/core/events";
 import {
   hasMatchingGraspRepoCloneUrl,
   normalizeRelayUrl,
@@ -54,9 +59,9 @@ export interface RemoteSyncRef {
 }
 
 export type RemoteRefObservation =
-  | {status: "confirmed"; refs: string[]}
-  | {status: "diverged"; refs: string[]}
-  | {status: "unknown"; error: unknown}
+  | { status: "confirmed"; refs: string[] }
+  | { status: "diverged"; refs: string[] }
+  | { status: "unknown"; error: unknown };
 
 export type RemoteSyncTargetStage =
   | "planned"
@@ -135,6 +140,8 @@ export interface SyncLocalRepoToTargetsOptions {
   localRepoId: string;
   repoName: string;
   repoDescription: string;
+  displayName?: string;
+  upstreams?: Array<["u", string, ...string[]]>;
   defaultBranch: string;
   refs: RemoteSyncRef[];
   targets: RemoteTargetSelection[];
@@ -172,6 +179,9 @@ export interface SyncLocalRepoToTargetsOptions {
 
 export interface PublishRepoSyncAnnouncementOptions {
   repoName: string;
+  displayName?: string;
+  upstreams?: Array<["u", string, ...string[]]>;
+  sourceAnnouncement?: RepoAnnouncementEvent;
   repoDescription?: string;
   userPubkey: string;
   targets: RemoteTargetSelection[];
@@ -215,6 +225,9 @@ function isNewerReplaceableEvent(candidate: NostrEvent, current?: NostrEvent): b
 
 export async function publishRepoSyncAnnouncement({
   repoName,
+  displayName,
+  upstreams,
+  sourceAnnouncement,
   repoDescription = "",
   userPubkey,
   targets,
@@ -265,11 +278,13 @@ export async function publishRepoSyncAnnouncement({
     ownerPubkey: userPubkey,
     repoName,
   });
-  const announcementEvent = allGraspRelayUrls[0]
+  let announcementEvent = allGraspRelayUrls[0]
     ? createGraspAnnouncementAndState({
         relayUrl: allGraspRelayUrls[0],
         ownerPubkey: userPubkey,
         repoName,
+        displayName,
+        upstreams,
         description: repoDescription,
         relays: candidateRelays,
         cloneUrls: Array.from(
@@ -280,13 +295,46 @@ export async function publishRepoSyncAnnouncement({
       }).announcementEvent
     : createRepoAnnouncementEvent({
         repoId: repoName,
-        name: repoName,
+        identifier: repoName,
+        name: displayName ?? repoName,
+        upstreams,
         description: repoDescription,
         relays: candidateRelays,
         clone: sourceCloneUrls.filter(Boolean),
         web: sourceWebUrls.filter(Boolean),
         community,
       });
+
+  if (sourceAnnouncement) {
+    if (
+      sourceAnnouncement.pubkey !== userPubkey ||
+      sourceAnnouncement.tags.find((tag) => tag[0] === "d")?.[1] !== repoName
+    ) {
+      throw new Error("Hosting augmentation requires the exact owner's repository coordinate");
+    }
+    announcementEvent = editRepoAnnouncementEvent(sourceAnnouncement, {
+      clone: Array.from(
+        new Set(
+          [...sourceAnnouncement.tags, ...announcementEvent.tags]
+            .filter((tag) => tag[0] === "clone")
+            .flatMap((tag) => tag.slice(1))
+        )
+      ),
+      web: Array.from(
+        new Set(
+          [...sourceAnnouncement.tags, ...announcementEvent.tags]
+            .filter((tag) => tag[0] === "web")
+            .flatMap((tag) => tag.slice(1))
+        )
+      ),
+      relays: sanitizeRelays([
+        ...sourceAnnouncement.tags
+          .filter((tag) => tag[0] === "relays")
+          .flatMap((tag) => tag.slice(1)),
+        ...candidateRelays,
+      ]),
+    });
+  }
 
   const announcementByGraspRelay: Record<string, NostrEvent> = {};
   const existingAnnouncements: NostrEvent[] = [];
@@ -817,17 +865,20 @@ export async function inspectRequestedRemoteRefs(params: {
   refs: RemoteSyncRef[];
 }): Promise<RemoteRefObservation> {
   if (!params.workerApi?.listServerRefs) {
-    return {status: "unknown", error: new Error("Remote ref postflight verification is unavailable")};
+    return {
+      status: "unknown",
+      error: new Error("Remote ref postflight verification is unavailable"),
+    };
   }
 
-  let advertisedRefs: Array<{ref?: string; oid?: string}>;
+  let advertisedRefs: Array<{ ref?: string; oid?: string }>;
   try {
     advertisedRefs = (await params.workerApi.listServerRefs({
       url: params.remoteUrl,
       symrefs: true,
-    })) as Array<{ref?: string; oid?: string}>;
+    })) as Array<{ ref?: string; oid?: string }>;
   } catch (error) {
-    return {status: "unknown", error};
+    return { status: "unknown", error };
   }
   const advertisedByRef = new Map(
     (advertisedRefs || []).map((ref) => [String(ref.ref || ""), String(ref.oid || "")])
@@ -839,10 +890,10 @@ export async function inspectRequestedRemoteRefs(params: {
   });
 
   if (mismatches.length > 0) {
-    return {status: "diverged", refs: mismatches.map((ref) => ref.ref)};
+    return { status: "diverged", refs: mismatches.map((ref) => ref.ref) };
   }
 
-  return {status: "confirmed", refs: params.refs.map((ref) => ref.ref)};
+  return { status: "confirmed", refs: params.refs.map((ref) => ref.ref) };
 }
 
 export async function verifyRequestedRemoteRefs(params: {
@@ -1051,6 +1102,8 @@ export async function syncLocalRepoToTargets(
     localRepoId,
     repoName,
     repoDescription,
+    displayName,
+    upstreams,
     defaultBranch,
     targets,
     userPubkey,
@@ -1212,6 +1265,8 @@ export async function syncLocalRepoToTargets(
         ownerPubkey: userPubkey,
         repoName,
         description: repoDescription,
+        displayName,
+        upstreams,
         relays: canonicalGraspRelays,
         cloneUrls: selectedGraspCloneUrls,
         webUrls: webUrls.length > 0 ? webUrls : undefined,
@@ -1426,6 +1481,8 @@ export async function syncLocalRepoToTargets(
               ownerPubkey: userPubkey,
               repoName,
               description: repoDescription,
+              displayName,
+              upstreams,
               relays: canonicalGraspRelays,
               cloneUrls: [remoteUrl],
               webUrls: webUrls.length > 0 ? webUrls : webUrl ? [webUrl] : undefined,

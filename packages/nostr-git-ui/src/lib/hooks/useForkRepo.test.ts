@@ -28,6 +28,25 @@ describe("isSameLogicalRepoAugmentation", () => {
     ).toBe(true);
   });
 
+  it("never normalizes an accepted identifier to decide repository identity", () => {
+    for (const identifier of ["Repo", "repo ", "legacy/path:id"]) {
+      expect(
+        isSameLogicalRepoAugmentation({
+          sourceAnnouncementEvent: sourceEvent(identifier),
+          destinationName: identifier,
+          userPubkey: ownerPubkey,
+        })
+      ).toBe(true);
+      expect(
+        isSameLogicalRepoAugmentation({
+          sourceAnnouncementEvent: sourceEvent(identifier),
+          destinationName: "repo",
+          userPubkey: ownerPubkey,
+        })
+      ).toBe(false);
+    }
+  });
+
   it("keeps renamed and different-owner destinations on the new-fork path", () => {
     expect(
       isSameLogicalRepoAugmentation({

@@ -21,6 +21,7 @@ import type {
 import type { RemoteTargetSelection } from "./remote-targets.js";
 import type { OperationStatus } from "@nostr-git/core";
 import { assertGraspCloneRelayCoupling } from "./grasp-service-coupling.js";
+import { assertRepoAnnouncementCurrent } from "./repo-creation-preflight.js";
 
 export type RepoCreationOperation = "new" | "import" | "fork";
 export type RepoCreationPhase = "syncing" | "metadata-pending" | "cleanup-pending" | "failed";
@@ -1027,6 +1028,19 @@ export async function retryPendingRepoCreationMetadata(
   };
   let recoveryCleanupFailures: RepoCreationRecoveryRecord["pendingCompensations"] = [];
   if (statePublish.ackedRelays.length < relays.length) {
+    const source = record.sourceMetadata?.announcementEvent;
+    if (source) {
+      if (!fetchRelayEvents)
+        throw new Error(
+          "Hosting recovery needs current announcement reads before replacing metadata"
+        );
+      await assertRepoAnnouncementCurrent(
+        source,
+        relays,
+        fetchRelayEvents,
+        record.publishedEvents.map((item) => item.event.id)
+      );
+    }
     const graspCloneUrls = new Set(successfulGraspTargets.map((target) => target.cloneUrl));
     const graspWebUrls = new Set(
       record.targetResults
