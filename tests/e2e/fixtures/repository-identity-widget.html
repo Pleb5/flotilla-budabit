@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Repository identity probe</title>
+    <style>
+      body {
+        background: #161c24;
+        color: #eee;
+        font: 14px system-ui;
+        padding: 16px;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <h2>Repository identity probe</h2>
+    <p>Local fixture: context and isolated storage only. No signing or publication.</p>
+    <pre id="context">Waiting for repository context</pre>
+    <script>
+      let nextId = 0
+      const pending = new Map()
+      window.identityProbe = {
+        context: null,
+        request(action, payload = {}) {
+          return new Promise((resolve, reject) => {
+            const id = `identity-probe-${++nextId}`
+            const timeout = setTimeout(() => {
+              pending.delete(id)
+              reject(new Error(`No ${action} response`))
+            }, 5000)
+            pending.set(id, data => {
+              clearTimeout(timeout)
+              resolve(data)
+            })
+            parent.postMessage({id, type: "request", action, payload}, location.origin)
+          })
+        },
+      }
+      addEventListener("message", event => {
+        if (event.source !== parent || event.origin !== location.origin) return
+        const data = event.data || {}
+        if (data.type === "response") {
+          pending.get(data.id)?.(data.payload)
+          pending.delete(data.id)
+        } else if (data.action === "context:update") {
+          window.identityProbe.context = data.payload
+          document.querySelector("#context").textContent = JSON.stringify(data.payload, null, 2)
+        }
+      })
+      parent.postMessage({type: "event", action: "widget:ready"}, location.origin)
+    </script>
+  </body>
+</html>
