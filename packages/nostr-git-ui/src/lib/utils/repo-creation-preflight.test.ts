@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
+import { nip19 } from "nostr-tools";
+import { getRepoStorageKey } from "@nostr-git/core/git";
 
 import {
   assertRepoCoordinateAvailable,
+  assertLocalRepoCoordinateAvailable,
   reserveRepoCreation,
   assertRepoCreationPrerequisites,
 } from "./repo-creation-preflight.js";
@@ -10,6 +13,54 @@ import type { RepoCreationRecoveryRecord } from "./repo-creation-transaction.js"
 const target = { id: "git:github.com", label: "GitHub", provider: "github" as const };
 
 describe("repository creation preflight", () => {
+  it.each(["conventional", "grasp"])(
+    "blocks a locally stored %s destination even without cached metadata",
+    async (hosting) => {
+      const owner = "a".repeat(64);
+      const identifier = "Fixed.ID";
+      const stored = getRepoStorageKey({
+        pubkey: owner,
+        tags: [
+          ["d", identifier],
+          ["name", "Display only"],
+          [
+            "clone",
+            hosting === "grasp"
+              ? `https://old-host.test/${nip19.npubEncode(owner)}/${identifier}.git`
+              : `https://github.com/fixture/${identifier}.git`,
+          ],
+        ],
+      });
+      const check = vi.fn(async ({ repoId }) => repoId === stored);
+      await expect(assertLocalRepoCoordinateAvailable(owner, identifier, check)).rejects.toThrow(
+        /local repository already exists/
+      );
+      expect(check).toHaveBeenCalledWith({ repoId: stored });
+      await expect(
+        assertLocalRepoCoordinateAvailable("b".repeat(64), identifier, check)
+      ).resolves.toBeUndefined();
+      await expect(
+        assertLocalRepoCoordinateAvailable(owner, "different", check)
+      ).resolves.toBeUndefined();
+    }
+  );
+
+  it("does not treat an unknown local check as available", async () => {
+    await expect(
+      assertLocalRepoCoordinateAvailable(
+        "a".repeat(64),
+        "repo",
+        vi.fn().mockRejectedValue(new Error("worker unavailable"))
+      )
+    ).rejects.toThrow(/Could not verify local/);
+    await expect(
+      assertLocalRepoCoordinateAvailable(
+        "a".repeat(64),
+        "repo",
+        vi.fn().mockResolvedValue(undefined)
+      )
+    ).rejects.toThrow(/Could not verify local/);
+  });
   it("checks locally accepted metadata without treating the cache as per-relay readback evidence", async () => {
     const fetch = vi.fn().mockResolvedValue([]);
     await expect(

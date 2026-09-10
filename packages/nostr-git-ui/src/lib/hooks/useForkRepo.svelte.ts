@@ -65,6 +65,7 @@ import {
 } from "../utils/git-operation-progress.js";
 import {
   assertRepoCoordinateAvailable,
+  assertLocalRepoCoordinateAvailable,
   assertRepoAnnouncementCurrent,
   reserveRepoCreation,
   assertRepoCreationPrerequisites,
@@ -823,13 +824,9 @@ export function useForkRepo(options: UseForkRepoOptions = {}) {
         temporaryWorkerClient = getGitWorker();
         gitWorkerApi = temporaryWorkerClient.api;
       }
-      if (
-        !sameLogicalRepo &&
-        gitWorkerApi.isRepoCloned &&
-        (await gitWorkerApi.isRepoCloned({ repoId: parseRepoId(`${userPubkey}:${forkName}`) }))
-      ) {
-        throw new Error(
-          `A local repository already exists for identifier "${forkName}". Open it or resolve its recorded creation before making a new fork.`
+      if (!sameLogicalRepo) {
+        await assertLocalRepoCoordinateAvailable(userPubkey, forkName, (params) =>
+          gitWorkerApi.isRepoCloned(params)
         );
       }
 

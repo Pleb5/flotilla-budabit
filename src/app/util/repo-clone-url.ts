@@ -11,7 +11,7 @@ export function buildDefaultNgitCloneUrl(repo: {
   if (!owner || !identifier) return undefined
   try {
     const ownerNpub = owner.startsWith("npub1") ? owner : nip19.npubEncode(owner)
-    return `nostr://${ownerNpub}/${identifier}`
+    return `nostr://${ownerNpub}/${encodeURIComponent(identifier)}`
   } catch {
     return undefined
   }

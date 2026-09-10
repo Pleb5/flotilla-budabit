@@ -1,7 +1,5 @@
 import {
   GIT_REPO_ANNOUNCEMENT,
-  buildRepoKey,
-  parseRepoAnnouncementEvent,
   type BookmarkAddress,
   type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
@@ -47,34 +45,22 @@ export const getRepoAddressFromEvent = (event: RepoAnnouncementEvent): string =>
 }
 
 export const getCanonicalRepoKeyFromEvent = (event?: RepoAnnouncementEvent | null): string => {
-  if (!event?.pubkey) return ""
-
-  try {
-    const parsed = parseRepoAnnouncementEvent(event)
-    return buildRepoKey(event.pubkey, parsed.name || parsed.repoId || "")
-  } catch {
-    const dTag = (event.tags || []).find((tag: string[]) => tag[0] === "d")?.[1] || ""
-    return buildRepoKey(event.pubkey, dTag)
-  }
+  if (event?.kind !== GIT_REPO_ANNOUNCEMENT || !event.pubkey) return ""
+  const identifier = event.tags.find(tag => tag[0] === "d")?.[1]
+  // Collection identity is the exact coordinate, including opaque legacy identifiers.
+  return identifier ? `${GIT_REPO_ANNOUNCEMENT}:${event.pubkey}:${identifier}` : ""
 }
 
 export const getCanonicalRepoKeyFromBookmark = ({
   bookmark,
-  getCachedEvent,
 }: {
   bookmark: BookmarkAddress
   getCachedEvent?: (address: string) => RepoAnnouncementEvent | undefined
 }): string => {
-  const cachedEvent = getCachedEvent?.(bookmark.address)
-  if (cachedEvent) {
-    return getCanonicalRepoKeyFromEvent(cachedEvent)
-  }
-
-  const parts = String(bookmark.address || "").split(":")
-  const author = parts[1] || bookmark.author || ""
-  const repoName = parts.slice(2).join(":")
-
-  return buildRepoKey(author, repoName)
+  // A cached display rename must not change a star's target. Historical aliases
+  // are supplied explicitly in candidateAddresses, never inferred from names.
+  const parts = getBookmarkAddressParts(bookmark.address)
+  return parts?.kind === String(GIT_REPO_ANNOUNCEMENT) ? bookmark.address : ""
 }
 
 export const buildBookmarkRepoFilters = (bookmarks: BookmarkAddress[]): Filter[] => {

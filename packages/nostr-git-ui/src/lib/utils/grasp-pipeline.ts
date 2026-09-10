@@ -84,6 +84,8 @@ export interface ReconciledRepoCreationEvents {
 }
 
 export interface PublishRepoEventContext {
+  /** Approved destination of the creation transaction, independent of the source route. */
+  repoAddress?: string;
   /** Recheck a settings draft immediately before signing and before delivery. */
   assertCurrent?: () => void;
   relays: string[];

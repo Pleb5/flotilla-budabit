@@ -53,6 +53,7 @@
     getRepoPublicationAddress,
     requireRepoPublicationScope,
   } from "@app/core/repo-publication"
+  import {createForkRepoPublisher} from "@app/core/fork-publication"
   import RepoWatchModal from "@app/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
   import type {NostrFilter, NostrEvent} from "@nostr-git/core"
@@ -3789,6 +3790,7 @@
 
   async function forkRepo() {
     if (!repoClass) return
+    const forkOwnerPubkey = $pubkey || ""
 
     let workerApi: any = null
     let workerInstance: Worker | null = null
@@ -3864,33 +3866,16 @@
       ForkRepoDialog,
       {
         repo: repoClass,
-        pubkey: $pubkey || "",
+        pubkey: forkOwnerPubkey,
         branchCopyFilter: forkBranchCopyFilter,
         workerApi,
         workerInstance,
         subscribeGitProgress: subscribeGitWorkerProgress,
-        onPublishEvent: async (event: any, context?: {relays: string[]}) => {
-          const taggedRelays = getEventRelayTargets(event)
-          const thunk = await publishRepoEventWithRelayPolicy(
-            event,
-            event.kind === GIT_REPO_STATE
-              ? defaultRelays
-              : taggedRelays.length > 0
-                ? taggedRelays
-                : defaultRelays,
-            {
-              timeoutMs: FORK_PUBLISH_TIMEOUT_MS,
-              label:
-                event.kind === GIT_REPO_STATE
-                  ? "Fork repo state publish"
-                  : "Fork repo announcement publish",
-              relays: context?.relays,
-              transport: publishTransport,
-            },
-          )
-          if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
-          return extractPublishedRelayAck(thunk)
-        },
+        onPublishEvent: createForkRepoPublisher({
+          ownerPubkey: forkOwnerPubkey,
+          getActivePubkey: () => $pubkey,
+          transport: publishTransport,
+        }),
         onDeleteEvent: async (event: NostrEvent, relays: string[]) => {
           await deleteExactRepoEvent(event, relays)
         },

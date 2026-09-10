@@ -4,6 +4,7 @@ import {createPullRequestEvent} from "@nostr-git/core/events"
 import {MockRelay} from "./helpers/mock-relay"
 import {
   createRepoAnnouncement,
+  createRepoState,
   encodeRepoNaddr,
   signTestEvent,
   TEST_PUBKEYS,
@@ -94,6 +95,54 @@ test("the actual overview keeps its exact Nostr clone URL through a display rena
   await expect(page).toHaveTitle(renamedDisplay)
   await expect(clone).toHaveText(expected)
   expect(page.url()).toContain(path("stable-id"))
+})
+
+test("the real fork route delivers a different destination through state publication", async ({
+  page,
+}) => {
+  await page.goto(path("stable-id"))
+  await expect(page.locator("summary").filter({hasText: "Clone"})).toBeVisible()
+  await page.evaluate(async owner => {
+    const fixture = await import(
+      /* @vite-ignore */ "/tests/e2e/fixtures/fork-publication-browser.ts"
+    )
+    fixture.setForkFixtureAccount(owner)
+  }, TEST_PUBKEYS.bob)
+  await page.getByRole("button", {name: "Fork", exact: true}).click()
+  await expect(page.locator("#fork-name")).toHaveValue("my-great-repo")
+  const identifier = "my-great-repo"
+  const events = [
+    signTestEvent(
+      createRepoAnnouncement({
+        identifier,
+        name: "My Great Repo",
+        pubkey: TEST_PUBKEYS.bob,
+        relays: [relay],
+      }),
+    ),
+    signTestEvent(
+      createRepoState({
+        identifier,
+        pubkey: TEST_PUBKEYS.bob,
+        head: "main",
+        refs: [{type: "heads", name: "main", commit: "1".repeat(40)}],
+      }),
+    ),
+  ]
+  const results = await page.evaluate(async events => {
+    const fixture = await import(
+      /* @vite-ignore */ "/tests/e2e/fixtures/fork-publication-browser.ts"
+    )
+    return fixture.submitForkMetadataFixture(events)
+  }, events)
+  expect(results).toEqual(
+    [30617, 30618].map(kind => ({
+      kind,
+      pubkey: TEST_PUBKEYS.bob,
+      identifier,
+      ackedRelays: [relay],
+    })),
+  )
 })
 
 test("the actual extension route preserves addresses and storage through rename and remount", async ({

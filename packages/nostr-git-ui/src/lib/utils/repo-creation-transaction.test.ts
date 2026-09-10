@@ -58,6 +58,49 @@ afterEach(() => {
 });
 
 describe("RepoCreationTransactionJournal", () => {
+  it("carries the approved destination through provisional and final publication", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: new MemoryStorage(),
+    });
+    const owner = "b".repeat(64);
+    const journal = new RepoCreationTransactionJournal({
+      id: "fork:destination-context",
+      operation: "fork",
+      ownerPubkey: owner,
+      repoName: "my-great-repo",
+    });
+    const deliver = vi.fn(async (event, context) => ({
+      event,
+      ackedRelays: context.relays,
+      failedRelays: [],
+      hasRelayOutcomes: true,
+    }));
+    const publisher = trackRepoCreationPublisher(journal, deliver)!;
+    for (const kind of [30617, 30618]) {
+      const event = {
+        kind,
+        pubkey: owner,
+        tags: [["d", "my-great-repo"]],
+        created_at: 1,
+        content: "",
+        id: `fixture-${kind}`,
+        sig: "fixture-only",
+      };
+      for (const stage of ["provisional", "final"] as const) {
+        await publisher(event, {
+          relays: ["wss://fixture.test/"],
+          stage,
+          repoAddress: `30617:${"a".repeat(64)}:source-id`,
+        });
+        expect(deliver).toHaveBeenLastCalledWith(event, {
+          relays: ["wss://fixture.test/"],
+          stage,
+          repoAddress: `30617:${owner}:my-great-repo`,
+        });
+      }
+    }
+  });
   it("rejects credential-bearing relay identities before persisting recovery state", () => {
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,

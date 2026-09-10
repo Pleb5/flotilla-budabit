@@ -1,4 +1,5 @@
 import type { NostrEvent } from "@nostr-git/core";
+import { getRepoStorageKeyCandidates } from "@nostr-git/core/git";
 import { validateRepoIdentifier } from "@nostr-git/core/utils";
 
 import type { DeleteRepoEvent, FetchRelayEvents, PublishRepoEvent } from "./grasp-pipeline.js";
@@ -116,6 +117,30 @@ export async function assertRepoCoordinateAvailable(params: {
     if (existing) {
       throw new Error(
         `You already have a repository with identifier "${params.repoName}" on ${relayUrl}. Open it, manage its hosting, resume its recorded creation, or choose another identifier.`
+      );
+    }
+  }
+}
+
+/** Check both current and historical hosting representations, not the source clone's key. */
+export async function assertLocalRepoCoordinateAvailable(
+  owner: string,
+  identifier: string,
+  isRepoCloned: (params: { repoId: string }) => Promise<boolean>
+): Promise<void> {
+  for (const repoId of getRepoStorageKeyCandidates(owner, identifier)) {
+    let exists: boolean;
+    try {
+      exists = await isRepoCloned({ repoId });
+      if (typeof exists !== "boolean") throw new Error("Local repository check returned no result");
+    } catch (error) {
+      throw new Error(
+        `Could not verify local repository availability: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (exists) {
+      throw new Error(
+        `A local repository already exists for identifier "${identifier}". Open it or resolve its recorded creation before making a new fork.`
       );
     }
   }

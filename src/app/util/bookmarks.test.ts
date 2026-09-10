@@ -1,14 +1,17 @@
 import {describe, expect, it} from "vitest"
+import type {TrustedEvent} from "@welshman/util"
+import {parseRepoStarReaction, repoStarToBookmarkAddress} from "./repo-stars"
 
 import {
   GIT_REPO_ANNOUNCEMENT,
-  buildRepoKey,
   type BookmarkAddress,
   type RepoAnnouncementEvent,
 } from "@nostr-git/core/events"
 
 import {
   buildBookmarkRepoFilters,
+  getCanonicalRepoKeyFromBookmark,
+  getCanonicalRepoKeyFromEvent,
   getRepoBookmarkAddressSet,
   isAnyBookmarked,
   matchBookmarkedRepoEvents,
@@ -20,7 +23,7 @@ const makeBookmark = (address: string, relayHint = "wss://relay.example") =>
     address,
     relayHint,
     author: address.split(":")[1] || "",
-    identifier: address.split(":")[2] || "",
+    identifier: address.split(":").slice(2).join(":"),
   }) satisfies BookmarkAddress
 
 const makeRepoEvent = (
@@ -84,16 +87,16 @@ describe("bookmarks helpers", () => {
     expect(matched.map(item => item.relayHint)).toEqual(["wss://relay.b", "wss://relay.a"])
   })
 
-  it("toggleRepoBookmarks removes all alias addresses for the same repo", () => {
+  it("toggleRepoBookmarks honors explicitly supplied historical rename aliases", () => {
     const candidateAddresses = getRepoBookmarkAddressSet({
       primaryAddress: "30617:owner:repo",
-      relatedAddresses: ["30617:maintainer:repo"],
+      relatedAddresses: ["30617:owner:old-identifier"],
     })
 
     const {isRemoving, nextBookmarks} = toggleRepoBookmarks({
       bookmarks: [
         makeBookmark("30617:owner:repo"),
-        makeBookmark("30617:maintainer:repo"),
+        makeBookmark("30617:owner:old-identifier"),
         makeBookmark("30617:elsewhere:repo"),
       ],
       candidateAddresses,
@@ -104,32 +107,32 @@ describe("bookmarks helpers", () => {
     expect(nextBookmarks.map(bookmark => bookmark.address)).toEqual(["30617:elsewhere:repo"])
   })
 
-  it("isAnyBookmarked treats any equivalent repo address as bookmarked", () => {
+  it("isAnyBookmarked honors explicitly supplied historical rename addresses", () => {
     expect(
       isAnyBookmarked(
         [makeBookmark("30617:owner:repo")],
         getRepoBookmarkAddressSet({
-          primaryAddress: "30617:maintainer:repo",
+          primaryAddress: "30617:owner:new-identifier",
           relatedAddresses: ["30617:owner:repo"],
         }),
       ),
     ).toBe(true)
   })
 
-  it("uses canonical owner/name keys without colliding same-name repos from different owners", () => {
+  it("uses exact coordinates without colliding same-name repos from different owners", () => {
     const ownerA = "a".repeat(64)
     const ownerB = "b".repeat(64)
     const repoName = "shared-name"
 
     expect(
       isAnyBookmarked([makeBookmark(`30617:${ownerA}:${repoName}`)], [], {
-        candidateRepoKeys: [buildRepoKey(ownerA, repoName)],
+        candidateRepoKeys: [getCanonicalRepoKeyFromEvent(makeRepoEvent(ownerA, repoName))],
       }),
     ).toBe(true)
 
     expect(
       isAnyBookmarked([makeBookmark(`30617:${ownerA}:${repoName}`)], [], {
-        candidateRepoKeys: [buildRepoKey(ownerB, repoName)],
+        candidateRepoKeys: [getCanonicalRepoKeyFromEvent(makeRepoEvent(ownerB, repoName))],
       }),
     ).toBe(false)
   })
@@ -150,7 +153,7 @@ describe("bookmarks helpers", () => {
     const {isRemoving, nextBookmarks} = toggleRepoBookmarks({
       bookmarks,
       candidateAddresses: [],
-      candidateRepoKeys: [buildRepoKey(ownerA, repoName)],
+      candidateRepoKeys: [getCanonicalRepoKeyFromEvent(makeRepoEvent(ownerA, repoName))],
       nextBookmark: makeBookmark(`30617:${ownerA}:${repoName}`),
       getCachedEvent: address => cachedEvents.get(address),
     })
@@ -158,4 +161,98 @@ describe("bookmarks helpers", () => {
     expect(isRemoving).toBe(true)
     expect(nextBookmarks.map(bookmark => bookmark.address)).toEqual([`30617:${ownerB}:${repoName}`])
   })
+
+  it.each(["Shared display", "名前 with spaces!"])(
+    "does not match or remove another coordinate with display name %s",
+    name => {
+      const owner = "a".repeat(64)
+      const first = makeRepoEvent(owner, "first", name)
+      const second = makeRepoEvent(owner, "second", name)
+      const firstKey = getCanonicalRepoKeyFromEvent(first)
+      const secondKey = getCanonicalRepoKeyFromEvent(second)
+      const cached = new Map([
+        [firstKey, first],
+        [secondKey, second],
+      ])
+      const getCachedEvent = (address: string) => cached.get(address)
+      const bookmarks = [makeBookmark(firstKey)]
+      expect(firstKey).not.toBe(secondKey)
+      expect(
+        isAnyBookmarked(bookmarks, [secondKey], {
+          candidateRepoKeys: [secondKey],
+          getCachedEvent,
+        }),
+      ).toBe(false)
+      const added = toggleRepoBookmarks({
+        bookmarks,
+        candidateAddresses: [secondKey],
+        candidateRepoKeys: [secondKey],
+        nextBookmark: makeBookmark(secondKey),
+        getCachedEvent,
+      })
+      expect(added.isRemoving).toBe(false)
+      const removed = toggleRepoBookmarks({
+        bookmarks: added.nextBookmarks,
+        candidateAddresses: [secondKey],
+        candidateRepoKeys: [secondKey],
+        nextBookmark: makeBookmark(secondKey),
+        getCachedEvent,
+      })
+      expect(removed.nextBookmarks).toEqual(bookmarks)
+    },
+  )
+
+  it("keeps opaque identifiers exact with and without cached announcements", () => {
+    const owner = "a".repeat(64)
+    const identifiers = ["repo", "repo ", " repo", "Repo", "Legacy/Case:ID"]
+    const keys = identifiers.map(identifier => {
+      const event = makeRepoEvent(owner, identifier, "Same display name")
+      const key = getCanonicalRepoKeyFromEvent(event)
+      const bookmark = makeBookmark(`30617:${owner}:${identifier}`)
+      expect(key).toBe(bookmark.address)
+      expect(getCanonicalRepoKeyFromBookmark({bookmark})).toBe(key)
+      expect(getCanonicalRepoKeyFromBookmark({bookmark, getCachedEvent: () => event})).toBe(key)
+      return key
+    })
+    expect(new Set(keys).size).toBe(identifiers.length)
+  })
+
+  it.each(["personal", "community"])(
+    "keeps %s star selection and removal on its exact coordinate",
+    scope => {
+      const owner = "a".repeat(64)
+      const first = makeRepoEvent(owner, "first", "Shared display")
+      const second = makeRepoEvent(owner, "second", "Shared display")
+      const firstAddress = getCanonicalRepoKeyFromEvent(first)
+      const secondAddress = getCanonicalRepoKeyFromEvent(second)
+      const events = new Map([
+        [firstAddress, first],
+        [secondAddress, second],
+      ])
+      const stars = [firstAddress, secondAddress].map(
+        (address, i) =>
+          parseRepoStarReaction({
+            kind: 7,
+            pubkey: "b".repeat(64),
+            content: "+",
+            created_at: 1,
+            id: `${scope}-reaction-${i}`,
+            sig: "fixture-only",
+            tags: [
+              ["a", address],
+              ["k", "30617"],
+              ...(scope === "community" ? [["h", "community"]] : []),
+            ],
+          } as TrustedEvent)!,
+      )
+      const matches = (star: (typeof stars)[number]) =>
+        isAnyBookmarked([repoStarToBookmarkAddress(star)], [secondAddress], {
+          candidateRepoKeys: [getCanonicalRepoKeyFromEvent(second)],
+          getCachedEvent: address => events.get(address),
+        })
+      expect(stars.slice(0, 1).some(matches)).toBe(false)
+      // These are the matching reaction IDs the collection UI passes to deletion.
+      expect(stars.filter(matches).map(star => star.reaction.id)).toEqual([`${scope}-reaction-1`])
+    },
+  )
 })

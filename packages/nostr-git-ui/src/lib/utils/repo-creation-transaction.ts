@@ -1241,8 +1241,13 @@ export function trackRepoCreationPublisher(
 ): PublishRepoEvent | undefined {
   if (!publisher) return undefined;
 
+  const repoAddress = `30617:${journal.record.ownerPubkey}:${journal.record.repoName}`;
   return async (event, context): Promise<PublishRepoEventResult> => {
-    const result = await publisher(event, context);
+    const result = await publisher(event, {
+      ...context,
+      relays: context?.relays || [],
+      repoAddress,
+    });
     if (event.kind === 30617 || event.kind === 30618) {
       journal.recordPublishedEvent(result, context?.relays || [], context?.stage || "provisional");
     }
