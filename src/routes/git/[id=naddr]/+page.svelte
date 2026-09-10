@@ -53,6 +53,7 @@
   import {nip19} from "nostr-tools"
   import {clip} from "@app/util/toast"
   import {getDisplayedRepoWebUrls} from "@app/util/repo-web-urls"
+  import {buildDefaultNgitCloneUrl} from "@app/util/repo-clone-url"
   import {resolveRepoReadmeHref} from "@app/util/repo-readme-links"
   import {normalizeRelays, parseCommunityDefinitionAddress} from "@app/core/community"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
@@ -213,31 +214,6 @@
 
   const branchCount = $derived(repoClass.branches?.length || 0)
 
-  function getNostrOwnerAndName(): {ownerNpub: string; name: string} | undefined {
-    const key = (repoClass.key || "").trim()
-    const [keyOwner, keyName] = key.includes("/") ? key.split("/", 2) : [undefined, undefined]
-    const name = (repoClass.name || keyName || "").trim()
-    const owner = repoClass.repoEvent?.pubkey || keyOwner
-    if (!owner || !name) return undefined
-
-    let ownerNpub = owner
-    if (!owner.startsWith("npub1")) {
-      try {
-        ownerNpub = nip19.npubEncode(owner)
-      } catch {
-        ownerNpub = owner
-      }
-    }
-
-    return {ownerNpub, name}
-  }
-
-  function buildDefaultNgitCloneUrl(): string | undefined {
-    const resolved = getNostrOwnerAndName()
-    if (!resolved) return undefined
-    return `nostr://${resolved.ownerNpub}/${resolved.name}`
-  }
-
   type CloneUrlItem = {
     url: string
     isDeclared: boolean
@@ -300,7 +276,7 @@
   const declaredPrimaryCloneUrl = $derived.by(() => declaredCloneUrls[0] || "")
 
   const repoCloneUrlItems = $derived.by<CloneUrlItem[]>(() => {
-    const defaultNgitCloneUrl = buildDefaultNgitCloneUrl()
+    const defaultNgitCloneUrl = buildDefaultNgitCloneUrl(repoClass)
     const urls = Array.from(new Set((declaredCloneUrls || []).filter(Boolean)))
 
     if (defaultNgitCloneUrl && !urls.some(url => url.startsWith("nostr://"))) {
