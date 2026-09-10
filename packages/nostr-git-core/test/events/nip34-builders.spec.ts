@@ -106,10 +106,7 @@ describe("NIP-34 builders", () => {
 
   it("createRepoStateEvent normalizes HEAD refs and ignores commit OIDs", () => {
     expect(
-      getTag(
-        createRepoStateEvent({repoId: "owner/name", head: "refs/heads/dev"}) as any,
-        "HEAD",
-      ),
+      getTag(createRepoStateEvent({repoId: "owner/name", head: "refs/heads/dev"}) as any, "HEAD"),
     ).toEqual(["HEAD", "ref: refs/heads/dev"])
 
     expect(
@@ -247,8 +244,8 @@ describe("NIP-34 builders", () => {
     const eTags = getTags(evt as any, "e")
     expect(eTags).toEqual(
       expect.arrayContaining([
-        ["e", "root-id", "", "root"],
-        ["e", "reply-id", "", "reply"],
+        ["e", "root-id", "wss://relay.one", "root"],
+        ["e", "reply-id", "wss://relay.one", "reply"],
       ]),
     )
 
@@ -274,8 +271,8 @@ describe("NIP-34 builders", () => {
       ["a", "30617:maintainer:repo"],
     ])
 
-    // createStatusEvent uses only first relay in an 'r' tag
-    expect(getTagValue(evt as any, "r")).toBe("wss://relay.one")
+    // Relay hints belong on references. Placeholder OIDs are not commit indexes.
+    expect(getTagValue(evt as any, "r")).toBeUndefined()
 
     expect(getTagValue(evt as any, "merge-commit")).toBe("mc1")
 
@@ -316,7 +313,7 @@ describe("NIP-34 builders", () => {
     ])
 
     expect(getTagValue(evt as any, "branch-name")).toBe("feature")
-    expect(getTagValue(evt as any, "target-branch")).toBe("main")
+    expect(getTagValue(evt as any, "b")).toBe("main")
     expect(getTagValue(evt as any, "merge-base")).toBe("base-oid")
   })
 
@@ -342,7 +339,7 @@ describe("NIP-34 builders", () => {
     expect(getTagValue(evt as any, "subject")).toBe("PR subject")
     expect(getTagValue(evt as any, "c")).toBe("c2")
     expect(getTagValue(evt as any, "branch-name")).toBe("feature")
-    expect(getTagValue(evt as any, "target-branch")).toBe("main")
+    expect(getTagValue(evt as any, "b")).toBe("main")
     for (const tag of richTags) expect(evt.tags).toContainEqual(tag)
   })
 

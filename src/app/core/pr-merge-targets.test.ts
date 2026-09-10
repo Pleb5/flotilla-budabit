@@ -65,6 +65,16 @@ describe("PR merge target planning", () => {
     })
   })
 
+  it("blocks merge when root target tags conflict even if a default is known", () => {
+    expect(
+      resolvePrTargetBranch({
+        targetBranchError: "Conflicting target tags",
+        repositoryDefaultBranch: "main",
+        normalize: value => value,
+      }),
+    ).toEqual({error: "Conflicting target tags"})
+  })
+
   it("identifies analysis by root, tip, exact target, announcement, and primary URL", () => {
     const base = {
       rootId: "root",

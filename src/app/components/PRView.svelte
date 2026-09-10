@@ -514,6 +514,7 @@
   const prTargetResolution = $derived.by(() =>
     resolvePrTargetBranch({
       targetBranch: pr?.targetBranch,
+      targetBranchError: pr?.targetBranchError,
       repositoryDefaultBranch: repoClass?.defaultBranch,
       normalize: normalizeBranchName,
     }),

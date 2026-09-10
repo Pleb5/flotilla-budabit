@@ -43,15 +43,18 @@ export const planPrMergeRemotes = ({
 
 export const resolvePrTargetBranch = ({
   targetBranch,
+  targetBranchError,
   repositoryDefaultBranch,
   normalize,
 }: {
   targetBranch?: string
+  targetBranchError?: string
   repositoryDefaultBranch?: string
   normalize: (branch: string) => string
 }):
   | {branch: string; source: "explicit" | "repository-default"; error?: undefined}
   | {error: string} => {
+  if (targetBranchError) return {error: targetBranchError}
   if (targetBranch !== undefined) {
     const branch = normalize(targetBranch)
     return branch

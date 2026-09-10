@@ -131,7 +131,7 @@ describe("NIP-34 Pull Request Events", () => {
       expect(event.tags).toContainEqual(["c", "commit-hash"])
       expect(event.tags).toContainEqual(["clone", "https://github.com/user/repo"])
       expect(event.tags).toContainEqual(["branch-name", "feature-branch"])
-      expect(event.tags).toContainEqual(["target-branch", "main"])
+      expect(event.tags).toContainEqual(["b", "main"])
       expect(event.tags).toContainEqual(["merge-base", "base-commit"])
     })
 

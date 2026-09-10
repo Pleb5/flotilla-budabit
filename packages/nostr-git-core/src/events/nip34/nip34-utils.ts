@@ -594,7 +594,7 @@ export function createPullRequestEvent(opts: {
   clone?: string[]
   /** Optional recommended name for the proposed/source branch. */
   branchName?: string
-  /** Optional Budabit extension naming the branch the PR should merge into. */
+  /** Immutable merge target, interoperable with ngit's indexed b tag. */
   targetBranch?: string
   mergeBase?: string
   tags?: PullRequestTag[]
@@ -610,7 +610,7 @@ export function createPullRequestEvent(opts: {
   tags.push(["c", opts.tipCommitOid])
   if (opts.clone && opts.clone.length > 0) tags.push(["clone", ...opts.clone])
   if (opts.branchName) tags.push(["branch-name", opts.branchName])
-  if (opts.targetBranch) tags.push(["target-branch", opts.targetBranch])
+  if (opts.targetBranch) tags.push(["b", opts.targetBranch])
   if (opts.mergeBase) tags.push(["merge-base", opts.mergeBase])
   if (opts.tags) tags.push(...opts.tags)
   return {
@@ -720,11 +720,18 @@ export function createStatusEvent(opts: {
   tags?: StatusTag[]
   created_at?: number
 }): StatusEvent {
-  const tags: StatusTag[] = [["e", opts.rootId, "", "root"]]
-  if (opts.replyId) tags.push(["e", opts.replyId, "", "reply"])
+  const relayHint = opts.relays?.[0] || ""
+  const tags: StatusTag[] = [["e", opts.rootId, relayHint, "root"]]
+  if (opts.replyId) tags.push(["e", opts.replyId, relayHint, "reply"])
   if (opts.recipients) opts.recipients.forEach(p => tags.push(["p", p]))
-  tags.push(...(getRepoAddressTags(opts.repoAddr, opts.repoAddrs) as StatusTag[]))
-  if (opts.relays && opts.relays.length) tags.push(["r", opts.relays[0]])
+  tags.push(
+    ...(getRepoAddressTags(opts.repoAddr, opts.repoAddrs).map(tag =>
+      relayHint ? [...tag, relayHint] : tag,
+    ) as StatusTag[]),
+  )
+  for (const commit of new Set([opts.mergedCommit, ...(opts.appliedCommits || [])])) {
+    if (commit && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(commit)) tags.push(["r", commit])
+  }
   if (opts.mergedCommit) tags.push(["merge-commit", opts.mergedCommit])
   if (opts.appliedCommits && opts.appliedCommits.length > 0)
     tags.push(["applied-as-commits", ...opts.appliedCommits])
@@ -845,8 +852,9 @@ export interface PullRequest {
   tipError?: "missing-tip" | "ambiguous-tip"
   /** Optional recommended name for the proposed/source branch. */
   branchName?: string
-  /** Optional Budabit extension naming the merge target. */
+  /** Immutable merge target; falls back to legacy target-branch events. */
   targetBranch?: string
+  targetBranchError?: string
   mergeBase?: string
   createdAt: string
   raw: PullRequestEvent
@@ -870,6 +878,8 @@ export function parsePullRequestEvent(event: PullRequestEvent): PullRequest {
   const getTag = (name: string) => event.tags.find(t => t[0] === name)?.[1]
   const getAllTags = (name: string) => event.tags.filter(t => t[0] === name).map(t => t[1])
   const tip = parseTipFromCTags(getAllTags("c"))
+  const targets = [...getAllTags("b"), ...getAllTags("target-branch")]
+  const invalidTarget = targets.some(value => !value?.trim()) || new Set(targets).size > 1
   return {
     id: event.id,
     repoId: getTag("a") || "",
@@ -881,7 +891,10 @@ export function parsePullRequestEvent(event: PullRequestEvent): PullRequest {
     tipCandidates: tip.tipCandidates,
     tipError: tip.tipError,
     branchName: getTag("branch-name"),
-    targetBranch: getTag("target-branch"),
+    targetBranch: invalidTarget ? undefined : targets[0],
+    targetBranchError: invalidTarget
+      ? "Conflicting or empty PR target-branch tags; cannot choose a merge target"
+      : undefined,
     mergeBase: getTag("merge-base"),
     createdAt: new Date(event.created_at * 1000).toISOString(),
     raw: event,

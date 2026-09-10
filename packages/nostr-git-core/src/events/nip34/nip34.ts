@@ -174,6 +174,7 @@ export type PullRequestTag =
   | ["c", string]
   | ["clone", ...string[]]
   | ["branch-name", string]
+  | ["b", string]
   | ["target-branch", string]
   | ["e", string]
   | ["merge-base", string]
@@ -219,8 +220,8 @@ export interface UserGraspListEvent extends NostrEvent {
 // Status (kinds: 1630, 1631, 1632, 1633)
 // -------------------
 export type StatusTag =
-  | ["e", string, "", "root"]
-  | ["e", string, "", "reply"]
+  | ["e", string, string, "root"]
+  | ["e", string, string, "reply"]
   | ["p", string]
   | ["a", string, ...string[]]
   | ["r", string]
