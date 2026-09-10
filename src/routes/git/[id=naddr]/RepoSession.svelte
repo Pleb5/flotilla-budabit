@@ -163,6 +163,7 @@
     type RepoFailedRelayRequest,
   } from "@app/core/git-state"
   import {getHiddenRepoEventIds} from "@app/core/git-moderation"
+  import {getMaintainerTargetBranches} from "@app/core/repo-maintainer-branches"
   import {loadBudabitProfile} from "@app/core/profile-resolver"
   import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
   import {userRepoWatchValues} from "@app/core/repo-watch"
@@ -2098,53 +2099,18 @@
     mergedStatusEventsStore,
     $events => ($events || []).filter(event => event.kind === GIT_STATUS_COMPLETE) as StatusEvent[],
   )
-  const getStatusRootId = (status: Pick<StatusEvent, "tags">) =>
-    status.tags.find(tag => tag[0] === "e" && tag[3] === "root")?.[1] ||
-    getTagValue("e", status.tags) ||
-    ""
-  const getPullRequestRepoAddress = (pullRequest: Pick<PullRequestEvent, "tags">) =>
-    getTagValue("a", pullRequest.tags) || ""
-  const getPullRequestTargetBranch = (pullRequest: Pick<PullRequestEvent, "tags">) =>
-    getTagValue("target-branch", pullRequest.tags) || ""
-  const getLatestMaintainerAppliedStatus = (statuses: StatusEvent[], maintainers: Set<string>) =>
-    [...statuses]
-      .filter(status => maintainers.has(status.pubkey))
-      .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0]
   const maintainerTargetBranchesStore: Readable<string[]> = derived(
     [repoAddressesStore, pullRequestsStore, appliedStatusEventsStore, repoEventStore],
     ([$repoAddresses, $pullRequests, $appliedStatuses, $repoEvent]) => {
-      const repoAddresses = new Set(($repoAddresses || []).filter(Boolean))
-      if (repoAddresses.size === 0) return []
-
       const maintainers = new Set(getRepoMaintainers($repoEvent || null))
       const owner = ($repoEvent as RepoAnnouncementEvent | undefined)?.pubkey || repoPubkey
       if (owner) maintainers.add(owner)
-      if (maintainers.size === 0) return []
-
-      const statusesByRoot = new Map<string, StatusEvent[]>()
-      for (const status of $appliedStatuses || []) {
-        const rootId = getStatusRootId(status)
-        if (!rootId) continue
-
-        const statuses = statusesByRoot.get(rootId) || []
-        statuses.push(status)
-        statusesByRoot.set(rootId, statuses)
-      }
-
-      const targetBranches = new Set<string>()
-      for (const pullRequest of $pullRequests || []) {
-        if (!repoAddresses.has(getPullRequestRepoAddress(pullRequest))) continue
-        const latestStatus = getLatestMaintainerAppliedStatus(
-          statusesByRoot.get(pullRequest.id) || [],
-          maintainers,
-        )
-        if (!latestStatus) continue
-
-        const targetBranch = getPullRequestTargetBranch(pullRequest).trim()
-        if (targetBranch) targetBranches.add(targetBranch)
-      }
-
-      return Array.from(targetBranches).sort((a, b) => a.localeCompare(b))
+      return getMaintainerTargetBranches({
+        repoAddresses: $repoAddresses || [],
+        pullRequests: $pullRequests || [],
+        appliedStatuses: $appliedStatuses || [],
+        maintainers,
+      })
     },
   )
   const statusEventsByRootStore = deriveStatusEventsByRoot(mergedStatusEventsStore)
