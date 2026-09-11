@@ -34,6 +34,18 @@ describe("markdownRenderers", () => {
     vi.mocked(nip19.decode).mockReset()
   })
   describe("createRenderers", () => {
+    it.each(["note", "nevent", "naddr"])(
+      "keeps %s links without quote context inside Budabit",
+      type => {
+        vi.mocked(nip19.decode).mockReturnValue({type, data: {kind: 30023}} as any)
+        const fullId = `${type}1qqqqqq`
+        const html = createRenderers().link!({href: `nostr:${fullId}`, text: "Event"} as any)
+        expect(html).toContain(`href="/${fullId}"`)
+        expect(html).not.toContain("coracle.social")
+        expect(html).not.toContain('target="_blank"')
+      },
+    )
+
     const owner = "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
     const communityId = "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"
     const communityNaddr = naddrEncode({

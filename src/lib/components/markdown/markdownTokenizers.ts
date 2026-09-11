@@ -9,6 +9,7 @@ import {shortenNostrUri} from "./markdownUtils.js"
 import {findCommunityLinkStart, getCommunityLinkAtStart} from "@app/util/community-links"
 import type {CommunityPointer} from "@app/core/community"
 import {findCashuTokenStart, getCashuTokenAtStart} from "@app/util/cashu-token"
+import {entityLink} from "@app/util/nostr-links"
 
 export interface NostrTokenizerOptions {
   event?: TrustedEvent
@@ -178,8 +179,7 @@ export function createNostrTokenizer(
     },
     renderer(token: Tokens.Generic) {
       const {fullId, userName, pubkey, community} = token
-      let linkUrl = `/${fullId}`
-      let external = false
+      const linkUrl = entityLink(fullId)
 
       if (community) {
         return createCommunityPlaceholder(community as CommunityPointer)
@@ -242,42 +242,15 @@ export function createNostrTokenizer(
           }
         }
 
-        // Handle other Nostr entity types
-        switch (decodedType) {
-          case "note":
-            linkUrl = `https://coracle.social/notes/${fullId}`
-            external = true
-            break
-          case "nevent":
-            linkUrl = `https://coracle.social/notes/${fullId}`
-            external = true
-            break
-          case "nprofile":
-            external = true
-            linkUrl = `https://coracle.social/people/${fullId}`
-            if (pubkey) {
-              return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
-            }
-            break
-          case "npub":
-            linkUrl = `/people/${fullId}`
-            if (pubkey) {
-              return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
-            }
-            break
-          case "naddr":
-            external = true
-            linkUrl = `https://coracle.social/${fullId}`
-            break
+        if ((decodedType === "npub" || decodedType === "nprofile") && pubkey) {
+          return `<span class="nostr-profile-placeholder" data-pubkey="${pubkey}" data-url=""></span>`
         }
       } catch (err) {
         console.error("Failed to decode in renderer:", err, fullId)
-        linkUrl = `/${fullId}`
       }
 
       const linkText = userName ? `@${userName}` : shortenNostrUri("", fullId)
-      const externalAttributes = external ? 'target="_blank" rel="noopener noreferrer"' : ""
-      return `<a href="${linkUrl}" ${externalAttributes} class="link" title="${fullId}">${linkText}</a>`
+      return `<a href="${linkUrl}" class="link" title="${fullId}">${linkText}</a>`
     },
   }
 }

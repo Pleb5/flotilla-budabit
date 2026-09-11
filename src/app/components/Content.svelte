@@ -210,7 +210,6 @@
               <ContentQuote {url} value={parsed.value} {event} {communitySectionName} />
             {:else}
               <Link
-                external
                 class="overflow-hidden text-ellipsis whitespace-nowrap underline"
                 href={entityLink(parsed.raw)}>
                 {fromNostrURI(parsed.raw).slice(0, 16) + "…"}

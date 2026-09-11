@@ -10,6 +10,7 @@ import {shortenUrl, isMediaUrl} from "./markdownUtils.js"
 import {parseCommunityLink} from "@app/util/community-links"
 import type {CommunityPointer} from "@app/core/community"
 import {getCashuTokenInfo} from "@app/util/cashu-token"
+import {entityLink} from "@app/util/nostr-links"
 
 export interface RendererOptions {
   event?: TrustedEvent
@@ -273,26 +274,10 @@ function renderNostrLink(
       }
     }
 
-    // Fallback to regular link if no event or not nevent/naddr
-    let linkUrl = `/${fullId}`
-    let external = false
-
-    if (result.type === "nevent" || result.type === "note") {
-      linkUrl = `https://coracle.social/notes/${fullId}`
-      external = true
-    } else if (result.type === "naddr") {
-      const data = result.data as any
-      if (data.kind === 30617) {
-        linkUrl = `/${fullId}`
-      } else {
-        external = true
-        linkUrl = `https://coracle.social/${fullId}`
-      }
-    }
-
-    const externalAttributes = external ? 'target="_blank" rel="noopener noreferrer"' : ""
+    // A missing quote renderer still has a native event/profile destination.
+    const linkUrl = entityLink(fullId)
     const linkText = text || fullId
-    return `<a href="${linkUrl}" ${externalAttributes} class="link" title="${fullId}">${linkText}</a>`
+    return `<a href="${linkUrl}" class="link" title="${fullId}">${linkText}</a>`
   } catch (err) {
     console.error("Failed to decode nostr link:", err, fullId)
     return `<a href="/${fullId}" class="link">${fullId}</a>`

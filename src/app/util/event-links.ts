@@ -1,7 +1,7 @@
 import * as nip19 from "nostr-tools/nip19"
 import {Router} from "@welshman/router"
 import {repository, tracker} from "@welshman/app"
-import {Address, getTagValue, isRelayUrl, isReplaceable, normalizeRelayUrl} from "@welshman/util"
+import {getTagValue, isRelayUrl, isReplaceable, normalizeRelayUrl} from "@welshman/util"
 import type {TrustedEvent} from "@welshman/util"
 import {
   GIT_COMMENT,
@@ -403,16 +403,14 @@ export const makeEventShareEntity = (
     if (repoNaddr) return repoNaddr
 
     const identifier = getTagValue("d", event.tags) || ""
-    if (identifier) {
-      return nip19.naddrEncode({
-        kind: event.kind,
-        pubkey: event.pubkey,
-        identifier,
-        relays: relayHints.length > 0 ? relayHints : undefined,
-      })
-    }
-
-    return Address.fromEvent(event).toNaddr()
+    // Empty identifiers are valid too (including ordinary replaceable events).
+    // Preserve relay hints so the native resolver can load these shared links.
+    return nip19.naddrEncode({
+      kind: event.kind,
+      pubkey: event.pubkey,
+      identifier,
+      relays: relayHints.length > 0 ? relayHints : undefined,
+    })
   }
 
   return makeEventNevent(event, {relays: relayHints})

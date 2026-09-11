@@ -30,7 +30,7 @@ vi.mock("@welshman/util", () => ({
   normalizeRelayUrl: (url: string) => (url.endsWith("/") ? url : `${url}/`),
   isRelayUrl: (url: string) => /^wss?:\/\//.test(url),
   getTagValue: (name: string, tags: string[][]) => tags.find(tag => tag[0] === name)?.[1] || "",
-  isReplaceable: (event: {kind: number}) => event.kind === 32222,
+  isReplaceable: (event: {kind: number}) => [10002, 30023, 32222].includes(event.kind),
   Address: class {
     static fromEvent() {
       return {toNaddr: () => "naddr1test"}
@@ -71,6 +71,19 @@ const makeEvent = (overrides: Record<string, unknown> = {}) => ({
 const EVENT_TIME = 31923
 
 describe("event link utilities", () => {
+  it.each([10002, 30023])(
+    "preserves relay hints for kind %s with an empty address identifier",
+    async kind => {
+      const {makeEventShareEntity} = await import("./event-links")
+      const event = makeEvent({kind, tags: [["d", ""]]})
+      const entity = makeEventShareEntity(event as any, {relays: ["wss://hint.example/"]})
+      expect(nip19.decode(entity)).toMatchObject({
+        type: "naddr",
+        data: {kind, pubkey: event.pubkey, identifier: "", relays: ["wss://hint.example/"]},
+      })
+    },
+  )
+
   beforeEach(() => {
     relayMocks.trackerRelays = new Set<string>()
     relayMocks.authorRelays = []

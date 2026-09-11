@@ -122,6 +122,19 @@ describe("markdownTokenizers", () => {
   })
 
   describe("createNostrTokenizer", () => {
+    it.each(["note", "nevent", "naddr", "nprofile"])(
+      "keeps unmounted %s references internal",
+      type => {
+        vi.mocked(nip19.decode).mockReturnValue({type, data: {kind: 30023}} as any)
+        const fullId = `${type}1abc`
+        const tokenizer = createNostrTokenizer() as InlineTokenizerExtension
+        const html = tokenizer.renderer({fullId})
+        expect(html).toContain(`href="${type === "nprofile" ? "/people" : ""}/${fullId}"`)
+        expect(html).not.toContain("coracle.social")
+        expect(html).not.toContain('target="_blank"')
+      },
+    )
+
     const getTokenizer = () => createNostrTokenizer() as InlineTokenizerExtension
     const owner = "1b84c5567b126440995d3ed5aaba0565d71e1834604819ff9c17f5e9d5dd078f"
     const communityId = "f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9"

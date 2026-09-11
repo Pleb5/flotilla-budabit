@@ -43,9 +43,9 @@ describe("state", () => {
     expect(dufflepud("")).toMatch(/\/$/)
   })
 
-  it("entityLink builds coracle URL", async () => {
+  it("entityLink builds an internal event URL", async () => {
     const {entityLink} = await import("./state")
-    expect(entityLink("nevent1abc")).toBe("https://coracle.social/nevent1abc")
+    expect(entityLink("nevent1abc")).toBe("/nevent1abc")
   })
 
   it("makeChatId returns recipient pubkey", async () => {

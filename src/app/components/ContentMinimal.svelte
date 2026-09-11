@@ -157,7 +157,6 @@
             <ContentMention value={parsed.value} {url} />
           {:else if isQuote(parsed)}
             <Link
-              external
               class="overflow-hidden text-ellipsis whitespace-nowrap underline"
               href={entityLink(parsed.raw)}>
               {fromNostrURI(parsed.raw).slice(0, 16) + "…"}

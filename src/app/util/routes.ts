@@ -31,7 +31,8 @@ import {
   getPubkeyTagValues,
   getTagValue,
 } from "@welshman/util"
-import {makeChatId, entityLink, DM_KIND} from "@app/core/state"
+import {makeChatId, DM_KIND} from "@app/core/state"
+import {entityLink} from "@app/util/nostr-links"
 import {
   TARGETED_PUBLICATION_KIND,
   type CommunityPointer,
@@ -848,9 +849,11 @@ export const goToEventPath = async (
   path: string,
   options: Record<string, any> = {},
 ) => {
-  const targetId = getRenderedEventTargetId(event)
-  const defaultHash =
-    event.kind === GIT_PERMALINK_KIND
+  const isBasicView = /^\/(?:note1|nevent1|naddr1)/.test(path)
+  const targetId = isBasicView ? event.id : getRenderedEventTargetId(event)
+  const defaultHash = isBasicView
+    ? `#event-${event.id}`
+    : event.kind === GIT_PERMALINK_KIND
       ? ""
       : targetId === event.id
         ? getLocalEventHash(event)
@@ -866,8 +869,12 @@ export const goToEvent = async (event: TrustedEvent, options: Record<string, any
   return goToEventPath(event, path, options)
 }
 
-export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
+// The resolver uses this without a fallback so it can render an event in place
+// instead of navigating back to itself indefinitely.
+export const getDedicatedEventPath = async (event: TrustedEvent, urls: string[]) => {
   const relayHints = getEventRelayHints(event, {relays: urls})
+
+  if (event.kind === 0) return makeProfilePath(event.pubkey, relayHints)
 
   if (event.kind === DM_KIND) {
     const selfPubkey = pubkey.get()
@@ -895,7 +902,9 @@ export const getEventPath = async (event: TrustedEvent, urls: string[]) => {
 
   const gitPath = await getGitEventPath(event, relayHints)
 
-  if (gitPath) return gitPath
-
-  return entityLink(makeEventNevent(event, {relays: relayHints}))
+  return gitPath
 }
+
+export const getEventPath = async (event: TrustedEvent, urls: string[]) =>
+  (await getDedicatedEventPath(event, urls)) ||
+  entityLink(makeEventNevent(event, {relays: getEventRelayHints(event, {relays: urls})}))

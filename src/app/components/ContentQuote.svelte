@@ -76,6 +76,7 @@
 </style>
 
 <script lang="ts">
+  import {goto} from "$app/navigation"
   import * as nip19 from "nostr-tools/nip19"
   import {Router} from "@welshman/router"
   import type {TrustedEvent} from "@welshman/util"
@@ -89,6 +90,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
+  import EventFallback from "@app/components/EventFallback.svelte"
   import NoteContentMinimal from "@app/components/NoteContentMinimal.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
@@ -170,7 +172,7 @@
     if ($quote) {
       goToEvent($quote)
     } else {
-      window.open(entityLink(entity))
+      goto(entityLink(entity))
     }
   }
 
@@ -1007,13 +1009,18 @@
       {/if}
     </div>
   </div>
+{:else if $quote && ![MESSAGE, THREAD, EVENT_DATE, EVENT_TIME, ZAP_GOAL].includes($quote.kind)}
+  <div class="my-2 min-w-0 max-w-full">
+    {#key $quote.id}<EventFallback event={$quote} relays={mergedRelays} compact />{/key}
+  </div>
 {:else if quoteTimedOut}
-  <Button class="my-2 block w-full max-w-full text-left" {onclick}>
-    <div class="rounded-box p-4 text-sm text-muted-foreground">
-      <div class="font-medium text-foreground">Unable to load quoted event</div>
-      <div class="mt-1">Open the link to retry with the full relay context.</div>
-    </div>
-  </Button>
+  <div
+    class="my-2 max-w-full rounded-box border border-base-content/15 p-4 text-sm text-muted-foreground">
+    <div class="font-medium text-foreground">Unable to load quoted event</div>
+    <div class="mt-1">Open the event in Budabit to retry with the full relay context.</div>
+    <code class="my-2 block truncate text-xs">{entity}</code>
+    <a class="link" href={entityLink(entity)}>Open event</a>
+  </div>
 {:else}
   <Button class="my-2 block w-full max-w-full text-left" {onclick}>
     {#if $quote}

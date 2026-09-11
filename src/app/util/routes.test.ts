@@ -25,7 +25,6 @@ vi.mock("@lib/html", () => ({
 }))
 vi.mock("@app/core/state", () => ({
   makeChatId: (recipient: string) => recipient,
-  entityLink: (entity: string) => `https://coracle.social/${entity}`,
   DM_KIND: 4,
 }))
 vi.mock("@app/core/community-feeds", () => ({
@@ -359,7 +358,7 @@ describe("routes", () => {
     const event = makeEvent({kind: 11, tags: [["h", communityPubkey]]})
 
     expect(getCommunityEventPath(event as any)).toBeUndefined()
-    expect(await getEventPath(event as any, [])).toMatch(/^https:\/\/coracle\.social\/nevent1/)
+    expect(await getEventPath(event as any, [])).toMatch(/^\/nevent1/)
   })
 
   it("does not invent an exact branch route from h-only targetable events", async () => {
@@ -409,7 +408,7 @@ describe("routes", () => {
     ).toBe(`/c/${community.naddr}/calendar/${"1".repeat(64)}`)
   })
 
-  it("loads targeting events before falling back to external links", async () => {
+  it("loads targeting events before falling back to the basic event view", async () => {
     const {buildTargetedPublication, makeCommunityPointer} = await import("@app/core/community")
     const {getEventPath} = await import("./routes")
     const community = makeCommunityPointer({
@@ -740,7 +739,7 @@ describe("routes", () => {
     )
   })
 
-  it("does not classify raw-id community goal comments as git comments or local routes", async () => {
+  it("shows community comments without context in the basic event view", async () => {
     const {getEventPath, getGitEventPath} = await import("./routes")
     const communityPubkey = "a".repeat(64)
     const comment = makeEvent({
@@ -753,13 +752,11 @@ describe("routes", () => {
     })
 
     await expect(getGitEventPath(comment as any, [])).resolves.toBeUndefined()
-    await expect(getEventPath(comment as any, [])).resolves.toMatch(
-      /^https:\/\/coracle\.social\/nevent1/,
-    )
+    await expect(getEventPath(comment as any, [])).resolves.toMatch(/^\/nevent1/)
   })
 
-  it("keeps non-community events on external entity links", async () => {
-    const {getCommunityEventPath, getEventPath} = await import("./routes")
+  it("keeps non-community events inside Budabit with their relay hints", async () => {
+    const {getCommunityEventPath, getDedicatedEventPath, getEventPath} = await import("./routes")
     const event = makeEvent()
     const path = await getEventPath(event as any, ["wss://relay.example.com"])
 
@@ -767,7 +764,12 @@ describe("routes", () => {
     expect(
       getCommunityEventPath(makeEvent({kind: 11, tags: [["h", "topic"]]}) as any),
     ).toBeUndefined()
-    expect(path.startsWith("https://coracle.social/nevent1")).toBe(true)
+    expect(path.startsWith("/nevent1")).toBe(true)
+    expect(nip19.decode(path.slice(1))).toMatchObject({
+      type: "nevent",
+      data: {id: event.id, relays: ["wss://relay.example.com/"]},
+    })
+    await expect(getDedicatedEventPath(event as any, [])).resolves.toBeUndefined()
   })
 
   it("routes self-DMs to the signed-in user's chat", async () => {
@@ -784,18 +786,22 @@ describe("routes", () => {
     await expect(getEventPath(selfDm as any, [])).resolves.toBe(`/chat/${selfPubkey}`)
   })
 
-  it("opens unsupported event destinations externally without navigating", async () => {
+  it("navigates to unsupported events without opening an external window", async () => {
     const {goToEvent} = await import("./routes")
     const open = vi.spyOn(window, "open").mockImplementation(() => null)
 
-    await expect(goToEvent(makeEvent() as any)).resolves.toBe(false)
+    await expect(goToEvent(makeEvent() as any)).resolves.toBe(true)
 
-    expect(open).toHaveBeenCalledWith(
-      expect.stringMatching(/^https:\/\/coracle\.social\/nevent1/),
-      "_blank",
-      "noopener,noreferrer",
-    )
-    expect(gotoMock).not.toHaveBeenCalled()
+    expect(open).not.toHaveBeenCalled()
+    expect(gotoMock).toHaveBeenCalledWith(expect.stringMatching(/^\/nevent1.*#event-/), {})
     open.mockRestore()
+  })
+
+  it("focuses the fallback event itself when a git status has no usable parent", async () => {
+    const {goToEvent} = await import("./routes")
+    const event = makeEvent({kind: 1630, tags: [["e", "a".repeat(64), "", "root"]]})
+    await goToEvent(event as any)
+    expect(gotoMock).toHaveBeenCalledWith(expect.stringContaining(`#event-${event.id}`), {})
+    expect(waitAndScrollToEventMock).toHaveBeenCalledWith(event.id, expect.anything())
   })
 })

@@ -1,6 +1,7 @@
 import twColors from "tailwindcss/colors"
 import {get, derived, readable, writable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
+import {entityLink} from "@app/util/nostr-links"
 import {on, call, uniq, parseJson, identity, always} from "@welshman/lib"
 import {
   Pool,
@@ -154,7 +155,7 @@ export const colors = [
 
 export const dufflepud = (path: string) => DUFFLEPUD_URL + "/" + path
 
-export const entityLink = (entity: string) => `https://coracle.social/${entity}`
+export {entityLink}
 
 export const pubkeyLink = (pubkey: string, relays = Router.get().FromPubkeys([pubkey]).getUrls()) =>
   entityLink(nip19.nprofileEncode({pubkey, relays}))
