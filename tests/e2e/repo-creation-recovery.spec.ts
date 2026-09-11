@@ -169,3 +169,140 @@ test("recovery stops signed checkpoint state before delivery if Git advances whi
   expect(evidence.stateStoredLocally).toBe(false)
   expect(evidence.records[0].publishedEvents.map((item: any) => item.event.kind)).toEqual([30617])
 })
+
+for (const mode of [
+  "failed-host",
+  "partial-state",
+  "future-state",
+  "stuck-state",
+  "stuck-announcement",
+] as const) {
+  test(`real /git finishes legitimate recovery: ${mode}`, async ({page}) => {
+    const failedHost = "https://unprovisioned-fixture.test/repo.git"
+    const hosted = "https://github.com/fixture/recovery.git"
+    const provisional = signTestEvent({
+      kind: 30617,
+      pubkey: owner,
+      created_at: 100,
+      content: "",
+      tags: [
+        ["d", identifier],
+        ["name", "Completion fixture"],
+        ["clone", hosted, ...(mode === "failed-host" ? [failedHost] : [])],
+        ["relays", relay],
+      ],
+    })
+    const aheadAt = Math.floor(Date.now() / 1000) + 60
+    const ahead = signTestEvent(
+      createRepoState({
+        identifier,
+        pubkey: owner,
+        created_at: aheadAt,
+        head: "main",
+        refs: [{type: "heads", name: "main", commit: "1".repeat(40)}],
+      }),
+    )
+    const old = signTestEvent({...ahead, created_at: 100})
+    const observed = mode === "partial-state" ? old : mode === "failed-host" ? undefined : ahead
+    const edited =
+      mode === "stuck-announcement"
+        ? signTestEvent({
+            ...provisional,
+            created_at: 101,
+            tags: provisional.tags.map(tag =>
+              tag[0] === "name" ? ["name", "Owner edited completion fixture"] : tag,
+            ),
+          })
+        : undefined
+    const rejected: string[] = []
+    const mock = new MockRelay({
+      seedEvents: [edited || provisional, ...(observed ? [observed] : [])],
+      getPublishResponse: event => {
+        if (edited && event.kind === 30617 && event.created_at < edited.created_at) {
+          rejected.push(event.id)
+          return {outcome: "reject", message: "invalid: older replaceable announcement"}
+        }
+        if (
+          observed &&
+          mode !== "partial-state" &&
+          event.kind === 30618 &&
+          event.created_at <= observed.created_at
+        ) {
+          rejected.push(event.id)
+          return {outcome: "reject", message: "invalid: older replaceable state"}
+        }
+      },
+    })
+    await mock.setup(page)
+    await page.route("https://**", route =>
+      route.fulfill({status: 503, body: "Fixture: external services blocked"}),
+    )
+    await page.goto("/git")
+    await expect(page.getByRole("button", {name: "New Repo", exact: true})).toBeVisible()
+    await page.evaluate(
+      async ({mode, provisional, old}) => {
+        const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
+        await (
+          await import(/* @vite-ignore */ path)
+        ).installCompletionRecoveryFixture(
+          mode === "stuck-announcement" ? "stuck-state" : mode,
+          provisional,
+          old,
+        )
+      },
+      {mode, provisional, old},
+    )
+    if (edited) {
+      const recovery = page.getByRole("region", {name: "Pending repository operations"})
+      await expect(
+        recovery.locator("summary", {hasText: "Review current owner metadata"}),
+      ).toBeVisible()
+      expect(mock.getPublishedEvents().map(event => event.id)).toEqual([provisional.id])
+      const evidence = await page.evaluate(async () => {
+        const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
+        return (await import(/* @vite-ignore */ path)).recoveryEvidence()
+      })
+      expect(evidence).toMatchObject({signedCount: 0, attemptedMutations: 0})
+      // The durable journal preserves signed JSON, not nostr-tools' in-memory
+      // Symbol(verified) marker on the disposable test events.
+      expect(evidence.records[0].reviewAnnouncement).toEqual(JSON.parse(JSON.stringify(edited)))
+      expect(evidence.records[0].publishedEvents.map((item: any) => item.event)).toEqual(
+        JSON.parse(JSON.stringify([provisional, old])),
+      )
+      await recovery.locator("summary", {hasText: "Review current owner metadata"}).click()
+      await expect(
+        recovery.getByText("Owner edited completion fixture", {exact: true}),
+      ).toBeVisible()
+      await recovery.getByRole("button", {name: "Use current metadata and finish hosting"}).click()
+    }
+    await expect
+      .poll(
+        () =>
+          mock
+            .getPublishedEvents()
+            .filter(event => event.kind === 30618 && !rejected.includes(event.id)).length,
+      )
+      .toBe(1)
+    await expect(page.getByRole("region", {name: "Pending repository operations"})).toHaveCount(0)
+    const events = mock.getPublishedEvents().filter(event => [30617, 30618].includes(event.kind))
+    const state = events.filter(event => event.kind === 30618).at(-1)!
+    const announcement = events.filter(event => event.kind === 30617).at(-1)!
+    expect(announcement.tags).toContainEqual(["clone", hosted])
+    expect(state.pubkey).toBe(owner)
+    expect(state.tags).toContainEqual(["d", identifier])
+    if (mode === "partial-state")
+      expect(state.tags).toContainEqual(["refs/heads/feature", "2".repeat(40)])
+    if (mode === "future-state" || mode === "stuck-state" || mode === "stuck-announcement")
+      expect(state.created_at).toBeGreaterThan(aheadAt)
+    expect(rejected).toEqual(mode === "stuck-state" ? [old.id] : edited ? [provisional.id] : [])
+    if (edited)
+      expect(announcement.tags).toContainEqual(["name", "Owner edited completion fixture"])
+    const evidence = await page.evaluate(async () => {
+      const path = "/tests/e2e/fixtures/repo-creation-recovery-browser.ts"
+      return (await import(/* @vite-ignore */ path)).recoveryEvidence()
+    })
+    expect(evidence).toMatchObject({records: [], attemptedMutations: 0, stateStoredLocally: true})
+    if (mode === "failed-host")
+      expect(evidence.refReadUrls.filter((url: string) => url === failedHost)).toHaveLength(1)
+  })
+}

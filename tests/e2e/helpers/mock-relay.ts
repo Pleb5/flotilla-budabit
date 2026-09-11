@@ -114,6 +114,8 @@ export interface MockRelayOptions {
   responseLatencyByKind?: Record<number, number>
   /** Optional publish ACK and retention behavior keyed by exact relay URL */
   publishResponsesByRelay?: Record<string, MockRelayPublishResponse>
+  /** Per-event ACK behavior, e.g. a relay enforcing replaceable-event ordering. */
+  getPublishResponse?: (event: NostrEvent, relayUrl: string) => MockRelayPublishResponse | undefined
   /** Subscription behavior keyed by exact relay URL */
   subscriptionOutcomesByRelay?: Record<string, "eose" | "stall" | "disconnect">
   /** Subscription behavior selected from the exact filters; may wait for a test-controlled response */
@@ -145,6 +147,7 @@ export class MockRelay {
   private latency: number = 10
   private responseLatencyByKind: Record<number, number> = {}
   private publishResponsesByRelay: Record<string, MockRelayPublishResponse> = {}
+  private getPublishResponseCallback?: MockRelayOptions["getPublishResponse"]
   private subscriptionOutcomesByRelay: Record<string, "eose" | "stall" | "disconnect"> = {}
   private getSubscriptionOutcomeCallback?: MockRelayOptions["getSubscriptionOutcome"]
   private eventWaiters: Map<
@@ -186,6 +189,7 @@ export class MockRelay {
       this.subscriptionOutcomesByRelay = {...options.subscriptionOutcomesByRelay}
     }
     this.getSubscriptionOutcomeCallback = options?.getSubscriptionOutcome
+    this.getPublishResponseCallback = options?.getPublishResponse
   }
 
   async getTelemetry(): Promise<MockRelayTelemetryEntry[]> {
@@ -251,6 +255,7 @@ export class MockRelay {
     if (options?.getSubscriptionOutcome) {
       this.getSubscriptionOutcomeCallback = options.getSubscriptionOutcome
     }
+    if (options?.getPublishResponse) this.getPublishResponseCallback = options.getPublishResponse
 
     this.page = page
     this.isSetup = true
@@ -266,6 +271,7 @@ export class MockRelay {
         const waiter = waiters.shift()
         waiter?.resolve(event)
       }
+      return this.getPublishResponseCallback?.(event, relayUrl)
     })
 
     await page.exposeFunction(
@@ -488,23 +494,28 @@ export class MockRelay {
             }, responseLatency)
           }
 
-          private handleEvent(params: unknown[]): void {
+          private async handleEvent(params: unknown[]): Promise<void> {
             const event = params[0] as NostrEvent
             const configuredUrl = this.url.endsWith("/") ? this.url.slice(0, -1) : `${this.url}/`
-            const response =
-              publishResponsesByRelay[this.url] || publishResponsesByRelay[configuredUrl]
-            const outcome = response?.outcome || "accept"
 
             if (debug) {
               console.log(`[MockRelay] EVENT published:`, event)
             }
 
             // Notify the test about the published event
-            ;(
+            const callbackResponse = await (
               window as unknown as {
-                __mockRelayPublish: (event: NostrEvent, relayUrl: string) => void
+                __mockRelayPublish: (
+                  event: NostrEvent,
+                  relayUrl: string,
+                ) => Promise<MockRelayPublishResponse | undefined>
               }
             ).__mockRelayPublish?.(event, this.url)
+            const response =
+              callbackResponse ||
+              publishResponsesByRelay[this.url] ||
+              publishResponsesByRelay[configuredUrl]
+            const outcome = response?.outcome || "accept"
 
             if (outcome === "accept" && response?.retain) {
               const retainedEvents =

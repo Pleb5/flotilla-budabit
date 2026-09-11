@@ -13,6 +13,7 @@ import {
   assertRepoCreationEvent,
   getLatestPublishedEvent,
   RepoCreationTransactionJournal,
+  RepoCreationMetadataDeliveryError,
   scopeRepoCreationPublisher,
   trackRepoCreationPublisher,
   getRepoCreationProvisionalEvents,
@@ -25,7 +26,11 @@ import {
   type RepoCreationTargetRecord,
 } from "./repo-creation-transaction.js";
 import { reserveRepoCreation } from "./repo-creation-preflight.js";
-import { assertRecoveryStateCurrent, RepoRecoveryStateConflict } from "./repo-creation-state.js";
+import {
+  assertRecoveryStateCurrent,
+  RepoRecoveryStateConflict,
+  sameRecoveryStateContents,
+} from "./repo-creation-state.js";
 import {
   assertRecoveryAnnouncementCurrent,
   metadataValues,
@@ -54,6 +59,13 @@ function latestEvent(record: RepoCreationRecoveryRecord, kind: number): NostrEve
   return record.publishedEvents
     .filter((item) => item.event.kind === kind)
     .sort((a, b) => b.event.created_at - a.event.created_at)[0]?.event;
+}
+
+function supersedes(event: NostrEvent, saved: NostrEvent): boolean {
+  return (
+    event.created_at > saved.created_at ||
+    (event.created_at === saved.created_at && event.id < saved.id)
+  );
 }
 
 function refsMatch(
@@ -295,27 +307,46 @@ async function finalizeVerifiedTargets(
   });
   const journal = RepoCreationTransactionJournal.resume(record);
   const trackedPublisher = trackRepoCreationPublisher(journal, deps.publisher)!;
-  const stateSnapshot = {
+  let stateSnapshot = {
     ...stateEvent,
     tags: stateEvent.tags.map((tag) => [...tag] as typeof tag),
   };
-  const assertStateCurrent = () =>
-    assertRecoveryStateCurrent({
-      record: journal.record,
-      announcement: current,
-      state: stateSnapshot,
-      targets: verifiedTargets,
-      fetchEvents: deps.fetchRelayEvents,
-      listServerRefs: (params) => deps.workerApi.listServerRefs(params),
-    });
+  const assertStateCurrent = async (requireNewerTimestamp = false) => {
+    try {
+      const evidence = await assertRecoveryStateCurrent({
+        record: journal.record,
+        announcement: current,
+        state: stateSnapshot,
+        targets: verifiedTargets,
+        fetchEvents: deps.fetchRelayEvents,
+        listServerRefs: (params) => deps.workerApi.listServerRefs(params),
+        requireNewerTimestamp,
+      });
+      if (evidence.observed) journal.recordRecoveryStateObservation(evidence.observed);
+      return evidence;
+    } catch (error) {
+      // The sign-only fallback may catch errors inside reconciliation. Keep the
+      // evidence even if that caller reports a different delivery failure.
+      if (error instanceof RepoRecoveryStateConflict && error.stateEvent)
+        journal.recordRecoveryStateObservation(error.stateEvent);
+      throw error;
+    }
+  };
   // Check before either final event is delivered. Check again around state signing
   // so an intervening push/state publication cannot be hidden by signing latency.
-  await assertStateCurrent();
+  const evidence = await assertStateCurrent();
+  if (!(stateEvent.id && stateEvent.sig)) {
+    stateEvent = {
+      ...stateEvent,
+      created_at: Math.max(stateEvent.created_at, (evidence.newest?.created_at || 0) + 1),
+    };
+    stateSnapshot = { ...stateEvent, tags: stateEvent.tags.map((tag) => [...tag] as typeof tag) };
+  }
   const publisher: PublishRepoEvent = async (event, context) => {
     const signsState = event.kind === 30618 && !(event.id && event.sig);
     const assertFresh = async () => {
       await assertRecoveryAnnouncementCurrent(journal.record, current, deps.fetchRelayEvents);
-      if (signsState) await assertStateCurrent();
+      if (signsState) await assertStateCurrent(true);
     };
     await assertFresh();
     return trackedPublisher(event, { ...context, relays: context?.relays || [], assertFresh });
@@ -501,7 +532,79 @@ async function recoverRecord(
     getLatestPublishedEvent(record, 30617) &&
     getLatestPublishedEvent(record, 30618)
   ) {
-    await retryPendingRepoCreationMetadata(record, deps.publisher, deps.fetchRelayEvents);
+    try {
+      await retryPendingRepoCreationMetadata(record, deps.publisher, deps.fetchRelayEvents);
+    } catch (error) {
+      if (
+        !(error instanceof RepoCreationMetadataDeliveryError) ||
+        ![30617, 30618].includes(error.event.kind)
+      )
+        throw error;
+      let pending =
+        getPendingRepoCreationTransactions().find((item) => item.id === record.id) || record;
+      const verified = pending.targets.filter((target) => target.stage === "verified");
+      const announcement =
+        pending.sourceMetadata?.announcementEvent || getLatestPublishedEvent(pending, 30617)?.event;
+      const savedState = getLatestPublishedEvent(pending, 30618)?.event;
+      if (!announcement || !savedState || !verified.length) throw error;
+      let observed: NostrEvent | undefined;
+      try {
+        const current = await readCurrentRecoveryAnnouncement(
+          pending,
+          announcement,
+          deps.fetchRelayEvents
+        );
+        // Retain owner edits even if a later state/ref read fails or the next
+        // metadata query omits them. This records evidence, never owner approval.
+        if (current.id !== announcement.id)
+          pending = persistRepoCreationRecoveryRecord({ ...pending, reviewAnnouncement: current });
+        // Exact replay sends announcement first. A superseded announcement may be
+        // rejected before state delivery is attempted; an unconfirmed failure must
+        // still retry the same signed pair, not authorize a metadata replacement.
+        if (error.event.kind === 30617 && !supersedes(current, error.event)) throw error;
+        const { id: _id, sig: _sig, pubkey: _pubkey, ...unsigned } = savedState;
+        const evidence = await assertRecoveryStateCurrent({
+          record: pending,
+          announcement: current,
+          state: unsigned as ReturnType<typeof createRepoStateEvent>,
+          targets: verified,
+          fetchEvents: deps.fetchRelayEvents,
+          listServerRefs: (params) => deps.workerApi.listServerRefs(params),
+        });
+        observed = evidence.observed;
+        if (
+          !observed ||
+          !sameRecoveryStateContents(observed, savedState) ||
+          !supersedes(observed, savedState)
+        )
+          throw error;
+      } catch (cause) {
+        // Read-only eligibility checks cannot convert an unresolved exact pair
+        // into preparation. Keep its attempt/phase so ordinary exact replay still
+        // works even if metadata or Git reads are unavailable on the next retry.
+        const reason = cause instanceof Error ? cause.message : String(cause);
+        const unresolved = persistRepoCreationRecoveryRecord({
+          ...pending,
+          ...(cause instanceof RepoRecoveryStateConflict && cause.stateEvent
+            ? { stateConflictEvent: cause.stateEvent }
+            : {}),
+          manualAttention: { required: true, reason },
+          lastError: reason,
+        });
+        return { status: "pending", record: unresolved, reason };
+      }
+      deps.assertCurrent?.();
+      // A failed exact metadata retry and identical, superseding state establish
+      // that the saved state is obsolete. Archive it unchanged; a separate attempt
+      // still needs current owner metadata approval and live-ref verification.
+      const preparing = persistRepoCreationRecoveryRecord({
+        ...pending,
+        phase: "metadata-preparing",
+        stateConflictEvent: observed,
+        metadataAttempt: { announcementEventId: getLatestPublishedEvent(pending, 30617)?.event.id },
+      });
+      return finalizeVerifiedTargets(preparing, verified, deps);
+    }
     const persisted =
       getPendingRepoCreationTransactions().find((item) => item.id === record.id) || record;
     const next = await cleanupLocalResource(persisted, deps.workerApi, deps.assertCurrent);

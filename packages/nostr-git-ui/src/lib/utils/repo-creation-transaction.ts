@@ -93,6 +93,14 @@ export interface RepoCreationPublishedEvent {
   stage?: "provisional" | "final";
 }
 
+/** Exact delivery failed, not permission to edit/re-sign the saved payload. */
+export class RepoCreationMetadataDeliveryError extends Error {
+  constructor(public event: NostrEvent) {
+    super(`Metadata recovery received no relay ACK for event ${event.id}`);
+    this.name = "RepoCreationMetadataDeliveryError";
+  }
+}
+
 export interface RepoCreationEventAckEvidence {
   eventId: string;
   stage: "provisional" | "final";
@@ -123,8 +131,8 @@ export interface RepoCreationRecoveryRecord {
   phase: RepoCreationPhase;
   /** Exact current owner announcement presented for explicit recovery review. */
   reviewAnnouncement?: NostrEvent;
-  /** Keep observed conflicting state across reloads/relay outages; owner metadata
-   * review alone cannot authorize overwriting this branch/tag state. */
+  /** Retain observed state for conflict checks and replacement ordering across
+   * reloads/outages. Owner metadata review cannot authorize overwriting it. */
   stateConflictEvent?: NostrEvent;
   /** Active signed delivery pair. Older attempts remain in publishedEvents as
    * immutable receipts, but must not accidentally complete a newer half-pair. */
@@ -564,6 +572,11 @@ export class RepoCreationTransactionJournal {
     metadataAttempt: NonNullable<RepoCreationRecoveryRecord["metadataAttempt"]>
   ): void {
     this.#update({ metadataAttempt });
+  }
+
+  recordRecoveryStateObservation(event: NostrEvent): void {
+    if (this.#record.stateConflictEvent?.id !== event.id)
+      this.#update({ stateConflictEvent: event });
   }
 
   setLocalRepoId(localRepoId: string): void {
@@ -1075,7 +1088,7 @@ export async function retryPendingRepoCreationMetadata(
 
     const ack = extractPublishRelayAck(result);
     if (!ack.hasRelayOutcomes || ack.ackedRelays.length === 0) {
-      throw new Error(`Metadata recovery received no relay ACK for event ${item.event.id}`);
+      throw new RepoCreationMetadataDeliveryError(item.event);
     }
     const acked = new Set(sanitizeRelays(ack.ackedRelays));
     return {

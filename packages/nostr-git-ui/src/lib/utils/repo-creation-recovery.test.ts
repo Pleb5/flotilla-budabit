@@ -939,7 +939,13 @@ describe("metadata recovery safety", () => {
       relayOutcomes: [{ relay, status: "failure", detail: "offline" }],
     }));
     const failed = await recoverRepoCreationRecord(pending, deps);
-    expect(failed.status).toBe("pending");
+    expect(failed).toMatchObject({ status: "pending", record: { phase: "metadata-pending" } });
+    // A failed announcement now probes owner metadata for supersession, but an
+    // unconfirmed result keeps the exact pair and never requires live Git reads.
+    expect(deps.fetchRelayEvents.mock.calls.map(([params]) => params.filters[0].kinds)).toEqual([
+      [30617],
+    ]);
+    deps.fetchRelayEvents.mockClear();
     deps.publisher.mockClear().mockImplementation(normal);
     expect(await recoverRepoCreationRecord(failed.record!, deps)).toEqual({ status: "recovered" });
     expect(deps.publisher.mock.calls.map(([event]) => event)).toEqual([announcement, state]);

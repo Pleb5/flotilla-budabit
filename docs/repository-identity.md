@@ -73,14 +73,33 @@ recovery never changes a signed event's identity to make it fit.
   invalidates that approval; freshness is checked before signing and delivery.
 - Exact signed-pair retries do not mint newer timestamps. If partial relay ACKs
   require a new relay-pruned replacement, the same freshness/review guard applies.
+- A failed exact metadata delivery can start a separate replacement attempt only
+  after fresh state and live-ref checks establish that an identical, newer
+  authoritative state supersedes it. Old signed payloads remain archived unchanged;
+  an unknown delivery outcome alone never authorizes re-signing.
+- If the saved announcement is rejected before state delivery, recovery checks
+  exact-owner metadata for confirmed supersession and requires owner review before
+  an eligible replacement. Observed owner edits survive later failed/empty reads.
+  Unconfirmed failures keep the original signed pair in `metadata-pending`, so
+  diagnostic read failures do not prevent ordinary exact retries.
 - Verified push receipts are historical, not proof of current branch state. Before
-  signing new state, recovery re-reads Git refs/HEAD on verified targets and current
-  announced clone endpoints, plus the latest owner or directly declared maintainer
-  state. Conflicting refs, HEAD, state contents, or unavailable reads leave the
-  journal pending for manual resolution. Reviewing owner metadata does not
-  authorize overwriting branch/tag state. Recovery never
+  signing new state, recovery re-reads Git refs/HEAD on verified targets and genuine
+  pre-existing owner-announced clone endpoints, plus the latest owner or directly
+  declared maintainer state. Conflicting refs, HEAD, state contents, or unavailable
+  reads leave the journal pending for manual resolution. Reviewing owner metadata
+  does not authorize overwriting branch/tag state. Recovery never
   resets remote refs to make a checkpoint match. Exact signed-state replay remains
   separate and does not generate a new timestamp.
+- Destinations advertised provisionally by this transaction are not pre-existing
+  hosting. A failed provisional destination can be omitted while finishing with
+  verified survivors; independently accepted owner hosting remains protected.
+- Exact provisional state receipts may describe only part of the planned refs.
+  Recovery recognizes them only when their complete contents are compatible
+  progress toward the verified refs/HEAD, and still verifies live refs. Provisional
+  progress cannot hide independent edits or conflicting final attempts.
+- New state is ordered after observed and checkpointed state timestamps, including
+  clock-skewed identical state. If state advances while signing, delivery stops and
+  retry prepares a new attempt using the retained observation.
 - New Repo captures its approved owner before worker initialization and uses the
   guarded creation publisher. Its journal coordinate and account assertions reach
   the transport before signing and again before local or relay delivery.
