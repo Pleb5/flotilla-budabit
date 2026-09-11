@@ -1,4 +1,4 @@
-import {afterEach, describe, expect, it} from "vitest"
+import {afterEach, describe, expect, it, vi} from "vitest"
 import {
   getHostCapabilitySnapshot,
   getRegisteredBridgeActions,
@@ -22,9 +22,22 @@ const makeWidget = (permissions: string[] = []): SmartWidgetEvent =>
     permissions,
   }) as SmartWidgetEvent
 
-afterEach(() => removeBridgeHandler(testAction))
+afterEach(() => {
+  removeBridgeHandler(testAction)
+  vi.unstubAllGlobals()
+})
 
 describe("host capability catalog", () => {
+  it("advertises conditional storage only when cross-tab Web Locks are available", () => {
+    vi.stubGlobal("navigator", {})
+    expect(
+      getHostCapabilitySnapshot({widget: makeWidget()}).features["storage.compareAndSet"],
+    ).toBe(false)
+    vi.stubGlobal("navigator", {locks: {request: () => {}}})
+    expect(
+      getHostCapabilitySnapshot({widget: makeWidget()}).features["storage.compareAndSet"],
+    ).toBe(true)
+  })
   it("derives advertised actions from registered bridge handlers", () => {
     registerBridgeHandler(testAction, () => ({status: "ok"}))
 

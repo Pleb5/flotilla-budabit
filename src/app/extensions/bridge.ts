@@ -63,6 +63,7 @@ import {
   MAX_EXTENSION_RELAYS_PER_SUBSCRIPTION,
 } from "./extension-subscriptions"
 import {queryExtensionRelays} from "./nostr-query"
+import {accessExtensionStorage} from "./storage-concurrency"
 import {isAllowedExtensionOrigin} from "./url-policy"
 import {BoundedRefreshCache} from "./bounded-refresh-cache"
 import {
@@ -2431,91 +2432,38 @@ const getExtensionStorageLocations = (ext: LoadedExtension, repoScoped: boolean,
   `${getExtensionStorageKeyPrefix(ext, repoScoped, FLOTILLA_STORAGE_PREFIX)}${key}`,
 ]
 
-const removeStorageKey = (ext: LoadedExtension, repoScoped: boolean, key: string): void => {
-  for (const storageKey of getExtensionStorageLocations(ext, repoScoped, key)) {
-    localStorage.removeItem(storageKey)
-  }
+for (const action of ["get", "set", "remove", "compareAndSet"] as const) {
+  registerBridgeHandler(`storage:${action}`, async (payload, ext) => {
+    try {
+      assertExpectedScope(payload, ext)
+      const {key, repoScoped = false} = payload || {}
+      if (typeof key !== "string" || key.length === 0) {
+        throw new Error("Invalid key: expected non-empty string")
+      }
+      if (key.length > MAX_STORAGE_KEY_LENGTH) {
+        throw new Error(`Key exceeds maximum length of ${MAX_STORAGE_KEY_LENGTH}`)
+      }
+      if (repoScoped && !ext.repoContext) {
+        throw new Error("repoScoped requested but no repository context available")
+      }
+      const locations = getExtensionStorageLocations(ext, repoScoped, key)
+      return await accessExtensionStorage(
+        locations,
+        {...payload, action},
+        () => {
+          assertExpectedScope(payload, ext)
+          if (getExtensionStorageKey(ext, repoScoped, key) !== locations[0]) {
+            throw new Error("Repository context changed")
+          }
+        },
+        MAX_STORAGE_VALUE_SIZE,
+      )
+    } catch (err: any) {
+      console.error(`Error in storage:${action} bridge handler:`, err)
+      return {error: err.message}
+    }
+  })
 }
-
-registerBridgeHandler("storage:get", (payload, ext) => {
-  if (ext) console.log(`[bridge] storage:get from ${ext.id}`, payload)
-  try {
-    assertExpectedScope(payload, ext)
-    const {key, repoScoped = false} = payload || {}
-    if (typeof key !== "string" || key.length === 0) {
-      throw new Error("Invalid key: expected non-empty string")
-    }
-    if (key.length > MAX_STORAGE_KEY_LENGTH) {
-      throw new Error(`Key exceeds maximum length of ${MAX_STORAGE_KEY_LENGTH}`)
-    }
-    if (repoScoped && !ext.repoContext) {
-      throw new Error("repoScoped requested but no repository context available")
-    }
-    const locations = getExtensionStorageLocations(ext, repoScoped, key)
-    const sourceIndex = locations.findIndex(location => localStorage.getItem(location) !== null)
-    const raw = sourceIndex >= 0 ? localStorage.getItem(locations[sourceIndex]) : null
-    const data = raw !== null ? JSON.parse(raw) : null
-    if (raw !== null && sourceIndex > 0) {
-      localStorage.setItem(locations[0], raw)
-      for (const location of locations.slice(1)) localStorage.removeItem(location)
-    }
-    return {status: "ok", data}
-  } catch (err: any) {
-    console.error("Error in storage:get bridge handler:", err)
-    return {error: err.message}
-  }
-})
-
-registerBridgeHandler("storage:set", (payload, ext) => {
-  if (ext) console.log(`[bridge] storage:set from ${ext.id}`, payload)
-  try {
-    assertExpectedScope(payload, ext)
-    const {key, data, repoScoped = false} = payload || {}
-    if (typeof key !== "string" || key.length === 0) {
-      throw new Error("Invalid key: expected non-empty string")
-    }
-    if (key.length > MAX_STORAGE_KEY_LENGTH) {
-      throw new Error(`Key exceeds maximum length of ${MAX_STORAGE_KEY_LENGTH}`)
-    }
-    if (repoScoped && !ext.repoContext) {
-      throw new Error("repoScoped requested but no repository context available")
-    }
-    if (data === null || data === undefined) {
-      removeStorageKey(ext, repoScoped, key)
-      return {status: "ok"}
-    }
-    const serialized = JSON.stringify(data)
-    if (new TextEncoder().encode(serialized).byteLength > MAX_STORAGE_VALUE_SIZE) {
-      throw new Error(`Value exceeds maximum size of ${MAX_STORAGE_VALUE_SIZE} bytes`)
-    }
-    localStorage.setItem(getExtensionStorageKey(ext, repoScoped, key), serialized)
-    for (const legacyKey of getExtensionStorageLocations(ext, repoScoped, key).slice(1)) {
-      localStorage.removeItem(legacyKey)
-    }
-    return {status: "ok"}
-  } catch (err: any) {
-    console.error("Error in storage:set bridge handler:", err)
-    return {error: err.message}
-  }
-})
-
-registerBridgeHandler("storage:remove", (payload, ext) => {
-  if (ext) console.log(`[bridge] storage:remove from ${ext.id}`, payload)
-  try {
-    const {key, repoScoped = false} = payload || {}
-    if (typeof key !== "string" || key.length === 0) {
-      throw new Error("Invalid key: expected non-empty string")
-    }
-    if (repoScoped && !ext.repoContext) {
-      throw new Error("repoScoped requested but no repository context available")
-    }
-    removeStorageKey(ext, repoScoped, key)
-    return {status: "ok"}
-  } catch (err: any) {
-    console.error("Error in storage:remove bridge handler:", err)
-    return {error: err.message}
-  }
-})
 
 registerBridgeHandler("storage:keys", (payload, ext) => {
   if (ext) console.log(`[bridge] storage:keys from ${ext.id}`)

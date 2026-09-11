@@ -1,4 +1,5 @@
 import type {LoadedExtension, SmartWidgetEvent} from "./types"
+import {supportsAtomicStorage} from "./storage-concurrency"
 import {
   MAX_EXTENSION_RELAYS_PER_SUBSCRIPTION,
   MAX_EXTENSION_EVENTS_PER_FILTER,
@@ -70,6 +71,7 @@ export const getHostCapabilitySnapshot = ({
       "nostr.queryCompleteness": true,
       "nostr.expectedSigner": true,
       "nostr.declaredWriteKinds": true,
+      "storage.compareAndSet": supportsAtomicStorage(),
       "community.sharedConfigRefresh": true,
       "widget.theme": true,
     },

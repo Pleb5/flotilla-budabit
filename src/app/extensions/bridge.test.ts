@@ -342,7 +342,13 @@ const makeExtension = (overrides: Record<string, any> = {}) => {
   }
 }
 
-const storagePermissions = ["storage:get", "storage:set", "storage:keys", "storage:remove"]
+const storagePermissions = [
+  "storage:get",
+  "storage:set",
+  "storage:keys",
+  "storage:remove",
+  "storage:compareAndSet",
+]
 
 const makeStorageExtension = (overrides: Record<string, any> = {}) =>
   makeExtension({
@@ -420,6 +426,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   vi.useRealTimers()
   localStorage.clear()
 })
@@ -942,6 +949,105 @@ describe("ExtensionBridge", () => {
       sendBridgeRequest(bridge, extension, "storage:remove", {key: storageKey}),
     ).resolves.toEqual({status: "ok"})
     expect(localStorage.getItem(expectedKey)).toBeNull()
+  })
+
+  it("compares storage revisions across independent bridges and refuses stale updates/deletion", async () => {
+    // The browser regression supplies real cross-tab Web Locks. This shared queue
+    // verifies bridge routing, permissions and versioned wire semantics in jsdom.
+    let tail = Promise.resolve() as Promise<unknown>
+    const request = vi.fn((_name, _options, work) => {
+      const next = tail.then(work)
+      tail = next.catch(() => undefined)
+      return next
+    })
+    vi.stubGlobal("navigator", {locks: {request}})
+    const {ExtensionBridge} = await import("./bridge")
+    const a = makeStorageExtension(),
+      b = makeStorageExtension()
+    const ca = new ExtensionBridge(a as any),
+      cb = new ExtensionBridge(b as any)
+    const get = (c = ca, e = a) =>
+      sendBridgeRequest(c, e, "storage:get", {key: "journal", withRevision: true})
+    const write = (c: any, e: any, expectedRevision: unknown, data: unknown) =>
+      sendBridgeRequest(c, e, "storage:compareAndSet", {key: "journal", expectedRevision, data})
+    expect(await get()).toEqual({status: "ok", data: null, revision: null, atomic: true})
+    const results = await Promise.all([
+      write(ca, a, null, {batch: "A"}),
+      write(cb, b, null, {batch: "B"}),
+    ])
+    expect(results.map(r => r.status)).toEqual(["ok", "conflict"])
+    const old = await get(cb, b)
+    const progress = await write(ca, a, old.revision, {batch: "A", accepted: ["asset"]})
+    expect(await write(cb, b, old.revision, null)).toEqual({status: "conflict"})
+    expect(await write(cb, b, old.revision, {batch: "B"})).toEqual({status: "conflict"})
+    expect(await write(ca, a, progress.revision, null)).toEqual({status: "ok", revision: null})
+    await write(cb, b, null, {batch: "B"})
+    expect(await write(ca, a, progress.revision, null)).toEqual({status: "conflict"})
+    expect(await get()).toMatchObject({data: {batch: "B"}})
+    expect(
+      request.mock.calls.every(
+        ([key]) => key === "budabit:storage:budabit:extension:test-extension:global:journal",
+      ),
+    ).toBe(true)
+  })
+
+  it.each(["account", "repository"])(
+    "rechecks pinned %s after waiting for the storage lock, with no stale mutations",
+    async changed => {
+      let acquire!: () => void
+      const waiting = new Promise<void>(resolve => {
+        acquire = resolve
+      })
+      vi.stubGlobal("navigator", {
+        locks: {
+          request: async (_name: string, _options: unknown, work: () => unknown) => {
+            await waiting
+            return work()
+          },
+        },
+      })
+      const {ExtensionBridge} = await import("./bridge")
+      const owner = testPubkey(1)
+      mocks.pubkey.set(owner)
+      const extension = makeStorageExtension({repoContext: {pubkey: owner, name: "repo"}})
+      const bridge = new ExtensionBridge(extension as any)
+      const pending = sendBridgeRequest(bridge, extension, "storage:compareAndSet", {
+        key: "journal",
+        repoScoped: true,
+        expectedPubkey: owner,
+        expectedRepoAddress: `30617:${owner}:repo`,
+        expectedRevision: null,
+        data: {batch: "A"},
+      })
+      if (changed === "account") mocks.pubkey.set(testPubkey(2))
+      else extension.repoContext = {pubkey: owner, name: "different"}
+      acquire()
+      expect(await pending).toEqual({
+        error: changed === "account" ? "Signing account changed" : "Repository context changed",
+      })
+      expect(localStorage.length).toBe(0)
+    },
+  )
+
+  it("fails closed for atomic storage without Web Locks, while preserving ordinary storage", async () => {
+    vi.stubGlobal("navigator", {})
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeStorageExtension(),
+      bridge = new ExtensionBridge(extension as any)
+    for (const [action, payload] of [
+      ["storage:get", {key: "journal", withRevision: true}],
+      ["storage:compareAndSet", {key: "journal", expectedRevision: null, data: {}}],
+    ] as const)
+      expect(await sendBridgeRequest(bridge, extension, action, payload)).toMatchObject({
+        error: expect.stringContaining("Web Locks"),
+      })
+    expect(
+      await sendBridgeRequest(bridge, extension, "storage:set", {key: "cache", data: {}}),
+    ).toEqual({status: "ok"})
+    expect(await sendBridgeRequest(bridge, extension, "storage:get", {key: "cache"})).toEqual({
+      status: "ok",
+      data: {},
+    })
   })
 
   it("enforces the storage value limit using UTF-8 bytes", async () => {
