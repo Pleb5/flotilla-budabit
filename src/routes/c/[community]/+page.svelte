@@ -1,5 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
+  import {untrack} from "svelte"
   import {writable} from "svelte/store"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
@@ -418,18 +419,27 @@
   const roomsLoading = $derived(
     roomsWaitingForDefinition || roomsWaitingForRequest || roomsWaitingForPermissions,
   )
-  // Skeleton delay: suppress the loading card entirely for the first
-  // ~800ms after entering a community so fast/warm cache paths never
-  // flash a "Looking for rooms..." spinner.
+  // Let fast bootstrap phases settle without showing a card. Once it is shown,
+  // keep it visible through definition/permission/request handoffs instead of
+  // restarting the delay. Cached rooms stop it; a later load gets a fresh delay.
   const ROOMS_SKELETON_DELAY_MS = 800
-  let roomsSkeletonDelayElapsed = $state(false)
+  const roomsPendingKey = $derived(
+    communityPointer && rooms.length === 0 && roomsLoading ? communityPointer.address : "",
+  )
+  let roomsSkeletonVisibleKey = $state("")
+  const roomsSkeletonDelayElapsed = $derived(
+    Boolean(roomsPendingKey && roomsSkeletonVisibleKey === roomsPendingKey),
+  )
   $effect(() => {
-    // Reset whenever the community or permission-wait phase changes.
-    void communityPointer?.address
+    const key = roomsPendingKey
     void roomsWaitingForPermissions
-    roomsSkeletonDelayElapsed = false
+    if (key && untrack(() => roomsSkeletonVisibleKey) === key) return
+
+    roomsSkeletonVisibleKey = ""
+    if (!key) return
+
     const timer = setTimeout(() => {
-      roomsSkeletonDelayElapsed = true
+      roomsSkeletonVisibleKey = key
     }, ROOMS_SKELETON_DELAY_MS)
     return () => clearTimeout(timer)
   })
