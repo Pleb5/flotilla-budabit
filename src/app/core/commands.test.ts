@@ -1666,7 +1666,7 @@ describe("commands", () => {
     expect(netMocks.request.mock.calls[0][0].signal.aborted).toBe(true)
   })
 
-  it("installWidgetFromEvent stores widgets and install sources by widget line id", async () => {
+  it("installWidgetFromEvent atomically installs and enables widgets before syncing", async () => {
     const {installWidgetFromEvent} = await import("./commands")
     const pubkey = "a".repeat(64)
     const event = {
@@ -1685,8 +1685,23 @@ describe("commands", () => {
     } as any
     const widgetId = `30033:${pubkey}:weather`
 
-    const widget = installWidgetFromEvent(event, {relays: ["wss://widgets.example/"]})
-    const next = settingsMocks.update.mock.calls[0][0](settingsMocks.value)
+    settingsMocks.value.enabled = ["already-enabled"]
+    settingsMocks.value.disabledDefaultIds = [widgetId, "another-disabled-default"]
+    settingsMocks.update.mockImplementation(update => {
+      settingsMocks.value = update(settingsMocks.value)
+    })
+    const syncedSnapshots: any[] = []
+    settingsMocks.syncExtensionSettingsNow.mockImplementation(async () => {
+      const snapshot = structuredClone(settingsMocks.value)
+      syncedSnapshots.push(snapshot)
+      // Echo the published snapshot after yielding, just like relay settings sync.
+      await Promise.resolve()
+      settingsMocks.value = snapshot
+      return true
+    })
+
+    const widget = await installWidgetFromEvent(event, {relays: ["wss://widgets.example/"]})
+    const next = settingsMocks.value
 
     expect(getWidgetLineId(widget)).toBe(widgetId)
     expect(next.installed.widget[widgetId]).toMatchObject({
@@ -1698,7 +1713,107 @@ describe("commands", () => {
     })
     expect(next.installed.widget.weather).toBeUndefined()
     expect(next.widgetInstallSources[widgetId]).toEqual({relays: ["wss://widgets.example/"]})
+    expect(next.enabled).toEqual(["already-enabled", widgetId])
+    expect(next.disabledDefaultIds).toEqual(["another-disabled-default"])
+    expect(settingsMocks.update).toHaveBeenCalledTimes(1)
     expect(settingsMocks.syncExtensionSettingsNow).toHaveBeenCalledTimes(1)
+    expect(syncedSnapshots).toEqual([next])
+    expect(syncedSnapshots[0].enabled).toContain(widgetId)
+    expect(registryMocks.loadWidget).toHaveBeenCalledWith(widget)
+  })
+
+  it("installWidgetFromEvent waits for sync and does not duplicate enabled ids", async () => {
+    const {installWidgetFromEvent} = await import("./commands")
+    const widgetId = `30033:${"a".repeat(64)}:releases`
+    settingsMocks.value.enabled = [widgetId]
+    settingsMocks.update.mockImplementation(update => {
+      settingsMocks.value = update(settingsMocks.value)
+    })
+    let completeSync!: (published: boolean) => void
+    settingsMocks.syncExtensionSettingsNow.mockReturnValue(
+      new Promise(resolve => {
+        completeSync = resolve
+      }),
+    )
+
+    const installed = vi.fn()
+    const installation = Promise.resolve(
+      installWidgetFromEvent({
+        id: "releases-event",
+        kind: 30033,
+        pubkey: "a".repeat(64),
+        tags: [["d", "releases"]],
+        content: "Releases",
+      } as any),
+    ).then(installed)
+
+    try {
+      await Promise.resolve()
+      expect(installed).not.toHaveBeenCalled()
+      expect(settingsMocks.value.enabled).toEqual([widgetId])
+      expect(registryMocks.loadWidget).not.toHaveBeenCalled()
+    } finally {
+      completeSync(true)
+      await installation
+    }
+
+    expect(installed).toHaveBeenCalledOnce()
+    expect(registryMocks.loadWidget).toHaveBeenCalledOnce()
+  })
+
+  it("installWidgetFromEvent enables home widgets without preloading a hidden runtime", async () => {
+    const {installWidgetFromEvent} = await import("./commands")
+    const widget = {
+      id: "calendar-event",
+      kind: 30033,
+      pubkey: "a".repeat(64),
+      identifier: "calendar",
+      slot: {type: "community-home-after-quicklinks", label: "Calendar"},
+    } as any
+    registryMocks.parseSmartWidget.mockReturnValue(widget)
+
+    await installWidgetFromEvent(widget)
+
+    const next = settingsMocks.update.mock.calls[0][0](settingsMocks.value)
+    expect(next.enabled).toContain(getWidgetLineId(widget))
+    expect(settingsMocks.syncExtensionSettingsNow).toHaveBeenCalledTimes(1)
+    expect(registryMocks.loadWidget).not.toHaveBeenCalled()
+  })
+
+  it("installWidgetByNaddr installs enabled with one sync and keeps the source hints", async () => {
+    const {installWidgetByNaddr} = await import("./commands")
+    const event = {
+      id: "releases-naddr-event",
+      kind: 30033,
+      pubkey: "a".repeat(64),
+      created_at: 1,
+      tags: [["d", "releases-naddr"]],
+      content: "Releases",
+    } as any
+    const relays = ["wss://widgets.example/"]
+    const naddr = nip19.naddrEncode({
+      kind: event.kind,
+      pubkey: event.pubkey,
+      identifier: "releases-naddr",
+      relays,
+    })
+    settingsMocks.update.mockImplementation(update => {
+      settingsMocks.value = update(settingsMocks.value)
+    })
+    repository.publish(event)
+
+    try {
+      const widget = await installWidgetByNaddr(naddr)
+      const widgetId = getWidgetLineId(widget)
+
+      expect(settingsMocks.value.installed.widget[widgetId]).toEqual(widget)
+      expect(settingsMocks.value.enabled).toContain(widgetId)
+      expect(settingsMocks.value.widgetInstallSources[widgetId]).toEqual({naddr, relays})
+      expect(settingsMocks.syncExtensionSettingsNow).toHaveBeenCalledTimes(1)
+      expect(registryMocks.loadWidget).toHaveBeenCalledWith(widget)
+    } finally {
+      repository.removeEvent(event.id)
+    }
   })
 
   it("discoverSmartWidgets keeps same-d widgets from different publishers", async () => {

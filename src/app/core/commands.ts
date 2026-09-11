@@ -159,6 +159,16 @@ import {pushToast} from "@app/util/toast"
 const SMART_WIDGET_KIND = 30033
 const WIDGET_UPDATE_CHECK_TIMEOUT_MS = 8_000
 
+const preloadWidgetRuntime = async (widget: SmartWidgetEvent | undefined) => {
+  if (widget && shouldPreloadWidgetRuntime(widget)) {
+    try {
+      await extensionRegistry.loadWidget(widget)
+    } catch (e) {
+      console.warn("Failed to load widget", getWidgetLineId(widget), e)
+    }
+  }
+}
+
 export const uninstallExtension = async (id: string) => {
   if (isDefaultExtension(id)) {
     throw new Error("Default community extensions can be disabled, but not uninstalled")
@@ -185,13 +195,17 @@ export const uninstallExtension = async (id: string) => {
   await syncExtensionSettingsNow()
 }
 
-export const installWidgetFromEvent = (event: TrustedEvent, source?: WidgetInstallSource) => {
+export const installWidgetFromEvent = async (event: TrustedEvent, source?: WidgetInstallSource) => {
   const widget = parseSmartWidget(event)
   const id = getWidgetLineId(widget)
   extensionRegistry.registerWidget(widget)
   const normalizedSource = normalizeWidgetInstallSource(source)
   extensionSettings.update(s => ({
     ...s,
+    // Sync installation and enablement together so a relay echo cannot restore
+    // an intermediate installed-but-disabled snapshot.
+    enabled: s.enabled.includes(id) ? s.enabled : [...s.enabled, id],
+    disabledDefaultIds: (s.disabledDefaultIds || []).filter(disabledId => disabledId !== id),
     installed: {
       widget: {...(s.installed?.widget || {}), [id]: widget},
       legacy: s.installed?.legacy,
@@ -200,7 +214,8 @@ export const installWidgetFromEvent = (event: TrustedEvent, source?: WidgetInsta
       ? {...(s.widgetInstallSources || {}), [id]: normalizedSource}
       : s.widgetInstallSources || {},
   }))
-  void syncExtensionSettingsNow()
+  await syncExtensionSettingsNow()
+  await preloadWidgetRuntime(widget)
   return widget
 }
 
@@ -379,13 +394,7 @@ export const enableExtension = async (id: string) => {
   const installed = getInstalledExtensions()
   const widget = installed.widget[id]
 
-  if (widget && shouldPreloadWidgetRuntime(widget)) {
-    try {
-      await extensionRegistry.loadWidget(widget)
-    } catch (e) {
-      console.warn("Failed to load widget", id, e)
-    }
-  }
+  await preloadWidgetRuntime(widget)
 }
 
 export const disableExtension = async (id: string) => {

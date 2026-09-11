@@ -94,7 +94,7 @@
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
   import {deriveEvent, entityLink} from "@app/core/state"
   import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
-  import {enableExtension, installWidgetFromEvent} from "@app/core/commands"
+  import {installWidgetFromEvent} from "@app/core/commands"
   import {activeCommunityReportState} from "@app/core/community-state"
   import {getPreferredRepoPublicationAddress} from "@app/core/repo-publication"
   import {parseCommunityDefinitionAddress} from "@app/core/community"
@@ -716,11 +716,10 @@
 
     smartWidgetInstalling = true
     try {
-      const installed = installWidgetFromEvent($quote, {
+      const installed = await installWidgetFromEvent($quote, {
         naddr: fallbackEntity,
         relays: mergedRelays,
       })
-      await enableExtension(getWidgetLineId(installed))
       clearCommunityWidgetSlotCache()
       pushToast({
         theme: "success",

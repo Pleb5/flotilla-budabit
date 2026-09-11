@@ -568,10 +568,9 @@
 
   const onInstallWidget = async (widget: SmartWidgetEvent) => {
     try {
-      const installedWidget = installWidgetFromEvent(widget as any, {
+      await installWidgetFromEvent(widget as any, {
         relays: getWidgetInstallSourceRelays(widget),
       })
-      await enableExtension(getWidgetLineId(installedWidget))
       clearCommunityWidgetSlotCache()
       pushToast({
         theme: "success",
@@ -594,13 +593,12 @@
         const widgetId = getWidgetLineId(widget)
 
         if (!installedIds.has(widgetId)) {
-          const installedWidget = installWidgetFromEvent(widget as any, {
+          const installedWidget = await installWidgetFromEvent(widget as any, {
             relays: getWidgetInstallSourceRelays(widget),
           })
           const installedWidgetId = getWidgetLineId(installedWidget)
           installedIds.add(installedWidgetId)
           installedCount += 1
-          await enableExtension(installedWidgetId)
         } else {
           await enableExtension(widgetId)
         }
@@ -632,7 +630,6 @@
     installingWidget = true
     try {
       const widget = await installWidgetByNaddr(widgetNaddr)
-      await enableExtension(getWidgetLineId(widget))
       clearCommunityWidgetSlotCache()
       pushToast({
         theme: "success",
