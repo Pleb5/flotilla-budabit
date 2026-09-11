@@ -34,6 +34,17 @@ describe("markdownRenderers", () => {
     vi.mocked(nip19.decode).mockReset()
   })
   describe("createRenderers", () => {
+    it("does not render images or media previews when media is disabled", async () => {
+      const renderers = createRenderers({showMedia: false, event: {id: "event-id"} as any})
+      expect(renderers.image!({href: "https://example.com/image.png", text: "Image"} as any)).toBe(
+        "",
+      )
+      const parser = new Marked({renderer: renderers})
+      const html = await parser.parse("https://example.com/image.png")
+      expect(html).toContain('<a href="https://example.com/image.png"')
+      expect(html).not.toContain("markdown-link-block-placeholder")
+    })
+
     it.each(["note", "nevent", "naddr"])(
       "keeps %s links without quote context inside Budabit",
       type => {

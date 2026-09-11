@@ -34,6 +34,7 @@
   import {entityLink, userSettingsValues} from "@app/core/state"
   import {replaceCashuTokens} from "@app/util/cashu-token"
   import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
+  import {getArticleDetails, isArticleKind} from "@app/util/articles"
 
   interface Props {
     event: any
@@ -44,8 +45,11 @@
   const {event, trimParent = false, url}: Props = $props()
 
   const fullContent = $derived(replaceCashuTokens(parse(event)))
+  const article = $derived(isArticleKind(event.kind) ? getArticleDetails(event) : undefined)
   const contentWarning = $derived(
-    $userSettingsValues.hide_sensitive && event.tags?.find(nthEq(0, "content-warning"))?.[1],
+    $userSettingsValues.hide_sensitive &&
+      (event.tags?.find(nthEq(0, "content-warning"))?.[1] ||
+        (article && event.tags?.some(nthEq(0, "content-warning")) ? "Sensitive content" : null)),
   )
 
   const isBoundary = (i: number) => {
@@ -66,14 +70,11 @@
   const isQuote = (p: Parsed) => isEvent(p) || isAddress(p)
 
   const ignoreWarning = () => {
-    warning = null
+    revealedEvent = event.id
   }
 
-  let warning = $state<string | null>(null)
-
-  $effect(() => {
-    warning = contentWarning || null
-  })
+  let revealedEvent = $state("")
+  const warning = $derived(revealedEvent === event.id ? null : contentWarning)
 
   const dropWhile = <T,>(f: (x: T) => boolean, xs: Iterable<T>) => {
     const result: T[] = []
@@ -129,7 +130,10 @@
     </div>
   {:else}
     <div class="overflow-hidden text-ellipsis break-words">
-      {#if showQuoteFallback && leadingQuote}
+      {#if article}
+        <span data-article-preview
+          ><strong>{article.title}</strong>{article.preview ? ` — ${article.preview}` : ""}</span>
+      {:else if showQuoteFallback && leadingQuote}
         <GitQuoteFallback
           {event}
           value={leadingQuote.value}

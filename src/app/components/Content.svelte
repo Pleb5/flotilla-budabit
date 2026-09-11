@@ -35,6 +35,8 @@
   import ContentMention from "@app/components/ContentMention.svelte"
   import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
+  import ArticleContent from "@app/components/ArticleContent.svelte"
+  import {isArticleKind} from "@app/util/articles"
   import {entityLink, userSettingsValues} from "@app/core/state"
   import {replaceCashuTokens} from "@app/util/cashu-token"
   import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
@@ -117,10 +119,22 @@
 
   const ignoreWarning = () => {
     warning = null
+    revealedArticle = event.id
   }
 
   let warning = $state(
-    $userSettingsValues.hide_sensitive && event.tags.find(nthEq(0, "content-warning"))?.[1],
+    !isArticleKind(event.kind) &&
+      $userSettingsValues.hide_sensitive &&
+      event.tags.find(nthEq(0, "content-warning"))?.[1],
+  )
+  let revealedArticle = $state("")
+  const articleWarning = $derived(event.tags.find(nthEq(0, "content-warning")))
+  const displayedWarning = $derived(
+    isArticleKind(event.kind)
+      ? $userSettingsValues.hide_sensitive && articleWarning && revealedArticle !== event.id
+        ? articleWarning[1] || "Sensitive content"
+        : null
+      : warning,
   )
 
   const shortRawContent = $derived(
@@ -134,22 +148,31 @@
   )
   const shortContent = $derived(replaceCommunityLinks(shortRawContent))
 
-  const hasEllipsis = $derived(shortRawContent.some(isEllipsis))
+  const hasEllipsis = $derived(!isArticleKind(event.kind) && shortRawContent.some(isEllipsis))
   const expandInline = $derived(hasEllipsis && expandMode === "inline")
   const expandBlock = $derived(hasEllipsis && expandMode === "block")
 </script>
 
 <div class="relative">
-  {#if warning}
+  {#if displayedWarning}
     <div class="card2 card2-sm bg-alt row-2">
       <Icon icon={Danger} />
       <p>
-        This note has been flagged by the author as "{warning}".<br />
+        This {isArticleKind(event.kind) ? "article" : "note"} has been flagged by the author as "{displayedWarning}".<br />
         <Button class="link" onclick={ignoreWarning}>Show anyway</Button>
       </p>
     </div>
   {:else}
-    {#if event.kind === MESSAGE || event.kind === COMMENT}
+    {#if isArticleKind(event.kind)}
+      <ArticleContent
+        {event}
+        {url}
+        {communitySectionName}
+        {hideMediaAtDepth}
+        {depth}
+        compact={minimalQuote}
+        relays={getEventShareRelayHints(event, {url})} />
+    {:else if event.kind === MESSAGE || event.kind === COMMENT}
       <Markdown
         content={event.content}
         {event}

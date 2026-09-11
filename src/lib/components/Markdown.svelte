@@ -247,6 +247,7 @@
     url?: string
     minimalQuote?: boolean
     hideMediaAtDepth?: number
+    showMedia?: boolean
     depth?: number
     communitySectionName?: string
     variant?: "default" | "body" | "comment" | "inline"
@@ -259,6 +260,7 @@
     url,
     minimalQuote = false,
     hideMediaAtDepth = 1,
+    showMedia = true,
     depth = 0,
     communitySectionName = "",
     variant = "default",
@@ -302,6 +304,7 @@
       minimalQuote,
       depth,
       hideMediaAtDepth,
+      showMedia,
       communitySectionName,
     }
 
@@ -323,6 +326,7 @@
 
   $effect(() => {
     const currentContent = markdownContent
+    let cancelled = false
     if (!currentContent) {
       sanitizedContent = ""
       return
@@ -334,8 +338,11 @@
       const parsed = await markedInstance.parse(currentContent)
 
       // Guard: Only update if content hasn't changed during async operation
-      if (markdownContent === currentContent) {
+      if (!cancelled && markdownContent === currentContent) {
         sanitizedContent = DOMPurify.sanitize(parsed, {
+          FORBID_TAGS: showMedia
+            ? []
+            : ["img", "video", "audio", "source", "picture", "iframe", "object", "embed"],
           ADD_ATTR: [
             "target",
             "title",
@@ -356,6 +363,9 @@
         })
       }
     })()
+    return () => {
+      cancelled = true
+    }
   })
 
   // ============================================================================
@@ -415,4 +425,4 @@
   bind:this={containerElement}>
   {@html sanitizedContent}
 </div>
-<BlossomAttachmentList {attachments} {event} {variant} />
+{#if showMedia}<BlossomAttachmentList {attachments} {event} {variant} />{/if}

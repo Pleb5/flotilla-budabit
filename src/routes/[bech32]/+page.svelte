@@ -12,6 +12,8 @@
   import PageBar from "@lib/components/PageBar.svelte"
   import PageContent from "@lib/components/PageContent.svelte"
   import EventFallback from "@app/components/EventFallback.svelte"
+  import ArticleCard from "@app/components/ArticleCard.svelte"
+  import {isArticleKind} from "@app/util/articles"
   import {
     getDedicatedEventPath,
     goToEventPath,
@@ -43,6 +45,13 @@
   let event = $state.raw<TrustedEvent>()
   let relays = $state<string[]>([])
   let queriedRelays = $state<string[]>([])
+  const pageTitle = $derived(
+    event && isArticleKind(event.kind)
+      ? event.kind === 30024
+        ? "Article draft"
+        : "Article"
+      : "Event",
+  )
 
   $effect(() => {
     const reference = bech32
@@ -148,15 +157,21 @@
   })
 </script>
 
-<svelte:head><title>Event · Budabit</title></svelte:head>
+<svelte:head><title>{pageTitle} · Budabit</title></svelte:head>
 
 <PageBar showTopMenuWidgets={false}>
-  {#snippet title()}<h1 class="font-semibold">Event</h1>{/snippet}
+  {#snippet title()}<h1 class="font-semibold">{pageTitle}</h1>{/snippet}
 </PageBar>
 <PageContent>
   <div class="mx-auto w-full max-w-3xl p-4 pt-6">
     {#if event}
-      {#key event.id}<EventFallback {event} {relays} />{/key}
+      {#key event.id}
+        {#if isArticleKind(event.kind)}
+          <ArticleCard {event} {relays} />
+        {:else}
+          <EventFallback {event} {relays} />
+        {/if}
+      {/key}
     {:else if status === "loading"}
       <div role="status" class="p-6"><Spinner loading>Loading event…</Spinner></div>
     {:else}

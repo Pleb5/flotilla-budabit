@@ -18,6 +18,7 @@ export interface RendererOptions {
   minimalQuote?: boolean
   depth?: number
   hideMediaAtDepth?: number
+  showMedia?: boolean
   communitySectionName?: string
 }
 
@@ -25,7 +26,14 @@ export interface RendererOptions {
  * Creates custom renderers for marked
  */
 export function createRenderers(options: RendererOptions = {}): Partial<Renderer> {
-  const {event, url, minimalQuote = false, depth = 0, hideMediaAtDepth = 1} = options
+  const {
+    event,
+    url,
+    minimalQuote = false,
+    depth = 0,
+    hideMediaAtDepth = 1,
+    showMedia = true,
+  } = options
   const renderInlineTokens = (renderer: Renderer, tokens: Tokens.Generic[]) => {
     const parser = (renderer as any).parser
 
@@ -36,7 +44,7 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
   }
 
   const createStandaloneLinkPreview = (link: Tokens.Link) => {
-    if (!event || !isPreviewableUrl(link.href)) return ""
+    if (!showMedia || !event || !isPreviewableUrl(link.href)) return ""
 
     return createLinkBlockPlaceholder(link.href, event.id)
   }
@@ -119,6 +127,7 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
     },
 
     image(token: Tokens.Image): string {
+      if (!showMedia) return ""
       const {href, title, text} = token
       const alt = text || title || ""
       return `<img src="${href}" alt="${alt}" class="my-4 h-auto max-w-full rounded-lg" data-markdown-image />`

@@ -32,6 +32,8 @@
   import {pushModal} from "@app/util/modal"
   import CommunityWidgetSlotLaunchers from "@app/components/community/CommunityWidgetSlotLaunchers.svelte"
   import {isKnownEventKind, isKnownUnknown, Template, EventRenderer} from "@nostr-git/ui"
+  import Content from "@app/components/Content.svelte"
+  import {isArticleKind} from "@app/util/articles"
   import {getEventShareRelayHints} from "@app/util/event-share"
   import type {CommunityPointer} from "@app/core/community"
 
@@ -255,6 +257,8 @@
       <div class="w-full min-w-0 pt-2 text-sm">
         {#if censorReason}
           <ModeratedContent reason={censorReason} />
+        {:else if isArticleKind(displayEvent.kind)}
+          <Content event={displayEvent} {url} {communitySectionName} showEntire />
         {:else if displayEvent.kind === COMMENT}
           <Markdown
             content={displayEvent.content}

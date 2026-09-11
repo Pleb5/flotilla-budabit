@@ -55,13 +55,13 @@ test("resolves note and address references with structured and metadata-only bod
   page,
 }) => {
   const article = signTestEvent({
-    kind: 30023,
+    kind: 30123,
     pubkey: TEST_PUBKEYS.alice,
     created_at: BASE_TIMESTAMP,
     content: '{"message":"Structured content","items":[1,2]}',
     tags: [
       ["d", ""],
-      ["title", "Structured article"],
+      ["title", "Structured event"],
     ],
   })
   const tagsOnly = signTestEvent({

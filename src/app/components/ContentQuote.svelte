@@ -91,6 +91,8 @@
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import EventFallback from "@app/components/EventFallback.svelte"
+  import ArticleCard from "@app/components/ArticleCard.svelte"
+  import {isArticleKind} from "@app/util/articles"
   import NoteContentMinimal from "@app/components/NoteContentMinimal.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import ModeratedContent from "@app/components/community/ModeratedContent.svelte"
@@ -1008,6 +1010,15 @@
         <div class="mt-2 line-clamp-3 text-sm text-muted-foreground">{gitCard.preview}</div>
       {/if}
     </div>
+  </div>
+{:else if $quote && isArticleKind($quote.kind)}
+  <div class="my-2 min-w-0 max-w-full">
+    {#key $quote.id}<ArticleCard
+        event={$quote}
+        relays={mergedRelays}
+        {url}
+        {communitySectionName}
+        compact />{/key}
   </div>
 {:else if $quote && ![MESSAGE, THREAD, EVENT_DATE, EVENT_TIME, ZAP_GOAL].includes($quote.kind)}
   <div class="my-2 min-w-0 max-w-full">
