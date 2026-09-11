@@ -16,13 +16,15 @@ describe("touch-only swipe dismissal", () => {
     properties: Partial<PointerEvent> = {},
   ) => {
     const event = new Event(type, {bubbles: true, cancelable: true})
+    const {timeStamp = performance.now(), ...pointerProperties} = properties
+    Object.defineProperty(event, "timeStamp", {value: timeStamp})
     Object.assign(event, {
       pointerId: 1,
       pointerType: "touch",
       isPrimary: true,
       clientX: 100,
       clientY: 100,
-      ...properties,
+      ...pointerProperties,
     })
     target.dispatchEvent(event)
     return event
@@ -31,10 +33,12 @@ describe("touch-only swipe dismissal", () => {
   const drag = (dy: number, target = handle, properties: Partial<PointerEvent> = {}) => {
     pointer("pointerdown", target, properties)
     pointer("pointermove", panel, {clientY: 100 + dy, ...properties})
+    vi.advanceTimersToNextFrame()
     pointer("pointerup", panel, {clientY: 100 + dy, ...properties})
   }
 
   beforeEach(() => {
+    vi.useFakeTimers()
     onDrag.mockReset()
     onDismiss.mockReset()
     panel = document.createElement("div")
@@ -58,6 +62,7 @@ describe("touch-only swipe dismissal", () => {
   afterEach(() => {
     action.destroy()
     panel.remove()
+    vi.useRealTimers()
   })
 
   it("follows a downward touch and dismisses after a deliberate pull", () => {
@@ -72,6 +77,74 @@ describe("touch-only swipe dismissal", () => {
     expect(onDrag).toHaveBeenCalledWith(40, true)
     expect(onDrag).toHaveBeenLastCalledWith(0, false)
     expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it("coalesces moves into a single frame with the latest finger position", () => {
+    pointer("pointerdown", handle)
+    pointer("pointermove", panel, {clientY: 115})
+    pointer("pointermove", panel, {clientY: 125})
+    pointer("pointermove", panel, {clientY: 145})
+    expect(onDrag).not.toHaveBeenCalled()
+    vi.advanceTimersToNextFrame()
+    expect(onDrag).toHaveBeenCalledExactlyOnceWith(45, true)
+  })
+
+  it("uses the release position and flushes it before starting the dismissal outro", () => {
+    onDismiss.mockImplementation(() => {
+      expect(onDrag).toHaveBeenLastCalledWith(140, true)
+    })
+    pointer("pointerdown", handle)
+    pointer("pointermove", panel, {clientY: 125})
+    pointer("pointerup", panel, {clientY: 240})
+    expect(onDismiss).toHaveBeenCalledOnce()
+    vi.advanceTimersToNextFrame()
+    expect(onDrag).toHaveBeenCalledOnce()
+  })
+
+  it("recognizes a quick downward flick below the distance threshold", () => {
+    pointer("pointerdown", handle, {timeStamp: 0})
+    pointer("pointermove", panel, {clientY: 132, timeStamp: 40})
+    pointer("pointerup", panel, {clientY: 164, timeStamp: 80})
+    expect(onDrag).toHaveBeenLastCalledWith(64, true)
+    expect(onDismiss).toHaveBeenCalledOnce()
+  })
+
+  it("does not mistake a tiny fast movement for a flick", () => {
+    pointer("pointerdown", handle, {timeStamp: 0})
+    pointer("pointerup", panel, {clientY: 112, timeStamp: 10})
+    expect(onDrag).toHaveBeenLastCalledWith(0, false)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it("snaps back a slow pull below the distance threshold", () => {
+    pointer("pointerdown", handle, {timeStamp: 0})
+    pointer("pointermove", panel, {clientY: 164, timeStamp: 400})
+    pointer("pointerup", panel, {clientY: 164, timeStamp: 500})
+    expect(onDrag).toHaveBeenLastCalledWith(0, false)
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it("forgets flick velocity when the user holds before releasing", () => {
+    pointer("pointerdown", handle, {timeStamp: 0})
+    pointer("pointermove", panel, {clientY: 170, timeStamp: 40})
+    pointer("pointerup", panel, {clientY: 170, timeStamp: 350})
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it("forgets downward flick velocity when the finger reverses direction", () => {
+    pointer("pointerdown", handle, {timeStamp: 0})
+    pointer("pointermove", panel, {clientY: 200, timeStamp: 40})
+    pointer("pointermove", panel, {clientY: 170, timeStamp: 50})
+    pointer("pointerup", panel, {clientY: 170, timeStamp: 60})
+    expect(onDismiss).not.toHaveBeenCalled()
+  })
+
+  it("uses recent velocity, not time spent resting on the handle", () => {
+    pointer("pointerdown", handle, {timeStamp: 0})
+    pointer("pointermove", panel, {clientY: 112, timeStamp: 1000})
+    pointer("pointermove", panel, {clientY: 145, timeStamp: 1020})
+    pointer("pointerup", panel, {clientY: 170, timeStamp: 1040})
+    expect(onDismiss).toHaveBeenCalledOnce()
   })
 
   it("snaps back if closing is blocked during navigation", () => {
@@ -156,8 +229,10 @@ describe("touch-only swipe dismissal", () => {
 
   it("removes listeners and releases capture when destroyed", () => {
     pointer("pointerdown", handle)
+    pointer("pointermove", panel, {clientY: 180})
     action.destroy()
     expect(panel.releasePointerCapture).toHaveBeenCalledWith(1)
+    vi.advanceTimersToNextFrame()
     drag(180)
     expect(onDrag).not.toHaveBeenCalled()
     expect(onDismiss).not.toHaveBeenCalled()

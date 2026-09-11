@@ -7,6 +7,9 @@ type SwipeDismissOptions = {
 }
 
 const DRAG_SLOP = 8
+const FLICK_MIN_DISTANCE = 48
+const FLICK_MIN_VELOCITY = 0.6 // CSS pixels per millisecond
+const VELOCITY_WINDOW_MS = 100
 
 /** Only designated, non-interactive header areas can start a touch dismissal. */
 export const swipeDismiss = (node: HTMLElement, initialOptions: SwipeDismissOptions) => {
@@ -17,6 +20,27 @@ export const swipeDismiss = (node: HTMLElement, initialOptions: SwipeDismissOpti
   let distance = 0
   let dragging = false
   let suppressClick = false
+  let frame: number | undefined
+  let samples: {y: number; time: number}[] = []
+
+  const cancelFrame = () => {
+    if (frame !== undefined) cancelAnimationFrame(frame)
+    frame = undefined
+  }
+
+  const renderDrag = () => {
+    frame = undefined
+    options.onDrag(distance, true)
+  }
+
+  const sample = (event: PointerEvent) => {
+    // A reversal must not inherit the earlier downward flick's velocity.
+    if (samples.length && event.clientY < samples[samples.length - 1].y) samples = []
+    samples.push({y: event.clientY, time: event.timeStamp})
+    while (samples.length > 2 && samples[0].time < event.timeStamp - VELOCITY_WINDOW_MS) {
+      samples.shift()
+    }
+  }
 
   const releasePointer = () => {
     const id = pointerId
@@ -25,9 +49,11 @@ export const swipeDismiss = (node: HTMLElement, initialOptions: SwipeDismissOpti
   }
 
   const reset = () => {
+    cancelFrame()
     releasePointer()
     distance = 0
     dragging = false
+    samples = []
     options.onDrag(0, false)
   }
 
@@ -50,6 +76,8 @@ export const swipeDismiss = (node: HTMLElement, initialOptions: SwipeDismissOpti
     startY = event.clientY
     distance = 0
     dragging = false
+    samples = []
+    sample(event)
     node.setPointerCapture(pointerId)
   }
 
@@ -69,19 +97,31 @@ export const swipeDismiss = (node: HTMLElement, initialOptions: SwipeDismissOpti
     }
 
     distance = Math.max(0, dy)
-    options.onDrag(distance, true)
+    sample(event)
+    // Coalesce high-frequency input into one paint, without reactive component updates.
+    if (frame === undefined) frame = requestAnimationFrame(renderDrag)
     event.preventDefault()
   }
 
   const onPointerUp = (event: PointerEvent) => {
     if (event.pointerId !== pointerId) return
 
+    // The release can be ahead of the last pointermove, especially for a quick flick.
+    onPointerMove(event)
+    if (event.pointerId !== pointerId) return
+    const first = samples[0]
+    const elapsed = first ? event.timeStamp - first.time : 0
+    const velocity = elapsed > 0 ? (event.clientY - first.y) / elapsed : 0
     const threshold = Math.min(120, Math.max(72, node.clientHeight * 0.2))
-    const dismiss = dragging && distance >= threshold
+    const dismiss =
+      dragging &&
+      (distance >= threshold || (distance >= FLICK_MIN_DISTANCE && velocity >= FLICK_MIN_VELOCITY))
+    cancelFrame()
     releasePointer()
-    if (dismiss && options.onDismiss() !== false) {
-      // Keep the final drag offset while the dialog's outro carries it offscreen.
-      return
+    if (dismiss) {
+      // Flush the release position before the dialog starts its outro.
+      renderDrag()
+      if (options.onDismiss() !== false) return
     }
     reset()
   }
@@ -110,6 +150,7 @@ export const swipeDismiss = (node: HTMLElement, initialOptions: SwipeDismissOpti
       if (!options.enabled) reset()
     },
     destroy() {
+      cancelFrame()
       releasePointer()
       node.removeEventListener("pointerdown", onPointerDown)
       node.removeEventListener("pointermove", onPointerMove)
