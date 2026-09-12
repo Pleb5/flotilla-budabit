@@ -2,7 +2,9 @@
   import {goto} from "$app/navigation"
   import {tick} from "svelte"
   import {nthEq} from "@welshman/lib"
-  import {Address, type TrustedEvent} from "@welshman/util"
+  import {Address, DELETE, type TrustedEvent} from "@welshman/util"
+  import {repository} from "@welshman/app"
+  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import NoteCard from "./NoteCard.svelte"
   import GitActions from "./GitActions.svelte"
   import EventShareButton from "./EventShareButton.svelte"
@@ -14,7 +16,19 @@
   import type {RepoCollectionReadState} from "@app/core/repo-collection-read-model"
   import {parseRepoCommunityBinding} from "@nostr-git/core/events"
   import {makeExactCommunityPath} from "@app/util/routes"
-  import {parseCommunityDefinitionAddress} from "@app/core/community"
+  import {
+    makeCommunityPointer,
+    parseCommunityDefinitionAddress,
+    type CommunityDefinition,
+  } from "@app/core/community"
+  import {
+    COMMUNITY_DISCOVERY_RELAYS,
+    hydratePubkeyOutboxRelays,
+    loadCommunityEvents,
+    makeExactCommunityDefinitionFilter,
+    resolveExactCommunityDefinition,
+    selectExactCommunityDefinition,
+  } from "@app/core/community-state"
   import RepoCollectButton from "@app/components/RepoCollectButton.svelte"
   import {Star} from "@lucide/svelte"
 
@@ -56,12 +70,56 @@
   const shareRelays = $derived(sanitizeRelays(event.tags.find(nthEq(0, "relays"))?.slice(1) || []))
   const description = event.tags.find(nthEq(0, "description"))?.[1]
   const community = $derived.by(() => parseRepoCommunityBinding(event))
-  const communityPointer = $derived.by(() =>
-    community ? parseCommunityDefinitionAddress(community.address) : undefined,
-  )
+  let communityDefinition = $state<CommunityDefinition>()
+  const communityPointer = $derived.by(() => {
+    const pointer = community ? parseCommunityDefinitionAddress(community.address) : undefined
+    return pointer
+      ? makeCommunityPointer({...pointer, relayHints: [community?.relay || ""]})
+      : undefined
+  })
   const communityLabel = $derived.by(() => {
     if (!communityPointer) return ""
-    return `${communityPointer.ownerPubkey.slice(0, 6)}:${communityPointer.communityId.slice(0, 6)}...`
+    const definition =
+      communityDefinition?.pointer.address === communityPointer.address
+        ? communityDefinition
+        : undefined
+    return definition?.metadata.name || `${communityPointer.communityId.slice(0, 8)}...`
+  })
+
+  $effect(() => {
+    const pointer = communityPointer
+    if (!pointer) {
+      communityDefinition = undefined
+      return
+    }
+
+    return deriveEventsAsc(
+      deriveEventsById({
+        repository,
+        filters: [
+          makeExactCommunityDefinitionFilter(pointer),
+          {kinds: [DELETE], authors: [pointer.ownerPubkey]},
+        ],
+      }),
+    ).subscribe(events => {
+      communityDefinition = selectExactCommunityDefinition(events, pointer)
+    })
+  })
+
+  $effect(() => {
+    const pointer = communityPointer
+    if (!pointer) return
+
+    const controller = new AbortController()
+    // Hydrate the store while the subscription tracks cached names, renames, and deletions.
+    void resolveExactCommunityDefinition(pointer, {
+      discoveryRelays: COMMUNITY_DISCOVERY_RELAYS,
+      hydrateOwnerOutbox: hydratePubkeyOutboxRelays,
+      loadEvents: (relays, filters) =>
+        loadCommunityEvents(relays, filters, {timeout: 3000, signal: controller.signal}),
+    }).catch(() => undefined)
+
+    return () => controller.abort()
   })
   const browseHref = $derived.by(() => makeRepoHrefFromEvent(event, {url}))
   const issuesHref = $derived.by(() => `${browseHref}/issues`)
@@ -216,7 +274,8 @@
         {#if community && communityPointer}
           <a
             href={makeExactCommunityPath(communityPointer)}
-            class="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+            data-testid="repo-card-community-link"
+            class="min-w-0 max-w-full truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
             onclick={(event: MouseEvent) => event.stopPropagation()}
             title={`Community: ${communityLabel}`}>
             {communityLabel}
