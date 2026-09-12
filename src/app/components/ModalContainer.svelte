@@ -25,7 +25,7 @@
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.defaultPrevented) return
-    const manageFocus = $modalStack.some(modal => modal.options.swipeToDismiss)
+    const manageFocus = $modalStack.some(modal => modal.options.trapFocus)
     if (e.key === "Escape" && (manageFocus || e.target === document.body)) {
       e.preventDefault()
       closeModals()
@@ -55,7 +55,7 @@
   let activeModalId = ""
   const mountedModals = new Map<
     string,
-    {host: HTMLElement; instance: any; returnFocus: HTMLElement | null; swipeToDismiss: boolean}
+    {host: HTMLElement; instance: any; returnFocus: HTMLElement | null; trapFocus: boolean}
   >()
   const modalContexts = getAllContexts()
 
@@ -74,7 +74,7 @@
       props: {
         onClose: closeModals,
         fullscreen: options.fullscreen,
-        swipeToDismiss: options.swipeToDismiss,
+        fixedHeight: options.fixedHeight,
         ariaLabel: options.ariaLabel,
         children: createRawSnippet(() => ({
           render: () => "<div data-modal-content></div>",
@@ -91,7 +91,7 @@
       host,
       instance,
       returnFocus,
-      swipeToDismiss: Boolean(options.swipeToDismiss),
+      trapFocus: Boolean(options.trapFocus),
     })
   }
 
@@ -111,8 +111,8 @@
     const activeIds = new Set(stack.map(modal => modal.id))
     const previousModal = mountedModals.get(activeModalId)
     const manageFocus =
-      stack.some(modal => modal.options.swipeToDismiss) ||
-      Array.from(mountedModals.values()).some(modal => modal.swipeToDismiss)
+      stack.some(modal => modal.options.trapFocus) ||
+      Array.from(mountedModals.values()).some(modal => modal.trapFocus)
     const activeChanged = activeId !== activeModalId
 
     for (const id of Array.from(mountedModals.keys())) {

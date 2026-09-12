@@ -42,7 +42,12 @@
     pushModal(
       NotificationsModal,
       {},
-      {kind: NOTIFICATION_CENTER_MODAL_KIND, swipeToDismiss: true, ariaLabel: "Notifications"},
+      {
+        kind: NOTIFICATION_CENTER_MODAL_KIND,
+        fixedHeight: true,
+        trapFocus: true,
+        ariaLabel: "Notifications",
+      },
     )
   }
 

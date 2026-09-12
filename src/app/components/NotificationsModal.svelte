@@ -417,12 +417,9 @@
 </script>
 
 <div class="flex min-h-0 min-w-0 flex-1 flex-col gap-4" aria-busy={navigationPending}>
-  <header class="relative flex shrink-0 items-center justify-between gap-3">
-    <!-- Cover the title, gaps and gutters without restricting native button gestures.
-         A child's touch-action cannot override a restriction on its parent. -->
-    <div data-swipe-dismiss-handle="full-width" class="absolute inset-0" aria-hidden="true"></div>
+  <header class="flex shrink-0 items-center justify-between gap-3">
     <Button
-      class="btn btn-square btn-ghost relative h-11 min-h-11 w-11 shrink-0"
+      class="btn btn-square btn-ghost h-11 min-h-11 w-11 shrink-0"
       aria-label="Close notifications"
       data-modal-initial-focus
       disabled={navigationPending}
@@ -430,12 +427,11 @@
       <Icon icon={Close} size={7} />
     </Button>
     <h1
-      data-swipe-dismiss-handle
-      class="relative flex min-w-0 flex-1 items-center justify-center self-stretch text-lg font-semibold leading-none">
+      class="flex min-w-0 flex-1 items-center justify-center self-stretch text-lg font-semibold leading-none">
       Notifications
     </h1>
     <Button
-      class="btn btn-square btn-ghost relative h-11 min-h-11 w-11 shrink-0"
+      class="btn btn-square btn-ghost h-11 min-h-11 w-11 shrink-0"
       aria-label="Notification settings"
       data-tip="Notification settings"
       disabled={navigationPending}

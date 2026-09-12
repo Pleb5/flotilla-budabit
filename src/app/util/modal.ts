@@ -14,7 +14,8 @@ export type ModalOptions = {
   drawer?: boolean
   noEscape?: boolean
   fullscreen?: boolean
-  swipeToDismiss?: boolean
+  fixedHeight?: boolean
+  trapFocus?: boolean
   ariaLabel?: string
   replaceState?: boolean
   path?: string

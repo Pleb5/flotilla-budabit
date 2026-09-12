@@ -1,67 +1,44 @@
 <style>
-  /* Header gaps, controls and the backdrop must never chain into page refresh.
-     Keep the lock through the outro (and stacked dialogs), then release it automatically. */
-  :global(html:has(.swipe-dialog)),
-  :global(body:has(.swipe-dialog)) {
+  /* Contain scrolling while the fixed-height dialog is present, including its outro. */
+  :global(html:has(.fixed-height-dialog)),
+  :global(body:has(.fixed-height-dialog)) {
     overscroll-behavior-y: none;
   }
 
-  .swipe-dialog-layer {
+  .fixed-height-dialog-layer {
     overflow: hidden;
     overscroll-behavior-y: none;
   }
 
-  .swipe-dialog {
-    --swipe-padding-left: max(1rem, var(--sail));
-    --swipe-padding-right: max(1rem, var(--sair));
+  .fixed-height-dialog {
     display: flex;
     min-height: 0;
     height: min(44rem, 90dvh, calc(100dvh - max(1rem, var(--sait))));
     flex-direction: column;
     overflow: hidden;
-    padding-top: 0;
+    padding-top: 1rem;
     padding-bottom: max(1rem, var(--saib));
-    padding-left: var(--swipe-padding-left);
-    padding-right: var(--swipe-padding-right);
-    will-change: translate;
-    transition: translate 180ms ease-out;
+    padding-left: max(1rem, var(--sail));
+    padding-right: max(1rem, var(--sair));
   }
 
-  .swipe-dialog:global([data-swipe-dragging]) {
-    transition: none;
-  }
-
-  .swipe-dialog > :global([data-modal-content]) {
+  .fixed-height-dialog > :global([data-modal-content]) {
     display: flex;
     min-height: 0;
     flex: 1;
   }
 
-  .swipe-dialog :global([data-swipe-dismiss-handle="full-width"]) {
-    margin-left: calc(-1 * var(--swipe-padding-left));
-    margin-right: calc(-1 * var(--swipe-padding-right));
-    padding-left: var(--swipe-padding-left);
-    padding-right: var(--swipe-padding-right);
-  }
-
-  .swipe-dialog :global([data-swipe-dismiss-handle]) {
-    /* Decided before pointerdown: prevent the browser stealing even a fast diagonal pull.
-       Controls sit outside this surface so they retain native touch behavior. */
-    touch-action: pinch-zoom;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
   @media (min-width: 640px) {
-    .swipe-dialog {
-      --swipe-padding-left: max(1.5rem, var(--sail));
-      --swipe-padding-right: max(1.5rem, var(--sair));
+    .fixed-height-dialog {
+      padding-top: 1.5rem;
       padding-bottom: 1.5rem;
+      padding-left: max(1.5rem, var(--sail));
+      padding-right: max(1.5rem, var(--sair));
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .swipe-dialog {
+    .fixed-height-dialog {
       transition: none;
     }
   }
@@ -72,12 +49,11 @@
   import {noop} from "@welshman/lib"
   import {fade, fly} from "@lib/transition"
   import {MediaQuery} from "svelte/reactivity"
-  import {swipeDismiss} from "@lib/swipe-dismiss"
 
   interface Props {
     onClose?: any
     fullscreen?: boolean
-    swipeToDismiss?: boolean
+    fixedHeight?: boolean
     ariaLabel?: string
     children?: import("svelte").Snippet
   }
@@ -85,24 +61,12 @@
   const {
     onClose = noop,
     fullscreen = false,
-    swipeToDismiss = false,
+    fixedHeight = false,
     ariaLabel,
     children,
   }: Props = $props()
 
   const reducedMotion = new MediaQuery("(prefers-reduced-motion: reduce)", false)
-  let panel: HTMLDivElement
-  const onDrag = (distance: number, active: boolean) => {
-    // The action calls this once per frame. Keep finger tracking off Svelte's update path,
-    // and only animate when returning to rest, never while following the finger.
-    panel.toggleAttribute("data-swipe-dragging", active)
-    panel.style.translate = `0 ${distance}px`
-  }
-  const panelTransition = (node: HTMLElement) =>
-    fly(node, {
-      duration: reducedMotion.current ? 0 : swipeToDismiss ? 250 : 300,
-      y: swipeToDismiss ? window.innerHeight - node.getBoundingClientRect().top : 20,
-    })
 
   const wrapperClass = $derived(
     cx("absolute inset-0 flex sm:relative pointer-events-none", {
@@ -117,40 +81,28 @@
       "px-4 py-6 rounded-t-box sm:p-6 sm:rounded-box sm:mt-0",
       {
         "bg-alt shadow-m": !fullscreen,
-        "max-h-[90vh] scroll-container overflow-auto": !fullscreen && !swipeToDismiss,
-        "swipe-dialog": swipeToDismiss,
+        "max-h-[90vh] scroll-container overflow-auto": !fullscreen && !fixedHeight,
+        "fixed-height-dialog": fixedHeight,
       },
     ),
   )
 </script>
 
-<div class="center fixed inset-0 z-modal" class:swipe-dialog-layer={swipeToDismiss}>
+<div class="center fixed inset-0 z-modal" class:fixed-height-dialog-layer={fixedHeight}>
   <button
     aria-label="Close dialog"
     class="absolute inset-0 cursor-pointer bg-[#ccc] opacity-75 dark:bg-black"
-    transition:fade={{duration: reducedMotion.current ? 0 : swipeToDismiss ? 250 : 300}}
+    transition:fade={{duration: reducedMotion.current ? 0 : 300}}
     onclick={onClose}>
   </button>
   <div class={wrapperClass}>
     <div
-      bind:this={panel}
       class={innerClass}
       role="dialog"
       aria-modal="true"
       aria-label={ariaLabel}
       tabindex="-1"
-      style:translate={swipeToDismiss ? "0 0" : undefined}
-      use:swipeDismiss={{enabled: swipeToDismiss, onDrag, onDismiss: onClose}}
-      transition:panelTransition>
-      {#if swipeToDismiss}
-        <div
-          data-swipe-dismiss-handle="full-width"
-          data-testid="modal-drag-handle"
-          class="flex h-11 shrink-0 items-center justify-center"
-          aria-hidden="true">
-          <span class="h-1 w-10 rounded-full bg-base-content/30"></span>
-        </div>
-      {/if}
+      transition:fly={{duration: reducedMotion.current ? 0 : 300}}>
       {@render children?.()}
     </div>
   </div>
