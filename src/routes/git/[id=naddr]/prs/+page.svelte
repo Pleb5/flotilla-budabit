@@ -53,6 +53,7 @@
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
   import {getRepoRootListPresentation} from "@app/core/repo-root-presentation"
   import {retryPublication, startLinkedPublication} from "@app/core/publication-operations"
+  import {getGitCreatedAt} from "@app/util/git-created-at"
 
   type PrStatusKey = "open" | "merged" | "closed" | "draft"
 
@@ -355,9 +356,9 @@
 
       const sortedPrs = [...filteredPrs]
       if (currentSortBy === "newest") {
-        sortedPrs.sort((a, b) => b.created_at - a.created_at)
+        sortedPrs.sort((a, b) => getGitCreatedAt(b.event) - getGitCreatedAt(a.event))
       } else if (currentSortBy === "oldest") {
-        sortedPrs.sort((a, b) => a.created_at - b.created_at)
+        sortedPrs.sort((a, b) => getGitCreatedAt(a.event) - getGitCreatedAt(b.event))
       } else if (currentSortBy === "status") {
         const priority = (id: string) => {
           const state = getCurrentPrState(id)

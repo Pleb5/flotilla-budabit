@@ -1,7 +1,6 @@
 <script lang="ts">
   import type {PullRequestEvent} from "@nostr-git/core/events"
   import {formatTimestampRelative} from "@welshman/lib"
-  import {getTagValue} from "@welshman/util"
   import {
     CircleCheck,
     CircleDot,
@@ -13,6 +12,7 @@
   } from "@lucide/svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import EventShareButton from "@app/components/EventShareButton.svelte"
+  import {getGitCreatedAt} from "@app/util/git-created-at"
 
   type Props = {
     event: PullRequestEvent
@@ -41,12 +41,7 @@
   const visibleLabels = $derived(labels.slice(0, 3))
   const hiddenLabelCount = $derived(Math.max(0, labels.length - visibleLabels.length))
   const statusLabel = $derived(status.charAt(0).toUpperCase() + status.slice(1))
-  const displayCreatedAt = $derived.by(() => {
-    const originalDate = getTagValue("original_date", event.tags)
-    const timestamp = Number(originalDate)
-
-    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : event.created_at
-  })
+  const displayCreatedAt = $derived(getGitCreatedAt(event))
 </script>
 
 <div class="flex min-w-0 items-start gap-2.5 px-3 py-2.5 sm:px-4">

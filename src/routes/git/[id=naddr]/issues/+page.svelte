@@ -51,6 +51,7 @@
   import type {StatusEvent} from "@nostr-git/core/events"
   import {fade} from "svelte/transition"
   import {resolveIssueEdits} from "@app/util/issue-edits"
+  import {getGitCreatedAt} from "@app/util/git-created-at"
   import {normalizeRelays} from "@app/core/community"
   import {editedTargetIds, filterVisibleAfterDeletesAndEdits} from "@app/core/event-edits"
   import {updateRepoWatchNotificationSeen} from "@app/core/repo-watch"
@@ -837,8 +838,8 @@
         })
         .sort((a, b) =>
           currentSortByOrder === "newest"
-            ? b.created_at - a.created_at
-            : a.created_at - b.created_at,
+            ? getGitCreatedAt(b.event) - getGitCreatedAt(a.event)
+            : getGitCreatedAt(a.event) - getGitCreatedAt(b.event),
         )
 
       searchedIssues = result
