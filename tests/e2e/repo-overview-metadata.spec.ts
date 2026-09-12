@@ -1,6 +1,7 @@
 import {expect, test, type Page} from "@playwright/test"
-import {MockRelay} from "./helpers/mock-relay"
-import {TEST_PUBKEYS, type RepoAnnouncementOptions} from "./fixtures/events"
+import {MockRelay, type MockRelayOptions, type NostrEvent} from "./helpers/mock-relay"
+import {signTestEvent, TEST_PUBKEYS} from "./fixtures/events"
+import {buildCommunityDefinition, makeCommunityPointer} from "../../src/app/core/community-protocol"
 import {
   createOverviewMetadataAnnouncement,
   overviewMetadata,
@@ -10,7 +11,8 @@ import {
 async function setupOverview(
   page: Page,
   pubkey?: string,
-  changes: Partial<RepoAnnouncementOptions> = {},
+  changes: Parameters<typeof createOverviewMetadataAnnouncement>[0] = {},
+  relayOptions: MockRelayOptions = {},
 ) {
   await page.addInitScript(actor => {
     if (actor) {
@@ -30,12 +32,23 @@ async function setupOverview(
       return true
     }
   }, pubkey)
-  const relay = new MockRelay({seedEvents: [createOverviewMetadataAnnouncement(changes)]})
+  const relay = new MockRelay({
+    ...relayOptions,
+    seedEvents: [createOverviewMetadataAnnouncement(changes), ...(relayOptions.seedEvents || [])],
+  })
   await relay.setup(page)
   await page.route("https://**", route =>
     route.fulfill({status: 503, body: "Fixture: external services unavailable"}),
   )
   return relay
+}
+
+async function cacheOverviewEvent(page: Page, event: NostrEvent) {
+  await page.evaluate(async event => {
+    const path = "/tests/e2e/fixtures/repository-route-identity-browser.ts"
+    const fixture = await import(/* @vite-ignore */ path)
+    fixture.cacheRepositoryIdentityEvent(event)
+  }, event)
 }
 
 for (const viewer of [
@@ -112,8 +125,107 @@ test("missing optional metadata stays empty instead of inventing values", async 
   await technical.locator("summary").click()
   await expect(technical.getByTestId("repo-identifier")).toHaveText(overviewMetadata.identifier)
   await expect(page.getByRole("region", {name: "About", exact: true})).toHaveCount(0)
+  await expect(page.getByTestId("repo-community-link")).toHaveCount(0)
   await expect(technical.getByText("Not set", {exact: true})).toBeVisible()
   await expect(technical.getByRole("button", {name: "Copy earliest unique commit"})).toHaveCount(0)
+  expect(relay.getPublishedEvents()).toEqual([])
+})
+
+const overviewCommunity = makeCommunityPointer({
+  ownerPubkey: TEST_PUBKEYS.bob,
+  communityId: TEST_PUBKEYS.charlie,
+  relayHints: ["wss://overview-community.test"],
+})!
+const overviewCommunityBinding = {
+  address: overviewCommunity.address,
+  communityId: overviewCommunity.communityId,
+  relay: overviewCommunity.relayHints[0],
+}
+const createOverviewCommunity = (name: string, createdAt = overviewMetadata.created_at) =>
+  signTestEvent({
+    ...buildCommunityDefinition({
+      communityId: overviewCommunity.communityId,
+      name,
+      relays: overviewCommunity.relayHints,
+      sections: [{name: "Code", kinds: [{kind: 30617}], profileLists: []}],
+    }),
+    pubkey: overviewCommunity.ownerPubkey,
+    created_at: createdAt,
+  })
+
+test("community metadata uses the exact definition name and updates after a rename", async ({
+  page,
+}) => {
+  const pageErrors: Error[] = []
+  page.on("pageerror", error => pageErrors.push(error))
+  await page.setViewportSize({width: 390, height: 844})
+  const name = "A community name longer than the repository sidebar can display on one line"
+  const definition = createOverviewCommunity(name)
+  const unrelatedDefinition = signTestEvent({
+    ...createOverviewCommunity("Wrong community with the same ID"),
+    pubkey: TEST_PUBKEYS.alice,
+  })
+  const ownerProfile = signTestEvent({
+    kind: 0,
+    pubkey: overviewCommunity.ownerPubkey,
+    created_at: overviewMetadata.created_at,
+    tags: [],
+    content: JSON.stringify({name: "Owner profile, not the community name"}),
+  })
+  const relay = await setupOverview(
+    page,
+    undefined,
+    {community: overviewCommunityBinding},
+    {
+      seedEvents: [unrelatedDefinition, ownerProfile],
+      // Only the repository's explicit community relay hint has the correct definition.
+      seedEventsByRelay: {"wss://overview-community.test/": [definition]},
+    },
+  )
+  await page.goto(overviewMetadataPath)
+  const link = page.getByTestId("repo-community-link")
+  await expect(link).toHaveText(name)
+  await expect(link).toHaveAttribute("title", name)
+  const href = await link.getAttribute("href")
+  expect(href).toBe(`/c/${overviewCommunity.naddr}`)
+  await expect
+    .poll(() => link.evaluate(el => el.parentElement!.scrollWidth <= el.parentElement!.clientWidth))
+    .toBe(true)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  )
+
+  const replacement = createOverviewCommunity("Renamed community", overviewMetadata.created_at + 1)
+  await cacheOverviewEvent(page, replacement)
+  await expect(link).toHaveText("Renamed community")
+  await expect(link).toHaveAttribute("title", "Renamed community")
+  await expect(link).toHaveAttribute("href", href!)
+  expect(relay.getPublishedEvents()).toEqual([])
+  expect(pageErrors).toEqual([])
+})
+
+test("community metadata falls back to the ID until the exact definition arrives", async ({
+  page,
+}) => {
+  const unrelatedDefinition = signTestEvent({
+    ...createOverviewCommunity("Wrong community with the same ID"),
+    pubkey: TEST_PUBKEYS.alice,
+  })
+  const relay = await setupOverview(
+    page,
+    undefined,
+    {community: overviewCommunityBinding},
+    {
+      seedEvents: [unrelatedDefinition],
+    },
+  )
+  await page.goto(overviewMetadataPath)
+  const link = page.getByTestId("repo-community-link")
+  await expect(link).toHaveText(`${overviewCommunity.communityId.slice(0, 8)}...`)
+  await expect(link).toHaveAttribute("href", `/c/${overviewCommunity.naddr}`)
+
+  await cacheOverviewEvent(page, createOverviewCommunity("Late community name"))
+  await expect(link).toHaveText("Late community name")
   expect(relay.getPublishedEvents()).toEqual([])
 })
 
@@ -158,12 +270,7 @@ test("metadata refreshes after a display rename without changing the repository 
     earliestUniqueCommit: "abcdef1234567890abcdef1234567890abcdef12",
     created_at: overviewMetadata.created_at + 1,
   })
-  await page.evaluate(async event => {
-    const fixture = await import(
-      /* @vite-ignore */ "/tests/e2e/fixtures/repository-route-identity-browser.ts"
-    )
-    fixture.cacheRepositoryIdentityEvent(event)
-  }, replacement)
+  await cacheOverviewEvent(page, replacement)
 
   await expect(page).toHaveTitle("A renamed repository")
   await expect(page.getByTestId("repo-description")).toHaveText("Updated description for readers.")

@@ -1,3 +1,4 @@
+import {withRepoCommunityBinding, type RepoCommunityBinding} from "@nostr-git/core/events"
 import {
   createRepoAnnouncement,
   encodeRepoNaddr,
@@ -22,9 +23,13 @@ export const overviewMetadata = {
   created_at: 1705320000,
 } satisfies RepoAnnouncementOptions
 
-export const createOverviewMetadataAnnouncement = (
-  changes: Partial<RepoAnnouncementOptions> = {},
-) => signTestEvent(createRepoAnnouncement({...overviewMetadata, ...changes}))
+export const createOverviewMetadataAnnouncement = ({
+  community,
+  ...changes
+}: Partial<RepoAnnouncementOptions> & {community?: RepoCommunityBinding} = {}) =>
+  signTestEvent(
+    withRepoCommunityBinding(createRepoAnnouncement({...overviewMetadata, ...changes}), community),
+  )
 
 export const overviewMetadataPath = `/git/${encodeRepoNaddr(
   overviewMetadata.pubkey,
