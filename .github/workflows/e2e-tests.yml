@@ -16,7 +16,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+
+      # Kanban is optional and must not be fetched or tested in CI.
+      - name: Checkout CI submodules (excluding Kanban)
+        run: git submodule update --init --recursive -- packages/flotilla-extension-template
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -84,7 +88,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+
+      # Kanban is optional and must not be fetched or tested in CI.
+      - name: Checkout CI submodules (excluding Kanban)
+        run: git submodule update --init --recursive -- packages/flotilla-extension-template
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

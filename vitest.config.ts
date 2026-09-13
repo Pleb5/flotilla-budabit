@@ -1,8 +1,13 @@
 import path from "node:path"
+import {existsSync} from "node:fs"
 import {fileURLToPath} from "node:url"
 import {defineConfig} from "vitest/config"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const kanbanRoot = path.resolve(__dirname, "packages/budabit-kanban-extension")
+// Keep the optional local project, but never load its config in CI. Vitest
+// resolves project configs even when the CLI selects only --project=main.
+const includeKanban = !process.env.CI && existsSync(path.join(kanbanRoot, "vitest.config.ts"))
 
 const rootAliases = {
   "@src": path.resolve(__dirname, "src"),
@@ -77,14 +82,18 @@ export default defineConfig({
           include: ["src/**/*.{test,spec}.ts"],
         },
       },
-      {
-        extends: "./packages/budabit-kanban-extension/vitest.config.ts",
-        root: path.resolve(__dirname, "packages/budabit-kanban-extension"),
-        test: {
-          name: "budabit-kanban-extension",
-          include: ["packages/shared/src/**/*.{test,spec}.ts"],
-        },
-      },
+      ...(includeKanban
+        ? [
+            {
+              extends: "./packages/budabit-kanban-extension/vitest.config.ts",
+              root: kanbanRoot,
+              test: {
+                name: "budabit-kanban-extension",
+                include: ["packages/shared/src/**/*.{test,spec}.ts"],
+              },
+            },
+          ]
+        : []),
       {
         extends: "./packages/budabit-pipelines-extension/vitest.config.ts",
         root: path.resolve(__dirname, "packages/budabit-pipelines-extension"),

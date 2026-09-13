@@ -17,7 +17,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+      # Kanban is optional and must not be fetched or tested in CI.
+      - name: Checkout CI submodules (excluding Kanban)
+        run: git submodule update --init --recursive -- packages/flotilla-extension-template
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -40,8 +43,10 @@ jobs:
           path: .policy-strfry
           persist-credentials: false
       - run: pnpm install --frozen-lockfile
+      - name: Generate SvelteKit TypeScript configuration
+        run: pnpm exec svelte-kit sync
       - name: Export current client policy
-        run: POLICY_VECTORS_OUT="$RUNNER_TEMP/budabit-policy-vectors.json" pnpm exec vitest run --project=main src/app/core/community-policy-vectors.test.ts tests/community-policy-conformance.test.ts
+        run: POLICY_VECTORS_OUT="$RUNNER_TEMP/budabit-policy-vectors.json" pnpm exec vitest run --project=main src/app/core/community-policy-vectors.test.ts tests/community-policy-conformance.test.ts tests/ci-extensions.test.ts
       - name: Fail on semantic drift
         run: node scripts/check-community-policy-vectors.mjs "$RUNNER_TEMP/budabit-policy-vectors.json" .policy-strfry/deploy/budabit/tests/vectors/budabit-policy-vectors.json "$(git rev-parse HEAD)"
       - name: Test the pinned relay against fresh vectors
