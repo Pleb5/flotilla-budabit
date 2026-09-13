@@ -212,6 +212,12 @@ Guardrails that remain in force with an enforcing relay:
 - Reads stay public and NIP-42 stays unused. Write rejections are plain NIP-01 `["OK", id, false, "blocked: ..."]` responses, and publish flows should surface them as retryable policy outcomes.
 - Community-scoped `kind:5` deletion requests carry only `h` plus their `e`/`k` references, never the marked community `a` (`Communikeys.md`, "Deletion Requests"). Relays apply NIP-09 to every `a` on a `kind:5`, so the old shape was rejected for non-owners and tombstoned the definition for owners.
 
+Conformance between the client and an enforcing relay is pinned by golden vectors: `src/app/core/community-policy-vectors.test.ts` builds fixture communities with the production helpers and records, for a matrix of candidate events, whether `canWriteCommunityTarget`, `canPublishCommunity*Report`, `getEffectiveCommunityReportState`, and `parseCommunityDefinition` admit them. Run it with `POLICY_VECTORS_OUT` set to regenerate `deploy/budabit/tests/vectors/budabit-policy-vectors.json` in the strfry fork whenever these rules change.
+
+An enforcing relay MAY advertise itself in NIP-11 under a `budabit` object (`policy_version`, `mode`, `enforced_branches`, optional `auto_host`). This is an operator claim and is not a trust input.
+
+Proposed, not adopted: an owner-signed declaration as a top-level definition tag `["enforced-relay", "<wss url>"]` (zero to 20; each value MUST also be an `r` relay; ignored, never invalidating, when malformed). A client that adopts it MAY prefer that relay for community reads and MAY skip client-side author filtering for that relay's results after spot-checking a sample against current grants, falling back to full admission the moment an unadmitted event is observed. Adopting it requires a Communikeys amendment and a client change; until then the fetch profile is unchanged.
+
 ## App-Wide User Community Membership
 
 Budabit should derive a canonical app-wide list of communities the active user is part of. Feature-specific systems such as Blossom must consume that list instead of re-implementing their own community-membership rules.
