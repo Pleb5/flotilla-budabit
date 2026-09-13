@@ -3,7 +3,9 @@ import {
   FORM_RESPONSE_KIND,
   FORM_TEMPLATE_KIND,
   type CommunityPointer,
+  deleteMatchesCommunity,
   makeCommunityAuthorityTags,
+  makeCommunityDeleteTags,
   makeCommunityChildIdentifier,
   normalizeCommunitySectionName,
   normalizePubkey,
@@ -599,12 +601,10 @@ export const makeAdmissionResponseDelete = ({
 }): EventContent & {kind: typeof DELETE} => ({
   kind: DELETE,
   content: reason,
-  tags: [
-    ...makeCommunityAuthorityTags(community, community.relayHints[0], [
-      ["e", responseId],
-      ["k", String(FORM_RESPONSE_KIND)],
-    ]),
-  ],
+  tags: makeCommunityDeleteTags(community, [
+    ["e", responseId],
+    ["k", String(FORM_RESPONSE_KIND)],
+  ]),
 })
 
 export const isAdmissionResponseDeleted = (
@@ -615,8 +615,7 @@ export const isAdmissionResponseDeleted = (
     if (event.kind !== DELETE) return false
     if (normalizePubkey(event.pubkey || "") !== normalizePubkey(response.event.pubkey || ""))
       return false
-    const community = parseCommunityAuthority(event)
-    if (!community || community.address !== response.community.address) return false
+    if (!deleteMatchesCommunity(event, response.community)) return false
     const eventTags = event.tags.filter(tag => tag[0] === "e")
     const kindTags = event.tags.filter(tag => tag[0] === "k")
     return (

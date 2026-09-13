@@ -271,6 +271,47 @@ export const makeCommunityAuthorityTags = (
   ])
 }
 
+/**
+ * Tags for a community-scoped `kind:5` deletion request.
+ *
+ * Deletions carry only the stable `h=<communityId>` scope plus the caller's
+ * `e`/`k` references. They MUST NOT carry the marked community `a` used by
+ * other authority-sensitive events: NIP-09 defines every `a` tag on a `kind:5`
+ * as a deletion target, so relays either reject the event when the address
+ * pubkey differs from the signer or, for the owner, tombstone the community
+ * definition itself. The deleted event already pins the exact branch.
+ */
+export const makeCommunityDeleteTags = (community: CommunityPointer, tags: string[][] = []) => {
+  if (tags.some(tag => tag[0] === "a")) {
+    throw new Error("Community deletion requests must not carry a tags.")
+  }
+
+  return makeCommunityScopeTags(community.communityId, tags)
+}
+
+/**
+ * Whether a `kind:5` is scoped to the given community.
+ *
+ * Accepts the current shape (exactly one `h`, no marked community `a`) and the
+ * legacy shape that also carried a marked community `a`; a legacy `a` must
+ * still name the exact branch. Same-author and exact target checks are the
+ * caller's responsibility.
+ */
+export const deleteMatchesCommunity = (
+  event: Pick<TrustedEvent, "kind" | "tags">,
+  community: Pick<CommunityPointer, "communityId" | "address">,
+) => {
+  if (event.kind !== 5) return false
+  const hTags = event.tags.filter(tag => tag[0] === "h")
+  if (hTags.length !== 1 || !exactTag(hTags[0], 2) || hTags[0][1] !== community.communityId) {
+    return false
+  }
+  const marked = event.tags.filter(tag => tag[0] === "a" && tag[3] === "community")
+  if (marked.length === 0) return true
+
+  return parseCommunityAuthority(event)?.address === community.address
+}
+
 export const parseCommunityAuthority = (
   event: Pick<TrustedEvent, "tags">,
 ): CommunityPointer | undefined => {

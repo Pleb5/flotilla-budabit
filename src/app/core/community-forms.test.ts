@@ -724,6 +724,30 @@ describe("community admission responses", () => {
     ).toBe(response.id)
   })
 
+  it("accepts deletions that carried the legacy marked community a", () => {
+    const response = makeResponseEvent({id: "current-response"})
+    const legacyMarkedDelete = makeEvent({
+      kind: DELETE,
+      pubkey: applicantPubkey,
+      tags: [
+        ["h", communityId],
+        ["a", community.address, "", "community"],
+        ["e", response.id],
+        ["k", String(FORM_RESPONSE_KIND)],
+      ],
+    })
+
+    expect(
+      selectActiveAdmissionResponse({
+        community,
+        events: [response],
+        deleteEvents: [legacyMarkedDelete],
+        formAddress,
+        applicantPubkey,
+      }),
+    ).toBeUndefined()
+  })
+
   it("requires reviews to match the current community, form, response, and applicant", () => {
     const response = makeResponseEvent({id: "shared-response", created_at: 20})
     const currentGrant = makeEvent({
@@ -960,7 +984,6 @@ describe("community admission responses", () => {
       content: "Deleted application submission",
       tags: [
         ["h", communityId],
-        ["a", community.address, "wss://relay.example.com", "community"],
         ["e", "response-event"],
         ["k", "1069"],
       ],

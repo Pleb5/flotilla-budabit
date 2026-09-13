@@ -173,16 +173,15 @@ Delete event example:
   "kind": 5,
   "pubkey": "<applicant-pubkey>",
   "tags": [
-    ["e", "<form-response-event-id>", "", "<applicant-pubkey>", "response"],
-    ["k", "1069"],
     ["h", "<community-id>"],
-    ["a", "32222:<owner-pubkey>:<community-id>", "", "community"]
+    ["e", "<form-response-event-id>"],
+    ["k", "1069"]
   ],
   "content": "Deleted application submission"
 }
 ```
 
-A delete only counts when it is authored by the same pubkey as the response being deleted.
+A delete only counts when it is authored by the same pubkey as the response being deleted. Deletion requests carry the `h` scope only and never the marked community `a`: NIP-09 makes every `a` on a `kind:5` a deletion target, so relays reject a foreign-pubkey `a` and an owner-signed `a` would tombstone the definition (see `Communikeys.md`, "Deletion Requests"). The response being deleted already names the exact branch.
 
 Deleting a response removes it from active submission selection. It does not erase moderator decisions from review history. Budabit should still surface prior authorized reviews for the applicant when they submit again, because a new pending response should not appear as if no prior rejection or revocation exists.
 
@@ -499,7 +498,7 @@ Rules:
 - Moderators cannot moderate another current moderator.
 - Admin reports supersede moderator protection.
 - Reports by removed moderators stop counting at render time.
-- A report can be deleted with `kind:5`; deleted reports MUST be ignored.
+- A report can be deleted with a same-author `kind:5` carrying `h`, `["e", <report-id>, "", <reporter>, "report"]`, and `k=1984`, without a marked community `a`; deleted reports MUST be ignored.
 - Censoring displays a placeholder such as `Moderated event` or `Moderated person` instead of silently dropping the item in contexts where a placeholder preserves conversation shape.
 
 The render-time authority check is mandatory. Budabit must not trust that reports were only published through the web app.

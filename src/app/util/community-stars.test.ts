@@ -103,7 +103,7 @@ describe("community stars", () => {
     ).toHaveLength(1)
   })
 
-  it("rejects unscoped and sibling-scoped star deletions", () => {
+  it("rejects unscoped and sibling-community star deletions", () => {
     const star = makeStar()
     const unscopedDeletion = makeEvent({
       kind: DELETE,
@@ -120,9 +120,11 @@ describe("community stars", () => {
     expect(
       selectActiveCommunityStars({reactions: [star], deleteEvents: [unscopedDeletion]}),
     ).toHaveLength(1)
+    // A same-author deletion of this exact star id is a retraction regardless
+    // of which same-ID branch the deleter had selected: the star pins the branch.
     expect(
       selectActiveCommunityStars({reactions: [star], deleteEvents: [siblingDeletion]}),
-    ).toHaveLength(1)
+    ).toHaveLength(0)
     expect(
       selectActiveCommunityStars({
         reactions: [star],
@@ -131,11 +133,41 @@ describe("community stars", () => {
     ).toHaveLength(1)
   })
 
-  it("requires exact marked authority, event, and kind tags on star deletions", () => {
+  it("accepts legacy star deletions that carried the marked community a", () => {
+    const star = makeStar()
+    const legacyDeletion = makeEvent({
+      kind: DELETE,
+      tags: [
+        ["h", pointer.communityId],
+        ["a", pointer.address, "", "community"],
+        ["e", star.id],
+        ["k", String(REACTION)],
+      ],
+    })
+    const legacyOtherBranch = makeEvent({
+      kind: DELETE,
+      tags: [
+        ["h", pointer.communityId],
+        ["a", sameIdBranch.address, "", "community"],
+        ["e", star.id],
+        ["k", String(REACTION)],
+      ],
+    })
+
+    expect(
+      selectActiveCommunityStars({reactions: [star], deleteEvents: [legacyDeletion]}),
+    ).toHaveLength(0)
+    expect(
+      selectActiveCommunityStars({reactions: [star], deleteEvents: [legacyOtherBranch]}),
+    ).toHaveLength(1)
+  })
+
+  it("requires exact scope, event, and kind tags on star deletions", () => {
     const star = makeStar()
     const validTags = makeCommunityStarDelete(pointer, star.id).tags
     const invalidTagSets = [
-      validTags.map(tag => (tag[0] === "a" ? tag.slice(0, 3) : tag)),
+      validTags.filter(tag => tag[0] !== "h"),
+      [...validTags, ["h", pointer.communityId]],
       validTags.filter(tag => tag[0] !== "e"),
       validTags.map(tag => (tag[0] === "e" ? [...tag, "extra"] : tag)),
       validTags.filter(tag => tag[0] !== "k"),
@@ -160,7 +192,6 @@ describe("community stars", () => {
       content: "Deleted community star",
       tags: [
         ["h", pointer.communityId],
-        ["a", pointer.address, "wss://relay.example", "community"],
         ["e", star.id],
         ["k", String(REACTION)],
       ],

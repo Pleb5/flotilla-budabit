@@ -16,7 +16,9 @@ import {
   makeTargetedPublicationLifecycleFilters,
   MAX_TARGETED_PUBLICATION_LIFECYCLE_COORDINATES,
   parseCommunityProfileListIdentifier,
+  deleteMatchesCommunity,
   makeCommunityAuthorityTags,
+  makeCommunityDeleteTags,
   makeCommunityScopeTags,
   parseCommunityId,
   parseCommunityNaddr,
@@ -973,6 +975,42 @@ describe("Communikeys workflow scope", () => {
     expect(() =>
       makeCommunityAuthorityTags(pointer, undefined, [["a", pointer.address, "", "community"]]),
     ).toThrow()
+  })
+
+  it("scopes deletion requests with h only and never with an a tag", () => {
+    const pointer = makeCommunityPointer({ownerPubkey: owner, communityId})!
+    const otherBranch = makeCommunityPointer({ownerPubkey: getPublicKey(secret(9)), communityId})!
+
+    expect(makeCommunityDeleteTags(pointer, [["e", "x".repeat(64)], ["k", "1984"]])).toEqual([
+      ["h", communityId],
+      ["e", "x".repeat(64)],
+      ["k", "1984"],
+    ])
+    // NIP-09 makes every a tag on a kind:5 a deletion target.
+    expect(() => makeCommunityDeleteTags(pointer, [["a", pointer.address, "", "community"]])).toThrow()
+    expect(() => makeCommunityDeleteTags(pointer, [["a", pointer.address]])).toThrow()
+
+    const current = makeEvent({kind: 5, tags: makeCommunityDeleteTags(pointer, [["e", "x".repeat(64)]])})
+    const legacy = makeEvent({
+      kind: 5,
+      tags: [["h", communityId], ["a", pointer.address, "", "community"], ["e", "x".repeat(64)]],
+    })
+    const legacyOtherBranch = makeEvent({
+      kind: 5,
+      tags: [["h", communityId], ["a", otherBranch.address, "", "community"], ["e", "x".repeat(64)]],
+    })
+    const unscoped = makeEvent({kind: 5, tags: [["e", "x".repeat(64)]]})
+    const otherCommunity = makeEvent({kind: 5, tags: [["h", otherCommunityId], ["e", "x".repeat(64)]]})
+    const doubleScoped = makeEvent({kind: 5, tags: [["h", communityId], ["h", communityId]]})
+
+    expect(deleteMatchesCommunity(current, pointer)).toBe(true)
+    expect(deleteMatchesCommunity(current, otherBranch)).toBe(true)
+    expect(deleteMatchesCommunity(legacy, pointer)).toBe(true)
+    expect(deleteMatchesCommunity(legacyOtherBranch, pointer)).toBe(false)
+    expect(deleteMatchesCommunity(unscoped, pointer)).toBe(false)
+    expect(deleteMatchesCommunity(otherCommunity, pointer)).toBe(false)
+    expect(deleteMatchesCommunity(doubleScoped, pointer)).toBe(false)
+    expect(deleteMatchesCommunity({...current, kind: 7}, pointer)).toBe(false)
   })
 
   it("parses only one coherent stable and exact branch authority pair", () => {

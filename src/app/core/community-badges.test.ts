@@ -156,6 +156,8 @@ describe("community badges", () => {
 
     expect(parseCommunityBadgeDefinition(definition, sameIdBranch)).toBeUndefined()
     expect(parseCommunityBadgeAward(award, sameIdBranch)).toBeUndefined()
+    // A same-author deletion of this exact award id retracts it regardless of
+    // the same-ID branch the deleter had selected; the award pins the branch.
     expect(
       isCommunityBadgeAwardDeleted(award, [
         makeEvent({
@@ -165,6 +167,21 @@ describe("community badges", () => {
             community: sameIdBranch,
             awardId: award.id,
           }).tags,
+        }),
+      ]),
+    ).toBe(true)
+    // A legacy deletion that still names another branch does not.
+    expect(
+      isCommunityBadgeAwardDeleted(award, [
+        makeEvent({
+          kind: DELETE,
+          pubkey: moderatorPubkey,
+          tags: [
+            ["h", communityId],
+            ["a", sameIdBranch.address, "", "community"],
+            ["e", award.id],
+            ["k", String(BADGE_AWARD)],
+          ],
         }),
       ]),
     ).toBe(false)

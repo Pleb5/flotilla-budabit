@@ -164,6 +164,27 @@ A profile-list authority event is a valid signed `kind:30000` event at a coordin
 
 A same-author `kind:5` address deletion tombstones an authority coordinate through its deletion timestamp. A later valid replacement recreates it; deletion wins at an equal timestamp. Event-ID-only deletion removes only that exact event version from consideration. These rules apply before a current authority event or grant set is derived.
 
+### Deletion Requests
+
+NIP-09 gives every `a` tag on a `kind:5` a fixed meaning: a request to delete the signer's addressable event at that coordinate. Relays enforce it: an `a` whose pubkey differs from the signer makes the whole event invalid on strfry, and an owner-signed `a` naming the definition address tombstones the definition. A community-scoped deletion request therefore MUST NOT carry the marked community `a` used by other authority-sensitive events.
+
+A community-scoped deletion request carries exactly one `h=<communityId>`, the `e` (with the workflow's role marker where one is defined, such as `report`) or unmarked `a` tags that name what it deletes, and SHOULD carry a `k` for the deleted kind. The deleted event already carries the exact branch, so a same-author deletion of an exact event ID is a retraction in every branch that admitted that event. Readers MUST accept the legacy shape that also carried a marked community `a` while it names the reader's exact branch, and MUST treat any `a` on a `kind:5` as an NIP-09 target when interpreting deletions generically.
+
+```json
+{
+  "kind": 5,
+  "pubkey": "<report-author>",
+  "tags": [
+    ["h", "<community-id>"],
+    ["e", "<report-id>", "", "<report-author>", "report"],
+    ["k", "1984"]
+  ],
+  "content": ""
+}
+```
+
+The same constraint applies to any kind where a NIP already assigns target semantics to `a` tags: Communikeys role markers MUST NOT be placed on such tags.
+
 ## Stable Association And Exact Authority
 
 ```text
@@ -186,10 +207,11 @@ The address identifier MUST equal the community `h`. A mismatch invalidates the 
 | Definition                                 | `d=<communityId>`                     | Its own address.                                 |
 | Room/thread roots                          | Exactly one `h`                       | Not required.                                    |
 | Room messages and replies                  | Exactly one `h`                       | Not required.                                    |
-| Comments, reactions, labels, deletes       | Exactly one `h` when community-scoped | Required when branch authority is evaluated.     |
+| Comments, reactions, labels                | Exactly one `h` when community-scoped | Required when branch authority is evaluated.     |
+| Deletion requests                          | Exactly one `h` when community-scoped | Never; any `a` on a `kind:5` is an NIP-09 target. |
 | Reports and report reviews                 | Exactly one `h`                       | Required marked community `a`.                   |
 | Admission forms, responses, and reviews    | Exactly one `h`                       | Required marked community `a`.                   |
-| Moderator requests, decisions, and deletes | Exactly one `h`                       | Required marked community `a`.                   |
+| Moderator requests and decisions           | Exactly one `h`                       | Required marked community `a`.                   |
 | Permission-list shards                     | Section-scoped addressable `d`        | Referenced by the accepted definition.           |
 | Badge definitions, awards, and moderation  | Exactly one `h`                       | Required marked community `a`.                   |
 | Stars, bookmarks, and renunciations        | Exactly one `h`                       | Required marked community `a`; no community `p`. |

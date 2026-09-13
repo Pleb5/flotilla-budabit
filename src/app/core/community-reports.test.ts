@@ -637,8 +637,10 @@ describe("community reports", () => {
         reporterPubkey: allSectionModeratorPubkey,
       }).tags,
     })
-    const wrongBranchDelete = makeEvent({
-      id: "wrong-branch-delete",
+    // Same community ID under another owner: the report id already pins the
+    // exact branch, so a same-author retraction counts wherever it was made.
+    const sameIdBranchDelete = makeEvent({
+      id: "same-id-branch-delete",
       kind: DELETE,
       pubkey: allSectionModeratorPubkey,
       tags: makeCommunityReportDeleteWithPointer({
@@ -646,6 +648,41 @@ describe("community reports", () => {
         reportId: personReport.id,
         reporterPubkey: allSectionModeratorPubkey,
       }).tags,
+    })
+    const wrongCommunityDelete = makeEvent({
+      id: "wrong-community-delete",
+      kind: DELETE,
+      pubkey: allSectionModeratorPubkey,
+      tags: makeCommunityReportDeleteWithPointer({
+        community: makeCommunityPointer({
+          ownerPubkey: communityPubkey,
+          communityId: getPublicKey(new Uint8Array(32).fill(11)),
+        })!,
+        reportId: personReport.id,
+        reporterPubkey: allSectionModeratorPubkey,
+      }).tags,
+    })
+    const legacyWrongBranchDelete = makeEvent({
+      id: "legacy-wrong-branch-delete",
+      kind: DELETE,
+      pubkey: allSectionModeratorPubkey,
+      tags: [
+        ["h", communityId],
+        ["a", wrongBranchPointer.address, "", "community"],
+        ["e", personReport.id, "", allSectionModeratorPubkey, "report"],
+        ["k", String(COMMUNITY_REPORT_KIND)],
+      ],
+    })
+    const legacyDelete = makeEvent({
+      id: "legacy-delete",
+      kind: DELETE,
+      pubkey: allSectionModeratorPubkey,
+      tags: [
+        ["h", communityId],
+        ["a", `${COMMUNITY_DEFINITION_KIND}:${communityPubkey}:${communityId}`, "", "community"],
+        ["e", personReport.id, "", allSectionModeratorPubkey, "report"],
+        ["k", String(COMMUNITY_REPORT_KIND)],
+      ],
     })
     const activeState = getEffectiveCommunityReportState({
       definition,
@@ -660,7 +697,11 @@ describe("community reports", () => {
     })
 
     expect(isCommunityPersonBanned(activeState, targetPubkey)).toBe(true)
-    expect(isCommunityReportDeleted(personReport, [wrongBranchDelete])).toBe(false)
+    expect(deleteEvent.tags.some(tag => tag[0] === "a")).toBe(false)
+    expect(isCommunityReportDeleted(personReport, [sameIdBranchDelete])).toBe(true)
+    expect(isCommunityReportDeleted(personReport, [wrongCommunityDelete])).toBe(false)
+    expect(isCommunityReportDeleted(personReport, [legacyWrongBranchDelete])).toBe(false)
+    expect(isCommunityReportDeleted(personReport, [legacyDelete])).toBe(true)
     expect(isCommunityPersonBanned(revokedState, targetPubkey)).toBe(false)
     expect(
       getCommunityCensorReason({reportState: revokedState, pubkey: targetPubkey}),

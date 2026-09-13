@@ -10,7 +10,9 @@ import {
 import {
   PROFILE_LIST_KIND,
   makeAddress,
+  deleteMatchesCommunity,
   makeCommunityAuthorityTags,
+  makeCommunityDeleteTags,
   makeCommunityChildIdentifier,
   isProfileListDeclined,
   normalizePubkey,
@@ -264,7 +266,7 @@ export const makeCommunityBadgeAwardDelete = ({
 }): EventContent & {kind: typeof DELETE} => ({
   kind: DELETE,
   content: "Deleted community badge award",
-  tags: makeCommunityAuthorityTags(community, community.relayHints[0], [
+  tags: makeCommunityDeleteTags(community, [
     ["e", awardId],
     ["k", String(BADGE_AWARD)],
   ]),
@@ -384,8 +386,7 @@ export const isCommunityBadgeAwardDeleted = (award: TrustedEvent, deleteEvents: 
     if (normalizePubkey(event.pubkey || "") !== normalizePubkey(award.pubkey || "")) return false
     if (!event.tags.some(tag => tag[0] === "e" && tag[1] === award.id)) return false
     const awardCommunity = parseCommunityAuthority(award)
-    const deleteCommunity = parseCommunityAuthority(event)
-    if (!awardCommunity || deleteCommunity?.address !== awardCommunity.address) return false
+    if (!awardCommunity || !deleteMatchesCommunity(event, awardCommunity)) return false
 
     return hasKindTag(event, BADGE_AWARD)
   })

@@ -210,6 +210,7 @@ Guardrails that remain in force with an enforcing relay:
 - Budabit MUST keep applying current-grant admission and the render-time authority check; the relay is a spam and scale optimisation, not a trust source.
 - Budabit MUST NOT change its fetch profile (for example dropping structural admission because of a relay claim) until an owner-signed enforcement declaration is specified. The V1 `["r", url, "enforced"]` marker is invalid in V2 because `r` has exactly two values.
 - Reads stay public and NIP-42 stays unused. Write rejections are plain NIP-01 `["OK", id, false, "blocked: ..."]` responses, and publish flows should surface them as retryable policy outcomes.
+- Community-scoped `kind:5` deletion requests carry only `h` plus their `e`/`k` references, never the marked community `a` (`Communikeys.md`, "Deletion Requests"). Relays apply NIP-09 to every `a` on a `kind:5`, so the old shape was rejected for non-owners and tombstoned the definition for owners.
 
 ## App-Wide User Community Membership
 

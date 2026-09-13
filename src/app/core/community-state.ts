@@ -2477,7 +2477,6 @@ export const makeCommunityModeratorRequestDeleteFilters = (
           kinds: [DELETE],
           authors: [definition.ownerPubkey],
           "#h": [definition.communityId],
-          "#a": [definition.pointer.address],
           "#e": reactionIds,
         },
       ]

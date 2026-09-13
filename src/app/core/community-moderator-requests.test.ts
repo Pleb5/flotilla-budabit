@@ -212,10 +212,13 @@ describe("Communikeys moderator requests", () => {
       tags: deletion.tags.map(tag => (tag[0] === "h" ? ["h", getPublicKey(secret(8))] : tag)),
     } as TrustedEvent
 
-    for (const template of [decisionTemplate, deleteTemplate]) {
-      expect(template.tags.filter(tag => tag[0] === "h")).toHaveLength(1)
-      expect(template.tags.filter(tag => tag[0] === "a" && tag[3] === "community")).toHaveLength(1)
-    }
+    expect(decisionTemplate.tags.filter(tag => tag[0] === "h")).toHaveLength(1)
+    expect(
+      decisionTemplate.tags.filter(tag => tag[0] === "a" && tag[3] === "community"),
+    ).toHaveLength(1)
+    // Deletions carry only the h scope: any a tag on a kind:5 is an NIP-09 target.
+    expect(deleteTemplate.tags.filter(tag => tag[0] === "h")).toHaveLength(1)
+    expect(deleteTemplate.tags.filter(tag => tag[0] === "a")).toHaveLength(0)
     expect(
       getModeratorPromotionRequestStates({
         definition,

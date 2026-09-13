@@ -2,7 +2,9 @@ import {DELETE, REACTION, makeEvent, type Filter, type TrustedEvent} from "@wels
 import {
   COMMUNITY_DEFINITION_KIND,
   type CommunityPointer,
+  deleteMatchesCommunity,
   makeCommunityAuthorityTags,
+  makeCommunityDeleteTags,
   makeCommunityPointer,
   normalizePubkey,
   parseCommunityAuthority,
@@ -39,7 +41,7 @@ export const makeCommunityStarReaction = (community: CommunityPointer) => {
 export const makeCommunityStarDelete = (community: CommunityPointer, reactionId: string) => ({
   kind: DELETE,
   content: "Deleted community star",
-  tags: makeCommunityAuthorityTags(community, community.relayHints[0], [
+  tags: makeCommunityDeleteTags(community, [
     ["e", reactionId],
     ["k", String(REACTION)],
   ]),
@@ -137,7 +139,7 @@ export const selectActiveCommunityStars = ({
     if (
       deleteEvents.some(deletion => {
         if (deletion.kind !== DELETE || deletion.pubkey !== event.pubkey) return false
-        if (parseCommunityAuthority(deletion)?.address !== star.community.address) return false
+        if (!deleteMatchesCommunity(deletion, star.community)) return false
 
         const eventTags = deletion.tags.filter(tag => tag[0] === "e")
         const kindTags = deletion.tags.filter(tag => tag[0] === "k")

@@ -2,7 +2,9 @@ import {DELETE, type EventContent, type TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
   PROFILE_LIST_KIND,
+  deleteMatchesCommunity,
   makeCommunityAuthorityTags,
+  makeCommunityDeleteTags,
   makeCommunityProfileListIdentifier,
   getCommunitySectionPurpose,
   normalizeCommunityRelay,
@@ -307,7 +309,7 @@ const isReactionDeleted = (
     if (
       event.kind !== DELETE ||
       event.pubkey !== reaction.pubkey ||
-      !hasExactAuthority(event, community) ||
+      !deleteMatchesCommunity(event, community) ||
       !event.tags.some(tag => tag[0] === "e" && tag[1] === reaction.id)
     )
       return false
@@ -427,7 +429,7 @@ export const makeModeratorRequestReactionDelete = ({
 }): EventContent & {kind: typeof DELETE} => ({
   kind: DELETE,
   content: "Deleted moderator request review",
-  tags: makeCommunityAuthorityTags(community, undefined, [
+  tags: makeCommunityDeleteTags(community, [
     ["e", reactionId],
     ["k", String(MODERATOR_REQUEST_REACTION_KIND)],
   ]),

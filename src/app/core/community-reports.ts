@@ -9,7 +9,9 @@ import {
   type TrustedEvent,
 } from "@welshman/util"
 import {
+  deleteMatchesCommunity,
   makeCommunityAuthorityTags,
+  makeCommunityDeleteTags,
   normalizeCommunityRelay,
   normalizeCommunitySectionName,
   normalizeCommunitySectionSubtype,
@@ -331,7 +333,7 @@ export const makeCommunityReportDelete = ({
 }): EventContent & {kind: typeof DELETE} => ({
   kind: DELETE,
   content: "Deleted community report",
-  tags: makeCommunityAuthorityTags(community, undefined, [
+  tags: makeCommunityDeleteTags(community, [
     ["e", reportId, "", normalizePubkey(reporterPubkey), "report"],
     ["k", String(COMMUNITY_REPORT_KIND)],
   ]),
@@ -482,14 +484,7 @@ export const isCommunityReportDeleted = (report: TrustedEvent, deleteEvents: Tru
     if (event.kind !== DELETE) return false
     if (normalizePubkey(event.pubkey || "") !== normalizePubkey(report.pubkey || "")) return false
     const reportCommunity = parseCommunityAuthority(report)
-    const deleteCommunity = parseCommunityAuthority(event)
-    if (
-      !reportCommunity ||
-      !deleteCommunity ||
-      !communitiesMatch(reportCommunity, deleteCommunity)
-    ) {
-      return false
-    }
+    if (!reportCommunity || !deleteMatchesCommunity(event, reportCommunity)) return false
     const reportReference = getMarkedReportReference(event)
     if (
       reportReference?.reportId !== report.id ||
