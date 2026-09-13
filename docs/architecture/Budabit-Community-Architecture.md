@@ -199,6 +199,18 @@ The same current grants govern historical and live content. A revocation hides a
 
 If the definition or relay read is incomplete, Budabit fails closed. A complete read that finds no target-owned moderator list is settled evidence of a pending invitation, not a loading failure.
 
+### Optional Relay-Side Enforcement
+
+Client-side admission is the authoritative model and must always work. A community relay operator MAY additionally run a write-policy plugin that rejects community-scoped writes the client would not admit under the current signed state: authors without a current section grant, effectively person-banned authors, and structurally invalid Communikeys events. The relay executes the signed definition, profile-list shards, and reports; it never owns them. Enforcement gates new writes only; if the relay disappears, nothing about identity, rules, or history is lost.
+
+The reference implementation plan is the strfry write-control plugin: `strfry/deploy/budabit/WRITE-CONTROL-PLAN.md` in the Budabit strfry fork (`https://github.com/Pleb5/strfry`). It pins relay decisions to this document, `Communikeys.md`, `Budabit-Community-Moderation.md`, and the client rules in `src/app/core/community-permissions.ts` and `community-reports.ts` through exported golden test vectors.
+
+Guardrails that remain in force with an enforcing relay:
+
+- Budabit MUST keep applying current-grant admission and the render-time authority check; the relay is a spam and scale optimisation, not a trust source.
+- Budabit MUST NOT change its fetch profile (for example dropping structural admission because of a relay claim) until an owner-signed enforcement declaration is specified. The V1 `["r", url, "enforced"]` marker is invalid in V2 because `r` has exactly two values.
+- Reads stay public and NIP-42 stays unused. Write rejections are plain NIP-01 `["OK", id, false, "blocked: ..."]` responses, and publish flows should surface them as retryable policy outcomes.
+
 ## App-Wide User Community Membership
 
 Budabit should derive a canonical app-wide list of communities the active user is part of. Feature-specific systems such as Blossom must consume that list instead of re-implementing their own community-membership rules.

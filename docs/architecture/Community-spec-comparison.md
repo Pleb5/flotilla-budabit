@@ -8,6 +8,8 @@ NOTE: This article was updated based on comments and things that needed clarific
 
 Works on any standard Nostr relay. No special relay implementation is required, and clients do not assume that relays enforce Communikey grants. Relays provide transport and may have independent storage policies; Budabit performs community admission locally.
 
+A relay MAY optionally pre-filter writes with a policy plugin that replays the signed definition, profile lists, and reports (see "Optional Relay-Side Enforcement" in `Budabit-Community-Architecture.md` and the strfry plan at `strfry/deploy/budabit/WRITE-CONTROL-PLAN.md`). This is an optimization, never a requirement, and clients keep filtering.
+
 ### NIP-72
 
 Works on standard relays. Uses membership lists (approved, declined, banned) stored as addressable events, plus moderator approval events. See [github.com/andotherstuff/chorus](https://github.com/andotherstuff/chorus) for Chorus-style implementations.
