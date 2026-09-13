@@ -1,0 +1,50 @@
+name: Community policy conformance
+
+on:
+  push:
+    branches: [dev, main, master]
+  pull_request:
+    branches: [dev, main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  conformance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+      - name: Read immutable relay reference
+        id: relay
+        run: |
+          node --input-type=module <<'JS'
+          import {readFileSync, appendFileSync} from 'node:fs';
+          const pin = JSON.parse(readFileSync('community-policy-conformance.json', 'utf8'));
+          if (pin.strfryRepository !== 'Pleb5/strfry' || !/^[0-9a-f]{40}$/.test(pin.strfryCommit) || pin.vectorsPath !== 'deploy/budabit/tests/vectors/budabit-policy-vectors.json') throw new Error('Invalid immutable conformance reference');
+          appendFileSync(process.env.GITHUB_OUTPUT, `commit=${pin.strfryCommit}\n`);
+          JS
+      - uses: actions/checkout@v4
+        with:
+          repository: Pleb5/strfry
+          ref: ${{ steps.relay.outputs.commit }}
+          path: .policy-strfry
+          persist-credentials: false
+      - run: pnpm install --frozen-lockfile
+      - name: Export current client policy
+        run: POLICY_VECTORS_OUT="$RUNNER_TEMP/budabit-policy-vectors.json" pnpm exec vitest run --project=main src/app/core/community-policy-vectors.test.ts tests/community-policy-conformance.test.ts
+      - name: Fail on semantic drift
+        run: node scripts/check-community-policy-vectors.mjs "$RUNNER_TEMP/budabit-policy-vectors.json" .policy-strfry/deploy/budabit/tests/vectors/budabit-policy-vectors.json "$(git rev-parse HEAD)"
+      - name: Test the pinned relay against fresh vectors
+        run: |
+          cp "$RUNNER_TEMP/budabit-policy-vectors.json" .policy-strfry/deploy/budabit/tests/vectors/budabit-policy-vectors.json
+          python3 -B -m unittest discover -s .policy-strfry/deploy/budabit/tests -t .policy-strfry/deploy/budabit/tests -p 'test_vectors.py'

@@ -15,6 +15,7 @@ import type {
 import {sanitizeRelays} from "@nostr-git/core/utils"
 import {normalizeRelayUrl} from "@welshman/util"
 import {get} from "svelte/store"
+import {formatRelayPublishFailure} from "@app/core/relay-publish-outcomes"
 
 const EMPTY_RELAY_SCOPE_ERROR = "Repository EventIO requires at least one explicit relay"
 const RELAYLESS_ANNOUNCEMENT_ERROR =
@@ -186,8 +187,7 @@ export function createEventIO(): EventIO {
             eventId,
             relays: [],
             outcomes: primaryOutcomes,
-            error:
-              signed?.kind === 30617 ? NO_DECLARED_RELAY_ACCEPTED_ERROR : NO_RELAY_ACCEPTED_ERROR,
+            error: `${signed?.kind === 30617 ? NO_DECLARED_RELAY_ACCEPTED_ERROR : NO_RELAY_ACCEPTED_ERROR}.\n${formatRelayPublishFailure(primaryOutcomes)}`,
           }
         }
 

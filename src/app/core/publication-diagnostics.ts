@@ -1,6 +1,7 @@
 import {subscribePublicationLifecycle} from "@welshman/app"
 import type {PublishResultsByRelay} from "@welshman/net"
 import type {Readable} from "svelte/store"
+import {classifyRelayPublishOutcome} from "./relay-publish-outcomes"
 import {
   debugDiagnosticsSettings,
   recordDebugDiagnostic,
@@ -31,6 +32,8 @@ export const recordPublicationOperationDiagnostic = (
       results: Object.entries(operation.results).map(([relay, result]) => ({
         relay,
         status: result.status,
+        // Classified reason only: arbitrary relay text can contain private data.
+        reason: classifyRelayPublishOutcome(relay, result).reason,
       })),
       ...transition,
     })

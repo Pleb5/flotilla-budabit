@@ -160,7 +160,9 @@ describe("event-io", () => {
         eventId: signed.id,
         relays: [],
         outcomes,
-        error: "Event was not accepted by any relay",
+        error: expect.stringMatching(
+          /Event was not accepted by any relay\.[\s\S]*wss:\/\/repo.example.com\/[\s\S]*blocked/,
+        ),
       })
     })
 
@@ -192,7 +194,7 @@ describe("event-io", () => {
         eventId: signed.id,
         relays: [],
         outcomes,
-        error: "Event was not accepted by any relay",
+        error: expect.stringMatching(/Event was not accepted by any relay\.[\s\S]*timed out/),
       })
     })
 
@@ -415,7 +417,9 @@ describe("event-io", () => {
         eventId: signed.id,
         relays: [],
         outcomes,
-        error: "Repository announcement was not accepted by any declared relay",
+        error: expect.stringMatching(
+          /Repository announcement was not accepted by any declared relay\.[\s\S]*blocked/,
+        ),
       })
       expect(publishMock).toHaveBeenCalledOnce()
       expect(publishMock).toHaveBeenCalledWith({event: signed, relays: [repoRelay]})
@@ -547,7 +551,7 @@ describe("event-io", () => {
           outcomes: {
             [relay]: makePublishOutcome(relay, publishStatuses.Timeout, "timed out"),
           },
-          error: "Event was not accepted by any relay",
+          error: expect.stringMatching(/Event was not accepted by any relay\.[\s\S]*timed out/),
         },
       ])
       expect(sign).toHaveBeenCalledTimes(2)

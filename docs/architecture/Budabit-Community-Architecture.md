@@ -216,6 +216,8 @@ Conformance between the client and an enforcing relay is pinned by golden vector
 
 An enforcing relay MAY advertise itself in NIP-11 under a `budabit` object (`policy_version`, `mode`, `enforced_branches`, optional `auto_host`). This is an operator claim and is not a trust input.
 
+Relay rejection details, partial delivery recovery, the protected-kind deletion rule, and the required cross-repository CI reference are documented in [Relay Publish Outcomes](Relay-Publish-Outcomes.md). NIP-11 also distinguishes `dry_run` from `enforcing` and advertises `protected_deletion_kinds`; none of these fields relax client admission.
+
 Proposed, not adopted: an owner-signed declaration as a top-level definition tag `["enforced-relay", "<wss url>"]` (zero to 20; each value MUST also be an `r` relay; ignored, never invalidating, when malformed). A client that adopts it MAY prefer that relay for community reads and MAY skip client-side author filtering for that relay's results after spot-checking a sample against current grants, falling back to full admission the moment an unadmitted event is observed. Adopting it requires a Communikeys amendment and a client change; until then the fetch profile is unchanged.
 
 ## App-Wide User Community Membership

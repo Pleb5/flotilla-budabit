@@ -422,7 +422,9 @@ export class MergedThunk {
 
   constructor(readonly thunks: Thunk[]) {
     const {Aborted, Failure, Timeout, Pending, Sending, Success} = PublishStatus
-    const relays = new Set(thunks.flatMap(thunk => thunk.options.relays))
+    const relays = new Set(
+      thunks.flatMap(thunk => [...thunk.options.relays, ...Object.keys(thunk.results)]),
+    )
 
     for (const thunk of thunks) {
       thunk.subscribe($thunk => {
@@ -674,15 +676,26 @@ export const abortThunk = (thunk: AbstractThunk) => {
   }
 }
 
-const retrySingleThunk = (thunk: Thunk) => {
+export type RetryThunkOptions = {failedOnly?: boolean}
+
+const retrySingleThunk = (thunk: Thunk, {failedOnly = false}: RetryThunkOptions = {}) => {
+  const relays = failedOnly
+    ? thunk.options.relays.filter(relay => thunk.results[relay]?.status !== PublishStatus.Success)
+    : thunk.options.relays
   const retry = new Thunk(
-    {...thunk.options, event: thunk.event},
+    {...thunk.options, relays, event: thunk.event},
     {attempt: thunk.diagnosticAttempt + 1, previousPublicationId: thunk.diagnosticId},
   )
 
   // Recipient publications must retry the exact signed wrapper rather than
   // creating a new gift wrap with a different event ID.
   retry.wrap = thunk.wrap
+  if (failedOnly) {
+    // Keep previous ACKs visible, but never send another copy to those relays.
+    for (const [relay, result] of Object.entries(thunk.results)) {
+      if (result.status === PublishStatus.Success) retry.results[relay] = {...result}
+    }
+  }
 
   emitPublicationLifecycle({
     type: "retry",
@@ -701,5 +714,7 @@ const retrySingleThunk = (thunk: Thunk) => {
   return retry
 }
 
-export const retryThunk = (thunk: AbstractThunk) =>
-  isMergedThunk(thunk) ? mergeThunks(thunk.thunks.map(retrySingleThunk)) : retrySingleThunk(thunk)
+export const retryThunk = (thunk: AbstractThunk, options: RetryThunkOptions = {}) =>
+  isMergedThunk(thunk)
+    ? mergeThunks(thunk.thunks.map(child => retrySingleThunk(child, options)))
+    : retrySingleThunk(thunk, options)

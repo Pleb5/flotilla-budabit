@@ -14,6 +14,7 @@
   import PrimaryNavItem from "@lib/components/PrimaryNavItem.svelte"
   import MenuSettings from "@app/components/MenuSettings.svelte"
   import {publicationOperationsNeedingAttention} from "@app/core/publication-operations"
+  import {relayDeliveryNotices} from "@app/core/relay-publish-delivery"
   import {badgeCount} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {
@@ -59,7 +60,8 @@
     !$notificationCenterOpen &&
       (Boolean($pubkey && $notificationUnreadHints[$pubkey]) ||
         $badgeCount > 0 ||
-        $publicationOperationsNeedingAttention.length > 0),
+        $publicationOperationsNeedingAttention.length > 0 ||
+        $relayDeliveryNotices.size > 0),
   )
 </script>
 

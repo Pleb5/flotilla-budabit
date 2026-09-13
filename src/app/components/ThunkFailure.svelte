@@ -25,14 +25,16 @@
 
   let {thunk, partial = false, onRetry, ...restProps}: Props = $props()
   let retrying = $state(false)
+  let retryError = $state("")
 
   const retry = async () => {
     if (retrying) return
 
     retrying = true
+    retryError = ""
     try {
       await recoverActiveNip46Receiver().catch(() => false)
-      thunk = retryThunk(thunk)
+      thunk = retryThunk(thunk, {failedOnly: true})
       onRetry?.(thunk)
 
       const subscription: {unsubscribe?: () => void} = {}
@@ -45,6 +47,7 @@
       if (!retrying) subscription.unsubscribe()
     } catch (error) {
       retrying = false
+      retryError = error instanceof Error ? error.message : String(error)
       console.error("Failed to retry publication", error)
     }
   }
@@ -77,6 +80,8 @@
         partial,
         successCount: successUrls.length,
         relayCount,
+        results: $thunk.results,
+        retryError,
       }}
       params={{interactive: true}}>
       {#snippet children()}

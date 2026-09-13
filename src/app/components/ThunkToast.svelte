@@ -4,6 +4,7 @@
   import {PublishStatus} from "@welshman/net"
   import ThunkPending from "@app/components/ThunkPending.svelte"
   import ThunkFailure from "@app/components/ThunkFailure.svelte"
+  import RelayPublishFeedback from "@app/components/RelayPublishFeedback.svelte"
   import type {Toast} from "@app/util/toast"
   import {popToast} from "@app/util/toast"
 
@@ -28,7 +29,7 @@
   })
 
   $effect(() => {
-    if (!isComplete || !isSuccess) return
+    if (!isComplete || !isSuccess || isFailure) return
 
     const timeout = setTimeout(() => popToast(id), 2000)
     return () => clearTimeout(timeout)
@@ -38,11 +39,16 @@
 {#if !isComplete}
   <ThunkPending {thunk} />
 {:else if isSuccess}
-  <p class="text-xs opacity-75">Message sent!</p>
+  {#if isFailure}
+    <RelayPublishFeedback results={$thunk.results} />
+    {#if retryable}<ThunkFailure {thunk} partial onRetry={retry => (thunk = retry)} />{/if}
+  {:else}
+    <p class="text-xs opacity-75">Message sent!</p>
+  {/if}
 {:else if isFailure}
   {#if retryable}
     <ThunkFailure {thunk} onRetry={retry => (thunk = retry)} />
   {:else}
-    <p class="text-xs text-error">Failed to send. Submit again to retry.</p>
+    <RelayPublishFeedback results={$thunk.results} />
   {/if}
 {/if}

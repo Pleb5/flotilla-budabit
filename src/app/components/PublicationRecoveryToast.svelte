@@ -2,6 +2,8 @@
   import {goto} from "$app/navigation"
   import {pubkey} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
+  import RelayPublishFeedback from "./RelayPublishFeedback.svelte"
+  import {canRetryRelayPublishResults} from "@app/core/relay-publish-outcomes"
   import {
     discardPublication,
     publicationOperations,
@@ -75,6 +77,12 @@
       <span class="text-xs opacity-75">
         Discard does not retract an event a relay may already have accepted.
       </span>
+      <RelayPublishFeedback
+        results={operation.results}
+        error={operation.error}
+        requiredRelay={operation.confirmationRelays?.length === 1
+          ? operation.confirmationRelays[0]
+          : undefined} />
       {#if accountMismatch}
         <span class="text-xs text-warning">
           Restore the account that created this publication to retry.
@@ -86,7 +94,7 @@
         <Button
           class="btn btn-primary btn-xs"
           onclick={retry}
-          disabled={retrying || accountMismatch}>
+          disabled={retrying || accountMismatch || !canRetryRelayPublishResults(operation.results)}>
           Retry
         </Button>
         {#if operation.href}

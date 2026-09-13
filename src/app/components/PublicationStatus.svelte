@@ -1,6 +1,8 @@
 <script lang="ts">
   import {pubkey} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
+  import RelayPublishFeedback from "./RelayPublishFeedback.svelte"
+  import {canRetryRelayPublishResults} from "@app/core/relay-publish-outcomes"
   import {
     cancelPublication,
     discardPublication,
@@ -55,6 +57,12 @@
 {:else if operation?.phase === "unconfirmed"}
   <div class="flex flex-col items-end gap-1 text-xs {className}" aria-live="polite">
     <span class="text-error">Publication not confirmed.</span>
+    <RelayPublishFeedback
+      results={operation.results}
+      error={operation.error}
+      requiredRelay={operation.confirmationRelays?.length === 1
+        ? operation.confirmationRelays[0]
+        : undefined} />
     {#if accountMismatch}
       <span class="text-warning">Restore the publishing account to retry.</span>
     {:else if retryError}
@@ -64,7 +72,7 @@
       <Button
         class="btn btn-primary btn-xs h-auto min-h-0 px-2 py-1"
         onclick={retry}
-        disabled={retrying || accountMismatch}>
+        disabled={retrying || accountMismatch || !canRetryRelayPublishResults(operation.results)}>
         Retry
       </Button>
       <Button class="btn btn-ghost btn-xs h-auto min-h-0 px-2 py-1" onclick={discard}>

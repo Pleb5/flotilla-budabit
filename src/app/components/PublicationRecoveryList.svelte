@@ -4,6 +4,10 @@
   import Button from "@lib/components/Button.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
+  import RelayPublishFeedback from "./RelayPublishFeedback.svelte"
+  import {canRetryRelayPublishResults} from "@app/core/relay-publish-outcomes"
+  import RelayDeliveryNotice from "./RelayDeliveryNotice.svelte"
+  import {relayDeliveryNotices} from "@app/core/relay-publish-delivery"
   import {
     cancelPublication,
     discardPublication,
@@ -54,12 +58,17 @@
     {/snippet}
   </ModalHeader>
 
-  {#if operations.length === 0}
+  {#if operations.length === 0 && $relayDeliveryNotices.size === 0}
     <p class="rounded-box bg-base-200 p-4 text-center text-sm opacity-75">
       No publications currently need attention.
     </p>
   {:else}
     <div class="flex max-h-[60vh] flex-col gap-2 overflow-y-auto pr-1">
+      {#each [...$relayDeliveryNotices.keys()] as eventId (eventId)}
+        <article class="rounded-box border border-base-300 bg-base-200 p-3">
+          <RelayDeliveryNotice {eventId} />
+        </article>
+      {/each}
       {#each operations as operation (operation.operationId)}
         {@const accountMismatch = $pubkey !== operation.ownerPubkey}
         {@const retrying = retryingIds.has(operation.operationId)}
@@ -86,6 +95,12 @@
           </div>
 
           {#if operation.phase === "unconfirmed"}
+            <RelayPublishFeedback
+              results={operation.results}
+              error={operation.error}
+              requiredRelay={operation.confirmationRelays?.length === 1
+                ? operation.confirmationRelays[0]
+                : undefined} />
             <p class="mt-2 text-xs opacity-75">
               Discard removes local recovery only. It cannot retract an event a relay may already
               have accepted.
@@ -107,7 +122,9 @@
             {:else}
               <Button
                 class="btn btn-primary btn-xs"
-                disabled={retrying || accountMismatch}
+                disabled={retrying ||
+                  accountMismatch ||
+                  !canRetryRelayPublishResults(operation.results)}
                 onclick={() => retry(operation.operationId)}>
                 {retrying ? "Retrying..." : "Retry"}
               </Button>

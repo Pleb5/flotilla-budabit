@@ -4,6 +4,27 @@ import {describe, expect, it} from "vitest"
 const readProjectFile = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8")
 
 describe("publication recovery source contracts", () => {
+  it("shows raw relay feedback across recovery surfaces and retains partial reports", () => {
+    for (const name of [
+      "PublicationStatus",
+      "PublicationRecoveryToast",
+      "PublicationRecoveryList",
+      "ThunkStatusDetail",
+      "ThunkToast",
+      "RelayDeliveryNotice",
+    ]) {
+      expect(readProjectFile(`../components/${name}.svelte`)).toContain("RelayPublishFeedback")
+    }
+    const feedback = readProjectFile("../components/RelayPublishFeedback.svelte")
+    expect(feedback).toContain("outcome.detail")
+    expect(feedback).not.toContain("{@html")
+    expect(readProjectFile("../components/NotificationsModal.svelte")).toContain(
+      "$relayDeliveryNotices.size",
+    )
+    expect(readProjectFile("../components/PublicationRecoveryList.svelte")).toContain(
+      "RelayDeliveryNotice",
+    )
+  })
   it("keeps recovery accessible from the notification center after toast dismissal", () => {
     const observer = readProjectFile("../components/PublicationRecoveryObserver.svelte")
     const list = readProjectFile("../components/PublicationRecoveryList.svelte")

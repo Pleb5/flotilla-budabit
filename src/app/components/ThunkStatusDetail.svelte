@@ -2,6 +2,9 @@
   import {PublishStatus} from "@welshman/net"
   import {displayRelayUrl} from "@welshman/util"
   import Button from "@lib/components/Button.svelte"
+  import type {PublishResultsByRelay} from "@welshman/net"
+  import RelayPublishFeedback from "./RelayPublishFeedback.svelte"
+  import {canRetryRelayPublishResults} from "@app/core/relay-publish-outcomes"
 
   interface Props {
     url: string
@@ -12,6 +15,8 @@
     partial?: boolean
     successCount?: number
     relayCount?: number
+    results?: PublishResultsByRelay
+    retryError?: string
   }
 
   let {
@@ -23,6 +28,8 @@
     partial = false,
     successCount = 0,
     relayCount = 0,
+    results,
+    retryError = "",
   }: Props = $props()
 
   $effect(() => {
@@ -50,7 +57,14 @@
       Failed to publish to {displayRelayUrl(url)}: {message}.
     </p>
   {/if}
-  <Button class="link" onclick={retry} disabled={retrying}>
+  <RelayPublishFeedback
+    results={results || {[url]: {relay: url, status: status as PublishStatus, detail: message}}} />
+  {#if retryError}<p class="text-xs text-error">{retryError}</p>{/if}
+  <Button
+    class="link"
+    onclick={retry}
+    disabled={retrying ||
+      !canRetryRelayPublishResults(results || {[url]: {status, detail: message}})}>
     {retrying ? "Retrying..." : "Retry"}
   </Button>
 </div>

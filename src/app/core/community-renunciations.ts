@@ -38,6 +38,7 @@ import {
   normalizePubkey,
 } from "@app/core/community"
 import {INDEXER_RELAYS} from "@app/core/state"
+import {classifyRelayPublishOutcome} from "@app/core/relay-publish-outcomes"
 import {
   makeCommunityPointer,
   parseCommunityDefinitionAddress,
@@ -258,7 +259,9 @@ const publishAndVerifyRenouncedCommunitiesEvent = async (
     const abort = () => finishReject(makeAbortError())
     const rejectIfDone = () => {
       if (!settled && pending === 0) {
-        finishReject(new Error(failures[0] || "Couldn't confirm this was saved. Please try again."))
+        finishReject(
+          new Error(failures.join("\n") || "Couldn't confirm this was saved. Please try again."),
+        )
       }
     }
 
@@ -275,7 +278,10 @@ const publishAndVerifyRenouncedCommunitiesEvent = async (
           if (settled) return
 
           if (result.status !== PublishStatus.Success) {
-            failures.push("Couldn't save this update. Please try again.")
+            const outcome = classifyRelayPublishOutcome(relay, result)
+            failures.push(
+              `${relay}: ${outcome.title}. ${outcome.detail || "No reason supplied."} ${outcome.guidance}`,
+            )
             return
           }
 
@@ -283,7 +289,9 @@ const publishAndVerifyRenouncedCommunitiesEvent = async (
 
           const verifiedEvent = await findPublishedRenunciationEvent(event, relay, signal)
           if (!verifiedEvent) {
-            failures.push("Couldn't confirm this was saved. Please try again.")
+            failures.push(
+              `${relay}: accepted the update, but readback did not confirm the current version. Please refresh before retrying.`,
+            )
             return
           }
 
@@ -295,7 +303,9 @@ const publishAndVerifyRenouncedCommunitiesEvent = async (
         })
         .catch(error => {
           if (!settled) {
-            failures.push(error instanceof Error ? error.message : "Couldn't save this update.")
+            failures.push(
+              `${relay}: ${error instanceof Error ? error.message : "Couldn't save this update."}`,
+            )
           }
         })
         .finally(() => {

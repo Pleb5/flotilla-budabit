@@ -21,6 +21,11 @@ import {
 } from "@welshman/util"
 import {recoverActiveNip46Receiver} from "@app/util/nip46"
 import {recordPublicationOperationDiagnostic} from "@app/core/publication-diagnostics"
+import {
+  canRetryRelayPublishResults,
+  formatRelayPublishFailure,
+} from "@app/core/relay-publish-outcomes"
+import {clearRelayDeliveries, trackConfirmedRelayDelivery} from "@app/core/relay-publish-delivery"
 
 export type PublicationPreviewPolicy = "retain-on-failure" | "rollback-on-failure" | "none"
 
@@ -57,6 +62,7 @@ export type PublicationSnapshot = {
   readonly preview: PublicationPreviewPolicy
   readonly attempt: number
   readonly results: PublishResultsByRelay
+  readonly confirmationRelays?: readonly string[]
   readonly error?: string
 }
 
@@ -257,6 +263,7 @@ const confirmOperation = (
   })
 
   settleAttempt(runtime, snapshot)
+  trackConfirmedRelayDelivery(runtime.thunk, snapshot.label, undefined, runtime.validateRetry)
   removeRuntime(runtime, false)
   scheduleConfirmedCleanup(snapshot.operationId)
 }
@@ -270,7 +277,10 @@ const markUnconfirmed = (runtime: PublicationRuntime, generation: number, error:
     event: runtime.thunk.event,
     phase: "unconfirmed",
     results: runtime.thunk.results,
-    error: getErrorMessage(error),
+    error: formatRelayPublishFailure(runtime.thunk.results, {
+      fallback: getErrorMessage(error),
+      requiredRelay: runtime.confirmRelays.length === 1 ? runtime.confirmRelays[0] : undefined,
+    }),
   })
 
   settleAttempt(runtime, snapshot)
@@ -494,6 +504,7 @@ export const startPublication = (options: StartPublicationOptions): PublicationH
       preview: options.preview,
       attempt: 1,
       results: copyResults(thunk.results),
+      confirmationRelays: confirmRelays,
     })
     runtime = {
       snapshot,
@@ -585,9 +596,16 @@ const markLinkedUnconfirmed = (
   if (runtime.generation !== generation || runtime.snapshot.phase !== "publishing") return
 
   stopLinkedThunkSubscription(runtime)
+  const thunk = getLinkedThunk(runtime)
   const snapshot = updateSnapshot(runtime, {
     phase: "unconfirmed",
-    error: getErrorMessage(error),
+    ...(thunk ? {results: thunk.results} : {}),
+    error: thunk
+      ? formatRelayPublishFailure(thunk.results, {
+          fallback: getErrorMessage(error),
+          requiredRelay: runtime.stage === "target" ? runtime.primaryAckRelay : undefined,
+        })
+      : getErrorMessage(error),
   })
   settleLinkedAttempt(runtime, snapshot)
 }
@@ -615,6 +633,7 @@ const confirmLinkedOperation = (runtime: LinkedPublicationRuntime, generation: n
     error: undefined,
   })
   settleLinkedAttempt(runtime, snapshot)
+  trackConfirmedRelayDelivery(targetThunk, `${snapshot.label} (community target)`)
   removeLinkedRuntime(runtime, false)
   scheduleConfirmedCleanup(snapshot.operationId)
 }
@@ -637,10 +656,15 @@ const advanceLinkedStage = (
     commitLinkedEvent(runtime.primaryThunk.event)
   }
   runtime.primaryAckRelay = acknowledgementRelay
+  trackConfirmedRelayDelivery(runtime.primaryThunk, `${runtime.snapshot.label} (original)`)
   stopLinkedThunkSubscription(runtime)
   runtime.stage = "target"
   runtime.generation += 1
-  updateSnapshot(runtime, {stage: "target", event: runtime.primaryThunk.event})
+  updateSnapshot(runtime, {
+    stage: "target",
+    event: runtime.primaryThunk.event,
+    confirmationRelays: [acknowledgementRelay],
+  })
   let targetThunk: PublicationThunk
   try {
     targetThunk = createLinkedTargetThunk(runtime)
@@ -769,6 +793,7 @@ export const startLinkedPublication = (
       preview: options.preview,
       attempt: 1,
       results: copyResults(primaryThunk.results),
+      confirmationRelays: relays,
     })
     runtime = {
       snapshot,
@@ -805,6 +830,11 @@ const requireOwnedOperation = (operationId: string) => {
   if (runtime.snapshot.phase !== "unconfirmed") {
     throw new Error("Only unconfirmed publications can be retried")
   }
+  if (!canRetryRelayPublishResults(runtime.snapshot.results)) {
+    throw new Error(
+      "The relay rejected this event permanently. Review its reason and correct the publication instead of retrying unchanged.",
+    )
+  }
   if (pubkey.get() !== runtime.snapshot.ownerPubkey) {
     throw new Error("Restore the account that created this publication")
   }
@@ -816,6 +846,11 @@ const requireOwnedLinkedOperation = (operationId: string) => {
   if (!runtime) throw new Error("Publication operation is no longer available")
   if (runtime.snapshot.phase !== "unconfirmed") {
     throw new Error("Only unconfirmed publications can be retried")
+  }
+  if (!canRetryRelayPublishResults(runtime.snapshot.results)) {
+    throw new Error(
+      "The relay rejected this event permanently. Review its reason and correct the publication instead of retrying unchanged.",
+    )
   }
   if (pubkey.get() !== runtime.snapshot.ownerPubkey) {
     throw new Error("Restore the account that created this publication")
@@ -849,7 +884,7 @@ const retryLinkedPublication = (operationId: string): Promise<PublicationSnapsho
     }
 
     const retriedThunk = thunk
-      ? (retryThunk(thunk) as PublicationThunk)
+      ? (retryThunk(thunk, {failedOnly: true}) as PublicationThunk)
       : createLinkedTargetThunk(runtime)
     stopLinkedThunkSubscription(runtime)
     if (runtime.stage === "primary") runtime.primaryThunk = retriedThunk
@@ -902,7 +937,7 @@ export const retryPublication = (operationId: string): Promise<PublicationSnapsh
       throw new Error("Publication operation changed before retry")
     }
 
-    const retriedThunk = retryThunk(thunk) as PublicationThunk
+    const retriedThunk = retryThunk(thunk, {failedOnly: true}) as PublicationThunk
     stopThunkSubscription(runtime)
     runtime.thunk = retriedThunk
     runtime.generation += 1
@@ -965,6 +1000,7 @@ export const discardPublication = (operationId: string) => {
 }
 
 export const clearPublicationOperations = () => {
+  clearRelayDeliveries()
   for (const runtime of Array.from(runtimes.values())) {
     const wasPublishing = runtime.snapshot.phase === "publishing"
     const cancelled = Object.freeze({...runtime.snapshot, phase: "cancelled" as const})

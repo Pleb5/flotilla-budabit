@@ -190,6 +190,38 @@ describe("thunk", () => {
   })
 
   describe("publishThunk", () => {
+    it("preserves successful relay results when merging failed-only retries", () => {
+      const thunk = new Thunk({...mockRequest, relays: [relay1, relay2]})
+      thunk.results[relay1] = {relay: relay1, status: PublishStatus.Success, detail: "stored"}
+      thunk.results[relay2] = {
+        relay: relay2,
+        status: PublishStatus.Failure,
+        detail: "rate-limited: wait",
+      }
+      const retry = retryThunk(new MergedThunk([thunk]), {failedOnly: true}) as MergedThunk
+      expect(retry.thunks[0].options.relays).toEqual([relay2])
+      expect(retry.results[relay1].status).toBe(PublishStatus.Success)
+      expect(retry.results[relay2].status).toBe(PublishStatus.Sending)
+      abortThunk(retry)
+    })
+    it("retries only unsuccessful destinations while retaining prior acknowledgements", async () => {
+      const event = await Nip01Signer.ephemeral().sign(makeEvent(NOTE))
+      const thunk = new Thunk({event, relays: [relay1, relay2], optimistic: false})
+      thunk.results[relay1] = {relay: relay1, status: PublishStatus.Success, detail: "stored"}
+      thunk.results[relay2] = {
+        relay: relay2,
+        status: PublishStatus.Failure,
+        detail: "error: relay policy is loading, retry shortly",
+      }
+      const retry = retryThunk(thunk, {failedOnly: true}) as Thunk
+      expect(retry.event).toBe(event)
+      expect(retry.options.relays).toEqual([relay2])
+      expect(retry.results[relay1]).toEqual(thunk.results[relay1])
+      expect(retry.results[relay1]).not.toBe(thunk.results[relay1])
+      expect(retry.results[relay2].status).toBe(PublishStatus.Sending)
+      abortThunk(retry)
+    })
+
     it("canonicalizes destinations and preserves the signed event on retry", async () => {
       const event = await Nip01Signer.ephemeral().sign(
         makeEvent(NOTE, {tags: [["test", "canonical-retry"]]}),

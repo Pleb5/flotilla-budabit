@@ -1,4 +1,7 @@
-import {describe, expect, it, vi} from "vitest"
+import {afterEach, describe, expect, it, vi} from "vitest"
+import {get} from "svelte/store"
+import {clearRelayDeliveries, relayDeliveryNotices} from "./relay-publish-delivery"
+import {RelayPublishError} from "./relay-publish-outcomes"
 import {PublishStatus} from "@welshman/net"
 import {type Filter, type SignedEvent, type TrustedEvent} from "@welshman/util"
 import {COMMUNITY_DEFINITION_KIND, PROFILE_LIST_KIND} from "./community"
@@ -7,6 +10,7 @@ import {
   makeReplacementCurrentFilter,
   publishAndVerifyCommunityEvent,
   publishAndVerifyProfileEvent,
+  publishRequiredCommunityEvent,
   selectCurrentReplacementEvent,
   verifyCommunityEventReadback,
 } from "./community-publish"
@@ -34,6 +38,95 @@ const makeLoader = (handler: (relays: string[], filters: Filter[]) => TrustedEve
   vi.fn(async (relays: string[], filters: Filter[]) => handler(relays, filters))
 
 describe("community publish verification", () => {
+  afterEach(clearRelayDeliveries)
+
+  it("retains required-relay policy denial despite success elsewhere", async () => {
+    const event = makeSignedEvent({})
+    const results = {
+      [relay]: {
+        relay,
+        status: PublishStatus.Failure,
+        detail: "blocked: Deletion of kinds 32222 and 30000 is not allowed",
+      },
+      [backupRelay]: {relay: backupRelay, status: PublishStatus.Success, detail: "stored"},
+    }
+    const loadEvents = vi.fn()
+    const pending = publishAndVerifyCommunityEvent({
+      event,
+      relays: [relay, backupRelay],
+      requiredRelay: relay,
+      label: "list deletion",
+      publishEvent: vi.fn(async () => results),
+      loadEvents,
+    })
+    await expect(pending).rejects.toBeInstanceOf(RelayPublishError)
+    await expect(pending).rejects.toThrow("Deletion of kinds 32222 and 30000 is not allowed")
+    expect(loadEvents).not.toHaveBeenCalled()
+    expect(get(relayDeliveryNotices).get(event.id)?.results[backupRelay].status).toBe(
+      PublishStatus.Success,
+    )
+  })
+
+  it("records partial delivery without failing an any-relay publication", async () => {
+    const event = makeSignedEvent({})
+    const results = {
+      [relay]: {relay, status: PublishStatus.Success, detail: ""},
+      [backupRelay]: {
+        relay: backupRelay,
+        status: PublishStatus.Failure,
+        detail: "error: relay policy is loading, retry shortly",
+      },
+    }
+    await expect(
+      publishRequiredCommunityEvent({
+        event,
+        relays: [relay, backupRelay],
+        publishEvent: vi.fn(async () => results),
+      }),
+    ).resolves.toMatchObject({acceptedRelays: [relay]})
+    expect(get(relayDeliveryNotices).get(event.id)?.results[backupRelay].detail).toContain(
+      "loading",
+    )
+  })
+
+  it("does not borrow another relay's success when the required result is missing", async () => {
+    await expect(
+      publishRequiredCommunityEvent({
+        event: makeSignedEvent({}),
+        relays: [relay, backupRelay],
+        requiredRelay: relay,
+        publishEvent: vi.fn(async () => ({
+          [backupRelay]: {relay: backupRelay, status: PublishStatus.Success, detail: ""},
+        })),
+      }),
+    ).rejects.toThrow("No result returned for this relay")
+  })
+
+  it("retains all profile transport failure reasons", async () => {
+    await expect(
+      publishAndVerifyProfileEvent({
+        event: makeSignedEvent({kind: 0}),
+        relays: [relay, backupRelay],
+        publishToRelay: vi.fn(async ({relay}) => {
+          throw new Error(`${relay} connection refused`)
+        }),
+      }),
+    ).rejects.toThrow(`${backupRelay} connection refused`)
+  })
+
+  it("preserves readback errors instead of reporting an empty read", async () => {
+    await expect(
+      verifyCommunityEventReadback({
+        event: makeSignedEvent({}),
+        relays: [relay],
+        label: "thread",
+        loadEvents: vi.fn(async () => {
+          throw new Error("CLOSED: restricted read")
+        }),
+      }),
+    ).rejects.toThrow(`${relay}: readback failed — CLOSED: restricted read`)
+  })
+
   it("bumps replacement timestamps past existing local events", () => {
     expect(getNextReplacementCreatedAt([], 10)).toBe(10)
     expect(getNextReplacementCreatedAt([makeTrustedEvent({created_at: 10})], 10)).toBe(11)

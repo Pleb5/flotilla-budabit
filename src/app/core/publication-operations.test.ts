@@ -384,6 +384,25 @@ describe("single-event publication operations", () => {
     )
   })
 
+  it("exposes policy denial and refuses unchanged retry of a protected-kind deletion", async () => {
+    const ack = deferred<typeof acknowledgement>()
+    mocks.waitForAnyRelayAck.mockReturnValue(ack.promise)
+    const operation = startPublication({...makeOptions(makeEvent("a")), relays: [relayOne]})
+    const thunk = mocks.publishThunk.mock.results[0].value as TestThunk
+    thunk.results[relayOne] = {
+      relay: relayOne,
+      status: "failure",
+      detail: "blocked: Deletion of kinds 32222 and 30000 is not allowed",
+    }
+    ack.reject(new Error("generic ACK failure"))
+    const snapshot = await operation.settled
+    expect(snapshot.error).toContain(thunk.results[relayOne].detail)
+    expect(snapshot.error).toContain(relayOne)
+    expect(mocks.repositoryPublish).not.toHaveBeenCalled()
+    await expect(retryPublication(operation.operationId)).rejects.toThrow("permanently")
+    expect(mocks.retryThunk).not.toHaveBeenCalled()
+  })
+
   it("keeps failed publications in attention while retrying until they confirm", async () => {
     const firstAttempt = deferred<typeof acknowledgement>()
     const retryAttempt = deferred<typeof acknowledgement>()
@@ -532,7 +551,7 @@ describe("single-event publication operations", () => {
     const retried = await retryPublication(operation.operationId)
 
     expect(mocks.retryThunk).toHaveBeenCalledOnce()
-    expect(mocks.retryThunk).toHaveBeenCalledWith(firstThunk)
+    expect(mocks.retryThunk).toHaveBeenCalledWith(firstThunk, {failedOnly: true})
     const retryThunk = mocks.retryThunk.mock.results[0]?.value as TestThunk
     expect(retryThunk).not.toBe(firstThunk)
     expect(retryThunk.event).toBe(firstThunk.event)
@@ -578,7 +597,7 @@ describe("single-event publication operations", () => {
     await retryPublication(operation.operationId)
 
     const firstThunk = mocks.publishThunk.mock.results[0]?.value as TestThunk
-    expect(mocks.retryThunk).toHaveBeenCalledWith(firstThunk)
+    expect(mocks.retryThunk).toHaveBeenCalledWith(firstThunk, {failedOnly: true})
     expect(firstThunk.event).toBe(preparedEvent)
     expect(mocks.repositoryPublish).toHaveBeenCalledOnce()
     expect(mocks.repositoryPublish).toHaveBeenCalledWith(signedEvent)
@@ -818,7 +837,7 @@ describe("single-event publication operations", () => {
     expect(targetEvent).toHaveBeenCalledOnce()
     expect(mocks.publishThunk).toHaveBeenCalledTimes(2)
     expect(mocks.retryThunk).toHaveBeenCalledOnce()
-    expect(mocks.retryThunk).toHaveBeenCalledWith(originalTargetThunk)
+    expect(mocks.retryThunk).toHaveBeenCalledWith(originalTargetThunk, {failedOnly: true})
     expect(recoverActiveNip46Receiver).toHaveBeenCalledOnce()
     expect(mocks.repositoryPublish).toHaveBeenNthCalledWith(1, primary)
     expect(mocks.repositoryPublish).toHaveBeenNthCalledWith(2, target)
