@@ -1,4 +1,5 @@
 import {describe, expect, it, vi} from "vitest"
+import {gzipSync} from "node:zlib"
 import type {TrustedEvent} from "@welshman/util"
 import type {PreparedDebugDiagnosticsArtifact} from "./debug-diagnostics"
 import {
@@ -14,7 +15,7 @@ const artifact: PreparedDebugDiagnosticsArtifact = {
   filename: "budabit-debug-run-1.json.gz",
   encoding: "gzip",
   contentType: "application/gzip",
-  bytes: new Uint8Array([1, 2, 3]),
+  bytes: new Uint8Array(gzipSync('{"public":"fixture"}')),
   sha256: "a".repeat(64),
   uncompressedBytes: 20,
 }
@@ -67,7 +68,7 @@ describe("debug diagnostics publication", () => {
       runId: "run-1",
       recordCount: 12,
       observationCount: 1_234,
-      artifact: {sha256: artifact.sha256, bytes: 3},
+      artifact: {sha256: artifact.sha256, bytes: artifact.bytes.length},
     })
   })
 

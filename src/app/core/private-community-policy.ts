@@ -1,5 +1,6 @@
 import {normalizeRelayUrl, type EventTemplate, type Filter, type TrustedEvent} from "@welshman/util"
 import type {CommunityDefinition, CommunityPointer} from "./community-protocol"
+import {nip19} from "nostr-tools"
 
 type EventLike = Pick<EventTemplate, "kind" | "tags" | "content"> & {id?: string; pubkey?: string}
 type Scope = {pointer: CommunityPointer; relays: string[]}
@@ -39,9 +40,58 @@ export const isPrivateReference = (value: string) =>
         value.startsWith(`${pointer.communityId}-`) ||
         value.includes(`:${pointer.communityId}-`),
     ))
+// Context may contain URLs, percent-encoded coordinates or bech32 pointers rather
+// than a bare tag value. Decode before checking, and never expand relay scope.
+export const containsPrivateContext = (value: string): boolean => {
+  if (typeof value !== "string") return false
+  let decoded = value
+  for (let i = 0; i < 2; i++) {
+    try {
+      decoded = decodeURIComponent(decoded)
+    } catch {
+      break
+    }
+  }
+  if (/[?&]read-access=/.test(decoded)) return true
+  for (const id of privateIds.keys()) if (decoded.includes(id)) return true
+  for (const {pointer, relays} of scopes.values()) {
+    if (decoded.includes(pointer.communityId) || decoded.includes(pointer.address)) return true
+    // Diagnostics often truncate endpoint paths. Treat the private host as
+    // private context too, not only its exact websocket URL.
+    for (const relay of relays) {
+      try {
+        if (decoded.includes(new URL(relay).host)) return true
+      } catch {
+        /* invalid hints ignored */
+      }
+    }
+  }
+  for (const match of decoded.matchAll(
+    /\b(?:naddr|nevent|note)1[023456789acdefghjklmnpqrstuvwxyz]+/gi,
+  )) {
+    try {
+      const pointer = nip19.decode(match[0])
+      if (
+        pointer.type === "naddr" &&
+        isPrivateReference(`${pointer.data.kind}:${pointer.data.pubkey}:${pointer.data.identifier}`)
+      )
+        return true
+      if (pointer.type === "nevent" && isPrivateReference(pointer.data.id)) return true
+      if (pointer.type === "note" && isPrivateReference(pointer.data)) return true
+    } catch {
+      /* malformed public locators are not private evidence */
+    }
+  }
+  return false
+}
 export const isPrivateEvent = (event: EventLike) =>
   Boolean(event.id && privateIds.has(event.id)) ||
-  (event.tags || []).some(tag => tag[0] === "read-access" || tag.slice(1).some(isPrivateReference))
+  containsPrivateContext(event.content) ||
+  (event.tags || []).some(
+    tag =>
+      tag[0] === "read-access" ||
+      tag.slice(1).some(value => isPrivateReference(value) || containsPrivateContext(value)),
+  )
 
 export class PrivatePublicationError extends Error {
   constructor() {

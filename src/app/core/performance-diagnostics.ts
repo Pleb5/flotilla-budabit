@@ -1,4 +1,11 @@
 import {get, writable} from "svelte/store"
+import {
+  redactPrivateDiagnosticString,
+  redactPrivateDiagnostics,
+  privateDiagnosticsActive,
+  onPrivateDiagnosticsContext,
+  PRIVATE_DIAGNOSTICS_REDACTION,
+} from "./diagnostics-privacy"
 import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
 import {readRelayDiagnostics} from "@app/core/relay-diagnostics"
 import {
@@ -159,6 +166,12 @@ let stopActiveObservers: (() => void) | undefined
 let automaticCaptureTimer: ReturnType<typeof setTimeout> | undefined
 const pendingPaintRecords = new Map<string, number>()
 const completionRequested = new Set<string>()
+onPrivateDiagnosticsContext(() => {
+  for (const run of runs)
+    if (run.status === "running") {
+      run.context = PRIVATE_DIAGNOSTICS_REDACTION
+    }
+})
 
 const notify = () => performanceDiagnosticsRevision.update(value => value + 1)
 
@@ -168,7 +181,7 @@ const boundedPush = <T>(items: T[], value: T, limit: number) => {
 }
 
 const replaceSecrets = (value: string) => {
-  let next = value
+  let next = redactPrivateDiagnosticString(value)
     .slice(0, MAX_STRING_LENGTH)
     .replace(
       /\b((?:https?|wss?):\/\/)([^\s/]+)([^\s]*)/gi,
@@ -194,6 +207,8 @@ const replaceSecrets = (value: string) => {
 }
 
 export const sanitizePerformanceDiagnosticsUrl = (value: string) => {
+  const safe = redactPrivateDiagnosticString(value)
+  if (safe !== value) return safe
   try {
     const url = new URL(value)
     url.username = ""
@@ -236,7 +251,7 @@ export const sanitizePerformanceDiagnosticValue = (
     0,
     MAX_RECORDS,
   )) {
-    result[key] = SECRET_KEY_PATTERN.test(key)
+    result[redactPrivateDiagnosticString(key)] = SECRET_KEY_PATTERN.test(key)
       ? "[redacted]"
       : RELAY_ENDPOINT_KEY_PATTERN.test(key) && typeof item === "string"
         ? sanitizePerformanceDiagnosticsUrl(item).replace(/^(wss?:\/\/[^/]+).*$/i, "$1")
@@ -258,7 +273,9 @@ const sortValue = (value: PerformanceDiagnosticValue): PerformanceDiagnosticValu
 }
 
 export const serializePerformanceDiagnostics = (snapshot: PerformanceDiagnosticsSnapshot) =>
-  JSON.stringify(sortValue(snapshot as unknown as PerformanceDiagnosticValue))
+  JSON.stringify(
+    sortValue(redactPrivateDiagnostics(snapshot) as unknown as PerformanceDiagnosticValue),
+  )
 
 const getRun = (runId: string) => runs.find(run => run.id === runId)
 
@@ -288,9 +305,13 @@ export const beginPerformanceDiagnosticsRun = ({
   const runId = id || `${clock.wallTime().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
   const run: PerformanceDiagnosticRun = {
     id: runId,
-    route,
+    route: redactPrivateDiagnosticString(route),
     preset,
-    context: context === undefined ? undefined : sanitizePerformanceDiagnosticValue(context),
+    context: privateDiagnosticsActive()
+      ? PRIVATE_DIAGNOSTICS_REDACTION
+      : context === undefined
+        ? undefined
+        : sanitizePerformanceDiagnosticValue(context),
     startedAt,
     startedWallTime,
     environment: getEnvironment(),
@@ -325,10 +346,14 @@ export const markPerformanceDiagnosticsMilestone = (
   boundedPush(
     run.milestones,
     {
-      name,
+      name: redactPrivateDiagnosticString(name),
       at,
       elapsedMs: Math.max(0, at - run.startedAt),
-      ...(detail === undefined ? {} : {detail: sanitizePerformanceDiagnosticValue(detail)}),
+      ...(privateDiagnosticsActive()
+        ? {detail: PRIVATE_DIAGNOSTICS_REDACTION}
+        : detail === undefined
+          ? {}
+          : {detail: sanitizePerformanceDiagnosticValue(detail)}),
     },
     MAX_MILESTONES,
   )
@@ -366,10 +391,14 @@ const appendPerformanceDiagnosticsRecord = (
   boundedPush(
     run[target],
     {
-      type,
+      type: redactPrivateDiagnosticString(type),
       at,
       elapsedMs: Math.max(0, at - run.startedAt),
-      ...(detail === undefined ? {} : {detail: sanitizePerformanceDiagnosticValue(detail)}),
+      ...(privateDiagnosticsActive()
+        ? {detail: PRIVATE_DIAGNOSTICS_REDACTION}
+        : detail === undefined
+          ? {}
+          : {detail: sanitizePerformanceDiagnosticValue(detail)}),
     },
     limits[target],
   )
@@ -590,14 +619,16 @@ const getEnvironment = (): PerformanceDiagnosticsEnvironment => {
 }
 
 export const getPerformanceDiagnosticsSnapshot = (): PerformanceDiagnosticsSnapshot =>
-  structuredClone({
-    schema: PERFORMANCE_DIAGNOSTICS_SCHEMA,
-    schemaVersion: PERFORMANCE_DIAGNOSTICS_SCHEMA_VERSION,
-    generatedAt: Date.now(),
-    build: {id: APP_BUILD_ID, hash: APP_BUILD_HASH},
-    environment: getEnvironment(),
-    runs,
-  })
+  redactPrivateDiagnostics(
+    structuredClone({
+      schema: PERFORMANCE_DIAGNOSTICS_SCHEMA,
+      schemaVersion: PERFORMANCE_DIAGNOSTICS_SCHEMA_VERSION,
+      generatedAt: Date.now(),
+      build: {id: APP_BUILD_ID, hash: APP_BUILD_HASH},
+      environment: getEnvironment(),
+      runs,
+    }),
+  )
 
 export const hasPerformanceDiagnosticsRun = (route: string) => runs.some(run => run.route === route)
 

@@ -51,6 +51,14 @@ Identity changes and cancelled/changed sockets also block already-queued sends.
 Read AUTH consent does not grant unsigned-event trust. Private retained input is
 deletion-aware, including e-only NIP-09 grant deletion without older-grant revival;
 global persistence, notifications, search and extensions do not consume it.
+App-wide debug/performance diagnostics redact known private locators, encoded
+coordinates, event IDs and endpoint context before retention/serialization. A
+capture that visits a private route is marked even if exported after leaving or
+switching accounts. Such captures cannot be exported publicly: artifact bytes
+(including gzip) and manifest context are checked before upload authorization,
+Blossom upload or publication, and rechecked across asynchronous signing steps.
+Unrelated public diagnostics remain available; these checks are not an explicit
+private-disclosure workflow.
 
 Browser regression (full `pnpm dev` stack required):
 

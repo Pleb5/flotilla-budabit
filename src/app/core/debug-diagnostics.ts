@@ -1,5 +1,12 @@
 import {get, writable} from "svelte/store"
 import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
+import {
+  redactPrivateDiagnosticString,
+  redactPrivateDiagnostics,
+  privateDiagnosticsActive,
+  onPrivateDiagnosticsContext,
+  PRIVATE_DIAGNOSTICS_REDACTION,
+} from "./diagnostics-privacy"
 
 export const DEBUG_DIAGNOSTICS_SCHEMA_VERSION = 3
 export const DEBUG_DIAGNOSTICS_SCHEMA = "budabit-debug-run-v3"
@@ -72,6 +79,7 @@ export type DebugDiagnosticsSnapshot = {
     observationCounts: Record<DebugDiagnosticCategory, number>
   }
   records: DebugDiagnosticRecord[]
+  privacy?: string
 }
 
 export type PreparedDebugDiagnosticsArtifact = {
@@ -123,13 +131,14 @@ const redactUrlSecrets = (value: string) =>
   })
 
 const sanitizeString = (value: string) => {
-  let next = redactUrlSecrets(value.slice(0, MAX_STRING_LENGTH))
+  let next = redactUrlSecrets(redactPrivateDiagnosticString(value).slice(0, MAX_STRING_LENGTH))
   for (const pattern of SECRET_VALUE_PATTERNS) next = next.replace(pattern, "[redacted]")
   return next
 }
 
 const sanitizeRelayEndpoint = (value: unknown) => {
   if (typeof value !== "string") return "[invalid-relay]"
+  if (redactPrivateDiagnosticString(value) !== value) return PRIVATE_DIAGNOSTICS_REDACTION
   try {
     const url = new URL(value)
     return `${url.protocol}//${url.host}`
@@ -156,7 +165,7 @@ export const sanitizeDebugDiagnosticValue = (value: unknown, depth = 0): DebugDi
   if (typeof value === "object") {
     const result: {[key: string]: DebugDiagnosticValue} = {}
     for (const [key, item] of Object.entries(value).slice(0, 200)) {
-      result[key] = SECRET_KEY_PATTERN.test(key)
+      result[redactPrivateDiagnosticString(key)] = SECRET_KEY_PATTERN.test(key)
         ? "[redacted]"
         : RELAY_ENDPOINT_KEY_PATTERN.test(key)
           ? sanitizeRelayEndpoint(item)
@@ -188,7 +197,7 @@ const getDebugDiagnosticsEnvironment = (): DebugDiagnosticsSnapshot["environment
 
   return {
     origin: window.location.origin,
-    pathname: window.location.pathname,
+    pathname: redactPrivateDiagnosticString(window.location.pathname),
     userAgent: navigator.userAgent,
     language: navigator.language,
   }
@@ -233,6 +242,7 @@ export const createDebugDiagnosticsRecorder = ({
   const active = writable(false)
   const revision = writable(0)
   let captureId = ""
+  let privateCapture = false
   let startedAt = 0
   let finishedAt: number | undefined
   let records: DebugDiagnosticRecord[] = []
@@ -300,6 +310,7 @@ export const createDebugDiagnosticsRecorder = ({
   const isCategoryEnabled = (category: DebugDiagnosticCategory) =>
     captureId ? captureCategories[category] : get(settings).categories[category]
   const start = (id = `debug-${now().toString(36)}`) => {
+    privateCapture = privateDiagnosticsActive()
     const currentSettings = get(settings)
     const presetLimits = DEBUG_DIAGNOSTIC_PRESETS[currentSettings.preset]
     records = []
@@ -309,7 +320,7 @@ export const createDebugDiagnosticsRecorder = ({
     observationCounts = Object.fromEntries(
       DEBUG_DIAGNOSTIC_CATEGORIES.map(category => [category, 0]),
     ) as Record<DebugDiagnosticCategory, number>
-    captureId = id
+    captureId = sanitizeString(id)
     capturePreset = currentSettings.preset
     captureCategories = {...currentSettings.categories}
     captureLimits = {
@@ -330,6 +341,7 @@ export const createDebugDiagnosticsRecorder = ({
     return true
   }
   const clear = () => {
+    privateCapture = false
     records = []
     counts = Object.fromEntries(
       DEBUG_DIAGNOSTIC_CATEGORIES.map(category => [category, 0]),
@@ -371,7 +383,8 @@ export const createDebugDiagnosticsRecorder = ({
     )
     if (!enabledCategories.has("app-update")) return false
 
-    captureId = capture.id
+    privateCapture = Boolean(snapshot.privacy) || privateDiagnosticsActive()
+    captureId = sanitizeString(capture.id)
     startedAt = capture.startedAt
     finishedAt = undefined
     capturePreset = capture.preset
@@ -434,6 +447,7 @@ export const createDebugDiagnosticsRecorder = ({
     observations = 1,
   ) => {
     if (!get(active) || !isCategoryEnabled(category)) return false
+    privateCapture ||= privateDiagnosticsActive()
     const at = now()
     const representedObservations = Number.isFinite(observations)
       ? Math.max(0, Math.floor(observations))
@@ -444,7 +458,11 @@ export const createDebugDiagnosticsRecorder = ({
       at,
       elapsedMs: Math.max(0, at - startedAt),
       observations: representedObservations,
-      ...(detail === undefined ? {} : {detail: sanitizeDebugDiagnosticValue(detail)}),
+      ...(privateDiagnosticsActive()
+        ? {detail: PRIVATE_DIAGNOSTICS_REDACTION}
+        : detail === undefined
+          ? {}
+          : {detail: sanitizeDebugDiagnosticValue(detail)}),
     }
     records.push(record)
     counts[category] += 1
@@ -465,26 +483,29 @@ export const createDebugDiagnosticsRecorder = ({
   const snapshot = (): DebugDiagnosticsSnapshot => {
     const currentSettings = get(settings)
     const limits = getLimits()
-    return structuredClone({
-      schema: DEBUG_DIAGNOSTICS_SCHEMA,
-      schemaVersion: DEBUG_DIAGNOSTICS_SCHEMA_VERSION,
-      generatedAt: now(),
-      build: {id: APP_BUILD_ID, hash: APP_BUILD_HASH},
-      environment: getDebugDiagnosticsEnvironment(),
-      capture: {
-        id: captureId,
-        startedAt,
-        ...(finishedAt === undefined ? {} : {finishedAt}),
-        active: get(active),
-        preset: captureId ? capturePreset : currentSettings.preset,
-        limits,
-        enabledCategories: DEBUG_DIAGNOSTIC_CATEGORIES.filter(category =>
-          captureId ? captureCategories[category] : currentSettings.categories[category],
-        ),
-        observationCounts,
-      },
-      records,
-    })
+    return redactPrivateDiagnostics(
+      structuredClone({
+        schema: DEBUG_DIAGNOSTICS_SCHEMA,
+        schemaVersion: DEBUG_DIAGNOSTICS_SCHEMA_VERSION,
+        generatedAt: now(),
+        build: {id: APP_BUILD_ID, hash: APP_BUILD_HASH},
+        environment: getDebugDiagnosticsEnvironment(),
+        capture: {
+          id: captureId,
+          startedAt,
+          ...(finishedAt === undefined ? {} : {finishedAt}),
+          active: get(active),
+          preset: captureId ? capturePreset : currentSettings.preset,
+          limits,
+          enabledCategories: DEBUG_DIAGNOSTIC_CATEGORIES.filter(category =>
+            captureId ? captureCategories[category] : currentSettings.categories[category],
+          ),
+          observationCounts,
+        },
+        records,
+        ...(privateCapture ? {privacy: PRIVATE_DIAGNOSTICS_REDACTION} : {}),
+      }),
+    )
   }
   const overview = () => {
     const currentSettings = get(settings)
@@ -516,6 +537,12 @@ export const createDebugDiagnosticsRecorder = ({
     record,
     snapshot,
     overview,
+    markPrivate: () => {
+      if (get(active)) {
+        privateCapture = true
+        notify()
+      }
+    },
   }
 }
 
@@ -558,6 +585,10 @@ const persistDebugDiagnosticsCapture = () => {
     // Continue recording in memory when browser storage is unavailable or full.
   }
 }
+onPrivateDiagnosticsContext(() => {
+  recorder.markPrivate()
+  persistDebugDiagnosticsCapture()
+})
 
 export const restoreDebugDiagnosticsCapture = () => {
   if (typeof sessionStorage === "undefined") return false

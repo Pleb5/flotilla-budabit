@@ -1,4 +1,5 @@
 import {describe, expect, it, vi} from "vitest"
+import {gzipSync} from "node:zlib"
 import type {TrustedEvent} from "@welshman/util"
 import {
   buildPerformanceDiagnosticsManifest,
@@ -15,7 +16,7 @@ const artifact: PreparedPerformanceDiagnosticsArtifact = {
   filename: "diagnostics.json.gz",
   encoding: "gzip",
   contentType: "application/gzip",
-  bytes: new Uint8Array([1, 2, 3]),
+  bytes: new Uint8Array(gzipSync('{"public":"fixture"}')),
   sha256: "a".repeat(64),
   uncompressedBytes: 20,
 }
@@ -44,14 +45,14 @@ describe("performance diagnostics publication", () => {
     expect(JSON.parse(manifest.content)).toMatchObject({
       schema: "budabit-performance-manifest-v1",
       runId: "run-1",
-      artifact: {sha256: artifact.sha256, encoding: "gzip", bytes: 3},
+      artifact: {sha256: artifact.sha256, encoding: "gzip", bytes: artifact.bytes.length},
     })
   })
 
   it("uploads exact bytes and rejects a mismatched hash", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       expect(init?.method).toBe("PUT")
-      expect(init?.body).toBe(artifact.bytes)
+      expect(init?.body).toEqual(artifact.bytes)
       expect(new Headers(init?.headers).get("x-sha-256")).toBe(artifact.sha256)
       expect(new Headers(init?.headers).get("authorization")).toBe("Nostr signed-upload")
       return new Response(

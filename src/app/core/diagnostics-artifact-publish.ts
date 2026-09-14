@@ -2,6 +2,7 @@ import {pubkey, publishThunk, signer} from "@welshman/app"
 import {request} from "@welshman/net"
 import type {TrustedEvent} from "@welshman/util"
 import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/util/blossom-auth"
+import {assertDiagnosticsArtifact, assertDiagnosticsExportContext} from "./diagnostics-privacy"
 
 export type PreparedDiagnosticsArtifact = {
   filename: string
@@ -52,6 +53,9 @@ export const uploadDiagnosticsArtifact = async <T extends PreparedDiagnosticsArt
   fetcher: typeof fetch = fetch,
   authorization = "",
 ) => {
+  artifact = {...artifact, bytes: artifact.bytes.slice()}
+  await assertDiagnosticsArtifact(artifact)
+  assertDiagnosticsExportContext([artifact.filename, server])
   const origin = server.replace(/\/+$/, "")
   const response = await fetcher(`${origin}/upload`, {
     method: "PUT",
@@ -141,10 +145,27 @@ export const publishVerifiedDiagnosticsArtifact = async <T extends PreparedDiagn
   onStage?: (stage: DiagnosticsPublishStage) => void
   dependencies?: DiagnosticsPublishDependencies<T>
 }) => {
+  // Own the inspected bytes across signer waits; callers cannot mutate the
+  // artifact into private data between validation and upload.
+  artifact = {...artifact, bytes: artifact.bytes.slice()}
+  const inspectedText = await assertDiagnosticsArtifact(artifact)
+  const assertPrivacy = () => {
+    // Private intent may be learned while waiting on a signer/provider.
+    assertDiagnosticsExportContext(inspectedText)
+    assertDiagnosticsExportContext([
+      artifact.filename,
+      blossomServer,
+      relays,
+      buildManifest(runDTag, ""),
+      buildManifest(latestDTag, ""),
+    ])
+  }
+  assertPrivacy()
   const initial = dependencies.getIdentity()
   if (!initial.pubkey) throw new Error("Log in before publishing diagnostics")
   if (!initial.signer) throw new Error("No active signer available")
   const assertIdentity = () => {
+    assertPrivacy()
     const current = dependencies.getIdentity()
     if (current.pubkey !== initial.pubkey || current.signer !== initial.signer) {
       throw new Error("Active account changed during diagnostics publication")
@@ -152,6 +173,7 @@ export const publishVerifiedDiagnosticsArtifact = async <T extends PreparedDiagn
   }
 
   onStage?.("signing-upload")
+  assertIdentity()
   const uploadAuthEvent = await initial.signer.sign(
     makeBudabitBlossomAuthEvent({
       action: "upload",
@@ -164,6 +186,7 @@ export const publishVerifiedDiagnosticsArtifact = async <T extends PreparedDiagn
     throw new Error("Signer returned the wrong account")
 
   onStage?.("uploading")
+  assertIdentity()
   const uploaded = await dependencies.upload(
     artifact,
     blossomServer,
@@ -175,6 +198,7 @@ export const publishVerifiedDiagnosticsArtifact = async <T extends PreparedDiagn
   }
 
   onStage?.("verifying-upload")
+  assertIdentity()
   const uploadVerified = await dependencies.verifyUpload(artifact, uploaded.url)
   assertIdentity()
   if (!uploadVerified) throw new Error("Blossom artifact upload could not be read back exactly")
@@ -186,16 +210,22 @@ export const publishVerifiedDiagnosticsArtifact = async <T extends PreparedDiagn
     verifyStage: DiagnosticsPublishStage,
   ) => {
     onStage?.(signStage)
-    const event = await initial.signer!.sign(buildManifest(dTag, uploaded.url))
+    assertIdentity()
+    const template = buildManifest(dTag, uploaded.url)
+    assertDiagnosticsExportContext(template)
+    const event = await initial.signer!.sign(template)
     assertIdentity()
     if (event.pubkey !== initial.pubkey) throw new Error("Signer returned the wrong account")
 
     onStage?.(publishStage)
+    assertIdentity()
+    assertDiagnosticsExportContext(event)
     const accepted = await dependencies.publish(event, relays)
     assertIdentity()
     if (accepted < 1) throw new Error("Diagnostics manifest was not accepted by any relay")
 
     onStage?.(verifyStage)
+    assertIdentity()
     const verified = await dependencies.verify(event, relays)
     assertIdentity()
     if (!verified) throw new Error("Diagnostics manifest was acknowledged but not found on relay")

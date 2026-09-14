@@ -103,9 +103,13 @@
   } from "@app/core/community-state"
   import {getProfileCommunityRelaysFromRefs} from "@app/core/community-relays"
   import {installPrivateCommunityBoundary} from "@app/core/private-community-boundary"
+  import {observeDiagnosticsRoute} from "@app/core/diagnostics-privacy"
 
   const {children} = $props()
   onDestroy(installPrivateCommunityBoundary())
+  $effect(() => {
+    observeDiagnosticsRoute($page.url.href)
+  })
   onDestroy(graspServersStore.subscribe(extraRelayAuthRelays.set))
   if (browser && PERFORMANCE_DIAGNOSTICS_ENABLED) {
     consumeArmedPerformanceDiagnosticsCapture(window.location.pathname)
