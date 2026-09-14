@@ -7,6 +7,13 @@ type Scope = {pointer: CommunityPointer; relays: string[]}
 const scopes = new Map<string, Scope>()
 const privateIds = new Map<string, string[]>()
 const approvedPublications = new WeakMap<object, string[]>()
+const privateReferenceObservers = new Set<() => void>()
+export const onPrivateReferencesChanged = (observer: () => void) => {
+  privateReferenceObservers.add(observer)
+  return () => {
+    privateReferenceObservers.delete(observer)
+  }
+}
 const normalize = (url: string) => {
   try {
     return normalizeRelayUrl(url)
@@ -19,9 +26,12 @@ export const registerPrivateCommunity = (pointer: CommunityPointer, relays: stri
     pointer,
     relays: [...new Set(relays.map(normalize).filter(Boolean))],
   })
+  privateReferenceObservers.forEach(observer => observer())
 }
 export const markPrivateEvent = (event: TrustedEvent, relays: string[] = []) => {
+  const known = privateIds.has(event.id)
   privateIds.set(event.id, relays.map(normalize))
+  if (!known) privateReferenceObservers.forEach(observer => observer())
 }
 export const hasPrivateIntent = (definition: Pick<CommunityDefinition, "event">) =>
   Boolean(definition.event?.tags.some(tag => tag[0] === "read-access"))

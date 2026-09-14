@@ -41,6 +41,11 @@ export const assertDiagnosticsExportContext = (value: unknown = "") => {
   )
     throw new PrivatePublicationError()
 }
+export const assertPublicDiagnosticsCaptureTarget = (value: unknown) => {
+  const text = JSON.stringify(value)
+  if (containsPrivateContext(text) || text?.includes(PRIVATE_DIAGNOSTICS_REDACTION))
+    throw new PrivatePublicationError()
+}
 
 // Guard the actual bytes before upload authorization, not just manifest tags.
 // This includes artifacts prepared before visiting/leaving a private route.

@@ -5,7 +5,9 @@ import {
   privateDiagnosticsActive,
   onPrivateDiagnosticsContext,
   PRIVATE_DIAGNOSTICS_REDACTION,
+  assertPublicDiagnosticsCaptureTarget,
 } from "./diagnostics-privacy"
+import {onPrivateReferencesChanged} from "./private-community-policy"
 import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
 import {readRelayDiagnostics} from "@app/core/relay-diagnostics"
 import {
@@ -679,8 +681,14 @@ const readArmedPerformanceDiagnosticsCapture = () => {
       localStorage.removeItem(PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY)
       return null
     }
+    assertPublicDiagnosticsCaptureTarget(value)
     return value as ArmedPerformanceDiagnosticsCapture
   } catch {
+    try {
+      localStorage.removeItem(PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY)
+    } catch {
+      /* storage unavailable */
+    }
     return null
   }
 }
@@ -700,6 +708,7 @@ export const armPerformanceDiagnosticsCapture = ({
   preset: PerformanceDiagnosticRun["preset"]
   context?: unknown
 }) => {
+  assertPublicDiagnosticsCaptureTarget({route, context})
   if (typeof localStorage === "undefined") return null
   const armed: ArmedPerformanceDiagnosticsCapture = {
     version: 1,
@@ -719,6 +728,9 @@ export const disarmPerformanceDiagnosticsCapture = () => {
   }
   armedPerformanceDiagnosticsCapture.set(null)
 }
+// A public target/context can become private after arming or restoring. Purge
+// it synchronously when signed intent, an invitation, or a private ID is learned.
+onPrivateReferencesChanged(refreshArmedPerformanceDiagnosticsCapture)
 
 export const startPerformanceDiagnosticsCapture = (options: {
   route: string

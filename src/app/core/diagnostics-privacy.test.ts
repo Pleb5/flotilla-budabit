@@ -1,6 +1,7 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {gzipSync} from "node:zlib"
 import {nip19} from "nostr-tools"
+import {get} from "svelte/store"
 import {pubkey} from "@welshman/app"
 import {makeCommunityPointer} from "./community-protocol"
 import {
@@ -20,6 +21,11 @@ import {
   getPerformanceDiagnosticsSnapshot,
   serializePerformanceDiagnostics,
   sanitizePerformanceDiagnosticsUrl,
+  armPerformanceDiagnosticsCapture,
+  refreshArmedPerformanceDiagnosticsCapture,
+  armedPerformanceDiagnosticsCapture,
+  disarmPerformanceDiagnosticsCapture,
+  PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY,
 } from "./performance-diagnostics"
 import {
   startDebugDiagnosticsCapture,
@@ -70,10 +76,73 @@ afterEach(() => {
   observeDiagnosticsRoute("/git")
   clearPerformanceDiagnostics()
   clearDebugDiagnostics()
+  disarmPerformanceDiagnosticsCapture()
   pubkey.set(undefined)
   vi.unstubAllGlobals()
 })
 describe("private diagnostics boundary", () => {
+  it.each([
+    route,
+    `${route}?read-access=members`,
+    `/c/${encodeURIComponent(pointer.address)}`,
+    "https://app.test/c/unknown?read-access=members",
+  ])("rejects persistent arming of %s before writing route or context", target => {
+    const write = vi.spyOn(localStorage, "setItem")
+    for (const input of [{route: target}, {route: "/git", context: {path: target}}])
+      expect(() => armPerformanceDiagnosticsCapture({...input, preset: "custom"})).toThrow(
+        /Private/,
+      )
+    expect(write).not.toHaveBeenCalled()
+    pubkey.set("c".repeat(64))
+    observeDiagnosticsRoute("/settings/performance")
+    expect(refreshArmedPerformanceDiagnosticsCapture()).toBeNull()
+    expect(localStorage.getItem(PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY)).toBeNull()
+    write.mockRestore()
+  })
+
+  it("discards legacy private arms on reload/restore, including context-only locators", () => {
+    for (const value of [{route}, {route: "/git", context: {id: eventId}}]) {
+      localStorage.setItem(
+        PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY,
+        JSON.stringify({version: 1, preset: "custom", armedAt: Date.now(), ...value}),
+      )
+      expect(refreshArmedPerformanceDiagnosticsCapture()).toBeNull()
+      expect(localStorage.getItem(PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY)).toBeNull()
+    }
+  })
+
+  it.each(["route", "context"])(
+    "purges a formerly public %s arm when private intent is learned without revisiting settings",
+    field => {
+      const later = makeCommunityPointer({
+        ownerPubkey: "c".repeat(64),
+        communityId: field === "route" ? "7".repeat(64) : "8".repeat(64),
+      })!
+      const target = `/c/${later.naddr}`
+      armPerformanceDiagnosticsCapture({
+        route: field === "route" ? target : "/git",
+        preset: "custom",
+        context: field === "context" ? {target} : undefined,
+      })
+      expect(localStorage.getItem(PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY)).toContain(later.naddr)
+      expect(refreshArmedPerformanceDiagnosticsCapture()).not.toBeNull()
+      registerPrivateCommunity(later, [])
+      expect(localStorage.getItem(PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY)).toBeNull()
+      expect(get(armedPerformanceDiagnosticsCapture)).toBeNull()
+    },
+  )
+
+  it.each(["/git", "/c/public-target"])(
+    "preserves unrelated public arming and restore for %s",
+    target => {
+      armPerformanceDiagnosticsCapture({route: target, preset: "custom", context: {count: 3}})
+      pubkey.set("c".repeat(64))
+      observeDiagnosticsRoute("/settings/performance")
+      registerPrivateCommunity(pointer, [relay])
+      expect(refreshArmedPerformanceDiagnosticsCapture()?.route).toBe(target)
+      expect(localStorage.getItem(PERFORMANCE_DIAGNOSTICS_ARM_STORAGE_KEY)).toContain(target)
+    },
+  )
   it.each([
     route,
     `${route}?read-access=members`,

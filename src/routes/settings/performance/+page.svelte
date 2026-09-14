@@ -1,5 +1,6 @@
 <script lang="ts">
   import {onMount} from "svelte"
+  import {assertPublicDiagnosticsCaptureTarget} from "@app/core/diagnostics-privacy"
   import Button from "@lib/components/Button.svelte"
   import {DIAGNOSTICS_ENABLED, PERFORMANCE_DIAGNOSTICS_ENABLED} from "@app/core/feature-flags"
   import {
@@ -91,6 +92,7 @@
 
   const normalizeTarget = () => {
     const value = target.trim()
+    assertPublicDiagnosticsCaptureTarget(value)
     if (!value) throw new Error("Enter /git or an exact /c/... Community Home path")
     const pathname = value.startsWith("http") ? new URL(value).pathname : value
     const normalized = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname

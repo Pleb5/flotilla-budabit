@@ -63,6 +63,11 @@ switching accounts. Such captures cannot be exported publicly: artifact bytes
 Blossom upload or publication, and rechecked across asynchronous signing steps.
 Unrelated public diagnostics remain available; these checks are not an explicit
 private-disclosure workflow.
+Persistent diagnostics arming also refuses known-private route/context targets
+before writing localStorage (including invitation queries before URL normalization).
+Restore discards legacy private arms; learning private intent or a private event ID
+purges any matching arm immediately, without requiring another settings visit.
+Unrelated public `/git` and community targets retain their normal arming behavior.
 
 Browser regression (full `pnpm dev` stack required):
 
