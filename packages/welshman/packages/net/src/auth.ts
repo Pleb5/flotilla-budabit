@@ -1,6 +1,6 @@
 import EventEmitter from "events"
 import {on, call, randomId} from "@welshman/lib"
-import {type SignedEvent, type StampedEvent, makeRelayAuth} from "@welshman/util"
+import {type SignedEvent, type StampedEvent, makeRelayAuth, verifyEvent} from "@welshman/util"
 import {isRelayAuth, isRelayOk, type RelayMessage, type ClientMessage} from "./message.js"
 import {type Socket, SocketStatus, SocketEvent} from "./socket.js"
 import {type Unsubscriber} from "./util.js"
@@ -37,6 +37,8 @@ export class AuthError extends Error {
   }
 }
 type Sign = (event: StampedEvent) => Promise<SignedEvent>
+const templateKey = (event: StampedEvent) =>
+  JSON.stringify([event.kind, event.content, event.created_at, event.tags])
 type Attempt = {
   generation: number
   challenge: string
@@ -148,6 +150,7 @@ export class AuthState extends EventEmitter {
     options.signal?.addEventListener("abort", abort, {once: true})
     timer = setTimeout(() => fail("timeout"), options.signTimeout ?? 90_000)
     this.setStatus(AuthStatus.PendingSignature)
+    let expectedTemplate: string
     Promise.resolve()
       .then(() => {
         if (current()) {
@@ -155,6 +158,8 @@ export class AuthState extends EventEmitter {
           // Retrying within one timestamp second must produce a different id so
           // a delayed ACK for the previous attempt cannot confirm this one.
           template.tags.push(["nonce", randomId()])
+          // Capture before handing mutable input to an external signer.
+          expectedTemplate = templateKey(template)
           return sign(template)
         }
       })
@@ -162,6 +167,23 @@ export class AuthState extends EventEmitter {
         event => {
           if (!current()) return
           if (!event) return fail("denied")
+          try {
+            // Own the wire proof, omit signer-provided verification caches, and
+            // recompute its ID/signature. A signer may mutate its input/result.
+            event = {
+              kind: event.kind,
+              content: event.content,
+              created_at: event.created_at,
+              tags: event.tags.map(tag => [...tag]),
+              pubkey: event.pubkey,
+              id: event.id,
+              sig: event.sig,
+            }
+            if (templateKey(event) !== expectedTemplate || !verifyEvent(event))
+              return fail("denied")
+          } catch {
+            return fail("denied")
+          }
           this.request = event.id
           clearTimeout(timer)
           timer = setTimeout(() => fail("timeout"), options.ackTimeout ?? 10_000)

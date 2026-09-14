@@ -2,6 +2,7 @@ import WebSocket from "isomorphic-ws"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {Socket, SocketStatus, SocketEvent} from "../src/socket"
 import {ClientMessage, RelayMessage} from "../src/message"
+import {sign, hash, own, getPubkey} from "@welshman/util"
 
 vi.mock("isomorphic-ws", () => {
   const WebSocket = vi.fn(function (this: any) {
@@ -187,9 +188,12 @@ describe("Socket", () => {
       socket.emit(SocketEvent.Receive, ["AUTH", "challenge"])
       socket.send(["REQ", "first", {}])
       const controller = new AbortController()
-      const proof = socket.auth.authenticate(async () => ({id: "proof", kind: 22242}) as any, {
-        signal: controller.signal,
-      })
+      const proof = socket.auth.authenticate(
+        async event => sign(hash(own(event, getPubkey("01".repeat(32)))), "01".repeat(32)),
+        {
+          signal: controller.signal,
+        },
+      )
       const rejected = expect(proof).rejects.toMatchObject({reason: "cancelled"})
       await vi.advanceTimersByTimeAsync(0)
       const sent = vi.fn(() => controller.abort())

@@ -7,7 +7,13 @@
 Optional private community reads now use one ACK-confirmed auth owner per socket
 and one idempotent REQ replay owner. Signing has a 90-second budget; the matching
 AUTH ACK has a separate 10-second budget. Identity/challenge/transport generations
-invalidate stale signatures, callbacks and queued sends. Reconnects authenticate
+invalidate stale signatures, callbacks and queued sends. AUTH succeeds
+only with an unchanged requested proof, verified signature/recomputed ID, and the
+selected account's pubkey. Each loader and socket policy owns a counted interest:
+one cancellation detaches that caller; the last cancellation invalidates pending
+AUTH/probes and waiting reads. A later caller starts a fresh attempt. This cannot
+withdraw a remote signer's prompt, but its late result cannot reach the wire.
+Reconnects authenticate
 before replay. No EVENT or Negentropy message is implicitly replayed. Runtime
 `auth-required:` evidence overrides stale public metadata; authentication consent
 does not grant unsigned-event trust.

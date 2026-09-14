@@ -10,7 +10,13 @@ import {
   isRelayClosed,
 } from "./message.js"
 
-type Read = {message: ClientMessage; waiting: boolean; replayed?: string; closed?: RelayMessage}
+type Read = {
+  message: ClientMessage
+  waiting: boolean
+  replayed?: string
+  closed?: RelayMessage
+  guard?: () => boolean
+}
 const owners = new WeakMap<Socket, ReadReplay>()
 const pendingAuth = (socket: Socket) =>
   [AuthStatus.PendingSignature, AuthStatus.PendingResponse].includes(socket.auth.status)
@@ -41,8 +47,12 @@ class ReadReplay {
         const previous = this.reads.get(message[1])
         if (previous) socket._sendQueue.remove(previous.message)
         const waiting = pendingAuth(socket) || (this.reconnecting && socket.auth.challenged)
-        this.reads.set(message[1], {message, waiting})
-        socket._sendGuards.set(message, () => this.reads.get(message[1])?.message === message)
+        const guard = socket._sendGuards.get(message)
+        this.reads.set(message[1], {message, waiting, guard})
+        socket._sendGuards.set(
+          message,
+          () => this.reads.get(message[1])?.message === message && (!guard || guard()),
+        )
         if (waiting) socket._sendQueue.remove(message)
       }),
       on(socket, SocketEvent.Receiving, (message: RelayMessage) => {
@@ -127,7 +137,10 @@ class ReadReplay {
       read.closed = undefined
       read.replayed = `${socket.auth.generation}:${socket.auth.challenge}`
       const message = read.message
-      socket._sendGuards.set(message, () => this.reads.get(message[1])?.message === message)
+      socket._sendGuards.set(
+        message,
+        () => this.reads.get(message[1])?.message === message && (!read.guard || read.guard()),
+      )
       this.replaying = true
       try {
         socket.send(read.message)

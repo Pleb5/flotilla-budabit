@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {get} from "svelte/store"
-import {getPublicKey} from "nostr-tools"
+import {getPublicKey, finalizeEvent} from "nostr-tools"
 import {pubkey, repository} from "@welshman/app"
 import {
   AuthStatus,
@@ -404,12 +404,8 @@ const flushPromises = async (count = 10) => {
 
 const getRelaySocket = (relay: string) => Pool.get().get(relay) as Socket
 
-const makeAuthEvent = (event: Record<string, unknown>) => ({
-  ...event,
-  id: "auth-event",
-  pubkey: memberPubkey,
-  sig: "auth-signature",
-})
+const makeAuthEvent = (event: Parameters<typeof finalizeEvent>[0] = signMock.mock.lastCall![0]) =>
+  finalizeEvent(event, new Uint8Array(32).fill(5))
 
 const sendAuthChallenge = (socket: Socket, challenge = "challenge") => {
   socket.emit(SocketEvent.Receive, [RelayMessageType.Auth, challenge], socket.url)
@@ -455,12 +451,7 @@ describe("community relay loading", () => {
     forceLoadRelayListMock.mockResolvedValue(undefined)
     fromPubkeysMock.mockReturnValue({getUrls: () => []})
     signMock.mockReset()
-    signMock.mockImplementation(async event => ({
-      ...event,
-      id: "auth-event",
-      pubkey: memberPubkey,
-      sig: "auth-signature",
-    }))
+    signMock.mockImplementation(async event => makeAuthEvent(event))
     removeTestEvents()
     clearActiveCommunityState()
     clearActiveExactCommunity()
@@ -1017,7 +1008,7 @@ describe("community relay loading", () => {
   })
 
   it("waits through nonterminal auth transitions until the relay accepts", async () => {
-    let releaseSignature: (event: Record<string, unknown>) => void = () => {}
+    let releaseSignature: (event: ReturnType<typeof makeAuthEvent>) => void = () => {}
     const socket = getRelaySocket(requiredRelay)
     signMock.mockImplementation(
       event =>
@@ -1038,7 +1029,7 @@ describe("community relay loading", () => {
     expect(socket.auth.status).toBe(AuthStatus.PendingSignature)
     expect(settled).toBe(false)
 
-    releaseSignature(makeAuthEvent({kind: 22242, created_at: 1, tags: [], content: ""}))
+    releaseSignature(makeAuthEvent())
     await flushPromises()
     expect(socket.auth.status).toBe(AuthStatus.PendingResponse)
     expect(settled).toBe(false)
@@ -1098,7 +1089,7 @@ describe("community relay loading", () => {
   })
 
   it("shares one in-flight authentication attempt per relay socket", async () => {
-    let releaseSignature: (event: Record<string, unknown>) => void = () => {}
+    let releaseSignature: (event: ReturnType<typeof makeAuthEvent>) => void = () => {}
     const socket = getRelaySocket(requiredRelay)
     signMock.mockImplementation(
       () =>
@@ -1116,7 +1107,7 @@ describe("community relay loading", () => {
     await flushPromises()
     expect(signMock).toHaveBeenCalledTimes(1)
 
-    releaseSignature(makeAuthEvent({kind: 22242, created_at: 1, tags: [], content: ""}))
+    releaseSignature(makeAuthEvent())
     await flushPromises()
     acceptAuth(socket)
     await Promise.all([first, second])
@@ -1181,7 +1172,7 @@ describe("community relay loading", () => {
   })
 
   it("does not overwrite bootstrap status when recovery is superseded", async () => {
-    let releaseSignature: (event: Record<string, unknown>) => void = () => {}
+    let releaseSignature: (event: ReturnType<typeof makeAuthEvent>) => void = () => {}
     const otherCommunityPubkey = getPublicKey(new Uint8Array(32).fill(9))
     const socket = getRelaySocket(requiredRelay)
     repository.publish(requiredRelayDefinitionEvent)
@@ -1208,7 +1199,7 @@ describe("community relay loading", () => {
       loading: true,
       loaded: false,
     })
-    releaseSignature(makeAuthEvent({kind: 22242, created_at: 1, tags: [], content: ""}))
+    releaseSignature(makeAuthEvent())
     await flushPromises()
     acceptAuth(socket)
 
@@ -1857,7 +1848,7 @@ describe("community relay loading", () => {
   })
 
   it("waits for community relay auth before loading bootstrap content", async () => {
-    let releaseSignature: (event: Record<string, unknown>) => void = () => {}
+    let releaseSignature: (event: ReturnType<typeof makeAuthEvent>) => void = () => {}
     const socket = getRelaySocket(requiredRelay)
     signMock.mockImplementation(
       () =>
@@ -1895,7 +1886,7 @@ describe("community relay loading", () => {
       false,
     )
 
-    releaseSignature(makeAuthEvent({kind: 22242, created_at: 1, tags: [], content: ""}))
+    releaseSignature(makeAuthEvent())
     await flushPromises()
     acceptAuth(socket)
     const bootstrap = await bootstrapPromise

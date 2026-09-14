@@ -10,6 +10,7 @@ import {
   SocketStatus,
   type Socket,
   type RelayMessage,
+  type ClientMessage,
   isRelayClosed,
   isRelayOk,
 } from "@welshman/net"
@@ -30,27 +31,56 @@ export type RelayAuthOptions = {
   retry?: boolean
 }
 let guest: Nip01Signer | undefined
+type Attempt = {
+  controller: AbortController
+  promise: Promise<void>
+  consumers: number
+}
 type Entry = {
   identity: string
-  controller: AbortController
-  promise?: Promise<void>
+  attempt?: Attempt
   cleanup: () => void
 }
 const entries = new WeakMap<Socket, Entry>()
 
-// Individual loader cancellation detaches that waiter, not another concurrent
-// loader's signer request. Explicit cancelRelayAuthentication cancels the owner.
-const wait = (promise: Promise<void>, signal?: AbortSignal): Promise<void> => {
-  if (!signal) return promise
-  if (signal.aborted) return Promise.reject(new AuthError("cancelled"))
+const cancelAttempt = (socket: Socket, entry: Entry) => {
+  const attempt = entry.attempt
+  if (!attempt) return
+  // Invalidate synchronously: a new consumer must not adopt cancelled work.
+  entry.attempt = undefined
+  attempt.controller.abort()
+  socket.auth.cancel()
+}
+// Each call owns interest until settlement/cancellation, including socket policy.
+// Cancellation cannot withdraw a remote signer prompt, only reject its result.
+const wait = (
+  socket: Socket,
+  entry: Entry,
+  attempt: Attempt,
+  signal?: AbortSignal,
+): Promise<void> => {
+  attempt.consumers++
+  let detached = false
+  const release = () => {
+    if (detached) return
+    detached = true
+    if (--attempt.consumers === 0 && entry.attempt === attempt) cancelAttempt(socket, entry)
+  }
+  if (!signal) {
+    void attempt.promise.then(release, release)
+    return attempt.promise
+  }
   return new Promise((resolve, reject) => {
     const abort = () => {
       cleanup()
       reject(new AuthError("cancelled"))
     }
-    const cleanup = () => signal.removeEventListener("abort", abort)
+    const cleanup = () => {
+      signal.removeEventListener("abort", abort)
+      release()
+    }
     signal.addEventListener("abort", abort, {once: true})
-    promise.then(
+    attempt.promise.then(
       () => {
         cleanup()
         resolve()
@@ -60,17 +90,18 @@ const wait = (promise: Promise<void>, signal?: AbortSignal): Promise<void> => {
         reject(error)
       },
     )
+    if (signal.aborted) abort()
   })
 }
 const entryFor = (socket: Socket) => {
   let entry = entries.get(socket)
   if (entry) return entry
-  entry = {identity: pubkey.get() || "", controller: new AbortController(), cleanup: () => {}}
+  entry = {identity: pubkey.get() || "", cleanup: () => {}}
   entries.set(socket, entry)
   const current = entry
   const unsubscribe = pubkey.subscribe(identity => {
     if ((identity || "") === current.identity) return
-    current.controller.abort()
+    cancelAttempt(socket, current)
     socket.auth.cancel()
     current.cleanup()
     entries.delete(socket)
@@ -79,7 +110,7 @@ const entryFor = (socket: Socket) => {
     else socket.cleanup()
   })
   const offCleanup = on(socket, SocketEvent.Cleanup, () => {
-    current.controller.abort()
+    cancelAttempt(socket, current)
     current.cleanup()
     entries.delete(socket)
   })
@@ -92,7 +123,7 @@ const entryFor = (socket: Socket) => {
 
 export const cancelRelayAuthentication = (socket: Socket) => {
   const entry = entries.get(socket)
-  entry?.controller.abort()
+  if (entry) cancelAttempt(socket, entry)
   socket.auth.cancel()
 }
 
@@ -113,20 +144,23 @@ export const authenticateRelay = (
     )
   const selected = activeSigner && activePubkey ? activeSigner : (guest ||= Nip01Signer.ephemeral())
   const entry = entryFor(socket)
-  if (entry.promise) return wait(entry.promise, options.signal)
+  if (entry.attempt) return wait(socket, entry, entry.attempt, options.signal)
   if (socket.auth.status === AuthStatus.Ok) return Promise.resolve()
   if (socket.auth.status === AuthStatus.Forbidden) return Promise.reject(new AuthError("forbidden"))
-  if (socket.auth.status === AuthStatus.DeniedSignature && !options.retry)
+  const retry = options.retry || socket.auth.details === "cancelled"
+  if (socket.auth.status === AuthStatus.DeniedSignature && !retry)
     return Promise.reject(new AuthError("denied"))
-  if (entry.controller.signal.aborted) entry.controller = new AbortController()
-  const signal = entry.controller.signal
+  const controller = new AbortController(),
+    signal = controller.signal
   let resolve!: () => void
   let reject!: (error: unknown) => void
   const promise = new Promise<void>((yes, no) => {
     resolve = yes
     reject = no
   })
-  entry.promise = promise // install before any synchronous status callbacks
+  const attempt = {controller, promise, consumers: 0}
+  entry.attempt = attempt // install/retain before any synchronous status callbacks
+  const waiting = wait(socket, entry, attempt, options.signal)
   const run = async () => {
     if (signal.aborted) throw new AuthError("cancelled")
     if (!socket.auth.challenge) {
@@ -135,6 +169,7 @@ export const authenticateRelay = (
       const id = `auth-probe-${socket.auth.generation}`
       await new Promise<void>((resolve, reject) => {
         let settled = false
+        const probe: ClientMessage = ["REQ", id, {ids: ["0".repeat(64)], limit: 0}]
         const cleanup = () => {
           clearTimeout(timer)
           offAuth()
@@ -142,7 +177,10 @@ export const authenticateRelay = (
           signal.removeEventListener("abort", abort)
           for (const message of socket._sendQueue.items)
             if (message[0] === "REQ" && message[1] === id) socket._sendQueue.remove(message)
-          if (socket.status === SocketStatus.Open) socket.send(["CLOSE", id])
+          // Sending CLOSE also releases replay ownership before a future retry.
+          const close: ClientMessage = ["CLOSE", id]
+          if (socket.status === SocketStatus.Open) socket.send(close)
+          else socket.emit(SocketEvent.Sending, close, socket.url)
         }
         const finish = (error?: Error) => {
           if (settled) return
@@ -161,19 +199,26 @@ export const authenticateRelay = (
         })
         const timer = setTimeout(() => finish(new AuthError("timeout")), 5000)
         signal.addEventListener("abort", abort, {once: true})
+        const generation = socket._generation
+        socket._sendGuards.set(
+          probe,
+          () => !settled && !signal.aborted && generation === socket._generation,
+        )
         socket.attemptToOpen()
-        socket.send(["REQ", id, {ids: ["0".repeat(64)], limit: 0}])
+        if (!settled && !signal.aborted) socket.send(probe)
       })
     }
     const sign = async (event: Parameters<typeof selected.sign>[0]) => {
       if (signal.aborted || pubkey.get() !== activePubkey || signer.get() !== activeSigner)
         throw new AuthError("cancelled")
-      const signed = await selected.sign(event)
+      const expectedPubkey = activePubkey || (await selected.getPubkey())
+      const signed = await selected.sign(event, {signal})
       if (signal.aborted || pubkey.get() !== activePubkey || signer.get() !== activeSigner)
         throw new AuthError("cancelled")
+      if (!signed || signed.pubkey !== expectedPubkey) throw new AuthError("denied")
       return signed
     }
-    if (options.retry && socket.auth.status === AuthStatus.DeniedSignature) {
+    if (retry && socket.auth.status === AuthStatus.DeniedSignature) {
       await socket.auth.retryAuth(sign, {
         signal,
         signTimeout: options.signTimeout ?? RELAY_AUTH_SIGN_TIMEOUT,
@@ -189,28 +234,45 @@ export const authenticateRelay = (
   }
   void run().then(
     () => {
-      if (entry.promise === promise) entry.promise = undefined
+      if (entry.attempt === attempt) entry.attempt = undefined
       resolve()
     },
     error => {
-      if (entry.promise === promise) entry.promise = undefined
+      if (entry.attempt === attempt) entry.attempt = undefined
       reject(error)
     },
   )
-  return wait(promise, options.signal)
+  return waiting
 }
 
 export const coordinatedAuthPolicy = (socket: Socket) => {
+  const controller = new AbortController()
+  let pending = false
   const attempt = () => {
-    if (socket.auth.status === AuthStatus.Requested && getRelayPolicy(socket.url).auth !== "none")
-      void authenticateRelay(socket).catch(error => {
-        if (
-          !socket._disposed &&
-          error instanceof AuthError &&
-          ["superseded", "disconnected"].includes(error.reason)
-        )
-          attempt()
-      })
+    if (
+      !pending &&
+      !controller.signal.aborted &&
+      [AuthStatus.Requested, AuthStatus.PendingSignature, AuthStatus.PendingResponse].includes(
+        socket.auth.status,
+      ) &&
+      getRelayPolicy(socket.url).auth !== "none"
+    ) {
+      pending = true
+      void authenticateRelay(socket, {signal: controller.signal}).then(
+        () => {
+          pending = false
+        },
+        error => {
+          pending = false
+          if (
+            !socket._disposed &&
+            error instanceof AuthError &&
+            ["superseded", "disconnected"].includes(error.reason)
+          )
+            attempt()
+        },
+      )
+    }
   }
   const unsubscribers = [
     on(socket.auth, AuthStateEvent.Status, attempt),
@@ -235,9 +297,6 @@ export const coordinatedAuthPolicy = (socket: Socket) => {
   return () => {
     socket.off(SocketEvent.Receiving, runtimeRequired)
     unsubscribers.forEach(unsubscribe => unsubscribe())
-    const entry = entries.get(socket)
-    entry?.controller.abort()
-    entry?.cleanup()
-    entries.delete(socket)
+    controller.abort()
   }
 }
