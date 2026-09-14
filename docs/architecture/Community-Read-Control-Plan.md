@@ -32,9 +32,13 @@ repository. Public child routes/loaders are not mounted. An authenticated denied
 socket can retry after a grant without another signature; a revoked/disconnected
 connection needs fresh authentication. Cancellation/account changes clear the
 view and stop old callbacks. Missing, failed or saturated reads are incomplete,
-not an empty community. The initial archive view requests up to 200 retained events
-per relay (or its lower advertised `max_limit`) and renders admitted plain text
-from that private repository only. Unknown limits or reaching the effective cap
+not an empty community. Per relay, one live subscription has two disjoint bounded
+filters: authority kinds `[5,1984,30000,32222]` and text kind1. Each has its own
+limit of at most200 (or the lower advertised `max_limit`). Inaccessible unrelated
+records cannot consume the authority query's budget. The endpoint must explicitly
+advertise `budabit.read_control.unfiltered_kinds` covering every queried kind:
+these kinds undergo no post-limit involved-key filtering for authenticated readers.
+Missing/unsupported claims, unknown limits or either scan reaching its effective cap
 leave authority incomplete, even after EOSE. Posts and authoring stay hidden until
 the bounded scan is complete; unreturned bans/shards are not presumed absent.
 Text requires exact `h` and branch `a` targets, a supported kind-1 section, current
@@ -65,6 +69,18 @@ Browser regression (full `pnpm dev` stack required):
 ```sh
 pnpm exec playwright test -c tests/e2e/private-community.config.ts
 ```
+
+Opt-in production-loader/native-core regression (initialized, built local strfry
+checkout; isolated loopback port40584, controlled raw AUTH, no TLS proxy or live accounts):
+
+```sh
+STRFRY_SOURCE=/path/to/strfry pnpm exec vitest run --project=main src/app/core/private-community-native.test.ts
+```
+
+It retains the default involved-key DM restrictions, reproduces the old broad
+query's omitted older ban/grant/deletion, and verifies the isolated authority
+filter fetches the evidence before exposing text. The supplied TMPDIR must be a
+session-owned test directory; the fixture creates/removes only its own database.
 
 This test uses isolated cold contexts, controlled NIP-07 keys, the existing mock
 relay helper and blocked off-origin HTTP. It signs AUTH and one explicitly allowed

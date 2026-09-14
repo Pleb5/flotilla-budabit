@@ -1,4 +1,12 @@
 import {supportsMemberOnlyReads} from "./private-community-policy"
+export const PRIVATE_AUTHORITY_KINDS = [5, 1984, 30000, 32222]
+export const privateRelayUnfilteredKinds = (profile: unknown) => {
+  const kinds = (profile as {budabit?: {read_control?: {unfiltered_kinds?: unknown}}})?.budabit
+    ?.read_control?.unfiltered_kinds
+  return Array.isArray(kinds) && kinds.every(kind => Number.isSafeInteger(kind) && kind >= 0)
+    ? (kinds as number[])
+    : []
+}
 
 // Unknown/invalid server limits are not evidence of a complete history scan.
 export const privateRelayReadLimit = (profile: unknown): number | undefined => {

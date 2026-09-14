@@ -6,6 +6,7 @@ import {repository as sharedRepository, pubkey} from "@welshman/app"
 import {PrivateCommunityAccess, privateAccessHeading} from "./private-community-access"
 import {makeCommunityPointer, buildCommunityDefinition} from "./community-protocol"
 import {makeCommunityEventReport, makeCommunityPersonReport} from "./community-reports"
+import {PRIVATE_AUTHORITY_KINDS} from "./private-relay-profile"
 
 vi.mock("./relay-auth-consent", () => ({
   allowRelayAuthentication: vi.fn(),
@@ -52,7 +53,11 @@ afterEach(() => {
   controls.splice(0).forEach(control => control.dispose())
   vi.useRealTimers()
 })
-const setup = (relays = [relay], cap: unknown = 200) => {
+const setup = (
+  relays = [relay],
+  cap: unknown = 200,
+  unfiltered: unknown = [1, ...PRIVATE_AUTHORITY_KINDS],
+) => {
   pubkey.set(owner)
   const reads: RequestOneOptions[] = []
   const socket = vi.fn(url => new Socket(url))
@@ -67,7 +72,13 @@ const setup = (relays = [relay], cap: unknown = 200) => {
     socket,
     authenticate,
     request,
-    profiles: async relays => new Map(relays.map(url => [url, {limitation: {max_limit: cap}}])),
+    profiles: async relays =>
+      new Map(
+        relays.map(url => [
+          url,
+          {limitation: {max_limit: cap}, budabit: {read_control: {unfiltered_kinds: unfiltered}}},
+        ]),
+      ),
   })
   controls.push(control)
   return {control, reads, socket, authenticate, request}
@@ -86,7 +97,10 @@ describe("private access lifecycle", () => {
     expect(socket).not.toHaveBeenCalled()
     await control.start()
     expect(reads[0].relay).toBe(relay)
-    expect(reads[0].filters).toEqual([{limit: 200}])
+    expect(reads[0].filters).toEqual([
+      {kinds: PRIVATE_AUTHORITY_KINDS, limit: 200},
+      {kinds: [1], limit: 200},
+    ])
     reads[0].onEvent!(definition, relay)
     reads[0].onEvent!(note, relay)
     reads[0].onEose!(relay)
@@ -170,15 +184,26 @@ describe("private access lifecycle", () => {
     async kind => {
       const {control, reads} = setup([relay], 2)
       await control.start()
-      expect(reads[0].filters).toEqual([{limit: 2}])
+      expect(reads[0].filters).toEqual([
+        {kinds: PRIVATE_AUTHORITY_KINDS, limit: 2},
+        {kinds: [1], limit: 2},
+      ])
       const older =
         kind === "ban"
           ? makeCommunityPersonReport({community: pointer, pubkey: owner})
           : kind === "deletion"
             ? {kind: 5, tags: [["e", note.id]], content: ""}
             : {kind: 30000, tags: [["d", `${community}-general`]], content: ""}
-      const history = [finalizeEvent({...older, created_at: 90}, key), definition, note]
+      const history = [
+        finalizeEvent({...older, created_at: 90}, key),
+        definition,
+        finalizeEvent(
+          {kind: 30000, tags: [["d", "another-shard"]], content: "", created_at: 102},
+          key,
+        ),
+      ]
       history.slice(-2).forEach(event => reads[0].onEvent!(event, relay))
+      reads[0].onEvent!(note, relay)
       reads[0].onEose!(relay)
       expect(get(control.view).access).toBe("partial")
       expect(get(control.view).events).toEqual([])
@@ -193,6 +218,23 @@ describe("private access lifecycle", () => {
     reads[0].onEose!(relay)
     expect(get(control.view).access).toBe("ready")
     expect(get(control.view).events.map(event => event.id)).toEqual([note.id])
+  })
+
+  it.each([
+    null,
+    [],
+    [1, 5, 30000, 32222],
+    [5, 1984, 30000, 32222],
+    "all",
+    [1, 5, 1984, 30000, "32222"],
+  ])("withholds completeness without an unfiltered authority/text contract: %s", async kinds => {
+    const {control, reads} = setup([relay], 3, kinds)
+    await control.start()
+    reads[0].onEvent!(definition, relay)
+    reads[0].onEvent!(note, relay)
+    reads[0].onEose!(relay)
+    expect(get(control.view).access).toBe("partial")
+    expect(get(control.view).events).toEqual([])
   })
 
   it("recomputes exact-branch text admission after grant removal, regrant, definition edits and section reports", async () => {

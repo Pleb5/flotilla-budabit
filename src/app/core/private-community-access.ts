@@ -21,7 +21,12 @@ import {allowRelayAuthentication, requireExplicitRelayAuthConsent} from "./relay
 import {selectCurrentCommunityDefinitions, type CommunityDefinition} from "./community-protocol"
 import type {PrivateCommunityScope} from "./private-community-scope"
 import {markPrivateEvent} from "./private-community-policy"
-import {loadPrivateRelayProfiles, privateRelayReadLimit} from "./private-relay-profile"
+import {
+  loadPrivateRelayProfiles,
+  privateRelayReadLimit,
+  privateRelayUnfilteredKinds,
+  PRIVATE_AUTHORITY_KINDS,
+} from "./private-relay-profile"
 import {publishPrivateCommunityEvent} from "./private-community-publish"
 import {pubkey, signer} from "@welshman/app"
 import {buildCommunityDefinition, parseCommunityDefinition} from "./community-protocol"
@@ -209,16 +214,22 @@ export class PrivateCommunityAccess {
           if (!current()) return
           state("checking")
           let effectiveLimit: number | undefined
+          let unfiltered: number[] = []
           try {
             const profiles = await (this.transport.profiles || deps.profiles)([relay], signal)
             effectiveLimit = privateRelayReadLimit(profiles.get(relay))
+            unfiltered = privateRelayUnfilteredKinds(profiles.get(relay))
           } catch {
             /* Unknown capability/limit keeps authority incomplete. */
           }
           if (!current()) return
-          // Keep this full-history subscription alive after EOSE to detect revoke
-          // and receive changes. No global repository or verification shortcuts.
+          // Disjoint filters each get their own DB limit. Inaccessible unrelated
+          // events must not consume the authority scan's budget. Only an explicit
+          // unfiltered-kind contract makes received-count exhaustion meaningful.
+          // Keep both live after EOSE for current grants/deletions and revocation.
           let count = 0,
+            authorityCount = 0,
+            archiveCount = 0,
             bytes = 0,
             completed = false,
             invalid = false
@@ -229,7 +240,10 @@ export class PrivateCommunityAccess {
           this.off.push(() => clearTimeout(timer))
           this.transport.request({
             relay,
-            filters: [{limit: maxEvents}],
+            filters: [
+              {kinds: PRIVATE_AUTHORITY_KINDS, limit: maxEvents},
+              {kinds: [1], limit: maxEvents},
+            ],
             signal,
             autoClose: false,
             context: {getAdapter: () => new SocketAdapter(socket!)},
@@ -241,6 +255,9 @@ export class PrivateCommunityAccess {
             },
             onEvent: event => {
               if (!current()) return
+              if (PRIVATE_AUTHORITY_KINDS.includes(event.kind)) authorityCount++
+              else if (event.kind === 1) archiveCount++
+              else return
               bytes += JSON.stringify(event).length
               if (++count > 5000 || bytes > 8 * 1024 * 1024) {
                 invalid = true
@@ -255,7 +272,15 @@ export class PrivateCommunityAccess {
             onEose: () => {
               completed = true
               clearTimeout(timer)
-              state(invalid || !effectiveLimit || count >= maxEvents ? "partial" : "ready")
+              const authorityComplete =
+                PRIVATE_AUTHORITY_KINDS.every(kind => unfiltered.includes(kind)) &&
+                authorityCount < maxEvents
+              const archiveComplete = unfiltered.includes(1) && archiveCount < maxEvents
+              state(
+                invalid || !effectiveLimit || !authorityComplete || !archiveComplete
+                  ? "partial"
+                  : "ready",
+              )
             },
             onClosed: reason => {
               completed = true

@@ -102,7 +102,16 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
       json: {
         limitation: {auth_required: true, max_limit: maxLimit},
         ...(capability
-          ? {budabit: {read_control: {version: 1, mode: "members", scope: "relay"}}}
+          ? {
+              budabit: {
+                read_control: {
+                  version: 1,
+                  mode: "members",
+                  scope: "relay",
+                  unfiltered_kinds: [1, 5, 1984, 30000, 32222],
+                },
+              },
+            }
           : {}),
       },
     }),
@@ -139,9 +148,9 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
   )
   await page.goto(invite)
   const shell = page.getByTestId("private-community-access")
-  await expect(
-    shell.getByRole("heading", {name: "Sign in to this private community"}),
-  ).toBeVisible({timeout: 25000})
+  await expect(shell.getByRole("heading", {name: "Sign in to this private community"})).toBeVisible(
+    {timeout: 25000},
+  )
   expect((await mock.getTelemetry()).filter(entry => entry.relayUrl === relay)).toEqual([])
   await shell.getByRole("button", {name: "Sign in", exact: true}).click()
   await page.getByRole("button", {name: "Log in with Extension", exact: true}).click()

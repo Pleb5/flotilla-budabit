@@ -22,8 +22,11 @@ deletion-aware retained authority view; raw concatenated list bodies can revive 
 e-only-deleted grant. The initial private shell applies retained report state,
 requires complete authority before exposing or posting text, and labels saturated,
 unknown-limit or failed loads incomplete. The effective cap is the smaller of 200
-and the endpoint's advertised positive `max_limit`; EOSE at that cap is not proof
-of complete authority. Plain-text events must target the exact branch and pass
+and the endpoint's advertised positive `max_limit`, separately for the authority
+filter (kinds5/1984/30000/32222) and text filter (kind1). EOSE at either cap is not
+proof of complete authority. Every queried kind also requires an explicit
+`budabit.read_control.unfiltered_kinds` claim: otherwise post-limit filtering
+could hide unread authority even below the received cap. Plain-text events must target the exact branch and pass
 current section-kind, author grant and section-censorship checks. Regrant or grant
 removal recomputes visibility. Revocation terminates the relay connection and clears the view.
 
