@@ -1,6 +1,6 @@
 # Optional private community reads — cross-repository plan
 
-Status: **relay gate, auth coordinator and invitation reader implemented on feature branches; default off**. Publication/cache audit and operator release are still in progress. Prepared 2026-09-14.
+Status: **implemented and verified on feature branches; default off, not live-deployed**. Prepared 2026-09-14. Publication/cache guards and operator guidance are included; see limitations below.
 
 The complete server/client design and phased implementation plan is in the
 Budabit strfry fork:
@@ -11,6 +11,11 @@ Budabit strfry fork:
 
 This does not claim that a published upstream revision or released private-client
 implementation already exists.
+
+Operator guide in sibling checkouts: [private configuration, health and rollback](../../../strfry/deploy/budabit/PRIVATE-READS.md).
+Before merge/release, an authorized server publication and immutable client
+conformance-pin update are still required. Local vectors agree; the old remote
+pin does not yet contain the reader section.
 
 ## Invitation reader (Phase 6)
 
@@ -31,6 +36,16 @@ not an empty community. The initial archive view requests up to 200 retained eve
 per relay and explicitly reports saturation rather than claiming complete history.
 It does not render remote media, widgets, Git actions, uploads or zaps.
 
+Signed `["read-access","members"]` intent is preserved by editors. The private
+shell supports owner-definition bootstrap and plain-text posts, never public
+fanout. Each publication fetches bounded, non-redirecting NIP-11 information from
+the explicit endpoints and requires version 1, members, relay scope **and**
+`auth_required: true`. Unsupported intent/capability blocks before signing.
+Identity changes and cancelled/changed sockets also block already-queued sends.
+Read AUTH consent does not grant unsigned-event trust. Private retained input is
+deletion-aware, including e-only NIP-09 grant deletion without older-grant revival;
+global persistence, notifications, search and extensions do not consume it.
+
 Browser regression (full `pnpm dev` stack required):
 
 ```sh
@@ -38,8 +53,11 @@ pnpm exec playwright test -c tests/e2e/private-community.config.ts
 ```
 
 This test uses isolated cold contexts, controlled NIP-07 keys, the existing mock
-relay helper and blocked off-origin HTTP; it never signs ordinary events or writes
-to a real relay. `PRIVATE_TEST_OUTPUT` can place artifacts outside the checkout.
+relay helper and blocked off-origin HTTP. It signs AUTH and one explicitly allowed
+controlled text fixture, never writes to a real relay, and verifies denied access,
+grant retry without another AUTH, capability rejection before signing, private
+posting, shared repository exclusion, reload and revocation.
+`PRIVATE_TEST_OUTPUT` can place artifacts outside the checkout.
 
 ## Recommended contract
 
@@ -96,7 +114,9 @@ to a real relay. `PRIVATE_TEST_OUTPUT` can place artifacts outside the checkout.
 8. Deterministic race tests, raw-relay integration, targeted isolated browser
    verification, and a dedicated private-relay rollout.
 
-Existing documentation describing public reads remains the current/default
-behavior until implementation ships. Update Communikeys, community architecture,
-moderation, relay publishing, and relay I/O scheduling documents together at
-release, rather than prematurely claiming the proposal is supported.
+Public reads remain the current deployment/default. Communikeys, community
+architecture, moderation, publishing and relay I/O documents describe the optional
+private override together; this does not claim all public workflows are available
+privately. Incomplete/saturated private history disables authoring rather than
+pretending complete authority. No encryption, retroactive secrecy or external
+provider protection is implied.

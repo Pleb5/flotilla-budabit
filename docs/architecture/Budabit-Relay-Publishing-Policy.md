@@ -6,6 +6,11 @@ This document defines where Budabit should publish events. It separates personal
 
 ### Private community override
 
+Implemented in source with the [private invitation shell](Community-Read-Control-Plan.md),
+not enabled on the current public relay. Operator preflight and rollback guidance
+ship with the strfry deployment bundle; NIP-11 is still an operator claim, not
+independent proof of confidentiality.
+
 Signed top-level `["read-access","members"]` overrides the public rules below.
 Any present but unsupported read-access intent also blocks public publication.
 Only the isolated private publisher can send private data, to an explicit subset

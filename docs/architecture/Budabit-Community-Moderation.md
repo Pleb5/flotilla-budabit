@@ -6,6 +6,33 @@ The goal is to let communities stay readable and discoverable while keeping publ
 
 ## Summary
 
+### Member-only read override
+
+The public discovery/admission workflow below is the default, not an exception to
+signed private intent. Optional member-only relays pin one exact branch and derive
+reader eligibility from complete **committed** moderation state: the owner,
+unbanned structural/list-reference roles, active moderators and any section grantee.
+Personal renunciation preferences do not change relay eligibility. A successful
+AUTH is not a grant. The owner may bootstrap without a definition only after a
+successful complete scan; unavailable policy denies owner reads too.
+
+Read eligibility permits retained history, not authorship in every section. Client
+authoring and report/censor rules remain separate. Private clients must use a
+deletion-aware retained authority view; raw concatenated list bodies can revive an
+e-only-deleted grant. The initial private shell applies retained report state,
+requires complete authority before text posting, and labels saturated/failed
+loads incomplete. Revocation terminates the relay connection and clears the view.
+
+Private admission reviews must not fan out to applicant/app public relays. Current
+public admission, preference and roster helpers reject/omit private scopes; those
+full workflows are not mounted in the initial private shell. Arrange grants through
+an independently private-capable moderation workflow, then retry access. The relay
+still supports signed-author repair writes when reads are unavailable. See
+[private routing rules](Budabit-Relay-Publishing-Policy.md#private-community-override)
+and [implementation/limitations](Community-Read-Control-Plan.md).
+
+### Public/default moderation
+
 Budabit community branches use addressable `kind:32222` Communikey definitions for stable community structure and definition-native metadata. Current section grants from `kind:30000` profile lists govern publishing and permission-governed Budabit visibility. Admission requests use NIP-101 forms created by moderators, not by the branch owner.
 
 Moderators create application forms as `kind:30168` events. A form references the community definition with an `a` tag and identifies the requested section with a `content` tag. Users submit public, identified `kind:1069` responses to request access. Moderators review responses and either grant access by updating the section profile list and publishing a positive review, or reject by reacting negatively to the response.

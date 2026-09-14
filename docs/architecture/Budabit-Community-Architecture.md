@@ -6,6 +6,33 @@ Budabit treats this as a clean redesign of the community foundation. Legacy rela
 
 ## Summary
 
+### Optional private branch scope
+
+The default remains public reads with client moderation (and optional relay write
+enforcement). Member-only relay reads are now implemented as an opt-in third level;
+see [Community-Read-Control-Plan.md](Community-Read-Control-Plan.md). Each private
+endpoint/database pins one exact branch, requires enforcing Python write control
+and the default-off C++ read gate, and serves retained history only after NIP-42
+authentication and committed reader authorization. It is not E2E encryption.
+
+An explicit `/c/<naddr>?read-access=members` invitation pins relay hints before
+definition lookup. A separate access shell never mounts public community loaders
+or child pages. Identity/signer/consent/auth/access states are independent; partial
+or denied reads do not mean empty history. Private sockets and deletion-aware
+repositories are scope-owned and memory-only, and are cleared on cancellation,
+account change or confirmed denial/revocation. Global notification/search/cache and
+external provider components cannot consume them. Known private coordinates stay
+private across same-session reload/navigation; only invitation metadata is stored.
+
+Owner bootstrap/plain-text posting requires signed members intent and validated
+member-only NIP-11 capabilities for explicit definition relays. No public discovery,
+outbox recovery, mixed-target publication or profile-roster fanout is allowed.
+The initial archive is bounded at 200 events per relay and reports saturation as
+incomplete; Git/media/Blossom/widgets/zaps remain unavailable. These are deliberate
+initial limits, not a claim of private feature parity or a live deployment.
+
+### Public/default architecture
+
 Budabit community branches are identified by an exact definition address:
 
 ```text

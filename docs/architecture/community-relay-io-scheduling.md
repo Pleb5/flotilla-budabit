@@ -2,6 +2,30 @@
 
 ## Purpose
 
+### Private transport override
+
+Optional private community reads now use one ACK-confirmed auth owner per socket
+and one idempotent REQ replay owner. Signing has a 90-second budget; the matching
+AUTH ACK has a separate 10-second budget. Identity/challenge/transport generations
+invalidate stale signatures, callbacks and queued sends. Reconnects authenticate
+before replay. No EVENT or Negentropy message is implicitly replayed. Runtime
+`auth-required:` evidence overrides stale public metadata; authentication consent
+does not grant unsigned-event trust.
+
+Explicit invitation scopes use only pinned endpoints and dedicated non-pooled
+sockets plus in-memory repositories. Shared reads targeting known private endpoints
+or leaking private coordinates receive a local restricted CLOSED outcome, not EOSE.
+The general community loader reports per-relay denied/cancelled/timeout/unavailable
+outcomes and permits one bounded unavailable-policy retry without re-signing.
+The private shell exposes explicit full-filter retry on the authenticated socket;
+partial or saturated results never claim complete history. Private publish checks
+run before signing and at final queued transmission. See
+[Community-Read-Control-Plan.md](Community-Read-Control-Plan.md) for the current
+bounded archive and unsupported-provider limits. The deployment figures below
+describe public scheduling context, not private relay guarantees.
+
+### Public scheduling context
+
 BudaBit must support authenticated and public Nostr relays without letting general feed traffic delay critical community state. The transport must also respect small strfry deployments with strict per-connection and per-request limits while keeping relay discovery separate from client-side community admission.
 
 The first target is `wss://relay.budabit.club/`, which currently exposes:
