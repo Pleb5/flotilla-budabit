@@ -14,6 +14,7 @@ export enum SocketStatus {
 }
 
 export enum SocketEvent {
+  Cleanup = "cleanup",
   Error = "error",
   Status = "status",
   Send = "send",
@@ -44,6 +45,11 @@ export class Socket extends EventEmitter {
   _ws?: WebSocket
   _sendQueue: TaskQueue<ClientMessage>
   _recvQueue: TaskQueue<RelayMessage>
+  _generation = 0
+  _sendGenerations = new WeakMap<ClientMessage, number>()
+  _sendGuards = new WeakMap<ClientMessage, () => boolean>()
+  _recvGenerations = new WeakMap<RelayMessage, number>()
+  _disposed = false
 
   constructor(
     readonly url: string,
@@ -57,6 +63,13 @@ export class Socket extends EventEmitter {
       batchSize: Socket.batchSize,
       batchDelay: Socket.batchDelay,
       processItem: (message: ClientMessage) => {
+        if (
+          this._disposed ||
+          this.status !== SocketStatus.Open ||
+          this._sendGenerations.get(message) !== this._generation
+        )
+          return
+        if (this._sendGuards.has(message) && !this._sendGuards.get(message)!()) return
         this._ws?.send(JSON.stringify(message))
         this.emit(SocketEvent.Send, message, this.url)
       },
@@ -67,6 +80,8 @@ export class Socket extends EventEmitter {
       // Relay terminal frames must not sit behind seconds of EVENT batches.
       batchDelay: 0,
       processItem: (message: RelayMessage) => {
+        const generation = this._recvGenerations.get(message)
+        if (this._disposed || (generation !== undefined && generation !== this._generation)) return
         this.emit(SocketEvent.Receive, message, this.url)
       },
     })
@@ -81,28 +96,31 @@ export class Socket extends EventEmitter {
   }
 
   open = () => {
+    if (this._disposed) return
     if (this._ws) {
       throw new Error("Attempted to open a websocket that has not been closed")
     }
 
     try {
       this._ws = new WebSocket(this.url)
+      const ws = this._ws
       this.emit(SocketEvent.Status, SocketStatus.Opening, this.url)
 
       this._ws.onopen = () => {
+        if (this._ws !== ws) return
         this.emit(SocketEvent.Status, SocketStatus.Open, this.url)
         this._sendQueue.start()
       }
 
       this._ws.onerror = () => {
-        this._ws = undefined
-        this._sendQueue.stop()
+        if (this._ws !== ws) return
+        this.resetTransport()
         this.emit(SocketEvent.Status, SocketStatus.Error, this.url)
       }
 
       this._ws.onclose = () => {
-        this._ws = undefined
-        this._sendQueue.stop()
+        if (this._ws !== ws) return
+        this.resetTransport()
 
         if (this.status !== SocketStatus.Error) {
           this.emit(SocketEvent.Status, SocketStatus.Closed, this.url)
@@ -110,12 +128,14 @@ export class Socket extends EventEmitter {
       }
 
       this._ws.onmessage = (event: any) => {
+        if (this._ws !== ws) return
         const data = event.data as string
 
         try {
           const message = JSON.parse(data)
 
           if (Array.isArray(message)) {
+            this._recvGenerations.set(message as RelayMessage, this._generation)
             this._recvQueue.push(message as RelayMessage)
             this.emit(SocketEvent.Receiving, message, this.url)
           } else {
@@ -137,11 +157,24 @@ export class Socket extends EventEmitter {
   }
 
   close = () => {
-    this._ws?.close()
+    const ws = this._ws
+    this.resetTransport()
+    this.emit(SocketEvent.Status, SocketStatus.Closed, this.url)
+    ws?.close()
+  }
+
+  resetTransport = () => {
     this._ws = undefined
+    this._generation++
+    this._sendQueue.stop()
+    this._sendQueue.clear()
+    this._recvQueue.clear()
   }
 
   cleanup = () => {
+    if (this._disposed) return
+    this._disposed = true
+    this.emit(SocketEvent.Cleanup)
     this.unsubscribers.forEach(call)
     this.close()
     this.auth.cleanup()
@@ -151,6 +184,8 @@ export class Socket extends EventEmitter {
   }
 
   send = (message: ClientMessage) => {
+    if (this._disposed) return
+    this._sendGenerations.set(message, this._generation)
     this._sendQueue.push(message)
     this.emit(SocketEvent.Sending, message, this.url)
   }

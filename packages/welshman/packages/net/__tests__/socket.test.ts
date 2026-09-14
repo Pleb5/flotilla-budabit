@@ -181,6 +181,74 @@ describe("Socket", () => {
   })
 
   describe("error handling", () => {
+    it("checks a cancelled managed AUTH even after its queue batch was popped", async () => {
+      socket.open()
+      await vi.advanceTimersByTimeAsync(0)
+      socket.emit(SocketEvent.Receive, ["AUTH", "challenge"])
+      socket.send(["REQ", "first", {}])
+      const controller = new AbortController()
+      const proof = socket.auth.authenticate(async () => ({id: "proof", kind: 22242}) as any, {
+        signal: controller.signal,
+      })
+      const rejected = expect(proof).rejects.toMatchObject({reason: "cancelled"})
+      await vi.advanceTimersByTimeAsync(0)
+      const sent = vi.fn(() => controller.abort())
+      socket.on(SocketEvent.Send, sent)
+      await vi.advanceTimersByTimeAsync(200)
+      await rejected
+      expect(sent).toHaveBeenCalledTimes(1)
+      expect(sent.mock.calls[0][0][0]).toBe("REQ")
+    })
+
+    it("ignores open, close, error and data callbacks from a replaced transport", async () => {
+      socket.open()
+      const old = socket._ws!
+      socket.close()
+      socket.open()
+      const current = socket._ws!
+      await vi.advanceTimersByTimeAsync(0)
+      const received = vi.fn()
+      socket.on(SocketEvent.Receive, received)
+      old.onopen?.({} as any)
+      old.onerror?.({} as any)
+      old.onclose?.({} as any)
+      old.onmessage?.({data: '["AUTH","old"]'} as any)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(socket._ws).toBe(current)
+      expect(socket.status).toBe(SocketStatus.Open)
+      expect(received).not.toHaveBeenCalled()
+    })
+
+    it("does not carry queued EVENT or AUTH into a new generation", async () => {
+      socket.open()
+      await vi.advanceTimersByTimeAsync(0)
+      socket.send(["EVENT", {id: "old-event"} as any])
+      socket.send(["AUTH", {id: "old-auth"} as any])
+      socket.close()
+      socket.open()
+      const ws = socket._ws!
+      await vi.advanceTimersByTimeAsync(200)
+      expect(ws.send).not.toHaveBeenCalled()
+    })
+
+    it("drops a popped send/receive batch after disconnect during its first callback", async () => {
+      socket.open()
+      await vi.advanceTimersByTimeAsync(0)
+      const sent = vi.fn(() => socket.close())
+      socket.on(SocketEvent.Send, sent)
+      for (let n = 0; n < 5; n++) socket.send(["EVENT", {id: String(n)} as any])
+      await vi.advanceTimersByTimeAsync(200)
+      expect(sent).toHaveBeenCalledTimes(1)
+      socket.open()
+      await vi.advanceTimersByTimeAsync(0)
+      const received = vi.fn(() => socket.close())
+      socket.on(SocketEvent.Receive, received)
+      for (let n = 0; n < 5; n++)
+        socket._ws!.onmessage?.({data: JSON.stringify(["AUTH", String(n)])} as any)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(received).toHaveBeenCalledTimes(1)
+    })
+
     it("should emit error status on websocket error", () => {
       const statusSpy = vi.fn()
       socket.on(SocketEvent.Status, statusSpy)

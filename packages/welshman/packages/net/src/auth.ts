@@ -1,8 +1,7 @@
 import EventEmitter from "events"
-import {on, poll, call, tryCatch} from "@welshman/lib"
-import {type SignedEvent, type StampedEvent} from "@welshman/util"
-import {makeRelayAuth} from "@welshman/util"
-import {isRelayAuth, isClientAuth, isRelayOk, type RelayMessage} from "./message.js"
+import {on, call, randomId} from "@welshman/lib"
+import {type SignedEvent, type StampedEvent, makeRelayAuth} from "@welshman/util"
+import {isRelayAuth, isRelayOk, type RelayMessage, type ClientMessage} from "./message.js"
 import {type Socket, SocketStatus, SocketEvent} from "./socket.js"
 import {type Unsubscriber} from "./util.js"
 
@@ -16,70 +15,71 @@ export enum AuthStatus {
   Ok = "ok",
 }
 
-export type AuthResult = {
-  ok: boolean
-  reason?: string
-}
-
+export type AuthResult = {ok: boolean; reason?: string}
 export enum AuthStateEvent {
   Status = "auth:event:status",
 }
-
-export type AuthStateEvents = {
-  [AuthStateEvent.Status]: (status: AuthStatus) => void
+export type AuthStateEvents = {[AuthStateEvent.Status]: (status: AuthStatus) => void}
+export type AuthOptions = {signal?: AbortSignal; signTimeout?: number; ackTimeout?: number}
+export class AuthError extends Error {
+  constructor(
+    readonly reason:
+      | "cancelled"
+      | "timeout"
+      | "disconnected"
+      | "superseded"
+      | "denied"
+      | "forbidden"
+      | "no-challenge",
+  ) {
+    super(`Relay authentication ${reason}`)
+    this.name = "AuthError"
+  }
 }
-
 type Sign = (event: StampedEvent) => Promise<SignedEvent>
+type Attempt = {
+  generation: number
+  challenge: string
+  promise: Promise<void>
+  finish: (error?: AuthError) => void
+  message?: ClientMessage
+}
 
 export class AuthState extends EventEmitter {
   challenge: string | undefined
   request: string | undefined
   details: string | undefined
   status = AuthStatus.None
+  generation = 0
+  // Sticky evidence is useful when deciding whether to wait before reconnect replay.
+  challenged = false
+  _attempt?: Attempt
   _unsubscribers: Unsubscriber[] = []
 
   constructor(readonly socket: Socket) {
     super()
-
     this._unsubscribers.push(
       on(socket, SocketEvent.Receive, (message: RelayMessage) => {
-        if (isRelayOk(message)) {
-          const [_, id, ok, details] = message
-
-          if (id === this.request) {
-            this.details = details
-
-            if (ok) {
-              this.setStatus(AuthStatus.Ok)
-            } else {
-              this.setStatus(AuthStatus.Forbidden)
-            }
-          }
+        if (isRelayOk(message) && this._attempt && message[1] === this.request) {
+          this.details = message[3]
+          const attempt = this._attempt
+          // Settle/clear before emitting terminal status; a listener may retry.
+          attempt.finish(message[2] ? undefined : new AuthError("forbidden"))
+          this.setStatus(message[2] ? AuthStatus.Ok : AuthStatus.Forbidden)
         }
-
-        if (isRelayAuth(message)) {
-          const [_, challenge] = message
-
-          // Sometimes relays send the same challenge multiple times, no need to
-          // respond to it twice
-          if (challenge !== this.challenge) {
-            this.challenge = challenge
-            this.request = undefined
-            this.details = undefined
-            this.setStatus(AuthStatus.Requested)
-          }
-        }
-      }),
-      on(socket, SocketEvent.Sending, (message: RelayMessage) => {
-        if (isClientAuth(message)) {
-          this.setStatus(AuthStatus.PendingResponse)
+        if (isRelayAuth(message) && message[1] !== this.challenge) {
+          this.cancel(new AuthError("superseded"))
+          this.challenged = true
+          this.challenge = message[1]
+          this.request = this.details = undefined
+          this.setStatus(AuthStatus.Requested)
         }
       }),
       on(socket, SocketEvent.Status, (status: SocketStatus) => {
         if (status === SocketStatus.Closed || status === SocketStatus.Error) {
-          this.challenge = undefined
-          this.request = undefined
-          this.details = undefined
+          this.generation++
+          this.cancel(new AuthError("disconnected"))
+          this.challenge = this.request = this.details = undefined
           this.setStatus(AuthStatus.None)
         }
       }),
@@ -91,67 +91,113 @@ export class AuthState extends EventEmitter {
     this.emit(AuthStateEvent.Status, status)
   }
 
-  async doAuth(sign: Sign) {
-    if (!this.challenge) {
-      throw new Error("Attempted to authenticate with no challenge")
+  cancel(error = new AuthError("cancelled")) {
+    const attempt = this._attempt
+    if (!attempt) return
+    attempt.finish(error)
+    this.request = undefined
+    this.details = error.reason
+    // No old signature/ACK can change status after this point.
+    if (error.reason === "cancelled" || error.reason === "timeout")
+      this.setStatus(AuthStatus.DeniedSignature)
+  }
+
+  authenticate(sign: Sign, options: AuthOptions = {}): Promise<void> {
+    if (options.signal?.aborted) return Promise.reject(new AuthError("cancelled"))
+    if (this.status === AuthStatus.Ok) return Promise.resolve()
+    if (this._attempt) return this._attempt.promise
+    if (!this.challenge) return Promise.reject(new AuthError("no-challenge"))
+    if (this.status !== AuthStatus.Requested)
+      return Promise.reject(
+        new AuthError(this.status === AuthStatus.Forbidden ? "forbidden" : "denied"),
+      )
+
+    let resolve!: () => void, reject!: (error: AuthError) => void
+    const promise = new Promise<void>((yes, no) => {
+      resolve = yes
+      reject = no
+    })
+    let timer: ReturnType<typeof setTimeout>
+    const abort = () => this.cancel()
+    const attempt: Attempt = {
+      generation: this.generation,
+      challenge: this.challenge,
+      promise,
+      finish: error => {
+        if (this._attempt !== attempt) return
+        this._attempt = undefined
+        clearTimeout(timer)
+        options.signal?.removeEventListener("abort", abort)
+        if (attempt.message) this.socket._sendQueue.remove(attempt.message)
+        if (error) reject(error)
+        else resolve()
+      },
     }
-
-    if (this.status !== AuthStatus.Requested) {
-      throw new Error(`Attempted to authenticate when auth is already ${this.status}`)
-    }
-
-    const challenge = this.challenge
-
-    this.setStatus(AuthStatus.PendingSignature)
-
-    const template = makeRelayAuth(this.socket.url, challenge)
-    const event = await tryCatch(() => sign(template))
-
-    if (event) {
-      // If a new challenge arrived while signing, our signature is stale, so
-      // abort rather than responding to an obsolete challenge
-      if (this.challenge !== challenge) {
-        return
-      }
-
-      this.request = event.id
-      this.socket.send(["AUTH", event])
-    } else {
+    this._attempt = attempt
+    const current = () =>
+      this._attempt === attempt &&
+      this.generation === attempt.generation &&
+      this.challenge === attempt.challenge
+    const fail = (reason: "timeout" | "denied") => {
+      if (!current()) return
+      attempt.finish(new AuthError(reason))
+      this.request = undefined
+      this.details = reason
       this.setStatus(AuthStatus.DeniedSignature)
     }
+    options.signal?.addEventListener("abort", abort, {once: true})
+    timer = setTimeout(() => fail("timeout"), options.signTimeout ?? 90_000)
+    this.setStatus(AuthStatus.PendingSignature)
+    Promise.resolve()
+      .then(() => {
+        if (current()) {
+          const template = makeRelayAuth(this.socket.url, attempt.challenge)
+          // Retrying within one timestamp second must produce a different id so
+          // a delayed ACK for the previous attempt cannot confirm this one.
+          template.tags.push(["nonce", randomId()])
+          return sign(template)
+        }
+      })
+      .then(
+        event => {
+          if (!current()) return
+          if (!event) return fail("denied")
+          this.request = event.id
+          clearTimeout(timer)
+          timer = setTimeout(() => fail("timeout"), options.ackTimeout ?? 10_000)
+          this.setStatus(AuthStatus.PendingResponse)
+          if (!current()) return
+          attempt.message = ["AUTH", event]
+          // TaskQueue can already have popped a batch when cancellation occurs;
+          // removing its queued item is not sufficient without this final check.
+          this.socket._sendGuards.set(attempt.message, current)
+          this.socket.send(attempt.message)
+        },
+        () => fail("denied"),
+      )
+    return promise
   }
 
-  async attemptAuth(sign: Sign) {
+  doAuth(sign: Sign, options?: AuthOptions) {
+    return this.authenticate(sign, options)
+  }
+
+  // Compatibility wrapper: public callers don't wait if no challenge was issued.
+  async attemptAuth(sign: Sign, options?: AuthOptions) {
     this.socket.attemptToOpen()
-
-    if (![AuthStatus.Forbidden, AuthStatus.Ok].includes(this.status)) {
-      await poll({
-        signal: AbortSignal.timeout(800),
-        condition: () => this.status === AuthStatus.Requested,
-      })
-
-      if (this.status === AuthStatus.Requested) {
-        await this.doAuth(sign)
-      }
-
-      await poll({
-        signal: AbortSignal.timeout(800),
-        condition: () => this.status !== AuthStatus.PendingResponse,
-      })
-    }
+    if (this.challenge) await this.authenticate(sign, options)
   }
 
-  async retryAuth(sign: Sign) {
-    if (this.challenge) {
-      this.request = undefined
-      this.details = undefined
+  retryAuth(sign: Sign, options?: AuthOptions) {
+    if (!this._attempt && this.challenge && this.status !== AuthStatus.Ok) {
+      this.request = this.details = undefined
       this.setStatus(AuthStatus.Requested)
     }
-
-    await this.attemptAuth(sign)
+    return this.attemptAuth(sign, options)
   }
 
   cleanup() {
+    this.cancel(new AuthError("disconnected"))
     this.removeAllListeners()
     this._unsubscribers.forEach(call)
   }

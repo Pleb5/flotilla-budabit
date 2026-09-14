@@ -1,11 +1,12 @@
 import {browser} from "$app/environment"
 import {derived, get, writable, type Readable, type Writable} from "svelte/store"
-import {forceLoadRelayList, pubkey, repository, sign, tracker} from "@welshman/app"
+import {forceLoadRelayList, pubkey, repository, tracker} from "@welshman/app"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {normalizeUrl, LRUCache} from "@welshman/lib"
 import {
   AuthStateEvent,
   AuthStatus,
+  AuthError,
   makeLoader,
   Pool,
   SocketEvent,
@@ -82,9 +83,12 @@ import {
   RELAY_REQUEST_PRIORITY,
   RelayAuthenticationError,
   getRelayPolicy,
+  RELAY_AUTH_SIGN_TIMEOUT,
+  RELAY_AUTH_ACK_TIMEOUT,
 } from "@app/core/relay-policy"
 import {FINITE_RELAY_ADMISSION_TIMEOUT_MS} from "@app/core/finite-relay-request"
 import {recoverActiveNip46Receiver} from "@app/util/nip46"
+import {authenticateRelay} from "@app/core/relay-auth-coordinator"
 
 export const COMMUNITY_SESSION_STORAGE_KEY = "budabit/community-session"
 export const EXACT_COMMUNITY_SESSION_VERSION = 2
@@ -327,6 +331,34 @@ export type CommunityRelayLoadResult = {
   complete: boolean
   timedOutRelays: string[]
   failedRelays: string[]
+  outcomes?: Record<string, CommunityRelayOutcome>
+}
+
+export type CommunityRelayOutcome =
+  | "complete"
+  | "denied"
+  | "auth-cancelled"
+  | "auth-timeout"
+  | "auth-required"
+  | "policy-unavailable"
+  | "disconnected"
+  | "timeout"
+type CommunityRelayAttempt = {
+  relay: string
+  events: TrustedEvent[]
+  complete: boolean
+  timedOut: boolean
+  failed: boolean
+  reason?: CommunityRelayOutcome
+}
+const authOutcome = (error: unknown): CommunityRelayOutcome => {
+  if (error instanceof AuthError) {
+    if (error.reason === "timeout") return "auth-timeout"
+    if (error.reason === "disconnected") return "disconnected"
+    if (error.reason === "forbidden") return "denied"
+    return "auth-cancelled"
+  }
+  return "auth-required"
 }
 
 export type CommunityRelayLoadOptions = {
@@ -354,6 +386,7 @@ export type CommunityHydrationStatus =
 export type CommunityRelayAuthOptions = {
   timeout?: number
   priorityRelays?: string[]
+  signal?: AbortSignal
 }
 
 export type CommunityDefinitionLookupOptions = CommunityRelayLoadOptions & {
@@ -594,9 +627,9 @@ export const getCommunityDefinitionRelayHints = (
 
 const COMMUNITY_RELAY_LOAD_TIMEOUT = 5000
 const COMMUNITY_AUTHORITY_LOAD_TIMEOUT = 3000
-const COMMUNITY_RELAY_AUTH_TIMEOUT = 2000
-const COMMUNITY_RELAY_AUTH_RECOVERY_TIMEOUT = 31_000
-export const COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT = 4500
+const COMMUNITY_RELAY_AUTH_TIMEOUT = RELAY_AUTH_SIGN_TIMEOUT
+const COMMUNITY_RELAY_AUTH_RECOVERY_TIMEOUT = RELAY_AUTH_SIGN_TIMEOUT
+export const COMMUNITY_PRIORITY_RELAY_AUTH_TIMEOUT = RELAY_AUTH_SIGN_TIMEOUT
 const COMMUNITY_STAR_LOAD_TIMEOUT = 1500
 const COMMUNITY_STAR_HYDRATION_TTL = 30_000
 const COMMUNITY_PREFERENCE_FAST_LOAD_TIMEOUT = 800
@@ -920,7 +953,6 @@ export const orderCommunityAuthRelays = (relays: string[], priorityRelays: strin
   ])
 }
 
-const communityRelayAuthPromises = new WeakMap<object, Promise<void>>()
 const COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES = [
   AuthStatus.Ok,
   AuthStatus.Forbidden,
@@ -984,101 +1016,16 @@ const authenticateCommunityRelay = async (
   relay: string,
   timeout: number,
   retryDeniedSignature = false,
+  signal?: AbortSignal,
 ): Promise<void> => {
   const authPolicy = getRelayPolicy(relay).auth
   if (authPolicy === "none" || (authPolicy !== "required" && !retryDeniedSignature)) return
-
-  const socket = Pool.get().get(relay)
-  const auth = socket.auth
-  const hasRecoverableChallenge = Boolean(retryDeniedSignature && auth.challenge)
-
-  if (authPolicy !== "required" && !hasRecoverableChallenge) return
-
-  if (auth.status === AuthStatus.Ok) return
-  if (auth.status === AuthStatus.Forbidden) {
-    throw new RelayAuthenticationError(relay, auth.status)
-  }
-  if (retryDeniedSignature && auth.status === AuthStatus.DeniedSignature && !auth.challenge) {
-    throw new RelayAuthenticationError(relay, auth.status)
-  }
-
-  const pending = communityRelayAuthPromises.get(socket)
-  if (pending) {
-    if (retryDeniedSignature && auth.status === AuthStatus.DeniedSignature && auth.challenge) {
-      await pending.catch(() => undefined)
-      return authenticateCommunityRelay(relay, timeout, true)
-    }
-
-    return pending
-  }
-
-  const promise = (async () => {
-    const initialAuthStatus = auth.status
-    const signAuthEvent: typeof sign = async event => {
-      try {
-        return await sign(event)
-      } catch (error) {
-        if (auth.status === AuthStatus.PendingSignature) {
-          auth.setStatus(AuthStatus.DeniedSignature)
-        }
-
-        throw error
-      }
-    }
-    let authOperation: Promise<void> | undefined
-
-    if (
-      (retryDeniedSignature && auth.status === AuthStatus.DeniedSignature) ||
-      [AuthStatus.None, AuthStatus.Requested].includes(auth.status)
-    ) {
-      authOperation = (async () => {
-        let attemptedChallenge = auth.challenge
-        let retryDenied = retryDeniedSignature && auth.status === AuthStatus.DeniedSignature
-
-        do {
-          await (retryDenied ? auth.retryAuth(signAuthEvent) : auth.attemptAuth(signAuthEvent))
-          retryDenied = false
-
-          if (COMMUNITY_RELAY_AUTH_TERMINAL_STATUSES.includes(auth.status)) return
-          if (auth.status !== AuthStatus.Requested || auth.challenge === attemptedChallenge) return
-
-          attemptedChallenge = auth.challenge
-        } while (auth.status === AuthStatus.Requested)
-      })()
-    }
-
-    void authOperation?.catch(() => {
-      if (auth.status === AuthStatus.PendingSignature) {
-        auth.setStatus(AuthStatus.DeniedSignature)
-      }
-    })
-
-    let status = await waitForCommunityRelayAuth(auth, timeout)
-
-    if (
-      status === AuthStatus.DeniedSignature &&
-      retryDeniedSignature &&
-      auth.challenge &&
-      [AuthStatus.PendingSignature, AuthStatus.PendingResponse].includes(initialAuthStatus)
-    ) {
-      const retry = auth.retryAuth(signAuthEvent)
-      const terminalStatus = waitForCommunityRelayAuth(auth, timeout)
-      void retry.catch(() => undefined)
-      status = await terminalStatus
-    }
-
-    if (status !== AuthStatus.Ok) {
-      throw new RelayAuthenticationError(relay, status)
-    }
-  })().finally(() => {
-    if (communityRelayAuthPromises.get(socket) === promise) {
-      communityRelayAuthPromises.delete(socket)
-    }
+  return authenticateRelay(Pool.get().get(relay), {
+    signal,
+    signTimeout: timeout,
+    ackTimeout: RELAY_AUTH_ACK_TIMEOUT,
+    retry: retryDeniedSignature,
   })
-
-  communityRelayAuthPromises.set(socket, promise)
-
-  return promise
 }
 
 export const recoverCommunityRelayAuth = async (
@@ -1101,8 +1048,6 @@ export const authenticateCommunityRelays = async (
   relays: string[],
   options: CommunityRelayAuthOptions = {},
 ) => {
-  if (!get(pubkey)) return []
-
   const timeout = options.timeout ?? COMMUNITY_RELAY_AUTH_TIMEOUT
   const orderedRelays = orderCommunityAuthRelays(relays, options.priorityRelays)
   const prioritySet = new Set(normalizeRelays(options.priorityRelays || []))
@@ -1112,14 +1057,14 @@ export const authenticateCommunityRelays = async (
 
   for (const relay of priorityRelays) {
     try {
-      await authenticateCommunityRelay(relay, timeout)
+      await authenticateCommunityRelay(relay, timeout, false, options.signal)
     } catch {
       failedRelays.push(relay)
     }
   }
 
   const fallbackResults = await Promise.allSettled(
-    fallbackRelays.map(relay => authenticateCommunityRelay(relay, timeout)),
+    fallbackRelays.map(relay => authenticateCommunityRelay(relay, timeout, false, options.signal)),
   )
 
   fallbackResults.forEach((result, index) => {
@@ -1138,6 +1083,7 @@ export const loadCommunityEventsWithStatus = async (
   const settle = options.settle ?? "all"
   const normalizedRelays = normalizeRelays(relays)
   let authFailedRelays: string[] = []
+  const authOutcomes: Record<string, CommunityRelayOutcome> = {}
 
   if (filters.length === 0) {
     const result = {events: [], complete: true, timedOutRelays: [], failedRelays: []}
@@ -1151,10 +1097,21 @@ export const loadCommunityEventsWithStatus = async (
   }
 
   if (options.authenticate) {
-    authFailedRelays = await authenticateCommunityRelays(normalizedRelays, {
-      priorityRelays: options.priorityAuthRelays,
-      timeout: options.authTimeout,
-    })
+    await Promise.all(
+      orderCommunityAuthRelays(normalizedRelays, options.priorityAuthRelays).map(async relay => {
+        try {
+          await authenticateCommunityRelay(
+            relay,
+            options.authTimeout ?? COMMUNITY_RELAY_AUTH_TIMEOUT,
+            false,
+            options.signal,
+          )
+        } catch (error) {
+          authOutcomes[relay] = authOutcome(error)
+        }
+      }),
+    )
+    authFailedRelays = normalizedRelays.filter(relay => authOutcomes[relay])
   }
 
   const readableRelays = normalizedRelays.filter(relay => !authFailedRelays.includes(relay))
@@ -1164,16 +1121,18 @@ export const loadCommunityEventsWithStatus = async (
       complete: false,
       timedOutRelays: [],
       failedRelays: authFailedRelays,
+      outcomes: authOutcomes,
     }
     options.onProgress?.(result, true)
     return result
   }
 
-  const loadRelay = async (relay: string) => {
+  const loadRelay = async (relay: string, retried = false): Promise<CommunityRelayAttempt> => {
     const controller = new AbortController()
     const receivedEvents: TrustedEvent[] = []
     let disconnected = false
     let rejected = false
+    let reason: CommunityRelayOutcome | undefined
     let aborted = false
     let started = false
     let terminated = false
@@ -1209,6 +1168,7 @@ export const loadCommunityEventsWithStatus = async (
           complete: false,
           timedOut: false,
           failed: false,
+          reason: "auth-cancelled",
         }
       }
 
@@ -1229,15 +1189,23 @@ export const loadCommunityEventsWithStatus = async (
             options.onStart?.(url)
           },
           onEvent: (event, url) => {
-            tracker.addRelay(event.id, url)
+            if (terminated || controller.signal.aborted) return
+            if (options.publishEvents !== false) tracker.addRelay(event.id, url)
             receivedEvents.push(event)
             if (options.publishEvents !== false) repository.publish(event)
           },
           onDisconnect: () => {
             disconnected = true
           },
-          onClosed: () => {
+          onClosed: message => {
             rejected = true
+            reason = message?.startsWith("restricted:")
+              ? "denied"
+              : message?.startsWith("error:")
+                ? "policy-unavailable"
+                : message?.startsWith("auth-required:")
+                  ? "auth-required"
+                  : "denied"
           },
         })
           .then(events => ({status: "complete" as const, events}))
@@ -1247,12 +1215,30 @@ export const loadCommunityEventsWithStatus = async (
       const events = dedupeCommunityEvents([...receivedEvents, ...outcome.events])
       if (options.publishEvents !== false) publishCommunityEvents(events)
 
+      if (reason === "policy-unavailable" && !retried && !options.signal?.aborted) {
+        if (timeout) clearTimeout(timeout)
+        controller.abort()
+        await new Promise(resolve => setTimeout(resolve, 200))
+        const retry = await loadRelay(relay, true)
+        return {...retry, events: dedupeCommunityEvents([...events, ...retry.events])}
+      }
+
       return {
         relay,
         events,
         complete: outcome.status === "complete" && !disconnected && !rejected && !aborted,
         timedOut: outcome.status === "timeout",
         failed: !aborted && (outcome.status === "failed" || disconnected || rejected),
+        reason: aborted
+          ? "auth-cancelled"
+          : reason ||
+            (disconnected
+              ? "disconnected"
+              : outcome.status === "timeout"
+                ? "timeout"
+                : outcome.status === "failed"
+                  ? "disconnected"
+                  : "complete"),
       }
     } catch {
       return {
@@ -1261,6 +1247,7 @@ export const loadCommunityEventsWithStatus = async (
         complete: false,
         timedOut: false,
         failed: true,
+        reason: "disconnected",
       }
     } finally {
       if (timeout) clearTimeout(timeout)
@@ -1282,8 +1269,12 @@ export const loadCommunityEventsWithStatus = async (
         ...results.filter(result => result.failed).map(result => result.relay),
       ]),
     ),
+    outcomes: {
+      ...authOutcomes,
+      ...Object.fromEntries(results.map(result => [result.relay, result.reason || "complete"])),
+    },
   })
-  const relayPromises = readableRelays.map(loadRelay)
+  const relayPromises = readableRelays.map(relay => loadRelay(relay))
 
   if (settle === "all") {
     const results = await Promise.all(relayPromises)

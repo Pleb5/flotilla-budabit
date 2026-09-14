@@ -53,10 +53,27 @@ afterEach(() => {
 describe("relay policy", () => {
   it("applies the explicit public Budabit relay limits", () => {
     expect(getRelayPolicy(publicRelay)).toEqual({
-      auth: "none",
+      auth: "optional",
       ...defaultRelayPolicy,
     })
     expect(getRelayRequestPolicy(publicRelay)).toEqual(defaultRequestPolicy)
+  })
+
+  it("honors NIP-11 auth requirements at the public relay URL", () => {
+    relaysByUrl.set(new Map([[publicRelay, {url: publicRelay, limitation: {auth_required: true}}]]))
+    expect(getRelayPolicy(publicRelay).auth).toBe("required")
+  })
+
+  it("retains runtime auth-required evidence despite missing or stale NIP-11", () => {
+    const relay = "wss://runtime-required.example/"
+    relaysByUrl.set(new Map([[relay, {url: relay, supported_nips: ["1"]}]]))
+    const socket = new Socket(relay)
+    const cleanup = relayPolicyRefreshPolicy(socket)
+    expect(getRelayPolicy(relay).auth).toBe("none")
+    socket.emit(SocketEvent.Receiving, ["CLOSED", "id", "auth-required: authenticate"])
+    expect(getRelayPolicy(relay).auth).toBe("required")
+    cleanup()
+    socket.cleanup()
   })
 
   it("uses the direct Budabit limits for unknown relays", () => {

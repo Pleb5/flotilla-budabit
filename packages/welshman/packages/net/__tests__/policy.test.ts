@@ -1,510 +1,169 @@
-import {RELAY_JOIN} from "@welshman/util"
 import {describe, expect, it, vi, beforeEach, afterEach} from "vitest"
 import {Socket, SocketStatus, SocketEvent} from "../src/socket"
-import {AuthStatus, AuthStateEvent} from "../src/auth"
+import {AuthStatus} from "../src/auth"
 import {
   socketPolicyAuthBuffer,
   socketPolicyConnectOnSend,
   socketPolicyCloseInactive,
 } from "../src/policy"
-import {ClientMessage, RelayMessage} from "../src/message"
+import {type RelayMessage} from "../src/message"
 
-// Hoist mock definition to top level
-const mockWs = vi.hoisted(() => ({
-  close: vi.fn(),
-  send: vi.fn(),
-  onopen: vi.fn(),
-  onclose: null,
-  onerror: null,
-  onmessage: null,
-}))
-
-// Mock the WebSocket module
 vi.mock("isomorphic-ws", () => ({
-  default: mockWs,
+  default: class {
+    onopen?: () => void
+    onclose?: () => void
+    send = vi.fn()
+    close = () => this.onclose?.()
+    constructor() {
+      setTimeout(() => this.onopen?.(), 0)
+    }
+  },
 }))
 
-describe("policy", () => {
+describe("read replay policies", () => {
   let socket: Socket
-
   beforeEach(() => {
     vi.useFakeTimers()
-    socket = new Socket("wss://test.relay")
+    socket = new Socket("wss://test.relay", [
+      socketPolicyAuthBuffer,
+      socketPolicyConnectOnSend,
+      socketPolicyCloseInactive,
+    ])
   })
-
   afterEach(() => {
     socket.cleanup()
     vi.useRealTimers()
-    vi.clearAllMocks()
+  })
+  const receive = (socket: Socket, message: RelayMessage) => {
+    socket._recvQueue.push(message)
+    socket.emit(SocketEvent.Receiving, message)
+  }
+
+  it("replays one auth-required REQ exactly once, never EVENT, never hides EVENT rejection", async () => {
+    const sent = vi.fn(),
+      received = vi.fn()
+    socket.on(SocketEvent.Send, sent)
+    socket.on(SocketEvent.Receive, received)
+    socket.send(["REQ", "one", {kinds: [1]}])
+    const event = {id: "event"} as any
+    socket.send(["EVENT", event])
+    await vi.advanceTimersByTimeAsync(200)
+    socket.auth.challenge = "challenge"
+    socket.auth.setStatus(AuthStatus.PendingSignature)
+    receive(socket, ["CLOSED", "one", "auth-required: authenticate"])
+    receive(socket, ["OK", "event", false, "auth-required: authenticate"])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(received).toHaveBeenCalledWith(
+      ["OK", "event", false, "auth-required: authenticate"],
+      socket.url,
+    )
+    expect(received.mock.calls.some(([m]) => m[0] === "CLOSED")).toBe(false)
+    socket.auth.setStatus(AuthStatus.Ok)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(sent.mock.calls.filter(([m]) => m[0] === "REQ")).toHaveLength(2)
+    expect(sent.mock.calls.filter(([m]) => m[0] === "EVENT")).toHaveLength(1)
+    socket.auth.setStatus(AuthStatus.Ok)
+    receive(socket, ["CLOSED", "one", "restricted: not a member"])
+    await vi.advanceTimersByTimeAsync(200)
+    expect(sent.mock.calls.filter(([m]) => m[0] === "REQ")).toHaveLength(2)
+    expect(received).toHaveBeenCalledWith(["CLOSED", "one", "restricted: not a member"], socket.url)
   })
 
-  describe("socketPolicyAuthBuffer", () => {
-    it("should buffer messages when not authenticated", () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      socket.emit(SocketEvent.Receive, ["AUTH", "challenge"])
-
-      // Regular event should be buffered
-      const event: ClientMessage = ["EVENT", {id: "123"}]
-      socket.send(event)
-      expect(sendSpy).toHaveBeenCalledWith(event)
-
-      // Auth event should not be buffered
-      const authEvent: ClientMessage = ["AUTH", {id: "456"}]
-      socket.send(authEvent)
-      expect(sendSpy).toHaveBeenCalledWith(authEvent)
-
-      // Auth join event should not be buffered
-      const joinEvent: ClientMessage = ["EVENT", {id: "789", kind: RELAY_JOIN}]
-      socket.send(joinEvent)
-      expect(sendSpy).toHaveBeenCalledWith(joinEvent)
-
-      cleanup()
-    })
-
-    it("should send buffered messages when auth succeeds", () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      socket.emit(SocketEvent.Receive, ["AUTH", "challenge"])
-
-      // Buffer some messages
-      const event1: ClientMessage = ["EVENT", {id: "123"}]
-      const event2: ClientMessage = ["EVENT", {id: "456"}]
-      socket.send(event1)
-      socket.send(event2)
-
-      // Auth succeeds
-      socket.send(["AUTH", {id: "auth"}])
-      socket.emit(AuthStateEvent.Status, AuthStatus.Ok)
-
-      expect(sendSpy).toHaveBeenCalledWith(event1)
-      expect(sendSpy).toHaveBeenCalledWith(event2)
-
-      cleanup()
-    })
-
-    it("should handle CLOSE messages properly", () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      socket.emit(SocketEvent.Receive, ["AUTH", "challenge"])
-
-      // Buffer a REQ message
-      const req: ClientMessage = ["REQ", "123", {kinds: [1]}]
-      socket.send(req)
-
-      // Send CLOSE for buffered REQ
-      const close: ClientMessage = ["CLOSE", "123"]
-      socket.send(close)
-
-      // Both messages should be sent
-      expect(sendSpy).toHaveBeenCalledWith(req)
-      expect(sendSpy).toHaveBeenCalledWith(close)
-
-      cleanup()
-    })
-
-    it("should retry events once when auth-required", () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const recvQueueRemoveSpy = vi.spyOn(socket._recvQueue, "remove")
-
-      // Send an event
-      const event: ClientMessage = [
-        "EVENT",
-        {id: "123", kind: 1, content: "", tags: [], pubkey: "", sig: ""},
-      ]
-      socket.emit(SocketEvent.Send, event)
-      socket.auth.setStatus(AuthStatus.PendingResponse)
-
-      // Receive auth-required rejection
-      const authReqMsg: RelayMessage = ["OK", "123", false, "auth-required: need to auth first"]
-      socket.emit(SocketEvent.Receiving, authReqMsg)
-
-      // Should remove the auth-required message
-      expect(recvQueueRemoveSpy).toHaveBeenCalledWith(authReqMsg)
-
-      // Receive another auth-required rejection
-      const authReqMsg2: RelayMessage = ["OK", "123", false, "auth-required: need to auth first"]
-      socket.emit(SocketEvent.Receiving, authReqMsg2)
-
-      // Should remove the second auth-required message too
-      expect(recvQueueRemoveSpy).toHaveBeenCalledWith(authReqMsg2)
-
-      cleanup()
-    })
-
-    it("should retry REQ once when auth-required", () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const recvQueueRemoveSpy = vi.spyOn(socket._recvQueue, "remove")
-
-      // Send a REQ
-      const req: ClientMessage = ["REQ", "123", {kinds: [1]}]
-      socket.emit(SocketEvent.Send, req)
-      socket.auth.setStatus(AuthStatus.PendingResponse)
-
-      // Receive auth-required rejection
-      const authReqMsg: RelayMessage = ["OK", "123", false, "auth-required: need to auth first"]
-      socket.emit(SocketEvent.Receiving, authReqMsg)
-
-      // Should remove the auth-required message
-      expect(recvQueueRemoveSpy).toHaveBeenCalledWith(authReqMsg)
-
-      // Receive another auth-required rejection
-      const authReqMsg2: RelayMessage = ["OK", "123", false, "auth-required: need to auth first"]
-      socket.emit(SocketEvent.Receiving, authReqMsg2)
-
-      // Should remove the second auth-required message too
-      expect(recvQueueRemoveSpy).toHaveBeenCalledWith(authReqMsg2)
-
-      cleanup()
-    })
-
-    it("should deliver EOSE when an optional auth challenge is not accepted", async () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const receiveSpy = vi.fn()
-      socket.on(SocketEvent.Receive, receiveSpy)
-
-      const challenge: RelayMessage = ["AUTH", "challenge"]
-      socket._recvQueue.push(challenge)
-      socket.emit(SocketEvent.Receiving, challenge)
-      await vi.runAllTimersAsync()
-      expect(socket.auth.status).toBe(AuthStatus.Requested)
-
-      const eose: RelayMessage = ["EOSE", "request"]
-      socket._recvQueue.push(eose)
-      socket.emit(SocketEvent.Receiving, eose)
-      await vi.runAllTimersAsync()
-
-      expect(receiveSpy).toHaveBeenCalledWith(eose, "wss://test.relay")
-      cleanup()
-    })
-
-    it("should deliver auth-required closure when optional auth is not accepted", async () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const receiveSpy = vi.fn()
-      socket.on(SocketEvent.Receive, receiveSpy)
-      socket.auth.setStatus(AuthStatus.Requested)
-
-      const closed: RelayMessage = ["CLOSED", "request", "auth-required: sign in"]
-      socket._recvQueue.push(closed)
-      socket.emit(SocketEvent.Receiving, closed)
-      await vi.runAllTimersAsync()
-
-      expect(receiveSpy).toHaveBeenCalledWith(closed, "wss://test.relay")
-      cleanup()
-    })
-
-    it("should not retry RELAY_JOIN events", () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      // Send an RELAY_JOIN event
-      const event: ClientMessage = [
-        "EVENT",
-        {id: "123", kind: RELAY_JOIN, content: "", tags: [], pubkey: "", sig: ""},
-      ]
-      socket.emit(SocketEvent.Send, event)
-
-      // Receive auth-required rejection
-      socket.emit(SocketEvent.Receive, ["OK", "123", false, "auth-required: need to auth first"])
-
-      // Should not retry RELAY_JOIN events
-      expect(sendSpy).not.toHaveBeenCalled()
-
-      cleanup()
-    })
-
-    it("should clear pending messages on successful response", () => {
-      const cleanup = socketPolicyAuthBuffer(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      // Send an event
-      const event: ClientMessage = [
-        "EVENT",
-        {id: "123", kind: 1, content: "", tags: [], pubkey: "", sig: ""},
-      ]
-      socket.emit(SocketEvent.Send, event)
-
-      // Receive successful response
-      socket.emit(SocketEvent.Receive, ["OK", "123", true, ""])
-
-      // Receive auth-required rejection (should not trigger retry since message was cleared)
-      socket.emit(SocketEvent.Receive, ["OK", "123", false, "auth-required: need to auth first"])
-
-      // Should not retry
-      expect(sendSpy).not.toHaveBeenCalled()
-
-      cleanup()
-    })
+  it("holds new reads during signing; CLOSE cancels buffered requests", async () => {
+    socket.open()
+    await vi.advanceTimersByTimeAsync(0)
+    socket.auth.setStatus(AuthStatus.PendingSignature)
+    const sent = vi.fn()
+    socket.on(SocketEvent.Send, sent)
+    socket.send(["REQ", "cancelled", {}])
+    socket.send(["REQ", "active", {}])
+    socket.send(["CLOSE", "cancelled"])
+    await vi.advanceTimersByTimeAsync(200)
+    expect(sent.mock.calls.some(([m]) => m[0] === "REQ")).toBe(false)
+    socket.auth.setStatus(AuthStatus.Ok)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(sent.mock.calls.filter(([m]) => m[0] === "REQ")).toEqual([
+      [["REQ", "active", {}], socket.url],
+    ])
   })
 
-  describe("socketPolicyConnectOnSend", () => {
-    it("should open socket on send when closed", () => {
-      const cleanup = socketPolicyConnectOnSend(socket)
-      const openSpy = vi.spyOn(socket, "open")
-
-      // Socket starts closed
-      socket.emit(SocketEvent.Status, SocketStatus.Closed)
-
-      // Send a message
-      const event: ClientMessage = ["EVENT", {id: "123", kind: 1}]
-      socket.emit(SocketEvent.Sending, event)
-
-      // Should open the socket
-      expect(openSpy).toHaveBeenCalled()
-
-      cleanup()
-    })
-
-    it("should not open socket if already open", () => {
-      const cleanup = socketPolicyConnectOnSend(socket)
-      const openSpy = vi.spyOn(socket, "open")
-
-      // Socket is open
-      socket.emit(SocketEvent.Status, SocketStatus.Open)
-
-      // Send a message
-      const event: ClientMessage = ["EVENT", {id: "123", kind: 1}]
-      socket.emit(SocketEvent.Sending, event)
-
-      // Should not try to open the socket
-      expect(openSpy).not.toHaveBeenCalled()
-
-      cleanup()
-    })
-
-    it("should not open socket if there was a recent error", () => {
-      const cleanup = socketPolicyConnectOnSend(socket)
-      const openSpy = vi.spyOn(socket, "open")
-
-      // Socket has an error
-      socket.emit(SocketEvent.Status, SocketStatus.Error)
-      socket.emit(SocketEvent.Status, SocketStatus.Closed)
-
-      // Send a message
-      const event: ClientMessage = ["EVENT", {id: "123", kind: 1}]
-      socket.emit(SocketEvent.Sending, event)
-
-      // Should not try to open the socket due to recent error
-      expect(openSpy).not.toHaveBeenCalled()
-
-      // Advance time past the error timeout
-      vi.advanceTimersByTime(31000)
-
-      // Send another message
-      socket.emit(SocketEvent.Sending, event)
-
-      // Now it should try to open
-      expect(openSpy).toHaveBeenCalled()
-
-      cleanup()
-    })
+  it("delivers EOSE and denial when optional auth is ignored", async () => {
+    socket.auth.setStatus(AuthStatus.Requested)
+    const received = vi.fn()
+    socket.on(SocketEvent.Receive, received)
+    receive(socket, ["EOSE", "public"])
+    receive(socket, ["CLOSED", "closed", "auth-required: sign in"])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(received).toHaveBeenCalledTimes(2)
   })
 
-  describe("socketPolicyCloseInactive", () => {
-    it("should close socket after 30 seconds of inactivity", async () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const closeSpy = vi.spyOn(socket, "close")
+  it("returns buffered closure on signing failure rather than silently hanging", async () => {
+    socket.auth.setStatus(AuthStatus.PendingSignature)
+    socket.send(["REQ", "one", {}])
+    const received = vi.fn()
+    socket.on(SocketEvent.Receive, received)
+    socket.auth.setStatus(AuthStatus.DeniedSignature)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(received.mock.calls[0][0][0]).toBe("CLOSED")
+    expect(received.mock.calls[0][0][2]).toMatch(/^auth-required:/)
+  })
 
-      // Set socket as open
-      socket.emit(SocketEvent.Status, SocketStatus.Open)
-
-      // Advance time past the timeout
-      await vi.advanceTimersByTimeAsync(35000)
-
-      // Socket should be closed
-      expect(closeSpy).toHaveBeenCalled()
-
-      cleanup()
-    }, 100000)
-
-    it("should reset timer on send activity", () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const closeSpy = vi.spyOn(socket, "close")
-
-      // Set socket as open
-      socket.emit(SocketEvent.Status, SocketStatus.Open)
-
-      // Advance time partially
-      vi.advanceTimersByTime(20000)
-
-      // Send a message
-      socket.emit(SocketEvent.Send, ["EVENT", {id: "123"}])
-      socket.emit(SocketEvent.Receive, ["OK", "123", true, ""])
-
-      // Advance time partially again
-      vi.advanceTimersByTime(20000)
-
-      // Socket should not be closed yet
-      expect(closeSpy).not.toHaveBeenCalled()
-
-      // Advance remaining time
-      vi.advanceTimersByTime(11000)
-
-      // Now socket should be closed
-      expect(closeSpy).toHaveBeenCalled()
-
-      cleanup()
+  it("reconnects once, waits for AUTH ACK, retains full history filters and never replays EVENT", async () => {
+    socket.send(["REQ", "history", {kinds: [1], since: 123, limit: 100}])
+    socket.send(["EVENT", {id: "published"} as any])
+    await vi.advanceTimersByTimeAsync(200)
+    socket.emit(SocketEvent.Receive, ["AUTH", "old"])
+    socket.auth.setStatus(AuthStatus.Ok)
+    socket.close()
+    const sent = vi.fn()
+    socket.on(SocketEvent.Send, sent)
+    socket.on(SocketEvent.Status, status => {
+      if (status === SocketStatus.Open) {
+        socket.emit(SocketEvent.Receive, ["AUTH", "new"])
+        socket.auth.setStatus(AuthStatus.PendingSignature)
+      }
     })
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(sent).not.toHaveBeenCalled()
+    socket.auth.setStatus(AuthStatus.Ok)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(sent).toHaveBeenCalledExactlyOnceWith(
+      ["REQ", "history", {kinds: [1], since: 123, limit: 100}],
+      socket.url,
+    )
+  })
 
-    it("should reset timer on receive activity", () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const closeSpy = vi.spyOn(socket, "close")
+  it("CLOSE during reconnect wait prevents replay and disposal cancels timers", async () => {
+    socket.send(["REQ", "one", {}])
+    await vi.advanceTimersByTimeAsync(200)
+    socket.close()
+    socket.send(["CLOSE", "one"])
+    const sent = vi.fn()
+    socket.on(SocketEvent.Send, sent)
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(sent.mock.calls.some(([m]) => m[0] === "REQ")).toBe(false)
+    socket.cleanup()
+    await vi.advanceTimersByTimeAsync(40000)
+  })
 
-      // Set socket as open
-      socket.emit(SocketEvent.Status, SocketStatus.Open)
+  it("does not reopen for unacknowledged EVENT alone", async () => {
+    socket.send(["EVENT", {id: "once"} as any])
+    await vi.advanceTimersByTimeAsync(200)
+    socket.close()
+    const open = vi.spyOn(socket, "attemptToOpen")
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(open).not.toHaveBeenCalled()
+  })
 
-      // Advance time partially
-      vi.advanceTimersByTime(20000)
-
-      // Receive a message
-      socket.emit(SocketEvent.Receive, ["EVENT", "123", {id: "123"}])
-
-      // Advance time partially again
-      vi.advanceTimersByTime(20000)
-
-      // Socket should not be closed yet
-      expect(closeSpy).not.toHaveBeenCalled()
-
-      // Advance remaining time
-      vi.advanceTimersByTime(11000)
-
-      // Now socket should be closed
-      expect(closeSpy).toHaveBeenCalled()
-
-      cleanup()
-    })
-
-    it("should not close socket if not open", () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const closeSpy = vi.spyOn(socket, "close")
-
-      // Set socket as closed
-      socket.emit(SocketEvent.Status, SocketStatus.Closed)
-
-      // Advance time past the timeout
-      vi.advanceTimersByTime(31000)
-
-      // Socket should not be closed
-      expect(closeSpy).not.toHaveBeenCalled()
-
-      cleanup()
-    })
-
-    it("should reopen socket when closed with pending messages", async () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      // Send an event that will be pending
-      const event: ClientMessage = ["EVENT", {id: "123", kind: 1}]
-      socket.emit(SocketEvent.Send, event)
-
-      // Socket closes
-      socket.emit(SocketEvent.Status, SocketStatus.Closed)
-
-      // Advance past the reopen delay
-      await vi.advanceTimersByTimeAsync(31000)
-
-      // Should resend the pending event
-      expect(sendSpy).toHaveBeenCalledWith(event)
-
-      cleanup()
-    })
-
-    it("should reopen socket when closed with pending requests", async () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      // Send a request that will be pending
-      const req: ClientMessage = ["REQ", "123", {kinds: [1]}]
-      socket.emit(SocketEvent.Send, req)
-
-      // Socket closes
-      socket.emit(SocketEvent.Status, SocketStatus.Closed)
-
-      // Advance past the reopen delay
-      await vi.advanceTimersByTimeAsync(30000)
-
-      // Should resend the pending request
-      expect(sendSpy).toHaveBeenCalledWith(req)
-
-      cleanup()
-    })
-
-    it("should not reopen socket immediately after previous open", async () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      // Send an event that will be pending
-      const event: ClientMessage = ["EVENT", {id: "123", kind: 1}]
-      socket.emit(SocketEvent.Send, event)
-
-      // Socket opens then closes quickly
-      socket.emit(SocketEvent.Status, SocketStatus.Open)
-      socket.emit(SocketEvent.Status, SocketStatus.Closed)
-
-      // Advance a short time
-      vi.advanceTimersByTime(5000)
-
-      // Should not resend yet to prevent flapping
-      expect(sendSpy).not.toHaveBeenCalled()
-
-      // Advance remaining time
-      await vi.advanceTimersByTimeAsync(25000)
-
-      // Now should resend
-      expect(sendSpy).toHaveBeenCalledWith(event)
-
-      cleanup()
-    })
-
-    it("should remove pending messages when they complete", () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      // Send an event that will be pending
-      const event: ClientMessage = ["EVENT", {id: "123", kind: 1}]
-      socket.emit(SocketEvent.Send, event)
-
-      // Event completes successfully
-      socket.emit(SocketEvent.Receive, ["OK", "123", true])
-
-      // Socket closes
-      socket.emit(SocketEvent.Status, SocketStatus.Closed)
-
-      // Advance past the reopen delay
-      vi.advanceTimersByTime(30000)
-
-      // Should not resend since event was completed
-      expect(sendSpy).not.toHaveBeenCalled()
-
-      cleanup()
-    })
-
-    it("should remove pending messages when closed", () => {
-      const cleanup = socketPolicyCloseInactive(socket)
-      const sendSpy = vi.spyOn(socket, "send")
-
-      // Send a request that will be pending
-      const req: ClientMessage = ["REQ", "123", {kinds: [1]}]
-      socket.emit(SocketEvent.Send, req)
-
-      // Send close for the request
-      const close: ClientMessage = ["CLOSE", "123"]
-      socket.emit(SocketEvent.Send, close)
-
-      // Socket closes
-      socket.emit(SocketEvent.Status, SocketStatus.Closed)
-
-      // Advance past the reopen delay
-      vi.advanceTimersByTime(30000)
-
-      // Should not resend since request was closed
-      expect(sendSpy).not.toHaveBeenCalled()
-
-      cleanup()
-    })
+  it("connects on send, respects recent error, closes after idle", async () => {
+    socket.emit(SocketEvent.Status, SocketStatus.Error)
+    socket.send(["CLOSE", "one"])
+    expect(socket._ws).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(6000)
+    socket.send(["CLOSE", "one"])
+    await vi.advanceTimersByTimeAsync(200)
+    expect(socket.status).toBe(SocketStatus.Open)
+    await vi.advanceTimersByTimeAsync(35000)
+    expect(socket.status).toBe(SocketStatus.Closed)
   })
 })

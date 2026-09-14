@@ -1,8 +1,7 @@
-import {on, ms, omit, nthNe, always, call, sleep, ago, now} from "@welshman/lib"
-import {RELAY_JOIN, type StampedEvent, type SignedEvent, type Filter} from "@welshman/util"
+import {on, always, call, ago, now} from "@welshman/lib"
+import {type StampedEvent, type SignedEvent} from "@welshman/util"
 import {
   type ClientMessage,
-  isClientAuth,
   isClientClose,
   isClientEvent,
   isClientReq,
@@ -10,12 +9,11 @@ import {
   isClientNegClose,
   type RelayMessage,
   isRelayOk,
-  isRelayEose,
   isRelayClosed,
-  isRelayNegErr,
 } from "./message.js"
 import {type Socket, SocketStatus, SocketEvent, type SocketPolicy} from "./socket.js"
 import {AuthStatus, AuthStateEvent} from "./auth.js"
+import {retainReadReplay} from "./read-replay.js"
 
 /**
  * Sends a ping message every so often to ensure connection health
@@ -49,79 +47,12 @@ export const socketPolicyPing = (socket: Socket) => {
 /**
  * Handles auth-related message management:
  * - Defers sending messages when a challenge is pending
- * - Re-enqueues event/req messages once if rejected due to auth-required
+ * - Replays only still-active REQs once if rejected due to auth-required
  * @param socket - a Socket object
  * @return a cleanup function
  */
 export const socketPolicyAuthBuffer = (socket: Socket) => {
-  const {Ok, DeniedSignature, Forbidden, PendingSignature, PendingResponse} = AuthStatus
-  const terminalStatuses = [Ok, DeniedSignature, Forbidden]
-
-  let buffer: ClientMessage[] = []
-
-  const unsubscribers = [
-    on(socket, SocketEvent.Sending, (message: ClientMessage) => {
-      // Always allow sending auth
-      if (isClientAuth(message)) return
-
-      // Always allow sending join requests
-      if (isClientEvent(message) && message[1].kind === RELAY_JOIN) return
-
-      // If the auth flow is complete, no need to buffer anymore
-      if (terminalStatuses.includes(socket.auth.status)) return
-
-      // If the client is closing a req, remove both from our buffer
-      // Otherwise, if auth isn't done, hang on to recent messages in case we need to replay them
-      if (isClientClose(message) || isClientNegClose(message)) {
-        buffer = buffer.filter(nthNe(1, message[1]))
-      } else {
-        buffer = buffer.slice(-50).concat([message])
-      }
-    }),
-    on(socket, SocketEvent.Receiving, (message: RelayMessage) => {
-      // If the relay is closing a request during auth, don't tell the caller, we'll retry it
-      if (
-        (isRelayClosed(message) || isRelayNegErr(message)) &&
-        message[2]?.startsWith("auth-required:") &&
-        [PendingSignature, PendingResponse].includes(socket.auth.status)
-      ) {
-        socket._recvQueue.remove(message)
-      }
-
-      // Only defer EOSE while authentication is actively in progress. A relay
-      // challenge may be intentionally ignored, in which case public reads
-      // must still be allowed to settle.
-      if (
-        isRelayEose(message) &&
-        [PendingSignature, PendingResponse].includes(socket.auth.status)
-      ) {
-        socket._recvQueue.remove(message)
-      }
-
-      // If the client is rejecting an event during auth, don't tell the caller, we'll retry it
-      if (
-        isRelayOk(message) &&
-        !message[2] &&
-        message[3]?.startsWith("auth-required:") &&
-        [PendingSignature, PendingResponse].includes(socket.auth.status)
-      ) {
-        socket._recvQueue.remove(message)
-      }
-    }),
-    on(socket.auth, AuthStateEvent.Status, (status: AuthStatus) => {
-      // Send buffered messages when we get successful auth. In any case, clear them out
-      // if the auth flow is complete
-      if (status === Ok) {
-        for (const message of buffer.splice(0)) {
-          socket.send(message)
-        }
-      } else if (terminalStatuses.includes(socket.auth.status)) {
-        buffer = []
-      }
-    }),
-  ]
-
-  return () => unsubscribers.forEach(call)
+  return retainReadReplay(socket)
 }
 
 /**
@@ -159,50 +90,10 @@ export const socketPolicyConnectOnSend = (socket: Socket) => {
  */
 export const socketPolicyCloseInactive = (socket: Socket) => {
   const pending = new Map<string, ClientMessage>()
-
-  let lastOpen = now()
+  const releaseReplay = retainReadReplay(socket, true)
   let lastActivity = now()
 
   const unsubscribers = [
-    on(socket, SocketEvent.Status, (newStatus: SocketStatus) => {
-      const isClosed = [SocketStatus.Closed, SocketStatus.Error].includes(newStatus)
-
-      // Keep track of the most recent open
-      if (newStatus === SocketStatus.Open) {
-        lastOpen = now()
-      }
-
-      // If the socket closed and we have no error, reopen it but don't flap
-      if (isClosed && pending.size) {
-        const since = now()
-        const delay = Math.max(0, ms(5 - (now() - lastOpen)))
-
-        sleep(delay).then(() => {
-          if (pending.size === 0) return
-
-          socket.attemptToOpen()
-
-          for (const message of pending.values()) {
-            // Add since to avoid re-downloading stuff on reconnect. If limit=0, remove it to catch up
-            if (isClientReq(message) && delay > 0) {
-              const filters: Filter[] = []
-
-              for (let filter of message.slice(2) as Filter[]) {
-                if (filter.limit === 0) {
-                  filter = omit(["limit"], filter)
-                }
-
-                filters.push({...filter, since})
-              }
-
-              socket.send([...message.slice(0, 2), ...filters])
-            } else {
-              socket.send(message)
-            }
-          }
-        })
-      }
-    }),
     on(socket, SocketEvent.Send, (message: ClientMessage) => {
       lastActivity = now()
 
@@ -241,6 +132,7 @@ export const socketPolicyCloseInactive = (socket: Socket) => {
   }, 3000)
 
   return () => {
+    releaseReplay()
     unsubscribers.forEach(call)
     clearInterval(interval)
   }
@@ -262,7 +154,7 @@ export const makeSocketPolicyAuth = (options: SocketPolicyAuthOptions) => (socke
   const unsubscribers = [
     on(socket.auth, AuthStateEvent.Status, (status: AuthStatus) => {
       if (status === AuthStatus.Requested && shouldAuth(socket)) {
-        socket.auth.doAuth(options.sign)
+        void socket.auth.doAuth(options.sign).catch(() => undefined)
       }
     }),
   ]

@@ -10,12 +10,16 @@ import {
   setRequestPolicy,
   SocketEvent,
   SocketStatus,
+  isRelayClosed,
+  isRelayOk,
   type RelayRequestPolicy,
   type Socket,
 } from "@welshman/net"
 import {normalizeRelayUrl, type RelayProfile} from "@welshman/util"
 
 export type RelayAuthPolicy = "none" | "optional" | "required"
+export const RELAY_AUTH_SIGN_TIMEOUT = 90_000
+export const RELAY_AUTH_ACK_TIMEOUT = 10_000
 
 export type RelayPolicy = {
   auth: RelayAuthPolicy
@@ -85,12 +89,15 @@ export const RELAY_POLICY_REFRESH_INTERVAL = 60 * 60 * 1000
 
 const relayPolicyRefreshes = new Map<string, Promise<RelayPolicy>>()
 const relayPolicyRefreshedAt = new Map<string, number>()
+const requiredByRuntime = new Set<string>()
+
+export const recordRelayAuthRequired = (url: string) =>
+  requiredByRuntime.add(normalizePolicyRelay(url))
 
 const RELAY_POLICY_OVERRIDES = new Map<string, Partial<RelayPolicy>>([
   [
     BUDABIT_PUBLIC_RELAY,
     {
-      auth: "none",
       // The relay advertises 30 IDs. Keep two outside Budabit's managed
       // budget for recovery, diagnostics, and transient reconnect overlap.
       maxSubscriptions: 28,
@@ -148,7 +155,9 @@ const readRelayPolicy = (url: string): RelayPolicy => {
   const configuredMaxLimit = positiveInteger(override?.maxLimit, DEFAULT_MAX_LIMIT)
 
   return {
-    auth: override?.auth ?? getProfileAuthPolicy(profile),
+    auth: requiredByRuntime.has(normalized)
+      ? "required"
+      : (override?.auth ?? getProfileAuthPolicy(profile)),
     maxSubscriptions,
     maxFiltersPerSubscription: positiveInteger(
       override?.maxFiltersPerSubscription,
@@ -216,10 +225,22 @@ export const getRelayPolicy = (url: string): RelayPolicy => {
 
 export const loadRelayPolicy = (url: string) => refreshRelayPolicy(url, true)
 
-export const relayPolicyRefreshPolicy = (socket: Socket) =>
-  on(socket, SocketEvent.Status, status => {
-    if (status === SocketStatus.Open) void refreshRelayPolicy(socket.url)
-  })
+export const relayPolicyRefreshPolicy = (socket: Socket) => {
+  const unsubscribers = [
+    on(socket, SocketEvent.Status, status => {
+      if (status === SocketStatus.Open) void refreshRelayPolicy(socket.url)
+    }),
+    on(socket, SocketEvent.Receiving, message => {
+      const reason = isRelayClosed(message)
+        ? message[2]
+        : isRelayOk(message) && !message[2]
+          ? message[3]
+          : ""
+      if (reason?.startsWith("auth-required:")) recordRelayAuthRequired(socket.url)
+    }),
+  ]
+  return () => unsubscribers.forEach(unsubscribe => unsubscribe())
+}
 
 export const getRelayRequestPolicy = (url: string): RelayRequestPolicy => {
   const policy = getRelayPolicy(url)

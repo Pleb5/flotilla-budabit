@@ -40,14 +40,23 @@ const {
 
 vi.mock("@welshman/app", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/app")>()
+  const signing = {sign: signMock}
 
   return {
     ...actual,
     forceLoadRelay: forceLoadRelayMock,
     forceLoadRelayList: forceLoadRelayListMock,
     sign: signMock,
+    signer: {...actual.signer, get: () => signing},
   }
 })
+
+// These loading tests assume explicit consent and a connected controlled signer;
+// permission/guest/identity checks are exercised in relay-auth-coordinator.test.ts.
+vi.mock("./relay-auth-consent", () => ({
+  isUserOwnedRelay: () => true,
+  subscribeRelayAuthConsent: () => () => {},
+}))
 
 vi.mock("@welshman/net", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/net")>()
@@ -61,6 +70,11 @@ vi.mock("@welshman/net", async importOriginal => {
     },
     Pool: {
       get: () => ({
+        _data: socketByRelay,
+        remove: (url: string) => {
+          socketByRelay.get(url)?.cleanup()
+          socketByRelay.delete(url)
+        },
         get: (url: string) => {
           let socket = socketByRelay.get(url)
 
@@ -759,7 +773,13 @@ describe("community relay loading", () => {
 
     await expect(
       loadCommunityEventsWithStatus([relayA], [{kinds: [PROFILE_LIST_KIND]}]),
-    ).resolves.toEqual({events: [], complete: true, timedOutRelays: [], failedRelays: []})
+    ).resolves.toEqual({
+      events: [],
+      complete: true,
+      timedOutRelays: [],
+      failedRelays: [],
+      outcomes: {[relayA]: "complete"},
+    })
 
     loadMock.mockImplementationOnce(({onStart}: {onStart?: () => void}) => {
       onStart?.()
@@ -775,6 +795,7 @@ describe("community relay loading", () => {
       complete: false,
       timedOutRelays: [relayA],
       failedRelays: [],
+      outcomes: {[relayA]: "timeout"},
     })
   })
 
@@ -850,6 +871,7 @@ describe("community relay loading", () => {
       complete: false,
       timedOutRelays: [],
       failedRelays: [],
+      outcomes: {[relayA]: "auth-cancelled"},
     })
     expect(loadMock.mock.calls[0][0].signal.aborted).toBe(true)
   })
@@ -901,7 +923,60 @@ describe("community relay loading", () => {
       complete: false,
       timedOutRelays: [],
       failedRelays: [relayA],
+      outcomes: {[relayA]: "denied"},
     })
+    expect(loadMock).toHaveBeenCalledOnce()
+    expect(signMock).not.toHaveBeenCalled()
+  })
+
+  it("retries unavailable policy once without re-signing or narrowing the history filter", async () => {
+    loadMock
+      .mockImplementationOnce(({onClosed}: any) => {
+        onClosed("error: community read policy temporarily unavailable", relayA)
+        return Promise.resolve([])
+      })
+      .mockResolvedValueOnce([profileListEvent])
+    const filters = [{kinds: [PROFILE_LIST_KIND]}]
+    const pending = loadCommunityEventsWithStatus([relayA], filters)
+    await vi.advanceTimersByTimeAsync(200)
+    await expect(pending).resolves.toMatchObject({complete: true, outcomes: {[relayA]: "complete"}})
+    expect(loadMock).toHaveBeenCalledTimes(2)
+    expect(loadMock.mock.calls.map(([options]) => options.filters)).toEqual([filters, filters])
+    expect(signMock).not.toHaveBeenCalled()
+  })
+
+  it("leaves persistent policy unavailability incomplete after one retry", async () => {
+    loadMock.mockImplementation(({onClosed}: any) => {
+      onClosed("error: community read policy temporarily unavailable", relayA)
+      return Promise.resolve([])
+    })
+    const pending = loadCommunityEventsWithStatus([relayA], [{kinds: [PROFILE_LIST_KIND]}])
+    await vi.advanceTimersByTimeAsync(200)
+    await expect(pending).resolves.toMatchObject({
+      complete: false,
+      outcomes: {[relayA]: "policy-unavailable"},
+    })
+    expect(loadMock).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not publish private results or late callbacks from a cancelled loader", async () => {
+    let receive!: (event: TrustedEvent, relay: string) => void
+    loadMock.mockImplementationOnce(({onEvent, onStart}: any) => {
+      receive = onEvent
+      onStart(relayA)
+      onEvent(profileListEvent, relayA)
+      return new Promise(() => undefined)
+    })
+    const pending = loadCommunityEventsWithStatus([relayA], [{kinds: [PROFILE_LIST_KIND]}], {
+      publishEvents: false,
+      timeout: 100,
+    })
+    await vi.advanceTimersByTimeAsync(100)
+    const result = await pending
+    receive(secondProfileListEvent, relayA)
+    expect(result.complete).toBe(false)
+    expect(result.events).toEqual([profileListEvent])
+    expect(repository.query([{ids: [profileListEvent.id, secondProfileListEvent.id]}])).toEqual([])
   })
 
   it("retains and publishes events received before a timeout", async () => {
@@ -1081,7 +1156,9 @@ describe("community relay loading", () => {
     pubkey.set(memberPubkey)
     socket.auth.setStatus(AuthStatus.Forbidden)
 
-    await expect(recoverCommunityRelayAuth(requiredRelay)).rejects.toThrow("Authentication failed")
+    await expect(recoverCommunityRelayAuth(requiredRelay)).rejects.toThrow(
+      "authentication forbidden",
+    )
     expect(retryAuth).not.toHaveBeenCalled()
     expect(signMock).not.toHaveBeenCalled()
   })
@@ -1195,7 +1272,7 @@ describe("community relay loading", () => {
     const initial = authenticateCommunityRelays([requiredRelay], {timeout: 100})
     await vi.advanceTimersByTimeAsync(100)
     await expect(initial).resolves.toEqual([requiredRelay])
-    expect(socket.auth.status).toBe(AuthStatus.PendingSignature)
+    expect(socket.auth.status).toBe(AuthStatus.DeniedSignature)
 
     const retryAuth = vi.spyOn(socket.auth, "retryAuth")
     const recovery = recoverCommunityRelayAuth(requiredRelay, {timeout: 1000})
