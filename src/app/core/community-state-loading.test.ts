@@ -19,6 +19,7 @@ import {
   makeCommunityAuthorityTags,
   makeCommunityPointer,
 } from "./community"
+import {resolvePrivateCommunityScope, makePrivateCommunityInvite} from "./private-community-scope"
 
 const {
   forceLoadRelayMock,
@@ -797,6 +798,22 @@ describe("community relay loading", () => {
       failedRelays: [],
       outcomes: {[relayA]: "timeout"},
     })
+  })
+
+  it("never runs discovery or owner-outbox fallback for a private invitation", async () => {
+    const pointer = makeCommunityPointer({
+      ownerPubkey: communityPubkey,
+      communityId: "e".repeat(64),
+      relayHints: [relayA],
+    })!
+    resolvePrivateCommunityScope(
+      new URL(makePrivateCommunityInvite(pointer, [relayA]), "https://app.test"),
+    )
+    loadMock.mockResolvedValue([])
+    await loadCommunityDefinitionWithOutboxFallback(pointer, {relayHints: [relayB]})
+    expect(loadMock.mock.calls.map(([options]) => options.relays)).toEqual([[relayA]])
+    expect(forceLoadRelayListMock).not.toHaveBeenCalled()
+    expect(fromPubkeysMock).not.toHaveBeenCalled()
   })
 
   it("starts the relay timeout when queued work physically starts", async () => {

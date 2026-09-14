@@ -1,6 +1,6 @@
 # Optional private community reads — cross-repository plan
 
-Status: **proposal, not implemented or enabled**. Prepared 2026-09-14.
+Status: **relay gate, auth coordinator and invitation reader implemented on feature branches; default off**. Publication/cache audit and operator release are still in progress. Prepared 2026-09-14.
 
 The complete server/client design and phased implementation plan is in the
 Budabit strfry fork:
@@ -9,8 +9,37 @@ Budabit strfry fork:
 - From this directory: [cross-repository plan](../../../strfry/deploy/budabit/READ-CONTROL-PLAN.md)
   when the `budabit` and `strfry` repositories are sibling checkouts.
 
-The linked document is newly proposed local work, not a claim that an upstream
-URL or released implementation already exists.
+This does not claim that a published upstream revision or released private-client
+implementation already exists.
+
+## Invitation reader (Phase 6)
+
+Use `/c/<naddr>?read-access=members`, with the endpoint hints encoded in the naddr,
+or add repeated `&relay=wss%3A%2F%2Frelay.example` parameters. Explicit query hints
+override the naddr hints; the route never expands them through public discovery,
+owner outboxes or relays learned from the returned definition. The marker and
+endpoints persist in session storage for navigation/reload, not in an event cache.
+Removing the query does not silently make a known private scope public.
+
+The separate access shell runs before definition lookup, requires a real signer
+and authentication consent, and uses dedicated sockets and a memory-only
+repository. Public child routes/loaders are not mounted. An authenticated denied
+socket can retry after a grant without another signature; a revoked/disconnected
+connection needs fresh authentication. Cancellation/account changes clear the
+view and stop old callbacks. Missing, failed or saturated reads are incomplete,
+not an empty community. The initial archive view requests up to 200 retained events
+per relay and explicitly reports saturation rather than claiming complete history.
+It does not render remote media, widgets, Git actions, uploads or zaps.
+
+Browser regression (full `pnpm dev` stack required):
+
+```sh
+pnpm exec playwright test -c tests/e2e/private-community.config.ts
+```
+
+This test uses isolated cold contexts, controlled NIP-07 keys, the existing mock
+relay helper and blocked off-origin HTTP; it never signs ordinary events or writes
+to a real relay. `PRIVATE_TEST_OUTPUT` can place artifacts outside the checkout.
 
 ## Recommended contract
 

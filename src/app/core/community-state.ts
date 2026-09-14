@@ -89,6 +89,7 @@ import {
 import {FINITE_RELAY_ADMISSION_TIMEOUT_MS} from "@app/core/finite-relay-request"
 import {recoverActiveNip46Receiver} from "@app/util/nip46"
 import {authenticateRelay} from "@app/core/relay-auth-coordinator"
+import {getPrivateCommunityScope} from "@app/core/private-community-scope"
 
 export const COMMUNITY_SESSION_STORAGE_KEY = "budabit/community-session"
 export const EXACT_COMMUNITY_SESSION_VERSION = 2
@@ -1417,6 +1418,17 @@ export const loadCommunityDefinitionWithOutboxFallback = async (
   const definitionLoadOptions = {
     ...loadOptions,
     timeout: loadOptions.timeout ?? COMMUNITY_DEFINITION_LOOKUP_TIMEOUT,
+  }
+  const privateScope = getPrivateCommunityScope(pointer)
+  if (privateScope) {
+    if (privateScope.error || !privateScope.relays.length)
+      throw new CommunityDefinitionRelayError("Private invitation requires explicit relay hints")
+    return loadCommunityDefinitionFromRelays(pointer, privateScope.relays, {
+      ...definitionLoadOptions,
+      authenticate: true,
+      publishEvents: false,
+      settle: "all",
+    })
   }
   const discoveryRelays = normalizeRelays([...relayHints, ...COMMUNITY_DISCOVERY_RELAYS])
   let relayError: CommunityDefinitionRelayError | undefined

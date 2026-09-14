@@ -96,6 +96,8 @@ export interface MockRelayTelemetryEntry {
  * Options for configuring the mock relay
  */
 export interface MockRelayOptions {
+  /** Challenge on connection and require AUTH before REQ on these test relays. */
+  authRequiredRelays?: string[]
   /** Events to return when app queries (will be filtered by subscription filters) */
   seedEvents?: NostrEvent[]
   /** Additional events available only from an exact relay URL */
@@ -117,7 +119,7 @@ export interface MockRelayOptions {
   /** Per-event ACK behavior, e.g. a relay enforcing replaceable-event ordering. */
   getPublishResponse?: (event: NostrEvent, relayUrl: string) => MockRelayPublishResponse | undefined
   /** Subscription behavior keyed by exact relay URL */
-  subscriptionOutcomesByRelay?: Record<string, "eose" | "stall" | "disconnect">
+  subscriptionOutcomesByRelay?: Record<string, "eose" | "stall" | "disconnect" | "denied">
   /** Subscription behavior selected from the exact filters; may wait for a test-controlled response */
   getSubscriptionOutcome?: (
     filters: NostrFilter[],
@@ -126,8 +128,9 @@ export interface MockRelayOptions {
     | "eose"
     | "stall"
     | "disconnect"
+    | "denied"
     | undefined
-    | Promise<"eose" | "stall" | "disconnect" | undefined>
+    | Promise<"eose" | "stall" | "disconnect" | "denied" | undefined>
 }
 
 /**
@@ -148,7 +151,9 @@ export class MockRelay {
   private responseLatencyByKind: Record<number, number> = {}
   private publishResponsesByRelay: Record<string, MockRelayPublishResponse> = {}
   private getPublishResponseCallback?: MockRelayOptions["getPublishResponse"]
-  private subscriptionOutcomesByRelay: Record<string, "eose" | "stall" | "disconnect"> = {}
+  private subscriptionOutcomesByRelay: Record<string, "eose" | "stall" | "disconnect" | "denied"> =
+    {}
+  private authRequiredRelays: string[] = []
   private getSubscriptionOutcomeCallback?: MockRelayOptions["getSubscriptionOutcome"]
   private eventWaiters: Map<
     number,
@@ -158,6 +163,7 @@ export class MockRelay {
   private page?: Page
 
   constructor(options?: MockRelayOptions) {
+    this.authRequiredRelays = options?.authRequiredRelays || []
     if (options?.seedEvents) {
       this.seedEventsList = [...options.seedEvents]
     }
@@ -297,6 +303,7 @@ export class MockRelay {
         responseLatencyByKind,
         publishResponsesByRelay,
         subscriptionOutcomesByRelay,
+        authRequiredRelays,
       }) => {
         // Store original WebSocket
         const OriginalWebSocket = window.WebSocket
@@ -337,6 +344,7 @@ export class MockRelay {
 
           private subscriptions: Map<string, NostrFilter[]> = new Map()
           private connectionId: string
+          private authenticated = false
 
           constructor(url: string | URL, protocols?: string | string[]) {
             super()
@@ -357,6 +365,8 @@ export class MockRelay {
               const openEvent = new Event("open")
               this.dispatchEvent(openEvent)
               this.onopen?.call(this as unknown as WebSocket, openEvent)
+              if (authRequiredRelays.includes(this.url))
+                this.sendMessage(["AUTH", this.connectionId])
 
               if (debug) {
                 console.log(`[MockRelay] Connection opened: ${this.url}`)
@@ -426,6 +436,10 @@ export class MockRelay {
 
           private async handleReq(params: unknown[]): Promise<void> {
             const [subId, ...filters] = params as [string, ...NostrFilter[]]
+            if (authRequiredRelays.includes(this.url) && !this.authenticated) {
+              this.sendMessage(["CLOSED", subId, "auth-required: authenticate"])
+              return
+            }
 
             if (debug) {
               console.log(`[MockRelay] REQ ${subId}:`, filters)
@@ -450,7 +464,7 @@ export class MockRelay {
                 __mockRelaySubscriptionOutcome?: (
                   filters: NostrFilter[],
                   relayUrl: string,
-                ) => Promise<"eose" | "stall" | "disconnect" | undefined>
+                ) => Promise<"eose" | "stall" | "disconnect" | "denied" | undefined>
               }
             ).__mockRelaySubscriptionOutcome?.(filters, this.url)
             const configuredUrl = this.url.endsWith("/") ? this.url.slice(0, -1) : `${this.url}/`
@@ -460,6 +474,11 @@ export class MockRelay {
               subscriptionOutcomesByRelay[configuredUrl] ||
               "eose"
             if (subscriptionOutcome === "stall") return
+            if (subscriptionOutcome === "denied") {
+              this.subscriptions.delete(subId)
+              this.sendMessage(["CLOSED", subId, "restricted: not eligible"])
+              return
+            }
             if (subscriptionOutcome === "disconnect") {
               setTimeout(() => this.close(1006, "offline"), latency)
               return
@@ -553,7 +572,13 @@ export class MockRelay {
 
             // Accept all auth attempts
             setTimeout(() => {
-              this.sendMessage(["OK", event.id, true, ""])
+              const ok =
+                !authRequiredRelays.includes(this.url) ||
+                (event.kind === 22242 &&
+                  event.tags.some(tag => tag[0] === "challenge" && tag[1] === this.connectionId) &&
+                  event.tags.some(tag => tag[0] === "relay" && tag[1] === this.url))
+              this.authenticated = ok
+              this.sendMessage(["OK", event.id, ok, ""])
             }, latency)
           }
 
@@ -685,6 +710,7 @@ export class MockRelay {
         responseLatencyByKind: this.responseLatencyByKind,
         publishResponsesByRelay: this.publishResponsesByRelay,
         subscriptionOutcomesByRelay: this.subscriptionOutcomesByRelay,
+        authRequiredRelays: this.authRequiredRelays,
       },
     )
   }
