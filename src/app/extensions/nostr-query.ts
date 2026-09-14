@@ -30,7 +30,7 @@ export async function queryExtensionRelays(relays: string[], filter: Filter) {
         filters: [filter],
         signal: controller.signal,
         onEvent(event) {
-          if (!active || !matchFilters([filter], event)) return
+          if (!active || !matchFilters([filter], event) || typeof event.sig !== "string") return
           try {
             // Do not inherit cached verification flags from user-configured trusted relays.
             if (

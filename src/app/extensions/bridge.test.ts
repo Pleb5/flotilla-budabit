@@ -335,7 +335,7 @@ const makeExtension = (overrides: Record<string, any> = {}) => {
     origin: "https://widget.example.com",
     type: "widget",
     iframe: {contentWindow: iframeWindow},
-    repoContext: null,
+    repoContext: null as {pubkey: string; name: string} | null,
     ...overrides,
     widget,
     iframeWindow,

@@ -38,6 +38,7 @@ import {
   makeCommunityPointer,
   parseCommunityDefinition,
   parseTargetedPublication,
+  selectCurrentCommunityDefinitions,
   type CommunityDefinition,
 } from "./community"
 import {
@@ -56,6 +57,8 @@ import {
   makeCommunityReportDelete,
   parseCommunityReport,
 } from "./community-reports"
+import {prepareUserCommunityRefSelection} from "./community-membership"
+import {prepareCommunityReaderEligibility} from "./community-read-access"
 
 // --- deterministic identities -------------------------------------------------
 
@@ -97,73 +100,68 @@ const event = (
 const shardAddress = (owner: string, purpose: string, shard?: number) =>
   `${PROFILE_LIST_KIND}:${owner}:${COMMUNITY_ID}-${purpose}${shard ? `.${shard}` : ""}`
 
-const authority = (): string[][] => [
-  ["h", COMMUNITY_ID],
-  ["a", ADDRESS, "", "community"],
-]
-
 // --- fixture community -----------------------------------------------------------
 
 // The builder normalises and validates relays; raw r values are substituted
 // afterwards so that non-canonical inputs reach the parser unchanged.
 const definitionEvent = (overrides: {relays?: string[]} = {}) => {
   const built = buildCommunityDefinition({
-      communityId: COMMUNITY_ID,
-      name: "Vector Community",
-      relays: [RELAY],
-      sections: [
-        {
-          name: COMMUNITY_SECTION_GENERAL,
-          kinds: [
-            {kind: 9, subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE},
-            {kind: 1111},
-            {kind: 7},
-            {kind: 1984},
-            {kind: 1985},
-          ],
-          profileLists: [
-            {address: shardAddress(OWNER, "general")},
-            {address: shardAddress(MOD_GENERAL, "general", 2)},
-          ],
-          badges: [],
-          retention: [],
-        },
-        {
-          name: COMMUNITY_SECTION_ROOMS,
-          kinds: [{kind: 11, subtype: COMMUNITY_SUBTYPE_ROOM}],
-          profileLists: [{address: shardAddress(OWNER, "room-creator")}],
-          badges: [],
-          retention: [],
-        },
-        {
-          name: COMMUNITY_SECTION_THREADS,
-          kinds: [{kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS}],
-          profileLists: [
-            {address: shardAddress(OWNER, "thread-creator")},
-            {address: shardAddress(MOD_ALL, "thread-creator", 2)},
-          ],
-          badges: [],
-          retention: [],
-        },
-        {
-          name: COMMUNITY_SECTION_REPO_CURATOR,
-          kinds: [{kind: 30617}, {kind: 1623}],
-          profileLists: [
-            {address: shardAddress(MOD_CODE, "code-curator")},
-            {address: shardAddress(MOD_ALL, "code-curator", 2)},
-          ],
-          badges: [],
-          retention: [],
-        },
-        {
-          name: "Calendar-event-creator",
-          kinds: [{kind: 31922}, {kind: 31923}],
-          profileLists: [],
-          badges: [],
-          retention: [],
-        },
-      ],
-    })
+    communityId: COMMUNITY_ID,
+    name: "Vector Community",
+    relays: [RELAY],
+    sections: [
+      {
+        name: COMMUNITY_SECTION_GENERAL,
+        kinds: [
+          {kind: 9, subtype: COMMUNITY_SUBTYPE_ROOM_MESSAGE},
+          {kind: 1111},
+          {kind: 7},
+          {kind: 1984},
+          {kind: 1985},
+        ],
+        profileLists: [
+          {address: shardAddress(OWNER, "general")},
+          {address: shardAddress(MOD_GENERAL, "general", 2)},
+        ],
+        badges: [],
+        retention: [],
+      },
+      {
+        name: COMMUNITY_SECTION_ROOMS,
+        kinds: [{kind: 11, subtype: COMMUNITY_SUBTYPE_ROOM}],
+        profileLists: [{address: shardAddress(OWNER, "room-creator")}],
+        badges: [],
+        retention: [],
+      },
+      {
+        name: COMMUNITY_SECTION_THREADS,
+        kinds: [{kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS}],
+        profileLists: [
+          {address: shardAddress(OWNER, "thread-creator")},
+          {address: shardAddress(MOD_ALL, "thread-creator", 2)},
+        ],
+        badges: [],
+        retention: [],
+      },
+      {
+        name: COMMUNITY_SECTION_REPO_CURATOR,
+        kinds: [{kind: 30617}, {kind: 1623}],
+        profileLists: [
+          {address: shardAddress(MOD_CODE, "code-curator")},
+          {address: shardAddress(MOD_ALL, "code-curator", 2)},
+        ],
+        badges: [],
+        retention: [],
+      },
+      {
+        name: "Calendar-event-creator",
+        kinds: [{kind: 31922}, {kind: 31923}],
+        profileLists: [],
+        badges: [],
+        retention: [],
+      },
+    ],
+  })
   const relays = overrides.relays ?? [RELAY]
   const tags = built.tags.filter(tag => tag[0] !== "r")
   const insertAt = tags.findIndex(tag => tag[0] === "name") + 1
@@ -184,9 +182,18 @@ const shard = (
   ])
 
 const personReport = (reporter: string, target: string) =>
-  event(COMMUNITY_REPORT_KIND, reporter, makeCommunityPersonReport({community: pointer, pubkey: target}).tags)
+  event(
+    COMMUNITY_REPORT_KIND,
+    reporter,
+    makeCommunityPersonReport({community: pointer, pubkey: target}).tags,
+  )
 
-const eventReport = (reporter: string, targetPubkey: string, targetId: string, sectionName: string) =>
+const eventReport = (
+  reporter: string,
+  targetPubkey: string,
+  targetId: string,
+  sectionName: string,
+) =>
   event(
     COMMUNITY_REPORT_KIND,
     reporter,
@@ -209,7 +216,9 @@ type Oracle = {
 
 const deriveSubtype = (candidate: TrustedEvent) => {
   if (candidate.kind === 11) {
-    return candidate.tags.some(tag => tag[0] === "room") ? COMMUNITY_SUBTYPE_ROOM : COMMUNITY_SUBTYPE_THREADS
+    return candidate.tags.some(tag => tag[0] === "room")
+      ? COMMUNITY_SUBTYPE_ROOM
+      : COMMUNITY_SUBTYPE_THREADS
   }
   if (candidate.kind === 9) return COMMUNITY_SUBTYPE_ROOM_MESSAGE
   return undefined
@@ -279,13 +288,50 @@ type Scenario = {
   cases: Case[]
 }
 
-const thread = (pubkey: string, content = "thread") => event(11, pubkey, [["h", COMMUNITY_ID]], content)
-const roomRoot = (pubkey: string) => event(11, pubkey, [["h", COMMUNITY_ID], ["room", ""]], "room")
-const roomMessage = (pubkey: string) => event(9, pubkey, [["h", COMMUNITY_ID], ["e", "ab".repeat(32)]], "hi")
-const comment = (pubkey: string) => event(1111, pubkey, [["h", COMMUNITY_ID], ["e", "cd".repeat(32)]], "c")
-const repo = (pubkey: string) => event(30617, pubkey, [["h", COMMUNITY_ID], ["d", "repo"]])
+const thread = (pubkey: string, content = "thread") =>
+  event(11, pubkey, [["h", COMMUNITY_ID]], content)
+const roomRoot = (pubkey: string) =>
+  event(
+    11,
+    pubkey,
+    [
+      ["h", COMMUNITY_ID],
+      ["room", ""],
+    ],
+    "room",
+  )
+const roomMessage = (pubkey: string) =>
+  event(
+    9,
+    pubkey,
+    [
+      ["h", COMMUNITY_ID],
+      ["e", "ab".repeat(32)],
+    ],
+    "hi",
+  )
+const comment = (pubkey: string) =>
+  event(
+    1111,
+    pubkey,
+    [
+      ["h", COMMUNITY_ID],
+      ["e", "cd".repeat(32)],
+    ],
+    "c",
+  )
+const repo = (pubkey: string) =>
+  event(30617, pubkey, [
+    ["h", COMMUNITY_ID],
+    ["d", "repo"],
+  ])
 const wrapper = (pubkey: string, kind: number) =>
-  event(30222, pubkey, [["d", "targeting"], ["k", String(kind)], ["h", COMMUNITY_ID], ["a", ADDRESS, RELAY]])
+  event(30222, pubkey, [
+    ["d", "targeting"],
+    ["k", String(kind)],
+    ["h", COMMUNITY_ID],
+    ["a", ADDRESS, RELAY],
+  ])
 
 const contentMatrix = (pubkeys: Record<string, string>): TrustedEvent[] =>
   Object.entries(pubkeys).flatMap(([label, pubkey]) => [
@@ -296,12 +342,26 @@ const contentMatrix = (pubkeys: Record<string, string>): TrustedEvent[] =>
     Object.assign(repo(pubkey), {__label: `${label} repo announcement`}),
     Object.assign(wrapper(pubkey, 31922), {__label: `${label} calendar wrapper`}),
     Object.assign(wrapper(pubkey, 9041), {__label: `${label} goal wrapper (kind not enabled)`}),
-    Object.assign(event(1, pubkey, [["h", COMMUNITY_ID]], "note"), {__label: `${label} kind 1 (not enabled)`}),
+    Object.assign(event(1, pubkey, [["h", COMMUNITY_ID]], "note"), {
+      __label: `${label} kind 1 (not enabled)`,
+    }),
   ])
 
-const PEOPLE = {owner: OWNER, modGeneral: MOD_GENERAL, modCode: MOD_CODE, modAll: MOD_ALL, member: MEMBER, member2: MEMBER2, outsider: OUTSIDER}
+const PEOPLE = {
+  owner: OWNER,
+  modGeneral: MOD_GENERAL,
+  modCode: MOD_CODE,
+  modAll: MOD_ALL,
+  member: MEMBER,
+  member2: MEMBER2,
+  outsider: OUTSIDER,
+}
 
-const buildScenario = (name: string, authority: TrustedEvent[], candidates: TrustedEvent[]): Scenario => {
+const buildScenario = (
+  name: string,
+  authority: TrustedEvent[],
+  candidates: TrustedEvent[],
+): Scenario => {
   const definitionEvents = authority.filter(item => item.kind === COMMUNITY_DEFINITION_KIND)
   const definition = definitionEvents.length
     ? parseCommunityDefinition(definitionEvents[definitionEvents.length - 1])
@@ -309,7 +369,9 @@ const buildScenario = (name: string, authority: TrustedEvent[], candidates: Trus
   if (!definition) throw new Error(`scenario ${name} has no valid definition`)
   const oracle: Oracle = {
     definition,
-    profileListEvents: authority.filter(item => item.kind === PROFILE_LIST_KIND || item.kind === DELETE),
+    profileListEvents: authority.filter(
+      item => item.kind === PROFILE_LIST_KIND || item.kind === DELETE,
+    ),
     reportEvents: authority.filter(item => item.kind === COMMUNITY_REPORT_KIND),
     deleteEvents: authority.filter(item => item.kind === DELETE),
   }
@@ -317,9 +379,16 @@ const buildScenario = (name: string, authority: TrustedEvent[], candidates: Trus
     name,
     authority,
     cases: candidates.map(candidate => {
-      const label = (candidate as TrustedEvent & {__label?: string}).__label || `${candidate.kind} by ${candidate.pubkey.slice(0, 8)}`
-      const {__label: _ignored, ...clean} = candidate as TrustedEvent & {__label?: string}
-      return {name: label, event: clean as TrustedEvent, expect: clientAdmits(oracle, clean as TrustedEvent) ? "accept" : "reject"}
+      const label =
+        (candidate as TrustedEvent & {__label?: string}).__label ||
+        `${candidate.kind} by ${candidate.pubkey.slice(0, 8)}`
+      const clean = {...candidate} as TrustedEvent & {__label?: string}
+      delete clean.__label
+      return {
+        name: label,
+        event: clean as TrustedEvent,
+        expect: clientAdmits(oracle, clean as TrustedEvent) ? "accept" : "reject",
+      }
     }),
   }
 }
@@ -346,10 +415,16 @@ const buildScenarios = (): Scenario[] => {
       [...baseAuthority(), shard(MOD_CODE, "code-curator", [], {declined: true})],
       [
         ...contentMatrix({modCode: MOD_CODE}),
-        Object.assign(eventReport(MOD_CODE, OUTSIDER, "ef".repeat(32), COMMUNITY_SECTION_REPO_CURATOR), {
-          __label: "declined moderator event report in own section (falls back to content report via General)",
+        Object.assign(
+          eventReport(MOD_CODE, OUTSIDER, "ef".repeat(32), COMMUNITY_SECTION_REPO_CURATOR),
+          {
+            __label:
+              "declined moderator event report in own section (falls back to content report via General)",
+          },
+        ),
+        Object.assign(personReport(MOD_CODE, OUTSIDER), {
+          __label: "declined moderator person report",
         }),
-        Object.assign(personReport(MOD_CODE, OUTSIDER), {__label: "declined moderator person report"}),
       ],
     ),
   )
@@ -387,34 +462,58 @@ const buildScenarios = (): Scenario[] => {
       buildScenario("owner person-bans a member", authority, [
         ...contentMatrix({member: MEMBER, member2: MEMBER2}),
         Object.assign(personReport(MEMBER, OUTSIDER), {__label: "banned member person report"}),
-        Object.assign(eventReport(MEMBER, OUTSIDER, "ef".repeat(32), COMMUNITY_SECTION_GENERAL), {__label: "banned member content report"}),
+        Object.assign(eventReport(MEMBER, OUTSIDER, "ef".repeat(32), COMMUNITY_SECTION_GENERAL), {
+          __label: "banned member content report",
+        }),
       ]),
     )
   }
 
   {
     const report = personReport(OWNER, MEMBER)
-    const authority = [...baseAuthority(), report, event(DELETE, OWNER, makeCommunityReportDelete({community: pointer, reportId: report.id, reporterPubkey: OWNER}).tags)]
-    scenarios.push(buildScenario("owner retracts a person ban", authority, contentMatrix({member: MEMBER})))
+    const authority = [
+      ...baseAuthority(),
+      report,
+      event(
+        DELETE,
+        OWNER,
+        makeCommunityReportDelete({community: pointer, reportId: report.id, reporterPubkey: OWNER})
+          .tags,
+      ),
+    ]
+    scenarios.push(
+      buildScenario("owner retracts a person ban", authority, contentMatrix({member: MEMBER})),
+    )
   }
 
   scenarios.push(
-    buildScenario(
-      "report authority matrix",
-      baseAuthority(),
-      [
-        ...Object.entries(PEOPLE).flatMap(([label, pubkey]) => [
-          Object.assign(personReport(pubkey, STRANGER), {__label: `${label} person report on stranger`}),
-          Object.assign(personReport(pubkey, MOD_GENERAL), {__label: `${label} person report on a moderator`}),
-          Object.assign(personReport(pubkey, OWNER), {__label: `${label} person report on the owner`}),
-          Object.assign(eventReport(pubkey, STRANGER, "ef".repeat(32), COMMUNITY_SECTION_GENERAL), {__label: `${label} event report in General`}),
-          Object.assign(eventReport(pubkey, STRANGER, "ef".repeat(32), COMMUNITY_SECTION_REPO_CURATOR), {__label: `${label} event report in Code-curator`}),
-          Object.assign(eventReport(pubkey, MOD_CODE, "ef".repeat(32), COMMUNITY_SECTION_GENERAL), {__label: `${label} event report targeting a moderator`}),
-          Object.assign(eventReport(pubkey, STRANGER, "ef".repeat(32), "Nope"), {__label: `${label} event report in unknown section`}),
-        ]),
-        Object.assign(personReport(OWNER, OWNER), {__label: "owner self report"}),
-      ],
-    ),
+    buildScenario("report authority matrix", baseAuthority(), [
+      ...Object.entries(PEOPLE).flatMap(([label, pubkey]) => [
+        Object.assign(personReport(pubkey, STRANGER), {
+          __label: `${label} person report on stranger`,
+        }),
+        Object.assign(personReport(pubkey, MOD_GENERAL), {
+          __label: `${label} person report on a moderator`,
+        }),
+        Object.assign(personReport(pubkey, OWNER), {
+          __label: `${label} person report on the owner`,
+        }),
+        Object.assign(eventReport(pubkey, STRANGER, "ef".repeat(32), COMMUNITY_SECTION_GENERAL), {
+          __label: `${label} event report in General`,
+        }),
+        Object.assign(
+          eventReport(pubkey, STRANGER, "ef".repeat(32), COMMUNITY_SECTION_REPO_CURATOR),
+          {__label: `${label} event report in Code-curator`},
+        ),
+        Object.assign(eventReport(pubkey, MOD_CODE, "ef".repeat(32), COMMUNITY_SECTION_GENERAL), {
+          __label: `${label} event report targeting a moderator`,
+        }),
+        Object.assign(eventReport(pubkey, STRANGER, "ef".repeat(32), "Nope"), {
+          __label: `${label} event report in unknown section`,
+        }),
+      ]),
+      Object.assign(personReport(OWNER, OWNER), {__label: "owner self report"}),
+    ]),
   )
 
   {
@@ -440,7 +539,10 @@ const buildScenarios = (): Scenario[] => {
             {
               name: COMMUNITY_SECTION_THREADS,
               kinds: [{kind: 11, subtype: COMMUNITY_SUBTYPE_THREADS}],
-              profileLists: [{address: shardAddress(MOD_ALL, "thread-creator")}, {address: shardAddress(MOD_GENERAL, "thread-creator", 2)}],
+              profileLists: [
+                {address: shardAddress(MOD_ALL, "thread-creator")},
+                {address: shardAddress(MOD_GENERAL, "thread-creator", 2)},
+              ],
               badges: [],
               retention: [],
             },
@@ -457,11 +559,21 @@ const buildScenarios = (): Scenario[] => {
     scenarios.push(
       buildScenario("all-sections moderator bans; moderators are protected", authority, [
         ...contentMatrix({outsider: OUTSIDER, modGeneral: MOD_GENERAL, member: MEMBER}),
-        Object.assign(personReport(MOD_ALL, STRANGER), {__label: "all-sections moderator person report"}),
-        Object.assign(personReport(MOD_GENERAL, STRANGER), {__label: "single-section moderator person report"}),
-        Object.assign(personReport(MOD_ALL, MOD_GENERAL), {__label: "all-sections moderator person report on a moderator (protected)"}),
-        Object.assign(personReport(MOD_ALL, OWNER), {__label: "all-sections moderator person report on the owner (protected)"}),
-        Object.assign(personReport(OWNER, MOD_GENERAL), {__label: "owner person report on a moderator"}),
+        Object.assign(personReport(MOD_ALL, STRANGER), {
+          __label: "all-sections moderator person report",
+        }),
+        Object.assign(personReport(MOD_GENERAL, STRANGER), {
+          __label: "single-section moderator person report",
+        }),
+        Object.assign(personReport(MOD_ALL, MOD_GENERAL), {
+          __label: "all-sections moderator person report on a moderator (protected)",
+        }),
+        Object.assign(personReport(MOD_ALL, OWNER), {
+          __label: "all-sections moderator person report on the owner (protected)",
+        }),
+        Object.assign(personReport(OWNER, MOD_GENERAL), {
+          __label: "owner person report on a moderator",
+        }),
       ]),
     )
 
@@ -484,19 +596,33 @@ type DefinitionCase = {name: string; event: TrustedEvent; valid: boolean}
 const buildDefinitionCases = (): DefinitionCase[] => {
   const base = definitionEvent()
   const withTags = (mutate: (tags: string[][]) => string[][], extra: Partial<TrustedEvent> = {}) =>
-    event(COMMUNITY_DEFINITION_KIND, OWNER, mutate(base.tags.map(tag => [...tag])), extra.content ?? "")
+    event(
+      COMMUNITY_DEFINITION_KIND,
+      OWNER,
+      mutate(base.tags.map(tag => [...tag])),
+      extra.content ?? "",
+    )
   const cases: Array<[string, TrustedEvent]> = [
     ["valid baseline", base],
-    ["unknown top-level tag preserved", withTags(tags => [...tags.slice(0, 3), ["enforced-relay", RELAY], ...tags.slice(3)])],
+    [
+      "unknown top-level tag preserved",
+      withTags(tags => [...tags.slice(0, 3), ["enforced-relay", RELAY], ...tags.slice(3)]),
+    ],
     ["unknown section-local tag", withTags(tags => [...tags, ["custom", "x"]])],
     ["duplicate d", withTags(tags => [...tags, ["d", COMMUNITY_ID]])],
     ["h tag present", withTags(tags => [...tags, ["h", COMMUNITY_ID]])],
     ["no r tags", withTags(tags => tags.filter(tag => tag[0] !== "r"))],
-    ["r with legacy enforced marker", withTags(tags => tags.map(tag => (tag[0] === "r" ? [...tag, "enforced"] : tag)))],
+    [
+      "r with legacy enforced marker",
+      withTags(tags => tags.map(tag => (tag[0] === "r" ? [...tag, "enforced"] : tag))),
+    ],
     ["non-canonical r (uppercase host)", definitionEvent({relays: ["wss://Relay.Example"]})],
     ["non-canonical r (dot segment)", definitionEvent({relays: ["wss://relay.example/a/./b"]})],
     ["non-canonical r (space)", definitionEvent({relays: ["wss://relay.example/a b"]})],
-    ["non-canonical r (uncompressed IPv6)", definitionEvent({relays: ["wss://[2001:0db8:0000:0000:0000:0000:0000:0001]"]})],
+    [
+      "non-canonical r (uncompressed IPv6)",
+      definitionEvent({relays: ["wss://[2001:0db8:0000:0000:0000:0000:0000:0001]"]}),
+    ],
     ["canonical r (compressed IPv6)", definitionEvent({relays: ["wss://[2001:db8::1]"]})],
     ["canonical r (IPv4)", definitionEvent({relays: ["wss://127.0.0.1"]})],
     ["non-canonical r (short IPv4 127.1)", definitionEvent({relays: ["wss://127.1"]})],
@@ -508,21 +634,164 @@ const buildDefinitionCases = (): DefinitionCase[] => {
     ["canonical r (trailing dot host)", definitionEvent({relays: ["wss://relay.example."]})],
     ["non-canonical r (default port)", definitionEvent({relays: ["wss://relay.example:443"]})],
     ["canonical r (explicit port)", definitionEvent({relays: ["wss://relay.example:8443"]})],
-    ["non-canonical r (empty path with query)", definitionEvent({relays: ["wss://relay.example?x=1"]})],
+    [
+      "non-canonical r (empty path with query)",
+      definitionEvent({relays: ["wss://relay.example?x=1"]}),
+    ],
     ["canonical r (path with query)", definitionEvent({relays: ["wss://relay.example/?x=1"]})],
-    ["non-canonical r (apostrophe in query)", definitionEvent({relays: ["wss://relay.example/?q=it's"]})],
+    [
+      "non-canonical r (apostrophe in query)",
+      definitionEvent({relays: ["wss://relay.example/?q=it's"]}),
+    ],
     ["canonical r with path", definitionEvent({relays: ["wss://relay.example/path"]})],
     ["ws scheme", definitionEvent({relays: ["ws://relay.example"]})],
     ["section k before first content", withTags(tags => [["k", "1"], ...tags])],
     ["duplicate kind across sections", withTags(tags => [...tags, ["k", "1111"]])],
-    ["duplicate section name (case-folded)", withTags(tags => [...tags, ["content", "general"], ["k", "40000"]])],
+    [
+      "duplicate section name (case-folded)",
+      withTags(tags => [...tags, ["content", "general"], ["k", "40000"]]),
+    ],
     ["section without k", withTags(tags => [...tags, ["content", "Empty"]])],
-    ["shard identifier without community prefix", withTags(tags => [...tags, ["content", "X"], ["k", "40001"], ["a", `30000:${OWNER}:general`]])],
+    [
+      "shard identifier without community prefix",
+      withTags(tags => [
+        ...tags,
+        ["content", "X"],
+        ["k", "40001"],
+        ["a", `30000:${OWNER}:general`],
+      ]),
+    ],
     ["non-empty content", withTags(tags => tags, {content: "x"})],
-    ["name too long", withTags(tags => tags.map(tag => (tag[0] === "name" ? ["name", "n".repeat(101)] : tag)))],
-    ["too many r tags", withTags(tags => [...tags, ...Array.from({length: 20}, (_, i) => ["r", `wss://r${i}.example`])])],
+    [
+      "name too long",
+      withTags(tags => tags.map(tag => (tag[0] === "name" ? ["name", "n".repeat(101)] : tag))),
+    ],
+    [
+      "too many r tags",
+      withTags(tags => [
+        ...tags,
+        ...Array.from({length: 20}, (_, i) => ["r", `wss://r${i}.example`]),
+      ]),
+    ],
   ]
-  return cases.map(([name, candidate]) => ({name, event: candidate, valid: Boolean(parseCommunityDefinition(candidate))}))
+  return cases.map(([name, candidate]) => ({
+    name,
+    event: candidate,
+    valid: Boolean(parseCommunityDefinition(candidate)),
+  }))
+}
+
+// --- reader vectors (whole relay, independent of section write permission) ------
+
+type ReaderScenario = {
+  name: string
+  branch: string
+  ready: boolean
+  authority: TrustedEvent[]
+  cases: Array<{name: string; pubkey: string; allowed: boolean}>
+}
+
+const readerOracle = (authority: TrustedEvent[], ready = true) => {
+  const definition = selectCurrentCommunityDefinitions(authority).get(ADDRESS)
+  const profileListEvents = authority.filter(
+    item => item.kind === PROFILE_LIST_KIND || item.kind === DELETE,
+  )
+  const reportState = definition
+    ? getEffectiveCommunityReportState({
+        community: pointer,
+        definition,
+        profileListEvents,
+        reportEvents: authority.filter(item => item.kind === COMMUNITY_REPORT_KIND),
+        deleteEvents: authority.filter(item => item.kind === DELETE),
+      })
+    : undefined
+  return prepareCommunityReaderEligibility({
+    community: pointer,
+    definition,
+    profileListEvents,
+    reportState,
+    ready,
+  })
+}
+
+const buildReaderScenarios = (writes: Scenario[]): ReaderScenario[] => {
+  const scenarios: ReaderScenario[] = []
+  const add = (name: string, authority: TrustedEvent[], ready = true) => {
+    const allows = readerOracle(authority, ready)
+    scenarios.push({
+      name,
+      branch: ADDRESS,
+      authority,
+      ready,
+      cases: Object.entries(PEOPLE).map(([name, pubkey]) => ({
+        name,
+        pubkey,
+        allowed: allows(pubkey),
+      })),
+    })
+  }
+  for (const scenario of writes) add(scenario.name, scenario.authority)
+  add("pending invitations and missing grants", [definitionEvent()])
+  add("declined list does not grant its p tags", [
+    definitionEvent(),
+    shard(MOD_GENERAL, "general", [OUTSIDER], {shard: 2, declined: true}),
+  ])
+  const removed = [
+    ...baseAuthority(),
+    ...["general", "room-creator", "thread-creator"].map(purpose => shard(OWNER, purpose, [])),
+  ]
+  add("last role removed", removed)
+  add("regrant reads all retained history", [...removed, shard(OWNER, "general", [MEMBER])])
+  const base = baseAuthority()
+  add("structural reference removed", [
+    ...base,
+    event(
+      COMMUNITY_DEFINITION_KIND,
+      OWNER,
+      base[0].tags.filter(
+        tag => !(tag[0] === "a" && tag[1] === shardAddress(MOD_CODE, "code-curator")),
+      ),
+    ),
+  ])
+  const tieTime = clock + 20
+  add("equal timestamp shard replacement", [
+    ...baseAuthority(),
+    event(
+      PROFILE_LIST_KIND,
+      MOD_GENERAL,
+      [
+        ["d", `${COMMUNITY_ID}-general.2`],
+        ["p", OUTSIDER],
+      ],
+      "",
+      tieTime,
+    ),
+    event(PROFILE_LIST_KIND, MOD_GENERAL, [["d", `${COMMUNITY_ID}-general.2`]], "", tieTime),
+  ])
+  add("event censorship does not ban its author", [
+    ...baseAuthority(),
+    eventReport(OWNER, MEMBER, "ab".repeat(32), COMMUNITY_SECTION_GENERAL),
+  ])
+  const deleted = baseAuthority()
+  // These are retained authority records, not a speculative local event log.
+  // NIP-09 removes this exact body in storage; the protocol's addressable
+  // selector alone only understands coordinate tombstones. Private intake must
+  // use the Repository's deletion-aware view, not concatenate deleted bodies.
+  add("last grant deleted by id", [
+    ...deleted.filter(item => item.id !== deleted[2].id),
+    event(DELETE, MOD_GENERAL, [["e", deleted[2].id]]),
+  ])
+  add("same id different owner does not transfer access", [
+    ...baseAuthority(),
+    event(COMMUNITY_DEFINITION_KIND, OUTSIDER, definitionEvent().tags),
+  ])
+  add("successful empty owner bootstrap", [])
+  add("unavailable policy even with loaded roles", baseAuthority(), false)
+  add("definition tombstoned owner bootstrap", [
+    ...baseAuthority(),
+    event(DELETE, OWNER, [["a", ADDRESS]]),
+  ])
+  return scenarios
 }
 
 // --- test / export -------------------------------------------------------------
@@ -538,6 +807,7 @@ const gitCommit = () => {
 describe("community policy vectors", () => {
   const scenarios = buildScenarios()
   const definitions = buildDefinitionCases()
+  const readers = {format: 1, scenarios: buildReaderScenarios(scenarios)}
 
   it("builds a non-trivial matrix with both outcomes", () => {
     const outcomes = scenarios.flatMap(scenario => scenario.cases.map(item => item.expect))
@@ -576,8 +846,50 @@ describe("community policy vectors", () => {
       people: {...PEOPLE, stranger: STRANGER},
       scenarios,
       definitions,
+      readers,
     }
     mkdirSync(dirname(out), {recursive: true})
     writeFileSync(out, JSON.stringify(payload, null, 1) + "\n")
+  })
+
+  it("pins reader eligibility independently of write sections and personal exclusions", () => {
+    const allowed = (scenario: string, reader: string) =>
+      readers.scenarios
+        .find(item => item.name === scenario)!
+        .cases.find(item => item.name === reader)!.allowed
+    expect(allowed("baseline grants", "member2")).toBe(true) // cannot write threads, but can read them
+    expect(allowed("baseline grants", "outsider")).toBe(false)
+    expect(allowed("pending invitations and missing grants", "modCode")).toBe(true)
+    expect(allowed("pending invitations and missing grants", "member")).toBe(false)
+    expect(allowed("declined list does not grant its p tags", "modGeneral")).toBe(true)
+    expect(allowed("declined list does not grant its p tags", "outsider")).toBe(false)
+    expect(allowed("last role removed", "member")).toBe(false)
+    expect(allowed("regrant reads all retained history", "member")).toBe(true)
+    expect(allowed("owner person-bans a member", "member")).toBe(false)
+    expect(allowed("owner retracts a person ban", "member")).toBe(true)
+    expect(allowed("structural reference removed", "modCode")).toBe(false)
+    expect(allowed("event censorship does not ban its author", "member")).toBe(true)
+    expect(allowed("last grant deleted by id", "member2")).toBe(false)
+    expect(allowed("same id different owner does not transfer access", "outsider")).toBe(false)
+    expect(allowed("successful empty owner bootstrap", "owner")).toBe(true)
+    expect(allowed("successful empty owner bootstrap", "member")).toBe(false)
+    expect(allowed("unavailable policy even with loaded roles", "owner")).toBe(false)
+    const authority = scenarios[0].authority
+    expect(
+      prepareUserCommunityRefSelection({
+        definitionEvents: authority,
+        profileListEvents: authority,
+        excludedCommunityAddresses: [ADDRESS],
+      })(MEMBER),
+    ).toEqual([])
+    expect(readerOracle(authority)(MEMBER)).toBe(true)
+    expect(readerOracle(authority)("")).toBe(false)
+    expect(
+      prepareCommunityReaderEligibility({
+        community: makeCommunityPointer({ownerPubkey: OUTSIDER, communityId: COMMUNITY_ID})!,
+        definition: parseCommunityDefinition(authority[0]),
+        ready: true,
+      })(OUTSIDER),
+    ).toBe(false)
   })
 })

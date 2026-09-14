@@ -90,4 +90,15 @@ describe("extension query completion", () => {
       await queryExtensionRelays(["wss://relay.example/"], {kinds: [30063], ids: [asset.id]}),
     ).toMatchObject({complete: true})
   })
+  it("rejects unsigned trusted candidates rather than exporting them", async () => {
+    const unsigned = {...event(), sig: undefined}
+    load.mockImplementation(async (options: LoadOptions) => {
+      options.onEvent?.(unsigned, options.relays[0])
+      options.onEose?.(options.relays[0])
+    })
+    expect(await queryExtensionRelays(["wss://relay.example/"], {kinds: [30063]})).toMatchObject({
+      events: [],
+      complete: true,
+    })
+  })
 })
