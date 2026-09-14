@@ -126,6 +126,10 @@ const mergeRepositoryUpdateEnvelopes = (
 })
 
 export class Repository {
+  // Optional boundaries for isolated consumers; public repository semantics
+  // remain unchanged unless the embedding application installs a guard.
+  acceptEvent: (event: TrustedEvent) => boolean = () => true
+  constructor(readonly options: {deletionAwareReplaceables?: boolean} = {}) {}
   eventsById = new Map<string, TrustedEvent>()
   eventsByAddress = new Map<string, TrustedEvent>()
   eventsByTag = new Map<string, TrustedEvent[]>()
@@ -411,6 +415,7 @@ export class Repository {
   }
 
   private publishNow = (event: TrustedEvent, shouldNotify: boolean): boolean => {
+    if (!this.acceptEvent(event)) return false
     if (!event?.id) {
       console.warn("Attempted to publish invalid event to repository", event)
 
@@ -431,6 +436,12 @@ export class Repository {
       if (event.created_at < duplicate.created_at) {
         return false
       }
+      if (
+        this.options.deletionAwareReplaceables &&
+        event.created_at === duplicate.created_at &&
+        event.id > duplicate.id
+      )
+        return false
 
       // If our event is newer than what it's replacing, delete the old version
       pushToMapKey(this.deletes, duplicate.id, pick(["pubkey", "created_at"], event))
@@ -511,6 +522,11 @@ export class Repository {
 
   dump = () => {
     return Array.from(this.eventsById.values())
+  }
+
+  clear = () => {
+    this.takeDeferredEvents() // clearing must not flush delayed private intake
+    this.load([])
   }
 
   load = (events: TrustedEvent[]) => {
@@ -670,7 +686,12 @@ export class Repository {
 
   _isDeleted = (key: string, event: TrustedEvent) => {
     for (const {pubkey, created_at} of this.deletes.get(key) || []) {
-      if (pubkey === event.pubkey && created_at > event.created_at) {
+      if (
+        pubkey === event.pubkey &&
+        (this.options.deletionAwareReplaceables
+          ? created_at >= event.created_at
+          : created_at > event.created_at)
+      ) {
         return true
       }
     }
@@ -681,7 +702,10 @@ export class Repository {
   isDeletedByAddress = (event: TrustedEvent) => this._isDeleted(getAddress(event), event)
 
   isDeletedById = (event: TrustedEvent) =>
-    this.replaced.has(event.id) || (!isReplaceable(event) && this._isDeleted(event.id, event))
+    this.replaced.has(event.id) ||
+    (this.options.deletionAwareReplaceables
+      ? (this.deletes.get(event.id) || []).some(deleteEvent => deleteEvent.pubkey === event.pubkey)
+      : !isReplaceable(event) && this._isDeleted(event.id, event))
 
   isDeleted = (event: TrustedEvent) => this.isDeletedById(event) || this.isDeletedByAddress(event)
 

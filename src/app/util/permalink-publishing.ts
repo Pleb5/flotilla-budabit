@@ -10,6 +10,10 @@ import {
   withPublicationTargetingId,
 } from "@app/core/community-targeting"
 import {requireRepoPublicationScope} from "@app/core/repo-publication"
+import {
+  assertPublicCommunityOperation,
+  assertPublicCommunityReferences,
+} from "@app/core/private-community-policy"
 
 export type PublicationDestinationSelection = {
   personal: boolean
@@ -77,6 +81,8 @@ export const publishPermalinkToDestinations = ({
   repoAddress?: string
   createdAt?: number
 }): PublishedPermalink | undefined => {
+  assertPublicCommunityReferences(selection.communityAddresses)
+  assertPublicCommunityOperation(permalink)
   const baseRelays = requireRepoPublicationScope({event: permalink, relays, repoAddress})
   let firstPublished: PublishedPermalink | undefined
 

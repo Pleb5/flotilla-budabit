@@ -11,12 +11,21 @@ import {
   socketPolicyAuthBuffer,
   socketPolicyConnectOnSend,
 } from "@welshman/net"
-import {verifyEvent, type TrustedEvent} from "@welshman/util"
+import {verifyEvent, getAddress, type TrustedEvent} from "@welshman/util"
+import {canWriteCommunitySection} from "./community-permissions"
+import {getEffectiveCommunityReportState, getCommunityCensorReason} from "./community-reports"
 import {authenticateRelay, cancelRelayAuthentication} from "./relay-auth-coordinator"
 import {recordRelayAuthRequired} from "./relay-policy"
 import {allowRelayAuthentication, requireExplicitRelayAuthConsent} from "./relay-auth-consent"
 import {selectCurrentCommunityDefinitions, type CommunityDefinition} from "./community-protocol"
 import type {PrivateCommunityScope} from "./private-community-scope"
+import {markPrivateEvent} from "./private-community-policy"
+import {loadPrivateRelayProfiles} from "./private-relay-profile"
+import {publishPrivateCommunityEvent} from "./private-community-publish"
+import {pubkey, signer} from "@welshman/app"
+import {buildCommunityDefinition, parseCommunityDefinition} from "./community-protocol"
+import {get} from "svelte/store"
+import {prep} from "@welshman/util"
 
 export type PrivateAccessState =
   | "consent"
@@ -66,7 +75,7 @@ const deps = {
 // relay diagnostics, trackers, notification/search stores, or persistence.
 export class PrivateCommunityAccess {
   view = writable<PrivateAccessView>({access: "consent", relays: {}, events: []})
-  repository = new Repository()
+  repository = new Repository({deletionAwareReplaceables: true})
   sockets = new Map<string, Socket>()
   private generation = 0
   private disposed = false
@@ -87,6 +96,29 @@ export class PrivateCommunityAccess {
     const states = Object.values(this.relayStates)
     const retained = this.repository.query([{}])
     const definition = selectCurrentCommunityDefinitions(retained).get(this.scope.pointer.address)
+    const reportState = definition
+      ? getEffectiveCommunityReportState({
+          definition,
+          profileListEvents: retained,
+          reportEvents: retained.filter(event => event.kind === 1984),
+          targetEvents: retained,
+        })
+      : undefined
+    const visible =
+      reportState && definition
+        ? retained.filter(
+            event =>
+              !definition.sections.some(section =>
+                getCommunityCensorReason({
+                  reportState,
+                  eventId: event.id,
+                  eventAddress: getAddress(event),
+                  pubkey: event.pubkey,
+                  sectionName: section.name,
+                }),
+              ),
+          )
+        : retained
     let access: PrivateAccessState = "checking"
     if (states.includes("signing")) access = "signing"
     else if (states.includes("awaiting-ack")) access = "awaiting-ack"
@@ -98,7 +130,7 @@ export class PrivateCommunityAccess {
     else if (states.includes("cancelled")) access = "cancelled"
     else access = "unavailable"
     if (access === "ready") this.everReady = true
-    this.view.set({access, relays: {...this.relayStates}, definition, events: retained})
+    this.view.set({access, relays: {...this.relayStates}, definition, events: visible})
   }
 
   async start() {
@@ -107,9 +139,13 @@ export class PrivateCommunityAccess {
     this.controller.abort()
     this.controller = new AbortController()
     this.off.splice(0).forEach(off => off())
-    this.repository = new Repository()
+    this.repository.clear()
     const signal = this.controller.signal
-    const current = () => !this.disposed && generation === this.generation && !signal.aborted
+    const current = () =>
+      !this.disposed &&
+      generation === this.generation &&
+      !signal.aborted &&
+      pubkey.get() === this.identity
     this.relayStates = Object.fromEntries(this.scope.relays.map(relay => [relay, "checking"]))
     this.update()
     await Promise.all(
@@ -130,7 +166,7 @@ export class PrivateCommunityAccess {
             this.generation++
             this.controller.abort()
             this.off.splice(0).forEach(off => off())
-            this.repository = new Repository()
+            this.repository.clear()
             this.view.set({access: value, relays: {...this.relayStates}, events: []})
             return
           }
@@ -179,6 +215,7 @@ export class PrivateCommunityAccess {
                 socket!.close()
                 return
               }
+              markPrivateEvent(event, this.scope.relays)
               this.repository.publish(event)
               this.update()
             },
@@ -215,8 +252,68 @@ export class PrivateCommunityAccess {
     this.controller.abort()
     this.off.splice(0).forEach(off => off())
     for (const socket of this.sockets.values()) cancelRelayAuthentication(socket)
-    this.repository = new Repository()
+    this.repository.clear()
     this.view.set({access: "cancelled", relays: {}, events: []})
+  }
+
+  async publishText(content: string, bootstrapName?: string) {
+    const signal = this.controller.signal
+    const view = get(this.view),
+      activeSigner = signer.get()
+    if (!activeSigner || pubkey.get() !== this.identity || (!content.trim() && !bootstrapName))
+      throw Error("Connect the publishing signer and enter text")
+    let definition = view.definition
+    const bootstrap =
+      !definition && bootstrapName && this.identity === this.scope.pointer.ownerPubkey
+    if (!bootstrap && (view.access !== "ready" || !definition))
+      throw Error("Complete private authority is required before posting")
+    const retained = this.repository.query([{}])
+    if (definition) {
+      const reportState = getEffectiveCommunityReportState({
+        definition,
+        profileListEvents: retained,
+        reportEvents: retained.filter(event => event.kind === 1984),
+        targetEvents: retained,
+      })
+      if (
+        !definition.sections.some(section =>
+          canWriteCommunitySection({
+            definition: definition!,
+            profileListEvents: retained,
+            userPubkey: this.identity,
+            sectionName: section.name,
+            kind: 1,
+            reportState,
+          }),
+        )
+      )
+        throw Error("Your role does not allow text posts in this community")
+    }
+    const profiles = await loadPrivateRelayProfiles(this.scope.relays, signal)
+    const event = bootstrap
+      ? buildCommunityDefinition({
+          communityId: this.scope.pointer.communityId,
+          name: bootstrapName,
+          readAccess: "members",
+          relays: this.scope.relays.map(relay => relay.replace(/\/$/, "")),
+          sections: [{name: "General", kinds: [{kind: 1}], profileLists: []}],
+        })
+      : {kind: 1, tags: [["h", this.scope.pointer.communityId]], content}
+    if (bootstrap) definition = parseCommunityDefinition(prep(event, this.identity) as TrustedEvent)
+    if (!definition) throw Error("Private definition is unavailable")
+    const result = await publishPrivateCommunityEvent({
+      definition,
+      event,
+      relays: this.scope.relays,
+      profiles,
+      sockets: this.sockets,
+      identity: this.identity,
+      currentIdentity: () => pubkey.get(),
+      signal,
+      sign: event => activeSigner.sign(event, {signal}),
+    })
+    // Only relay intake installs data; an ACK does not establish reader authority.
+    return result
   }
 
   dispose() {

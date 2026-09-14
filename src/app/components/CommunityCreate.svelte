@@ -105,6 +105,7 @@
     parseCommunityReportReviewLabel,
   } from "@app/core/community-reports"
   import {getCommunityRootPublishRelays} from "@app/core/community-relays"
+  import {assertPublicCommunityOperation} from "@app/core/private-community-policy"
   import {
     getNextReplacementCreatedAt,
     publishAndVerifyCommunityEvent,
@@ -1446,7 +1447,10 @@
   const makeSignedEvent = async (
     role: SetupSigner,
     template: EventTemplate,
-  ): Promise<SignedEvent> => role.signer.sign(prep(template, role.pubkey))
+  ): Promise<SignedEvent> => {
+    assertPublicCommunityOperation(template)
+    return role.signer.sign(prep(template, role.pubkey))
+  }
 
   const mergeProfileListUpdates = (updates: CommunityProfileListDraftUpdate[]) => {
     const byAddress = new Map<string, CommunityProfileListDraftUpdate>()

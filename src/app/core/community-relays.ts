@@ -5,6 +5,11 @@ import {INDEXER_RELAYS} from "@app/core/state"
 import {activeUserCommunityRefs} from "@app/core/community-state"
 import {logPublishRelaySummary} from "@app/core/diagnostics"
 import type {ActiveUserCommunityRef} from "@app/core/community-membership"
+import {
+  assertPublicCommunityReferences,
+  hasPrivateIntent,
+  isPrivateReference,
+} from "./private-community-policy"
 
 export type CommunityRelayRef = {
   communityId: string
@@ -66,7 +71,12 @@ export const getProfileCommunityRelaysFromRefs = (
 
   for (const ref of refs) {
     const communityAddress = ref.community.address
-    if (!communityAddress) continue
+    if (
+      !communityAddress ||
+      isPrivateReference(communityAddress) ||
+      hasPrivateIntent(ref.definition)
+    )
+      continue
 
     relaysByCommunity.set(
       communityAddress,
@@ -128,16 +138,20 @@ export const getScopedCommunityPublishRelays = (
   })),
 ) => {
   const scopes = communityScopes
+  assertPublicCommunityReferences(
+    communityScopes.flatMap(scope => [scope.communityId, scope.communityAddress || ""]),
+  )
+  const normalizedScopes = scopes
     .map(scope => ({
       communityId: normalizePubkey(scope.communityId),
       communityAddress: scope.communityAddress?.trim().toLowerCase(),
     }))
     .filter(scope => scope.communityId)
-  if (scopes.length === 0) return []
+  if (normalizedScopes.length === 0) return []
 
   return normalizeRelays(
     communityRefs.flatMap(ref =>
-      scopes.some(
+      normalizedScopes.some(
         scope =>
           scope.communityId === normalizePubkey(ref.communityId) &&
           (!scope.communityAddress ||

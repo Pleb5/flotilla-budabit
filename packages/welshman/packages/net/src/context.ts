@@ -1,9 +1,11 @@
-import {verifyEvent, type TrustedEvent} from "@welshman/util"
+import {verifyEvent, type TrustedEvent, type EventTemplate, type Filter} from "@welshman/util"
 import {type AbstractAdapter} from "./adapter.js"
 import {Repository} from "./repository.js"
 import {Pool} from "./pool.js"
 
 export type NetContext = {
+  beforePublish?: (event: EventTemplate, relays: string[]) => void
+  beforeRequest?: (filters: Filter[], relays: string[], isolated: boolean) => void | boolean
   pool: Pool
   repository: Repository
   isEventValid: (event: TrustedEvent, url: string) => boolean

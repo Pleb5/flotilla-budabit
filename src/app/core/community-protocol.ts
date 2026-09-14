@@ -66,6 +66,7 @@ export type CommunityDefinitionSectionInput = {
 }
 
 export type CommunityDefinition = {
+  readAccess?: "members"
   event: TrustedEvent
   pointer: CommunityPointer
   communityId: CommunityId
@@ -82,6 +83,7 @@ export type CommunityDefinition = {
 }
 
 export type BuildCommunityDefinitionParams = Omit<CommunityDefinitionMetadata, "name"> & {
+  readAccess?: "members"
   communityId: string
   name: string
   relays: string[]
@@ -628,6 +630,22 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
   if (!ownerPubkey) return undefined
 
   const tags = event.tags || []
+  // Optional extension: malformed, duplicate or unknown values do not invalidate
+  // the base definition. Publication policy separately refuses ambiguous intent.
+  const readAccessTags = tags
+    .slice(
+      0,
+      tags.findIndex(tag => tag[0] === "content") < 0
+        ? tags.length
+        : tags.findIndex(tag => tag[0] === "content"),
+    )
+    .filter(tag => tag[0] === "read-access")
+  const readAccess =
+    readAccessTags.length === 1 &&
+    readAccessTags[0].length === 2 &&
+    readAccessTags[0][1] === "members"
+      ? ("members" as const)
+      : undefined
   const dTags = getTags(tags, "d")
   if (dTags.length !== 1 || !exactTag(dTags[0], 2)) return undefined
   const communityId = parseCommunityId(dTags[0][1] || "")
@@ -718,6 +736,7 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
 
   return {
     event,
+    ...(readAccess ? {readAccess} : {}),
     pointer,
     communityId,
     ownerPubkey,
@@ -824,6 +843,7 @@ export const buildCommunityDefinition = (
     ["d", communityId],
     ["name", requireText(params.name, 1, 100, "community name")],
   ]
+  if (params.readAccess === "members") tags.push(["read-access", "members"])
   if (params.description) {
     tags.push(["description", requireText(params.description, 1, 4096, "description")])
   }
@@ -982,6 +1002,16 @@ export const updateCommunityDefinition = (
       continue
     }
     if (TOP_LEVEL_TAGS.has(tag[0]) || SECTION_TAGS.has(tag[0])) continue
+    // Rebuilt settings may already carry the unchanged intent. Do not duplicate
+    // it, and do not allow replacing a private marker with a public one.
+    if (
+      tag[0] === "read-access" &&
+      options.replacement.tags.some(item => item[0] === "read-access")
+    ) {
+      if (!options.replacement.tags.some(item => JSON.stringify(item) === JSON.stringify(tag)))
+        throw new Error("Changing private read intent requires an explicit disclosure migration.")
+      continue
+    }
     if (sourceSectionName) {
       sectionExtensions.set(sourceSectionName, [
         ...(sectionExtensions.get(sourceSectionName) || []),

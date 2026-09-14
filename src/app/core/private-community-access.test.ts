@@ -2,7 +2,7 @@ import {afterEach, describe, expect, it, vi} from "vitest"
 import {get} from "svelte/store"
 import {finalizeEvent, getPublicKey} from "nostr-tools"
 import {Socket, AuthStatus, type RequestOneOptions} from "@welshman/net"
-import {repository as sharedRepository} from "@welshman/app"
+import {repository as sharedRepository, pubkey} from "@welshman/app"
 import {PrivateCommunityAccess, privateAccessHeading} from "./private-community-access"
 import {makeCommunityPointer} from "./community-protocol"
 
@@ -45,6 +45,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 const setup = (relays = [relay]) => {
+  pubkey.set(owner)
   const reads: RequestOneOptions[] = []
   const socket = vi.fn(url => new Socket(url))
   const authenticate = vi.fn(async (socket: Socket) => {

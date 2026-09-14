@@ -13,6 +13,7 @@ import type {CommunityPointer} from "@app/core/community"
 import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
 import {makeAddressablePublicationRef} from "@app/core/community-targeting"
 import type {SmartWidgetEvent} from "@app/extensions/types"
+import {assertPublicCommunityReferences} from "@app/core/private-community-policy"
 
 export type WidgetCommunityOption = {
   community: CommunityPointer
@@ -66,6 +67,7 @@ const assertWidgetTargetCommunityRelays = (
     address => !byAddress.has(address),
   )
   const missing = getWidgetTargetsMissingCommunityRelays(communityOptions, communityAddresses)
+  assertPublicCommunityReferences(communityAddresses)
 
   if (missingTargets.length > 0) {
     throw new Error(

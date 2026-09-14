@@ -2,6 +2,7 @@ import {fromPairs, once} from "@welshman/lib"
 import {normalizeRelayUrl, sanitizeRelayUrls, type SignedEvent} from "@welshman/util"
 import {type RelayMessage, ClientMessageType, isRelayOk} from "./message.js"
 import {AdapterEvent, type AdapterContext, getAdapter} from "./adapter.js"
+import {netContext} from "./context.js"
 
 export enum PublishStatus {
   Sending = "sending",
@@ -34,6 +35,7 @@ export type PublishOneOptions = {
 
 export const publishOne = (options: PublishOneOptions) =>
   new Promise<PublishResult>(resolve => {
+    netContext.beforePublish?.(options.event, [options.relay])
     const relay = normalizeRelayUrl(options.relay)
     const adapter = getAdapter(relay, options.context)
 
@@ -123,6 +125,7 @@ export type PublishOptions = {
 }
 
 export const publish = async (options: PublishOptions): Promise<PublishResultsByRelay> => {
+  netContext.beforePublish?.(options.event, options.relays)
   const {event, timeout, signal, context} = options
   const completed = new Set<string>()
   const relays = sanitizeRelayUrls(options.relays)

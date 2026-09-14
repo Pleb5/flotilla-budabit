@@ -4,6 +4,41 @@ This document defines where Budabit should publish events. It separates personal
 
 ## Core Rules
 
+### Private community override
+
+Signed top-level `["read-access","members"]` overrides the public rules below.
+Any present but unsupported read-access intent also blocks public publication.
+Only the isolated private publisher can send private data, to an explicit subset
+of definition relays that advertise NIP-11 `auth_required: true` and exactly
+`budabit.read_control: {version: 1, mode: "members", scope: "relay"}`. Checks run
+before signing or optimistic insertion and again before transport. AUTH alone is
+not membership and does not turn off signature verification.
+
+| Public exception | Private behavior |
+| --- | --- |
+| Definition to owner outbox/indexers | Disabled; private owner bootstrap publishes only to invitation/definition endpoints. |
+| Admission review to applicant/APP relays | Disabled in public publication operations; no public fallback for a denied applicant. |
+| Repository announcements to Git indexers/GRASP | Private community scopes rejected before destination selection; Git HTTP hosting remains unsupported. |
+| Permalink personal/community union | Reject the entire private or mixed selection before publishing its original. |
+| Widget original before target wrapper | Reject private selections before either publication; external widget rendering disabled. |
+| Preferences/renunciations to outbox | Private scope mutations blocked before encryption/signing; no context-bearing public preference. |
+| Roster/profile hydration | Private groups excluded from shared profile relay routing. Private endpoint reads require a scope-owned adapter. |
+| Failed delivery/readback recovery | Private IDs/coordinates never fall back to outboxes/indexers; public readback helper rejects private events. |
+
+Private subscriptions use dedicated sockets, signature-verified intake, and a
+deletion-aware in-memory repository. E-only NIP-09 deletion of an addressable grant
+must remove it without resurrecting an older grant. Cancel, logout, identity
+switch, confirmed denial and revocation clear content and delayed intake. Shared
+repository insertion guards run at final insertion, including delayed batches;
+private data is not available to global notifications, search, extensions or
+IndexedDB persistence. Only privacy markers/relay hints (and in-memory ID guards,
+not bodies) survive view teardown. Remote media, Blossom uploads, Git hosting,
+widgets and context-bearing zaps remain disabled in the initial private shell.
+
+These are client routing protections, not encryption or proof that the operator
+actually enforces its NIP-11 claim. Members can copy data; public history and
+previous exports cannot be retracted by later enabling read control.
+
 | Rule                                            | Policy                                                                                                                                                                                                   | Why                                                                                                                 |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | Relay URLs are infrastructure                   | Relays are publication targets and discovery hints, not identities.                                                                                                                                      | Branch identity is the exact `kind:32222` definition address, not a relay URL.                                      |

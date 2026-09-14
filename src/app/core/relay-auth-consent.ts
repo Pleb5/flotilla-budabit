@@ -5,7 +5,9 @@ import {userSettingsValues, INDEXER_RELAYS, SIGNER_RELAYS} from "@app/core/state
 import {activeExactCommunityRelays} from "@app/core/community-state"
 import {isSignerPolicyRelay} from "@app/core/relay-policy"
 import {isEmailDigestAuthRelay} from "@app/core/email-digest-auth"
-import {graspServersStore} from "@nostr-git/ui"
+// UI-owned GRASP configuration is supplied by the root adapter, avoiding a
+// core/auth -> Svelte component package dependency during bootstrap/tests.
+export const extraRelayAuthRelays = writable<string[]>([])
 
 const normalize = (url: string) => {
   try {
@@ -41,7 +43,7 @@ export const isUserOwnedRelay = (url: string) => {
     ...getRelaysFromList(get(userMessagingRelayList)),
     ...(get(userSettingsValues).trusted_relays || []),
     ...get(activeExactCommunityRelays),
-    ...get(graspServersStore),
+    ...get(extraRelayAuthRelays),
   ]
   return candidates.some(relay => normalize(relay) === normalized)
 }
@@ -52,7 +54,7 @@ export const subscribeRelayAuthConsent = (callback: () => void) => {
     userMessagingRelayList,
     userSettingsValues,
     activeExactCommunityRelays,
-    graspServersStore,
+    extraRelayAuthRelays,
     relayAuthConsentVersion,
   ].map(store => store.subscribe(callback))
   return () => unsubscribers.forEach(unsubscribe => unsubscribe())

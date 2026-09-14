@@ -80,6 +80,37 @@ A missing, empty, malformed, or duplicate `d` invalidates the definition. Reader
 
 ### Definition Metadata
 
+### Optional members-only read intent
+
+The top-level extension `['read-access', 'members']` (JSON wire form
+`["read-access","members"]`) MAY occur once, before the first `content` section.
+It declares the owner's intent to distribute this branch only through member-only
+relays. It does **not** enable relay enforcement, prove membership, or provide
+encryption. Absence preserves public behavior. Unknown values, malformed or
+duplicate occurrences MUST be ignored by the base definition parser and MUST NOT
+invalidate an otherwise valid definition. Editors MUST preserve these extensions.
+Publishers that cannot interpret a present read-access extension MUST refuse to
+publish that definition or its scoped data, rather than assume public intent.
+
+Budabit's members publisher requires explicit destinations contained in the
+definition's `r` tags. Each destination must advertise both NIP-11
+`limitation.auth_required: true` and
+`budabit.read_control: {version: 1, mode: "members", scope: "relay"}`. A generic
+auth requirement or mere extension presence is insufficient. NIP-11 is an operator
+claim, not cryptographic proof of enforcement; operators and readers still trust
+the host. AUTH confirms a key, not eligibility. Client content admission and
+moderation remain separate from whole-relay reader authorization.
+
+Do not remove or weaken private intent as an ordinary metadata edit. Changing to
+public reads, sharing an invitation publicly, or sending retained events to a
+public relay is a disclosure operation; already copied or previously public data
+cannot be retracted. Git HTTP, Blossom, media, widgets and payment providers need
+independent access protection. Budabit's initial private view disables those
+exports, retains events only in a scope-owned in-memory repository, and stores only
+invitation coordinates/endpoints in session storage.
+
+### Other definition metadata
+
 Lengths are UTF-8 bytes after trimming leading and trailing ASCII whitespace. URLs are measured after normalization.
 
 URL normalization uses the WHATWG URL parser and serializer. A URL is invalid if it has credentials, a fragment, or an empty host. Scheme and host are lowercase and default ports are removed by serialization. A terminal `/` is removed only when it is the complete path and there is no query. Other paths and queries are retained. Relay and GRASP URLs require `wss:`; HTTPS resources require `https:`. Duplicate comparison uses this normalized string.

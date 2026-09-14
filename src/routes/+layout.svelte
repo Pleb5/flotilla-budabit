@@ -15,7 +15,8 @@
   import {installRelayDebugDiagnostics, installRelayDiagnostics} from "@app/core/relay-diagnostics"
   import {defaultSocketPolicies} from "@welshman/net"
   import {pubkey, sessions, signerLog, shouldUnwrap, userRelayList} from "@welshman/app"
-  import {ConfigProvider} from "@nostr-git/ui"
+  import {ConfigProvider, graspServersStore} from "@nostr-git/ui"
+  import {extraRelayAuthRelays} from "@app/core/relay-auth-consent"
   import AppContainer from "@app/components/AppContainer.svelte"
   import ModalContainer from "@app/components/ModalContainer.svelte"
   import EventActions from "@app/components/EventActions.svelte"
@@ -101,8 +102,11 @@
     hydrateActiveCommunityUserModeratorRequests,
   } from "@app/core/community-state"
   import {getProfileCommunityRelaysFromRefs} from "@app/core/community-relays"
+  import {installPrivateCommunityBoundary} from "@app/core/private-community-boundary"
 
   const {children} = $props()
+  onDestroy(installPrivateCommunityBoundary())
+  onDestroy(graspServersStore.subscribe(extraRelayAuthRelays.set))
   if (browser && PERFORMANCE_DIAGNOSTICS_ENABLED) {
     consumeArmedPerformanceDiagnosticsCapture(window.location.pathname)
   }

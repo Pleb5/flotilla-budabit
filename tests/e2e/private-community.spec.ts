@@ -39,13 +39,24 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
 }, info) => {
   const errors: string[] = [],
     signed: number[] = []
-  page.on("pageerror", error => errors.push(error.message))
+  page.on("pageerror", error => errors.push(error.stack || error.message))
   // Do not contact public providers. MockRelay intercepts all remote WebSockets;
   // HTTP requests outside the intended frontend are blocked too.
   await page.route("**/*", route =>
     new URL(route.request().url()).origin === "http://localhost:1847"
       ? route.continue()
       : route.abort(),
+  )
+  let capability = false
+  await page.route("https://private-browser.test/**", route =>
+    route.fulfill({
+      json: {
+        limitation: {auth_required: true},
+        ...(capability
+          ? {budabit: {read_control: {version: 1, mode: "members", scope: "relay"}}}
+          : {}),
+      },
+    }),
   )
   let granted = false
   const mock = new MockRelay({
@@ -55,8 +66,13 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
   })
   await mock.setup(page)
   await page.exposeFunction("__privateTestSign", (event: Parameters<typeof finalizeEvent>[0]) => {
-    if (event.kind !== 22242 || !event.tags.some(tag => tag[0] === "relay" && tag[1] === relay))
-      throw Error("Test signer refuses any non-private AUTH or publication")
+    const auth =
+      event.kind === 22242 && event.tags.some(tag => tag[0] === "relay" && tag[1] === relay)
+    const fixturePost =
+      event.kind === 1 &&
+      event.content === "Controlled private publication" &&
+      event.tags.some(tag => tag[0] === "h" && tag[1] === community)
+    if (!auth && !fixturePost) throw Error("Test signer refuses non-fixture operations")
     signed.push(event.kind)
     return finalizeEvent(event, key)
   })
@@ -104,6 +120,16 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
         entry.filters?.some(filter => JSON.stringify(filter).includes(community)),
     ),
   ).toEqual([])
+  await shell.getByLabel("Private text post").fill("Controlled private publication")
+  await shell.getByRole("button", {name: "Publish to private relays"}).click()
+  await expect(shell.getByRole("alert")).toContainText("Relay does not advertise")
+  expect(signed).toEqual([22242])
+  expect(mock.getPublishedEvents()).toEqual([])
+  capability = true
+  await shell.getByRole("button", {name: "Publish to private relays"}).click()
+  await expect(shell.getByLabel("Private text post")).toHaveValue("")
+  expect(signed).toEqual([22242, 1])
+  expect(mock.getPublishedEvents()).toHaveLength(1)
   await shell.screenshot({path: info.outputPath("ready.png")})
   // The private store remains separate even after browser event intake.
   expect(
@@ -114,7 +140,7 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
         )
         return module.repository.query([{ids}]).length
       },
-      {ids: [definition.id, note.id]},
+      {ids: [definition.id, note.id, ...mock.getPublishedEvents().map(event => event.id)]},
     ),
   ).toBe(0)
   await page.reload()

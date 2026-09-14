@@ -1,9 +1,38 @@
 import {normalizeRelayUrl} from "@welshman/util"
-import {parseCommunityNaddr, type CommunityPointer} from "./community-protocol"
+import {
+  parseCommunityNaddr,
+  makeCommunityPointer,
+  type CommunityPointer,
+} from "./community-protocol"
+import {registerPrivateCommunity} from "./private-community-policy"
+import {writable} from "svelte/store"
+import {parseCommunityDefinition} from "./community-protocol"
+import {verifyEvent, type TrustedEvent} from "@welshman/util"
 
 export type PrivateCommunityScope = {pointer: CommunityPointer; relays: string[]; error?: string}
 const keyFor = (address: string) => `budabit:private-invite:v1:${address}`
 const scopes = new Map<string, PrivateCommunityScope>()
+export const privateScopeVersion = writable(0)
+export const rememberPrivateDefinition = (event: TrustedEvent) => {
+  if (
+    event.kind !== 32222 ||
+    !event.tags.some(tag => tag[0] === "read-access") ||
+    !event.sig ||
+    !verifyEvent(event)
+  )
+    return
+  const definition = parseCommunityDefinition(event)
+  if (!definition || scopes.has(definition.pointer.address)) return
+  const relays = privateRelayHints(definition.relays)
+  scopes.set(definition.pointer.address, {pointer: definition.pointer, relays})
+  registerPrivateCommunity(definition.pointer, relays)
+  try {
+    storage()?.setItem(keyFor(definition.pointer.address), JSON.stringify({version: 1, relays}))
+  } catch {
+    /* memory scope remains closed */
+  }
+  privateScopeVersion.update(value => value + 1)
+}
 const storage = () => {
   try {
     return globalThis.sessionStorage
@@ -57,9 +86,11 @@ export const getPrivateCommunityScope = (
       ...(!relays.length ? {error: "This private invitation needs valid relay hints."} : {}),
     }
     scopes.set(pointer.address, scope)
+    registerPrivateCommunity(pointer, relays)
     return scope
   } catch {
     // A damaged private marker must never turn into public discovery.
+    registerPrivateCommunity(pointer, [])
     return {
       pointer,
       relays: [],
@@ -78,15 +109,19 @@ export const resolvePrivateCommunityScope = (url: URL): PrivateCommunityScope | 
     return undefined
   }
   if (!pointer) return undefined
-  if (url.searchParams.get("read-access") !== "members") return getPrivateCommunityScope(pointer)
+  if (!url.searchParams.has("read-access")) return getPrivateCommunityScope(pointer)
   const explicit = url.searchParams.getAll("relay")
-  const relays = privateRelayHints(explicit.length ? explicit : pointer.relayHints)
+  const relays =
+    url.searchParams.get("read-access") === "members"
+      ? privateRelayHints(explicit.length ? explicit : pointer.relayHints)
+      : []
   const scope = {
     pointer,
     relays,
     ...(!relays.length ? {error: "This private invitation needs valid relay hints."} : {}),
   }
   scopes.set(pointer.address, scope)
+  registerPrivateCommunity(pointer, relays)
   try {
     storage()?.setItem(keyFor(pointer.address), JSON.stringify({version: 1, relays}))
   } catch {
@@ -99,4 +134,23 @@ export const makePrivateCommunityInvite = (pointer: CommunityPointer, relays: st
   const params = new URLSearchParams({"read-access": "members"})
   for (const relay of privateRelayHints(relays)) params.append("relay", relay)
   return `/c/${encodeURIComponent(pointer.naddr)}?${params}`
+}
+
+export const restorePrivateCommunityScopes = () => {
+  const session = storage()
+  if (!session) return
+  try {
+    for (let index = 0; index < session.length; index++) {
+      const key = session.key(index) || ""
+      if (!key.startsWith("budabit:private-invite:v1:")) continue
+      const [kind, ownerPubkey, communityId] = key
+        .slice("budabit:private-invite:v1:".length)
+        .split(":")
+      if (kind !== "32222") continue
+      const pointer = makeCommunityPointer({ownerPubkey, communityId})
+      if (pointer) getPrivateCommunityScope(pointer)
+    }
+  } catch {
+    /* URL remains the source for the active private scope. */
+  }
 }

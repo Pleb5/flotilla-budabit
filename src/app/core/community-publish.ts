@@ -22,6 +22,7 @@ import {normalizeRelay, normalizeRelays} from "@app/core/community"
 import {loadCommunityEvents, type CommunityRelayLoadOptions} from "@app/core/community-state"
 import {formatRelayPublishFailure, RelayPublishError} from "@app/core/relay-publish-outcomes"
 import {recordRelayDelivery} from "@app/core/relay-publish-delivery"
+import {assertPublicCommunityOperation} from "./private-community-policy"
 
 export const COMMUNITY_PUBLISH_TIMEOUT = 12_000
 export const COMMUNITY_PUBLISH_VERIFY_TIMEOUT = 5_000
@@ -99,6 +100,7 @@ export const publishRequiredCommunityEvent = async ({
 }) => {
   const normalizedRelays = normalizeRelays(relays)
   const normalizedRequiredRelay = normalizeRelay(requiredRelay)
+  assertPublicCommunityOperation(event)
   if (normalizedRelays.length === 0) throw new Error("No publication relays are configured.")
   if (normalizedRequiredRelay && !normalizedRelays.includes(normalizedRequiredRelay)) {
     throw new Error(`Required relay ${normalizedRequiredRelay} is not a publication destination.`)
@@ -162,6 +164,7 @@ export const verifyCommunityEventReadback = async ({
   timeout = COMMUNITY_PUBLISH_VERIFY_TIMEOUT,
   loadEvents = loadCommunityEvents,
 }: VerifyCommunityEventOptions): Promise<TrustedEvent> => {
+  assertPublicCommunityOperation(event)
   const normalizedRelays = normalizeRelays(relays)
   const loadOptions: CommunityRelayLoadOptions = {
     authenticate: true,

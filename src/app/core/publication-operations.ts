@@ -472,7 +472,10 @@ const reserveAdmission = () => {
   }
 }
 
+import {assertPublicCommunityOperation} from "./private-community-policy"
+
 export const startPublication = (options: StartPublicationOptions): PublicationHandle => {
+  assertPublicCommunityOperation(options.event)
   const relays = normalizePublicationRelays(options.relays)
   const confirmRelays =
     options.confirmRelays === undefined

@@ -426,8 +426,8 @@ describe("budabit state", () => {
       })
 
       expect(getOwnedRepoStateLoadScopes([repoA, repoB], owner)).toEqual([
-        {repoId: "repo-a", relays: ["wss://relay-a.example"]},
-        {repoId: "repo-b", relays: ["wss://relay-b.example"]},
+        {repoId: "repo-a", relays: ["wss://relay-a.example/"]},
+        {repoId: "repo-b", relays: ["wss://relay-b.example/"]},
       ])
     })
 
@@ -454,7 +454,7 @@ describe("budabit state", () => {
       } as any
 
       expect(getOwnedRepoStateLoadScopes([valid, foreign, relayless, malformed], owner)).toEqual([
-        {repoId: "valid", relays: ["wss://valid.example"]},
+        {repoId: "valid", relays: ["wss://valid.example/"]},
       ])
     })
 
@@ -472,9 +472,9 @@ describe("budabit state", () => {
       })
 
       expect(getOwnedRepoStateLoadPlans([repoA, repoB], owner)).toEqual([
-        {relay: "wss://relay-a.example", repoIds: ["repo-a"]},
-        {relay: "wss://relay-b.example", repoIds: ["repo-b"]},
-        {relay: "wss://shared.example", repoIds: ["repo-a", "repo-b"]},
+        {relay: "wss://relay-a.example/", repoIds: ["repo-a"]},
+        {relay: "wss://relay-b.example/", repoIds: ["repo-b"]},
+        {relay: "wss://shared.example/", repoIds: ["repo-a", "repo-b"]},
       ])
     })
   })

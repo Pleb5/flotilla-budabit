@@ -16,11 +16,18 @@
   let access = $state<PrivateAccessView>({access: "consent", relays: {}, events: []})
   let controller: PrivateCommunityAccess | undefined
   let unsubscribe: (() => void) | undefined
+  let draft = $state("")
+  let communityName = $state("")
+  let publishing = $state(false)
+  let publishError = $state("")
   // A private route never supplies its definition to global community stores.
   clearActiveExactCommunity()
   $effect(() => {
     const identity = $pubkey
     const availableSigner = $signer
+    draft = ""
+    communityName = ""
+    publishError = ""
     controller?.dispose()
     unsubscribe?.()
     access = {access: "consent", relays: {}, events: []}
@@ -45,6 +52,20 @@
   )
   const authenticate = () => {
     if (get(pubkey) && controller) void controller.start()
+  }
+  const submit = async (bootstrap = false) => {
+    if (!controller || publishing) return
+    publishing = true
+    publishError = ""
+    try {
+      await controller.publishText(draft, bootstrap ? communityName : undefined)
+      draft = ""
+      if (bootstrap) await controller.start()
+    } catch (error) {
+      publishError = error instanceof Error ? error.message : "Private publication failed"
+    } finally {
+      publishing = false
+    }
   }
 </script>
 
@@ -114,6 +135,25 @@
         Private history is memory-only. External media, widgets, Git hosting, Blossom uploads and
         zaps are not loaded here. Read access is not encryption and cannot prevent copying.
       </p>
+      {#if access.access === "ready" && access.definition.readAccess === "members"}
+        <form
+          class="space-y-2"
+          onsubmit={event => {
+            event.preventDefault()
+            void submit()
+          }}>
+          <label class="block" for="private-message">Private text post</label>
+          <textarea
+            id="private-message"
+            class="w-full rounded border p-3"
+            bind:value={draft}
+            maxlength={4000}
+            required
+            disabled={publishing}></textarea>
+          <button class="rounded border px-4 py-2" disabled={publishing || !draft.trim()}
+            >{publishing ? "Publishing…" : "Publish to private relays"}</button>
+        </form>
+      {/if}
       {#each content as event (event.id)}
         <article class="space-y-2 rounded border p-4">
           <p class="break-all text-xs opacity-70">{event.pubkey} · kind {event.kind}</p>
@@ -125,4 +165,25 @@
         </p>{/if}
     </section>
   {/if}
+  {#if access.access === "partial" && !access.definition && $pubkey === scope.pointer.ownerPubkey && Object.values(access.relays).every(state => state === "ready")}
+    <section class="space-y-2" aria-label="Private owner bootstrap">
+      <h2 class="text-xl font-semibold">Create the pinned private community</h2>
+      <p>
+        This signs members-only read intent. Relays must independently enforce it. The definition
+        will go only to these invitation relays, never public indexers. Disabling read control later
+        discloses retained history. External providers remain disabled.
+      </p>
+      <label for="private-community-name">Community name</label>
+      <input
+        id="private-community-name"
+        class="block w-full rounded border p-2"
+        bind:value={communityName}
+        maxlength={100} />
+      <button
+        class="rounded border px-4 py-2"
+        disabled={publishing || !communityName.trim()}
+        onclick={() => submit(true)}>Create private definition</button>
+    </section>
+  {/if}
+  {#if publishError}<p role="alert">{publishError}</p>{/if}
 </main>
