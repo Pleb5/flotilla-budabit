@@ -33,7 +33,13 @@ socket can retry after a grant without another signature; a revoked/disconnected
 connection needs fresh authentication. Cancellation/account changes clear the
 view and stop old callbacks. Missing, failed or saturated reads are incomplete,
 not an empty community. The initial archive view requests up to 200 retained events
-per relay and explicitly reports saturation rather than claiming complete history.
+per relay (or its lower advertised `max_limit`) and renders admitted plain text
+from that private repository only. Unknown limits or reaching the effective cap
+leave authority incomplete, even after EOSE. Posts and authoring stay hidden until
+the bounded scan is complete; unreturned bans/shards are not presumed absent.
+Text requires exact `h` and branch `a` targets, a supported kind-1 section, current
+author permission and no censorship in that section. Grant, definition and report
+updates recompute this view; retained storage is not admission.
 It does not render remote media, widgets, Git actions, uploads or zaps.
 
 Signed `["read-access","members"]` intent is preserved by editors. The private

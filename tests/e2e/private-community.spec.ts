@@ -6,6 +6,9 @@ const key = new Uint8Array(32).fill(27),
   pubkey = getPublicKey(key)
 const community = "d".repeat(64),
   relay = "wss://private-browser.test/"
+const branch = `32222:${pubkey}:${community}`
+const memberKey = new Uint8Array(32).fill(40),
+  member = getPublicKey(memberKey)
 const naddr = nip19.naddrEncode({
   pubkey,
   kind: 32222,
@@ -25,12 +28,57 @@ const definition = finalizeEvent(
       ["read-access", "members"],
       ["content", "General"],
       ["k", "1"],
+      ["a", `30000:${pubkey}:${community}-general`],
     ],
   },
   key,
 )
 const note = finalizeEvent(
-  {kind: 1, created_at: 101, content: "Retained private fixture history", tags: []},
+  {
+    kind: 1,
+    created_at: 101,
+    content: "Retained private fixture history",
+    tags: [
+      ["h", community],
+      ["a", branch],
+    ],
+  },
+  key,
+)
+const memberNote = finalizeEvent(
+  {
+    kind: 1,
+    created_at: 102,
+    content: "Granted member text fixture",
+    tags: [
+      ["h", community],
+      ["a", branch],
+    ],
+  },
+  memberKey,
+)
+const wrongBranch = finalizeEvent(
+  {
+    kind: 1,
+    created_at: 103,
+    content: "Wrong branch fixture",
+    tags: [
+      ["h", community],
+      ["a", `32222:${member}:${community}`],
+    ],
+  },
+  key,
+)
+const unsupported = finalizeEvent(
+  {
+    kind: 11,
+    created_at: 104,
+    content: "Unsupported kind fixture",
+    tags: [
+      ["h", community],
+      ["a", branch],
+    ],
+  },
   key,
 )
 
@@ -47,11 +95,12 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
       ? route.continue()
       : route.abort(),
   )
-  let capability = false
+  let capability = true,
+    maxLimit = 2
   await page.route("https://private-browser.test/**", route =>
     route.fulfill({
       json: {
-        limitation: {auth_required: true},
+        limitation: {auth_required: true, max_limit: maxLimit},
         ...(capability
           ? {budabit: {read_control: {version: 1, mode: "members", scope: "relay"}}}
           : {}),
@@ -61,7 +110,7 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
   let granted = false
   const mock = new MockRelay({
     authRequiredRelays: [relay],
-    seedEventsByRelay: {[relay]: [definition, note]},
+    seedEventsByRelay: {[relay]: [definition, note, memberNote, wrongBranch, unsupported]},
     getSubscriptionOutcome: (_filters, url) => (url === relay && !granted ? "denied" : "eose"),
   })
   await mock.setup(page)
@@ -92,7 +141,7 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
   const shell = page.getByTestId("private-community-access")
   await expect(
     shell.getByRole("heading", {name: "Sign in to this private community"}),
-  ).toBeVisible()
+  ).toBeVisible({timeout: 25000})
   expect((await mock.getTelemetry()).filter(entry => entry.relayUrl === relay)).toEqual([])
   await shell.getByRole("button", {name: "Sign in", exact: true}).click()
   await page.getByRole("button", {name: "Log in with Extension", exact: true}).click()
@@ -106,8 +155,32 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
   await shell.screenshot({path: info.outputPath("denied.png")})
   granted = true
   await shell.getByRole("button", {name: "Retry access"}).click()
+  await expect(shell).toHaveAttribute("data-access", "partial")
+  await expect(shell.getByLabel("Private text post")).toHaveCount(0)
+  await expect(shell.locator("article")).toHaveCount(0)
+  maxLimit = 200
+  await shell.getByRole("button", {name: "Retry access"}).click()
   await expect(shell).toHaveAttribute("data-access", "ready")
   await expect(shell.getByText(note.content, {exact: true})).toBeVisible()
+  await expect(shell.getByText(memberNote.content, {exact: true})).toHaveCount(0)
+  await expect(shell.getByText(wrongBranch.content, {exact: true})).toHaveCount(0)
+  await expect(shell.getByText(unsupported.content, {exact: true})).toHaveCount(0)
+  const grant = (members: string[], created_at: number) =>
+    finalizeEvent(
+      {
+        kind: 30000,
+        content: "",
+        created_at,
+        tags: [["d", `${community}-general`], ...members.map(member => ["p", member])],
+      },
+      key,
+    )
+  await mock.injectEvents([grant([member], 105)])
+  await expect(shell.getByText(memberNote.content, {exact: true})).toBeVisible()
+  await mock.injectEvents([grant([], 106)])
+  await expect(shell.getByText(memberNote.content, {exact: true})).toHaveCount(0)
+  await mock.injectEvents([grant([member], 107)])
+  await expect(shell.getByText(memberNote.content, {exact: true})).toBeVisible()
   expect(signed).toEqual([22242])
   const requests = (await mock.getTelemetry()).filter(
     entry => entry.type === "req" && entry.relayUrl === relay,
@@ -121,6 +194,7 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
     ),
   ).toEqual([])
   await shell.getByLabel("Private text post").fill("Controlled private publication")
+  capability = false
   await shell.getByRole("button", {name: "Publish to private relays"}).click()
   await expect(shell.getByRole("alert")).toContainText("Relay does not advertise")
   expect(signed).toEqual([22242])

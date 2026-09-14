@@ -4,7 +4,8 @@ import {finalizeEvent, getPublicKey} from "nostr-tools"
 import {Socket, AuthStatus, type RequestOneOptions} from "@welshman/net"
 import {repository as sharedRepository, pubkey} from "@welshman/app"
 import {PrivateCommunityAccess, privateAccessHeading} from "./private-community-access"
-import {makeCommunityPointer} from "./community-protocol"
+import {makeCommunityPointer, buildCommunityDefinition} from "./community-protocol"
+import {makeCommunityEventReport, makeCommunityPersonReport} from "./community-reports"
 
 vi.mock("./relay-auth-consent", () => ({
   allowRelayAuthentication: vi.fn(),
@@ -38,13 +39,20 @@ const definition = finalizeEvent(
   },
   key,
 )
-const note = finalizeEvent({kind: 1, tags: [], content: "retained secret", created_at: 101}, key)
+const textTags = [
+  ["h", community],
+  ["a", pointer.address],
+]
+const note = finalizeEvent(
+  {kind: 1, tags: textTags, content: "retained secret", created_at: 101},
+  key,
+)
 const controls: PrivateCommunityAccess[] = []
 afterEach(() => {
   controls.splice(0).forEach(control => control.dispose())
   vi.useRealTimers()
 })
-const setup = (relays = [relay]) => {
+const setup = (relays = [relay], cap: unknown = 200) => {
   pubkey.set(owner)
   const reads: RequestOneOptions[] = []
   const socket = vi.fn(url => new Socket(url))
@@ -59,6 +67,7 @@ const setup = (relays = [relay]) => {
     socket,
     authenticate,
     request,
+    profiles: async relays => new Map(relays.map(url => [url, {limitation: {max_limit: cap}}])),
   })
   controls.push(control)
   return {control, reads, socket, authenticate, request}
@@ -140,5 +149,142 @@ describe("private access lifecycle", () => {
     reads[1].onEose!(relay)
     expect(get(control.view).events).toEqual([])
     expect(get(control.view).access).toBe("cancelled")
+  })
+
+  it.each([undefined, 0, -1, "200", 1.5, NaN])(
+    "does not infer complete authority from an unknown/invalid cap %s",
+    async cap => {
+      // Pass null for undefined because setup's default is the normal known cap.
+      const {control, reads} = setup([relay], cap ?? null)
+      await control.start()
+      reads[0].onEvent!(definition, relay)
+      reads[0].onEvent!(note, relay)
+      reads[0].onEose!(relay)
+      expect(get(control.view).access).toBe("partial")
+      expect(get(control.view).events).toEqual([])
+    },
+  )
+
+  it.each(["grant", "ban", "deletion"])(
+    "keeps a smaller-cap page partial when older %s evidence was not fetched",
+    async kind => {
+      const {control, reads} = setup([relay], 2)
+      await control.start()
+      expect(reads[0].filters).toEqual([{limit: 2}])
+      const older =
+        kind === "ban"
+          ? makeCommunityPersonReport({community: pointer, pubkey: owner})
+          : kind === "deletion"
+            ? {kind: 5, tags: [["e", note.id]], content: ""}
+            : {kind: 30000, tags: [["d", `${community}-general`]], content: ""}
+      const history = [finalizeEvent({...older, created_at: 90}, key), definition, note]
+      history.slice(-2).forEach(event => reads[0].onEvent!(event, relay))
+      reads[0].onEose!(relay)
+      expect(get(control.view).access).toBe("partial")
+      expect(get(control.view).events).toEqual([])
+    },
+  )
+
+  it("accepts a complete small relay below its known cap", async () => {
+    const {control, reads} = setup([relay], 3)
+    await control.start()
+    reads[0].onEvent!(definition, relay)
+    reads[0].onEvent!(note, relay)
+    reads[0].onEose!(relay)
+    expect(get(control.view).access).toBe("ready")
+    expect(get(control.view).events.map(event => event.id)).toEqual([note.id])
+  })
+
+  it("recomputes exact-branch text admission after grant removal, regrant, definition edits and section reports", async () => {
+    const memberKey = new Uint8Array(32).fill(40),
+      member = getPublicKey(memberKey)
+    const profile = `30000:${owner}:${community}-general`
+    const scoped = finalizeEvent(
+      {
+        ...buildCommunityDefinition({
+          communityId: community,
+          name: "Private fixture",
+          relays: [relay],
+          readAccess: "members",
+          sections: [
+            {name: "General", kinds: [{kind: 1}], profileLists: [{address: profile}]},
+            {name: "Other", kinds: [{kind: 11}], profileLists: []},
+          ],
+        }),
+        created_at: 102,
+      },
+      key,
+    )
+    const memberNote = finalizeEvent(
+      {kind: 1, tags: textTags, content: "member text", created_at: 103},
+      memberKey,
+    )
+    const {control, reads} = setup()
+    await control.start()
+    const receive = (event: ReturnType<typeof finalizeEvent>) => reads[0].onEvent!(event, relay)
+    const visible = () => get(control.view).events.map(event => event.id)
+    receive(scoped)
+    receive(note)
+    receive(memberNote)
+    for (const tags of [
+      [],
+      [
+        ["h", "e".repeat(64)],
+        ["a", pointer.address],
+      ],
+      [
+        ["h", community],
+        ["a", `32222:${member}:${community}`],
+      ],
+    ])
+      receive(finalizeEvent({kind: 1, tags, content: "wrong branch", created_at: 104}, key))
+    receive(finalizeEvent({kind: 11, tags: textTags, content: "unsupported", created_at: 104}, key))
+    reads[0].onEose!(relay)
+    expect(visible()).toEqual([note.id])
+    const grant = (members: string[], at: number) =>
+      finalizeEvent(
+        {
+          kind: 30000,
+          tags: [["d", `${community}-general`], ...members.map(key => ["p", key])],
+          content: "",
+          created_at: at,
+        },
+        key,
+      )
+    receive(grant([member], 105))
+    expect(visible()).toContain(memberNote.id)
+    receive(grant([], 106))
+    expect(visible()).not.toContain(memberNote.id)
+    receive(grant([member], 107))
+    expect(visible()).toContain(memberNote.id)
+    const report = (sectionName: string, at: number) =>
+      finalizeEvent(
+        {
+          ...makeCommunityEventReport({
+            community: pointer,
+            sectionName,
+            eventId: memberNote.id,
+            eventPubkey: member,
+            eventKind: 1,
+          }),
+          created_at: at,
+        },
+        key,
+      )
+    receive(report("Other", 108))
+    expect(visible()).toContain(memberNote.id)
+    receive(report("General", 109))
+    expect(visible()).not.toContain(memberNote.id)
+    receive(
+      finalizeEvent(
+        {
+          ...scoped,
+          tags: scoped.tags.map(tag => (tag[0] === "k" && tag[1] === "1" ? ["k", "7"] : tag)),
+          created_at: 110,
+        },
+        key,
+      ),
+    )
+    expect(visible()).toEqual([])
   })
 })

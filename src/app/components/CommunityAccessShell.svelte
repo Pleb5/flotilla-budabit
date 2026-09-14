@@ -47,9 +47,7 @@
   })
   const heading = $derived(privateAccessHeading($pubkey, Boolean($signer), access.access))
   const busy = $derived(["signing", "awaiting-ack", "checking"].includes(access.access))
-  const content = $derived(
-    access.events.filter(event => ![5, 1984, 30000, 32222].includes(event.kind)),
-  )
+  const content = $derived(access.events.filter(event => event.kind === 1))
   const authenticate = () => {
     if (get(pubkey) && controller) void controller.start()
   }
@@ -111,8 +109,9 @@
         whether you still have access.
       </p>{/if}
     {#if access.access === "partial"}<p role="status">
-        Some relay results are unavailable, the history limit was reached, or the definition is
-        missing. Authority and history are not complete. No empty-community conclusion can be drawn.
+        Some relay results are unavailable, a relay's history limit is unknown or was reached, or
+        the definition is missing. Authority and history are not complete. Posts and authoring stay
+        hidden until current admission can be checked. No empty-community conclusion can be drawn.
       </p>{/if}
     {#if access.access === "signing"}<p role="status">
         Approve the NIP-42 request in your signer. Signing can take up to 90 seconds.
@@ -161,7 +160,7 @@
         </article>
       {/each}
       {#if !content.length && access.access === "ready"}<p>
-          No retained posts were returned by these relays.
+          No currently admitted private text posts were found in the retained history.
         </p>{/if}
     </section>
   {/if}

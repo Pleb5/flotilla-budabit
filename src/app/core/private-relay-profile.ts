@@ -1,5 +1,13 @@
 import {supportsMemberOnlyReads} from "./private-community-policy"
 
+// Unknown/invalid server limits are not evidence of a complete history scan.
+export const privateRelayReadLimit = (profile: unknown): number | undefined => {
+  const limit = (profile as {limitation?: {max_limit?: unknown}})?.limitation?.max_limit
+  return typeof limit === "number" && Number.isSafeInteger(limit) && limit > 0
+    ? Math.min(200, limit)
+    : undefined
+}
+
 export const loadPrivateRelayProfiles = async (relays: string[], signal: AbortSignal) =>
   new Map(
     await Promise.all(

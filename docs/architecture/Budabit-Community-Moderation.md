@@ -20,8 +20,12 @@ Read eligibility permits retained history, not authorship in every section. Clie
 authoring and report/censor rules remain separate. Private clients must use a
 deletion-aware retained authority view; raw concatenated list bodies can revive an
 e-only-deleted grant. The initial private shell applies retained report state,
-requires complete authority before text posting, and labels saturated/failed
-loads incomplete. Revocation terminates the relay connection and clears the view.
+requires complete authority before exposing or posting text, and labels saturated,
+unknown-limit or failed loads incomplete. The effective cap is the smaller of 200
+and the endpoint's advertised positive `max_limit`; EOSE at that cap is not proof
+of complete authority. Plain-text events must target the exact branch and pass
+current section-kind, author grant and section-censorship checks. Regrant or grant
+removal recomputes visibility. Revocation terminates the relay connection and clears the view.
 
 Private admission reviews must not fan out to applicant/app public relays. Current
 public admission, preference and roster helpers reject/omit private scopes; those

@@ -23,6 +23,7 @@ export const publishPrivateCommunityEvent = async (options: {
   currentIdentity: () => string | undefined
   signal: AbortSignal
   sign: (event: ReturnType<typeof prep>) => Promise<SignedEvent>
+  validateAuthority?: () => void
 }) => {
   const targets = assertPrivatePublicationDestinations(
     options.definition,
@@ -34,6 +35,7 @@ export const publishPrivateCommunityEvent = async (options: {
     targets.map(relay => [relay, options.sockets.get(relay)?._generation]),
   )
   const check = () => {
+    options.validateAuthority?.()
     if (options.signal.aborted || options.currentIdentity() !== options.identity)
       throw Error("Private publication cancelled: identity changed")
     assertPrivatePublicationDestinations(options.definition, targets, options.profiles)
