@@ -10,11 +10,14 @@ The goal is to let communities stay readable and discoverable while keeping publ
 
 The public discovery/admission workflow below is the default, not an exception to
 signed private intent. Optional member-only relays pin one exact branch and derive
-reader eligibility from complete **committed** moderation state: the owner,
+reader eligibility from a completed, eventually consistent local moderation scan: the owner,
 unbanned structural/list-reference roles, active moderators and any section grantee.
 Personal renunciation preferences do not change relay eligibility. A successful
 AUTH is not a grant. The owner may bootstrap without a definition only after a
 successful complete scan; unavailable policy denies owner reads too.
+The plugin checks membership once per REQ and on periodic active-connection
+rechecks. A ban need not take effect at its database commit; the next successful
+policy refresh and connection recheck determine when the socket is disconnected.
 
 Read eligibility permits retained history, not authorship in every section. Client
 authoring and report/censor rules remain separate. Private clients must use a

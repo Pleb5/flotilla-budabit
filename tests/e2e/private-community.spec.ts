@@ -82,7 +82,7 @@ const unsupported = finalizeEvent(
   key,
 )
 
-test("cold invitation, consent, denied reader, grant retry without another AUTH, reload and revoke", async ({
+test("cold invitation, consent, denied reader, newly authenticated grant retry, reload and revoke", async ({
   page,
 }, info) => {
   const errors: string[] = [],
@@ -105,11 +105,17 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
           ? {
               budabit: {
                 read_control: {
-                  version: 1,
+                  version: 2,
                   mode: "members",
                   scope: "relay",
                   unfiltered_kinds: [1, 5, 1984, 30000, 32222],
                 },
+              },
+              read_policy: {
+                version: 1,
+                admission: "req",
+                consistency: "eventual",
+                recheck_seconds: 5,
               },
             }
           : {}),
@@ -190,7 +196,7 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
   await expect(shell.getByText(memberNote.content, {exact: true})).toHaveCount(0)
   await mock.injectEvents([grant([member], 107)])
   await expect(shell.getByText(memberNote.content, {exact: true})).toBeVisible()
-  expect(signed).toEqual([22242])
+  expect(signed).toEqual([22242, 22242])
   const requests = (await mock.getTelemetry()).filter(
     entry => entry.type === "req" && entry.relayUrl === relay,
   )
@@ -206,12 +212,12 @@ test("cold invitation, consent, denied reader, grant retry without another AUTH,
   capability = false
   await shell.getByRole("button", {name: "Publish to private relays"}).click()
   await expect(shell.getByRole("alert")).toContainText("Relay does not advertise")
-  expect(signed).toEqual([22242])
+  expect(signed).toEqual([22242, 22242])
   expect(mock.getPublishedEvents()).toEqual([])
   capability = true
   await shell.getByRole("button", {name: "Publish to private relays"}).click()
   await expect(shell.getByLabel("Private text post")).toHaveValue("")
-  expect(signed).toEqual([22242, 1])
+  expect(signed).toEqual([22242, 22242, 1])
   expect(mock.getPublishedEvents()).toHaveLength(1)
   await shell.screenshot({path: info.outputPath("ready.png")})
   // The private store remains separate even after browser event intake.

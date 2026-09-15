@@ -12,8 +12,10 @@ The default remains public reads with client moderation (and optional relay writ
 enforcement). Member-only relay reads are now implemented as an opt-in third level;
 see [Community-Read-Control-Plan.md](Community-Read-Control-Plan.md). Each private
 endpoint/database pins one exact branch, requires enforcing Python write control
-and the default-off C++ read gate, and serves retained history only after NIP-42
-authentication and committed reader authorization. It is not E2E encryption.
+and default-off plugin REQ admission, and serves retained history only after NIP-42
+authentication and a plugin membership decision. Active connections are periodically
+rechecked; membership is eventually consistent, not commit-synchronized. C++ does
+not hold the community roster or address. It is not E2E encryption.
 
 An explicit `/c/<naddr>?read-access=members` invitation pins relay hints before
 definition lookup. A separate access shell never mounts public community loaders

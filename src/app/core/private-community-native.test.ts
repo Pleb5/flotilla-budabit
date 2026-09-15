@@ -79,13 +79,12 @@ it.skipIf(!source).each(["ban", "grant", "deletion"])(
     const community = "b".repeat(64),
       pointer = makeCommunityPointer({ownerPubkey: owner, communityId: community})!
     const config = path.join(work, "strfry.conf"),
-      snapshot = path.join(db, "readers.json"),
       wrapper = path.join(work, "plugin")
     const cap = evidence === "ban" ? 4 : 3
     const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`
     writeFileSync(
       wrapper,
-      `#!/bin/sh\necho $$ > ${quote(path.join(work, "plugin.pid"))}\nexec python3 ${quote(path.join(root, "deploy/budabit/write-policy.py"))}\n`,
+      `#!/bin/sh\necho $$ > ${quote(path.join(work, "plugin.pid"))}\nexec python3 ${quote(path.join(root, "deploy/budabit/read-policy.py"))}\n`,
       {mode: 0o700},
     )
     writeFileSync(
@@ -94,8 +93,8 @@ it.skipIf(!source).each(["ban", "grant", "deletion"])(
     bind = "127.0.0.1"\n port = 40584\n nofiles = 0\n maxFilterLimit = ${cap}\n maxFilterLimitCount = 0
     auth { enabled = true\n serviceUrl = "${endpoints.public}" }
     negentropy { enabled = false }
-    readControl { enabled = true\n branchAddress = "${pointer.address}"\n snapshotPath = "${snapshot}" }
-    writePolicy { plugin = "${wrapper}" }
+    readPolicy { plugin = "${wrapper}" }
+    info { extra = ${JSON.stringify(JSON.stringify({budabit: {read_control: {version: 2, mode: "members", scope: "relay", unfiltered_kinds: [1, 5, 1984, 30000, 32222]}}}))} }
   }\n`,
     )
     const env = {
@@ -105,7 +104,6 @@ it.skipIf(!source).each(["ban", "grant", "deletion"])(
       BUDABIT_AUTO_HOST_URL: "",
       BUDABIT_DRY_RUN: "0",
       BUDABIT_DISABLE_LOADER: "0",
-      BUDABIT_READ_SNAPSHOT_PATH: snapshot,
       BUDABIT_STRFRY_BIN: binary,
       STRFRY_CONFIG: config,
       STRFRY_POLICY_DB_FILE: path.join(db, "data.mdb"),
@@ -178,7 +176,7 @@ it.skipIf(!source).each(["ban", "grant", "deletion"])(
     )
     const dm = finalizeEvent(
       {
-        kind: 4,
+        kind: 4444,
         created_at: now - 11,
         content: "inaccessible controlled fixture",
         tags: [["p", other]],
@@ -193,9 +191,9 @@ it.skipIf(!source).each(["ban", "grant", "deletion"])(
     })
     expect(imported.status, imported.stderr).toBe(0)
     child = spawn(binary, ["--config", config, "relay"], {env, stdio: "ignore"})
-    await until(() => {
+    await until(async () => {
       try {
-        return JSON.parse(readFileSync(snapshot + ".core-status.json", "utf8")).ready === true
+        return (await fetch("http://127.0.0.1:40584/")).ok
       } catch {
         return false
       }
@@ -248,8 +246,10 @@ it.skipIf(!source).each(["ban", "grant", "deletion"])(
       profiles: async () => new Map([[endpoints.local, profile]]),
     })
     await control.start()
-    expect(get(control.view).access, errors.join("\n")).not.toBe("unavailable")
-    await until(() => ["ready", "partial"].includes(get(control!.view).access))
+    await until(async () => {
+      if (get(control!.view).access === "unavailable") await control!.start()
+      return ["ready", "partial"].includes(get(control!.view).access)
+    })
     const view = get(control.view)
     const broad: string[] = []
     let complete = false

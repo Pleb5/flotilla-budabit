@@ -197,6 +197,8 @@ export class PrivateCommunityAccess {
             this.controller.abort()
             this.off.splice(0).forEach(off => off())
             this.repository.clear()
+            for (const connection of this.sockets.values()) connection.cleanup()
+            this.sockets.clear()
             this.view.set({access: value, relays: {...this.relayStates}, events: []})
             return
           }
@@ -232,6 +234,7 @@ export class PrivateCommunityAccess {
             archiveCount = 0,
             bytes = 0,
             completed = false,
+            terminated = false,
             invalid = false
           const maxEvents = effectiveLimit ?? 200
           const timer = setTimeout(() => {
@@ -250,11 +253,12 @@ export class PrivateCommunityAccess {
             isEventValid: event => Boolean(event.sig && verifyEvent(event)),
             isEventDeleted: () => false,
             onInvalid: () => {
+              if (!current() || terminated) return
               invalid = true
               if (completed) state("partial")
             },
             onEvent: event => {
-              if (!current()) return
+              if (!current() || terminated) return
               if (PRIVATE_AUTHORITY_KINDS.includes(event.kind)) authorityCount++
               else if (event.kind === 1) archiveCount++
               else return
@@ -270,6 +274,7 @@ export class PrivateCommunityAccess {
               this.update()
             },
             onEose: () => {
+              if (!current() || terminated) return
               completed = true
               clearTimeout(timer)
               const authorityComplete =
@@ -283,13 +288,21 @@ export class PrivateCommunityAccess {
               )
             },
             onClosed: reason => {
+              if (!current() || terminated) return
+              terminated = true
               completed = true
               clearTimeout(timer)
+              socket!.cleanup()
+              this.sockets.delete(relay)
               state(reason.startsWith("restricted:") ? "denied" : "unavailable")
             },
             onDisconnect: () => {
+              if (!current() || terminated) return
+              terminated = true
               completed = true
               clearTimeout(timer)
+              socket!.cleanup()
+              this.sockets.delete(relay)
               state(this.everReady ? "revoked" : "unavailable")
             },
           })

@@ -131,11 +131,24 @@ export const supportsMemberOnlyReads = (profile: unknown): boolean => {
   const info = profile as {
     limitation?: {auth_required?: unknown}
     budabit?: {read_control?: {version?: unknown; mode?: unknown; scope?: unknown}}
+    read_policy?: {
+      version?: unknown
+      admission?: unknown
+      consistency?: unknown
+      recheck_seconds?: unknown
+    }
   }
   const claim = info.budabit?.read_control
   return (
     info.limitation?.auth_required === true &&
-    claim?.version === 1 &&
+    (claim?.version === 1 ||
+      (claim?.version === 2 &&
+        info.read_policy?.version === 1 &&
+        info.read_policy.admission === "req" &&
+        info.read_policy.consistency === "eventual" &&
+        Number.isInteger(info.read_policy.recheck_seconds) &&
+        Number(info.read_policy.recheck_seconds) >= 1 &&
+        Number(info.read_policy.recheck_seconds) <= 300)) &&
     claim.mode === "members" &&
     claim.scope === "relay"
   )

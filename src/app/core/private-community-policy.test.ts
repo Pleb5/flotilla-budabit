@@ -44,6 +44,29 @@ afterEach(() => {
 })
 
 describe("signed private intent", () => {
+  it("accepts version-2 membership only with the generic REQ-admission/recheck capability", () => {
+    const profile = {
+      limitation: {auth_required: true},
+      budabit: {read_control: {version: 2, mode: "members", scope: "relay"}},
+      read_policy: {version: 1, admission: "req", consistency: "eventual", recheck_seconds: 5},
+    }
+    expect(supportsMemberOnlyReads(profile)).toBe(true)
+    expect(
+      assertPrivatePublicationDestinations(definition, [relay], new Map([[relay, profile]])),
+    ).toEqual([relay])
+    for (const change of [
+      {version: 2},
+      {admission: "event"},
+      {consistency: "unknown"},
+      {recheck_seconds: 0},
+      {recheck_seconds: 301},
+      {recheck_seconds: true},
+      {recheck_seconds: "5"},
+    ])
+      expect(
+        supportsMemberOnlyReads({...profile, read_policy: {...profile.read_policy, ...change}}),
+      ).toBe(false)
+  })
   it("builds/parses and preserves intent across metadata and full settings rebuilds", () => {
     expect(definition.readAccess).toBe("members")
     expect(updateCommunityDefinition(definition, {name: "Renamed"}).tags).toContainEqual([

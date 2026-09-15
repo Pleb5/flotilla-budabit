@@ -1,6 +1,6 @@
 # Optional private community reads — cross-repository plan
 
-Status: **implemented and verified on feature branches; default off, not live-deployed**. Prepared 2026-09-14. Publication/cache guards and operator guidance are included; see limitations below.
+Status: **plugin-owned REQ admission replacement; default off, not live-deployed**. Updated 2026-09-15. Publication/cache guards remain; the previous committed-snapshot architecture is superseded.
 
 The complete server/client design and phased implementation plan is in the
 Budabit strfry fork:
@@ -28,9 +28,9 @@ Removing the query does not silently make a known private scope public.
 
 The separate access shell runs before definition lookup, requires a real signer
 and authentication consent, and uses dedicated sockets and a memory-only
-repository. Public child routes/loaders are not mounted. An authenticated denied
-socket can retry after a grant without another signature; a revoked/disconnected
-connection needs fresh authentication. Cancellation/account changes clear the
+repository. Public child routes/loaders are not mounted. A denied socket is
+disposed; explicit retry after a grant creates a new socket and authenticates it.
+Cancellation/account changes clear the
 view and stop old callbacks. Missing, failed or saturated reads are incomplete,
 not an empty community. Per relay, one live subscription has two disjoint bounded
 filters: authority kinds `[5,1984,30000,32222]` and text kind1. Each has its own
@@ -49,8 +49,10 @@ It does not render remote media, widgets, Git actions, uploads or zaps.
 Signed `["read-access","members"]` intent is preserved by editors. The private
 shell supports owner-definition bootstrap and plain-text posts, never public
 fanout. Each publication fetches bounded, non-redirecting NIP-11 information from
-the explicit endpoints and requires version 1, members, relay scope **and**
-`auth_required: true`. Unsupported intent/capability blocks before signing.
+the explicit endpoints and requires members, relay scope **and** `auth_required: true`.
+Legacy version1 remains recognized; version2 additionally requires generic
+`read_policy` version1, `admission: req`, `consistency: eventual`, and a positive
+bounded `recheck_seconds`. Unsupported intent/capability blocks before signing.
 Identity changes and cancelled/changed sockets also block already-queued sends.
 Read AUTH consent does not grant unsigned-event trust. Private retained input is
 deletion-aware, including e-only NIP-09 grant deletion without older-grant revival;
@@ -90,7 +92,7 @@ session-owned test directory; the fixture creates/removes only its own database.
 This test uses isolated cold contexts, controlled NIP-07 keys, the existing mock
 relay helper and blocked off-origin HTTP. It signs AUTH and one explicitly allowed
 controlled text fixture, never writes to a real relay, and verifies denied access,
-grant retry without another AUTH, capability rejection before signing, private
+grant retry on a newly authenticated socket, capability rejection before signing, private
 posting, shared repository exclusion, reload and revocation.
 `PRIVATE_TEST_OUTPUT` can place artifacts outside the checkout.
 
@@ -102,19 +104,21 @@ posting, shared repository exclusion, reload and revocation.
 - A valid NIP-42 identity with any current community role may read the relay;
   effective person bans revoke non-owner read access. Current content-admission
   and moderation checks remain mandatory in the client.
-- Reader authorization uses committed moderation state, not the write plugin's
-  speculative pre-storage state. Existing subscriptions and queued output must
-  be invalidated on revocation or unavailable policy.
-- Python exports a bounded atomic reader-snapshot file. C++ checks its active
-  epoch, exact sequence, pinned enforcing configuration, and short liveness lease.
-  Pre-commit invalidation and synchronized final-send authorization remain
-  mandatory: post-commit sequence updates and queued termination alone were
-  rejected by Phase 0 deterministic safety counterexamples.
+- A separate Python read plugin maintains an eventually consistent membership
+  cache from bounded local scans, not the write plugin's speculative acceptance.
+  C++ asks it once before each REQ and periodically for active connections
+  (default five seconds). Denial closes the connection; failure never permits new
+  reads. No per-event community checks or inspection of query results is required.
+- C++ holds no reader roster or community address. Snapshot files, database epochs,
+  exact commit sequences, pre-commit barriers and commit-synchronized final sends
+  are removed. Plugin refresh time plus recheck/IPC time determines revocation
+  delay; bytes already sent cannot be recalled. This explicitly relaxes the old
+  zero-window guarantee rather than claiming the old race tests still prove it.
 - Private mode requires AUTH before reads and EVENT, enabling truthful standard
   NIP-11 `limitation.auth_required`. Existing signed-author write rules remain;
   valid AUTH does not prove membership. COUNT/Negentropy are disabled initially.
-- NIP-42 retains multiple authenticated keys. An initially denied socket may
-  retry after a grant; a revoked, terminated socket reconnects/authenticates.
+- NIP-42 retains multiple authenticated keys. Denied/revoked sockets are disposed;
+  explicit retry reconnects/authenticates rather than repeatedly prompting on denial.
 - Auth and read access are separate states, alongside existing content-authority
   completeness. Auth requires a matching positive relay ACK, not just a
   completed signature. Logout/account changes replace private sockets.
@@ -131,6 +135,9 @@ posting, shared repository exclusion, reload and revocation.
   complete successful scan; unavailable policy blocks owner reads too.
 - This is relay access control, not end-to-end encryption, retroactive secrecy,
   private Blossom/Git hosting, or prevention of copying by authorized members.
+- Kind4444 participant-only reads remain independent of community admission; the
+  fork also retains protection for old kind4/1059 data. NIP-70 is separately default
+  off and ignores its protection semantics without deleting or rejecting tags.
 
 ## Client work covered by the full plan
 
