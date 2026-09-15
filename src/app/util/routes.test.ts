@@ -25,7 +25,7 @@ vi.mock("@lib/html", () => ({
 }))
 vi.mock("@app/core/state", () => ({
   makeChatId: (recipient: string) => recipient,
-  DM_KIND: 4,
+  DM_KIND: 4444,
 }))
 vi.mock("@app/core/community-feeds", () => ({
   GIT_PERMALINK_KIND: 1623,
@@ -778,7 +778,7 @@ describe("routes", () => {
     const selfPubkey = "a".repeat(64)
     vi.mocked(pubkey.get).mockReturnValue(selfPubkey)
     const selfDm = makeEvent({
-      kind: 4,
+      kind: 4444,
       pubkey: selfPubkey,
       tags: [["p", selfPubkey]],
     })
