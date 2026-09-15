@@ -33,6 +33,7 @@
   import ProfileAccountSettings from "@app/components/ProfileAccountSettings.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileEdit from "@app/components/ProfileEdit.svelte"
+  import ProfileIdentityLinks from "@app/components/ProfileIdentityLinks.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileLink from "@app/components/ProfileLink.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
@@ -490,10 +491,6 @@
     if (targetNpub) clip(targetNpub)
   }
 
-  function copyTargetNip05() {
-    if (profile?.nip05) clip(profile.nip05)
-  }
-
   const startEdit = () => pushModal(ProfileEdit)
 
   const openBack = () => history.back()
@@ -636,6 +633,12 @@
   {#if targetPubkey}
     <div class="mx-auto flex w-full max-w-7xl flex-col gap-2.5 pb-5 sm:gap-4 sm:pb-8">
       <section class="card2 bg-alt overflow-hidden !p-3 shadow-md sm:!p-6">
+        {#if profile?.banner}
+          <img
+            src={profile.banner}
+            alt="Profile banner"
+            class="mb-4 h-36 w-full rounded-xl object-cover sm:mb-6 sm:h-56" />
+        {/if}
         <div class="flex flex-col gap-3 sm:gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div class="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
             <ProfileCircle
@@ -664,19 +667,6 @@
               {#if !isSelf}
                 <div
                   class="mt-1 flex max-w-3xl flex-col gap-1.5 break-all text-xs opacity-70 sm:text-sm">
-                  {#if profile?.nip05}
-                    <div class="flex min-w-0 items-center gap-1.5 sm:gap-2">
-                      <span class="min-w-0">{profile.nip05}</span>
-                      <button
-                        type="button"
-                        class="btn btn-ghost btn-xs h-auto min-h-0 shrink-0 px-1 py-1"
-                        title="Copy profile nip05"
-                        aria-label="Copy profile nip05"
-                        onclick={copyTargetNip05}>
-                        <Icon size={4} icon={Copy} />
-                      </button>
-                    </div>
-                  {/if}
                   {#if targetNpub}
                     <div class="flex min-w-0 items-center gap-1.5 sm:gap-2">
                       <span class="min-w-0">{displayPubkey(targetPubkey)}</span>
@@ -692,6 +682,9 @@
                   {/if}
                 </div>
               {/if}
+              <div class="mt-3">
+                <ProfileIdentityLinks {profile} pubkey={targetPubkey} relays={profileRelayHints} />
+              </div>
               <div class="mt-3 max-w-3xl text-xs leading-relaxed opacity-90 sm:mt-4 sm:text-sm">
                 <ProfileInfo pubkey={targetPubkey} relays={profileRelayHints} />
               </div>

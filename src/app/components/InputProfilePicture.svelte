@@ -1,123 +1,112 @@
 <script lang="ts">
-  import {randomId, call} from "@welshman/lib"
-  import {preventDefault, stopPropagation, compressFile} from "@lib/html"
-  import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
-  import AddCircle from "@assets/icons/add-circle.svg?dataurl"
-  import GallerySend from "@assets/icons/gallery-send.svg?dataurl"
-  import Icon from "@lib/components/Icon.svelte"
+  import {randomId} from "@welshman/lib"
+  import {preventDefault, stopPropagation} from "@lib/html"
+  import {ImagePlus, X} from "@lucide/svelte"
   import BlossomUploadStatus from "@app/components/BlossomUploadStatus.svelte"
   import {uploadFile} from "@app/core/commands"
   import type {BlossomUploadStage} from "@app/core/blossom"
   import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
 
   interface Props {
-    file?: File | undefined
-    url?: string | undefined
+    file?: File
+    url?: string
+    uploading?: boolean
+    variant?: "avatar" | "banner"
   }
-
-  let {file = $bindable(), url = $bindable()}: Props = $props()
-
+  let {
+    file = $bindable(),
+    url = $bindable(),
+    uploading = $bindable(false),
+    variant = "avatar",
+  }: Props = $props()
   const id = randomId()
-
-  const onDragEnter = () => {
-    active = true
-  }
-
-  const onDragOver = () => {
-    active = true
-  }
-
-  const onDragLeave = () => {
-    active = false
-  }
-
-  const onDrop = async (e: any) => {
-    active = false
-
-    file = await compressFile(e.dataTransfer.files[0])
-  }
-
-  const onChange = async (e: any) => {
-    file = await compressFile(e.target.files[0])
-  }
-
-  const onClear = () => {
-    initialUrl = undefined
-    file = undefined
-    url = undefined
-  }
-
+  const label = $derived(variant === "banner" ? "banner image" : "profile image")
   let active = $state(false)
-  let initialUrl = $state(url)
   let uploadStage = $state<BlossomUploadStage>("idle")
+  let error = $state("")
 
-  $effect(() => {
-    call(async () => {
-      if (file) {
-        const {error, result, uploadId} = await uploadFile(file, {
-          onStage: stage => (uploadStage = stage),
-        })
-
-        if (result?.url) {
-          url = result.url
-          promptBlossomMirrorUpload(uploadId)
-        } else {
-          if (error) uploadStage = "failed"
-
-          const reader = new FileReader()
-
-          reader.addEventListener(
-            "load",
-            () => {
-              url = reader.result as string
-            },
-            false,
-          )
-
-          reader.readAsDataURL(file)
-        }
+  async function selectFile(selected?: File) {
+    if (!selected || uploading) return
+    error = ""
+    if (!selected.type.startsWith("image/")) {
+      error = "Choose an image file."
+      return
+    }
+    uploading = true
+    file = selected
+    try {
+      const {result, uploadId} = await uploadFile(selected, {
+        onStage: stage => (uploadStage = stage),
+      })
+      if (result?.url) {
+        url = result.url
+        promptBlossomMirrorUpload(uploadId)
       } else {
-        uploadStage = "idle"
-        url = initialUrl
+        uploadStage = "failed"
+        error =
+          "Image upload failed. Your previous image has been kept. Try again or paste an image URL."
       }
-    })
-  })
+    } catch {
+      uploadStage = "failed"
+      error = "Image upload failed. Please try again."
+    } finally {
+      uploading = false
+    }
+  }
+  const onDrop = (event: Event) => {
+    active = false
+    void selectFile((event as DragEvent).dataTransfer?.files[0])
+  }
+  const onChange = (event: Event) => {
+    const input = event.target as HTMLInputElement
+    void selectFile(input.files?.[0])
+    input.value = ""
+  }
+  const clear = () => {
+    url = ""
+    file = undefined
+    error = ""
+    uploadStage = "idle"
+  }
 </script>
 
-<form>
-  <input {id} type="file" accept="image/*" onchange={onChange} class="hidden" />
-  <label
-    for={id}
-    aria-label="Drag and drop files here."
-    style="background-image: url({url});"
-    class="relative flex h-24 w-24 shrink-0 cursor-pointer items-center justify-center rounded-full border-2 border-solid border-base-content bg-base-300 bg-cover bg-center transition-all"
-    class:transparent={!url}
-    class:border-primary={active}
-    ondragenter={stopPropagation(preventDefault(onDragEnter))}
-    ondragover={stopPropagation(preventDefault(onDragOver))}
-    ondragleave={stopPropagation(preventDefault(onDragLeave))}
-    ondrop={stopPropagation(preventDefault(onDrop))}>
-    <div
-      class="absolute right-0 top-0 h-5 w-5 overflow-hidden rounded-full bg-primary"
-      class:bg-error={url}
-      class:bg-primary={!url}>
-      {#if url}
-        <span
-          role="button"
-          tabindex="-1"
-          onmousedown={stopPropagation(onClear)}
-          ontouchstart={stopPropagation(onClear)}>
-          <Icon icon={CloseCircle} class="scale-150 !bg-base-300" />
-        </span>
-      {:else}
-        <Icon icon={AddCircle} class="scale-150 !bg-base-300" />
-      {/if}
-    </div>
-    {#if !url}
-      <Icon icon={GallerySend} size={7} />
+<div class={variant === "banner" ? "w-full" : "w-24"}>
+  <div class="relative">
+    <input
+      {id}
+      type="file"
+      accept="image/*"
+      aria-label="Upload {label}"
+      onchange={onChange}
+      disabled={uploading}
+      class="peer sr-only" />
+    <label
+      for={id}
+      aria-label="Upload {label}"
+      class="relative flex cursor-pointer items-center justify-center overflow-hidden border-2 border-base-content/30 bg-base-300 transition-all peer-focus-visible:ring-2 peer-focus-visible:ring-primary {variant ===
+      'banner'
+        ? 'h-36 w-full rounded-xl sm:h-44'
+        : 'h-24 w-24 rounded-full'}"
+      class:border-primary={active}
+      ondragenter={stopPropagation(preventDefault(() => (active = true)))}
+      ondragover={stopPropagation(preventDefault(() => (active = true)))}
+      ondragleave={stopPropagation(preventDefault(() => (active = false)))}
+      ondrop={stopPropagation(preventDefault(onDrop))}>
+      {#if url}<img
+          src={url}
+          alt={variant === "banner" ? "Banner preview" : "Profile image preview"}
+          class="h-full w-full object-cover" />
+      {:else}<ImagePlus class="h-7 w-7 opacity-70" />{/if}
+    </label>
+    {#if url}
+      <button
+        type="button"
+        class="btn btn-circle btn-neutral btn-xs absolute right-1 top-1"
+        aria-label="Remove {label}"
+        onclick={clear}
+        disabled={uploading}><X class="h-4 w-4" /></button>
     {/if}
-  </label>
-  <div class="mt-2 w-56 max-w-full">
-    <BlossomUploadStatus stage={uploadStage} />
   </div>
-</form>
+  <div class="mt-2"><BlossomUploadStatus stage={uploadStage} /></div>
+  {#if error}<p role="alert" class="mt-2 text-sm text-error">{error}</p>{/if}
+</div>

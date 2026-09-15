@@ -1,6 +1,8 @@
 <script lang="ts">
-  import type {Profile} from "@welshman/util"
-  import {makeProfile} from "@welshman/util"
+  import {makeProfile, makeSecret} from "@welshman/util"
+  import {getPublicKey} from "nostr-tools"
+  import {hexToBytes} from "@welshman/lib"
+  import type {ProfileValues} from "@app/util/profile-identity"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import AltArrowRight from "@assets/icons/alt-arrow-right.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -13,14 +15,16 @@
   const initialValues = {
     profile: makeProfile(),
   }
+  const secret = makeSecret()
+  const pubkey = getPublicKey(hexToBytes(secret))
 
   const back = () => history.back()
 
-  const onsubmit = (values: {profile: Profile}) => pushModal(SignUpKey, values)
+  const onsubmit = (values: ProfileValues) => pushModal(SignUpKey, {...values, secret})
 </script>
 
 <div class="flex flex-col gap-4">
-  <ProfileEditForm isSignup {initialValues} {onsubmit}>
+  <ProfileEditForm isSignup {initialValues} {onsubmit} {pubkey}>
     {#snippet footer()}
       <ModalFooter>
         <Button class="btn btn-link" onclick={back}>

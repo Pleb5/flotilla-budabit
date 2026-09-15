@@ -3,8 +3,7 @@
   import {encrypt} from "nostr-tools/nip49"
   import {loginWithNip01} from "@welshman/app"
   import {hexToBytes} from "@welshman/lib"
-  import {makeSecret} from "@welshman/util"
-  import type {Profile} from "@welshman/util"
+  import type {ProfileValues} from "@app/util/profile-identity"
   import {preventDefault, downloadText} from "@lib/html"
   import Key from "@assets/icons/key-minimalistic.svg?dataurl"
   import ArrowDown from "@assets/icons/arrow-down.svg?dataurl"
@@ -25,13 +24,9 @@
   import {validateNewPassphrase} from "@app/util/passphrase"
   import {PROFILE_PUBLISH_RETRY_MESSAGE, updateProfile} from "@app/core/commands"
 
-  type Props = {
-    profile: Profile
-  }
+  type Props = ProfileValues & {secret: string}
 
-  const {profile}: Props = $props()
-
-  const secret = makeSecret()
+  const {profile, githubIdentity, secret}: Props = $props()
 
   const back = () => history.back()
 
@@ -102,7 +97,7 @@
     loginWithNip01(secret)
 
     try {
-      await updateProfile({profile})
+      await updateProfile({profile, githubIdentity})
       pushToast({theme: "success", message: "Profile published."})
       pushModal(SignUpComplete)
     } catch (error) {

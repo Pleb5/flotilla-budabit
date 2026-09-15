@@ -24,6 +24,7 @@
     url?: string
     relays?: string[]
     showPubkey?: boolean
+    showHandle?: boolean
     avatarSize?: number
     fallbackName?: string
     fallbackPicture?: string
@@ -39,6 +40,7 @@
     url,
     relays = [],
     showPubkey,
+    showHandle = true,
     avatarSize = 10,
     fallbackName,
     fallbackPicture,
@@ -114,7 +116,7 @@
           </span>
         {/if}
       </div>
-      {#if $handle}
+      {#if showHandle && $handle}
         <div class="overflow-hidden text-ellipsis text-sm opacity-75">
           {displayHandle($handle)}
         </div>

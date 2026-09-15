@@ -12,7 +12,7 @@ import {
 } from "@welshman/lib"
 import {Nip01Signer} from "@welshman/signer"
 import type {UploadTask} from "@welshman/editor"
-import type {TrustedEvent, EventContent, EventTemplate, Profile} from "@welshman/util"
+import type {TrustedEvent, EventContent, EventTemplate} from "@welshman/util"
 import {
   DELETE,
   REPORT,
@@ -117,8 +117,15 @@ import {
 import {getProfileCommunityRelays, getUserDataPublishRelays} from "@app/core/community-relays"
 import {normalizeRelays} from "@app/core/community"
 import {
+  buildGitHubIdentityUpdate,
+  IDENTITY_KIND,
+  selectIdentityEvent,
+  type ProfileValues,
+} from "@app/util/profile-identity"
+import {
   getNextReplacementCreatedAt,
   publishAndVerifyProfileEvent,
+  publishAndVerifyCommunityEvent,
 } from "@app/core/community-publish"
 import {payNwcInvoice} from "@app/core/nwc"
 import {
@@ -1989,13 +1996,20 @@ export const getProfilePublishRelays = () => {
   return normalizeRelays([...INDEXER_RELAYS, ...outboxRelays, ...getProfileCommunityRelays()])
 }
 
-export const updateProfile = async ({profile}: {profile: Profile}) => {
+export const updateProfile = async ({profile, githubIdentity}: ProfileValues) => {
   const $pubkey = pubkey.get()
   const $signer = signer.get()
   const template = isPublishedProfile(profile) ? editProfile(profile) : createProfile(profile)
-  template.tags = sanitizePublishTags(template.tags)
 
   if (!$pubkey || !$signer) throw new Error("Log in before publishing your profile.")
+  const identityEvents = repository.query([{kinds: [IDENTITY_KIND], authors: [$pubkey]}])
+  const currentIdentity = selectIdentityEvent(identityEvents, $pubkey)
+  const {profileTags, identityTags} = buildGitHubIdentityUpdate(
+    profile,
+    githubIdentity,
+    currentIdentity,
+  )
+  template.tags = sanitizePublishTags(profileTags)
 
   const relays = getProfilePublishRelays()
   if (relays.length === 0) throw new Error("No profile publish relays are configured.")
@@ -2009,6 +2023,32 @@ export const updateProfile = async ({profile}: {profile: Profile}) => {
   const verified = await publishAndVerifyProfileEvent({event, relays})
 
   repository.publish(verified)
+
+  if (identityTags) {
+    try {
+      const identityEvent = await $signer.sign(
+        prep(
+          {
+            kind: IDENTITY_KIND,
+            content: currentIdentity?.content || "",
+            tags: sanitizePublishTags(identityTags),
+          },
+          $pubkey,
+          getNextReplacementCreatedAt(identityEvents),
+        ),
+      )
+      const verifiedIdentity = await publishAndVerifyCommunityEvent({
+        event: identityEvent,
+        relays,
+        label: "GitHub identity",
+      })
+      repository.publish(verifiedIdentity)
+    } catch (error) {
+      throw new Error(
+        `Profile saved, but the NIP-39 identity event could not be verified. Save again to retry. ${error instanceof Error ? error.message : ""}`,
+      )
+    }
+  }
 
   return verified
 }

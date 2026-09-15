@@ -19,6 +19,8 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import Profile from "@app/components/Profile.svelte"
   import ProfileInfo from "@app/components/ProfileInfo.svelte"
+  import ProfileIdentityLinks from "@app/components/ProfileIdentityLinks.svelte"
+  import ProfileEdit from "@app/components/ProfileEdit.svelte"
   import ProfileTrustBadges from "@app/components/ProfileTrustBadges.svelte"
   import EventInfo from "@app/components/EventInfo.svelte"
   import ProfileBadges from "@app/components/ProfileBadges.svelte"
@@ -92,8 +94,20 @@
 </script>
 
 <div class="flex flex-col gap-4">
+  {#if $profile?.banner}
+    <img
+      src={$profile.banner}
+      alt="Profile banner"
+      class="h-32 w-full rounded-xl object-cover sm:h-44" />
+  {/if}
   <div class="flex justify-between">
-    <Profile showPubkey avatarSize={14} {pubkey} url={profileUrl} relays={relayHints} />
+    <Profile
+      showPubkey
+      showHandle={false}
+      avatarSize={14}
+      {pubkey}
+      url={profileUrl}
+      relays={relayHints} />
     {#if $profile}
       <div class="relative">
         <Button class="btn btn-circle btn-ghost btn-sm" onclick={() => toggleMenu(pubkey)}>
@@ -118,6 +132,11 @@
       </div>
     {/if}
   </div>
+  <ProfileIdentityLinks profile={$profile} {pubkey} relays={relayHints} />
+  {#if $sessionPubkey === pubkey}
+    <Button class="btn btn-neutral btn-sm self-start" onclick={() => pushModal(ProfileEdit)}
+      >Edit profile</Button>
+  {/if}
   {#if verifiedMaintainerForRepo}
     <div class="flex flex-wrap items-center gap-2">
       <span
