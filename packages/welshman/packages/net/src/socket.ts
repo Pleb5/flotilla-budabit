@@ -1,7 +1,7 @@
 import WebSocket from "isomorphic-ws"
 import EventEmitter from "events"
 import {TaskQueue, call} from "@welshman/lib"
-import {type RelayMessage, type ClientMessage} from "./message.js"
+import {type RelayMessage, type ClientMessage, isRelayClosed} from "./message.js"
 import {AuthState} from "./auth.js"
 import {type Unsubscriber} from "./util.js"
 
@@ -49,6 +49,7 @@ export class Socket extends EventEmitter {
   _sendGenerations = new WeakMap<ClientMessage, number>()
   _sendGuards = new WeakMap<ClientMessage, () => boolean>()
   _recvGenerations = new WeakMap<RelayMessage, number>()
+  _pendingClosed = new Set<RelayMessage>()
   _disposed = false
 
   constructor(
@@ -80,6 +81,7 @@ export class Socket extends EventEmitter {
       // Relay terminal frames must not sit behind seconds of EVENT batches.
       batchDelay: 0,
       processItem: (message: RelayMessage) => {
+        this._pendingClosed.delete(message)
         const generation = this._recvGenerations.get(message)
         if (this._disposed || (generation !== undefined && generation !== this._generation)) return
         this.emit(SocketEvent.Receive, message, this.url)
@@ -114,11 +116,15 @@ export class Socket extends EventEmitter {
 
       this._ws.onerror = () => {
         if (this._ws !== ws) return
+        this.flushPendingClosed()
+        if (this._ws !== ws) return // A terminal handler may dispose or replace the transport.
         this.resetTransport()
         this.emit(SocketEvent.Status, SocketStatus.Error, this.url)
       }
 
       this._ws.onclose = () => {
+        if (this._ws !== ws) return
+        this.flushPendingClosed()
         if (this._ws !== ws) return
         this.resetTransport()
 
@@ -138,6 +144,10 @@ export class Socket extends EventEmitter {
             this._recvGenerations.set(message as RelayMessage, this._generation)
             this._recvQueue.push(message as RelayMessage)
             this.emit(SocketEvent.Receiving, message, this.url)
+            // Respect policies that remove auth-required CLOSED for REQ replay.
+            if (isRelayClosed(message) && this._recvQueue.items.includes(message)) {
+              this._pendingClosed.add(message)
+            }
           } else {
             this.emit(SocketEvent.Error, "Invalid message received", this.url)
           }
@@ -169,6 +179,24 @@ export class Socket extends EventEmitter {
     this._sendQueue.stop()
     this._sendQueue.clear()
     this._recvQueue.clear()
+    this._pendingClosed.clear()
+  }
+
+  private flushPendingClosed = () => {
+    const generation = this._generation
+    // A peer may send CLOSED and disconnect before the receive batch runs.
+    // Preserve only its terminal reasons, including those in a popped batch;
+    // never flush EVENT/EOSE or carry them across transport generations.
+    for (const message of this._pendingClosed) {
+      if (this._disposed || this._generation !== generation) break
+      this._recvQueue.remove(message)
+      try {
+        this._recvQueue.options.processItem(message)
+      } catch (error) {
+        // Match TaskQueue's per-message isolation so teardown still completes.
+        console.error(error)
+      }
+    }
   }
 
   cleanup = () => {
