@@ -1,12 +1,14 @@
-# Optional private community reads — cross-repository plan
+# Optional private community reads — client architecture
 
-Status: **plugin-owned REQ admission replacement; default off, not live-deployed**. Updated 2026-09-15. Publication/cache guards remain; the previous committed-snapshot architecture is superseded.
+Status: **plugin-owned REQ admission implemented in source; default off, not live-deployed**.
+Updated 2026-09-16. The filename is retained for existing links; this is the current
+client contract, not an unexecuted phased plan. For the rationale and policy
+boundaries, start with [Community-Access-Decisions.md](Community-Access-Decisions.md).
 
-The complete server/client design and phased implementation plan is in the
-Budabit strfry fork:
+The server architecture, plugin interface and decisions are in the Budabit strfry fork:
 
 - Local workspace: `strfry/deploy/budabit/READ-CONTROL-PLAN.md`.
-- From this directory: [cross-repository plan](../../../strfry/deploy/budabit/READ-CONTROL-PLAN.md)
+- From this directory: [relay architecture](../../../strfry/deploy/budabit/READ-CONTROL-PLAN.md)
   when the `budabit` and `strfry` repositories are sibling checkouts.
 
 This does not claim that a published upstream revision or released private-client
@@ -17,7 +19,7 @@ Before merge/release, an authorized server publication and immutable client
 conformance-pin update are still required. Local vectors agree; the old remote
 pin does not yet contain the reader section.
 
-## Invitation reader (Phase 6)
+## Invitation and socket lifecycle
 
 Use `/c/<naddr>?read-access=members`, with the endpoint hints encoded in the naddr,
 or add repeated `&relay=wss%3A%2F%2Frelay.example` parameters. Explicit query hints
@@ -30,11 +32,17 @@ The separate access shell runs before definition lookup, requires a real signer
 and authentication consent, and uses dedicated sockets and a memory-only
 repository. Public child routes/loaders are not mounted. A denied socket is
 disposed; explicit retry after a grant creates a new socket and authenticates it.
-Cancellation/account changes clear the
-view and stop old callbacks. Missing, failed or saturated reads are incomplete,
-not an empty community. Per relay, one live subscription has two disjoint bounded
-filters: authority kinds `[5,1984,30000,32222]` and text kind1. Each has its own
-limit of at most200 (or the lower advertised `max_limit`). Inaccessible unrelated
+There is no automatic denial-signing/reconnect loop. Cancellation/account changes
+clear the view and stop old callbacks. Missing, failed or saturated reads are incomplete,
+not an empty community. An anonymous `auth-required:` response may recover through
+normal AUTH and REQ replay; a denied/revoked connection cannot be reused. Late
+EVENT/EOSE/CLOSED/disconnect callbacks cannot restore a terminated view.
+
+## Bounded authority and content admission
+
+Per relay, one live subscription has two disjoint bounded filters: authority kinds
+`[5,1984,30000,32222]` and text kind `1`. Each has its own limit of at most 200
+(or the lower advertised `max_limit`). Inaccessible unrelated
 records cannot consume the authority query's budget. The endpoint must explicitly
 advertise `budabit.read_control.unfiltered_kinds` covering every queried kind:
 these kinds undergo no post-limit involved-key filtering for authenticated readers.
@@ -46,17 +54,40 @@ author permission and no censorship in that section. Grant, definition and repor
 updates recompute this view; retained storage is not admission.
 It does not render remote media, widgets, Git actions, uploads or zaps.
 
+## Private publication and relay capabilities
+
 Signed `["read-access","members"]` intent is preserved by editors. The private
 shell supports owner-definition bootstrap and plain-text posts, never public
 fanout. Each publication fetches bounded, non-redirecting NIP-11 information from
 the explicit endpoints and requires members, relay scope **and** `auth_required: true`.
 Legacy version1 remains recognized; version2 additionally requires generic
 `read_policy` version1, `admission: req`, `consistency: eventual`, and a positive
-bounded `recheck_seconds`. Unsupported intent/capability blocks before signing.
+integer `recheck_seconds` in 1–300. Unsupported intent/capability blocks before signing.
 Identity changes and cancelled/changed sockets also block already-queued sends.
-Read AUTH consent does not grant unsigned-event trust. Private retained input is
-deletion-aware, including e-only NIP-09 grant deletion without older-grant revival;
-global persistence, notifications, search and extensions do not consume it.
+Read AUTH consent does not grant unsigned-event trust.
+
+Example NIP-11 fields at the default five-second interval (normal relay limits are
+also required for completeness):
+
+```json
+{
+  "limitation": {"auth_required": true, "max_limit": 200},
+  "read_policy": {"version": 1, "admission": "req", "consistency": "eventual", "recheck_seconds": 5},
+  "budabit": {"read_control": {"version": 2, "mode": "members", "scope": "relay", "unfiltered_kinds": [1, 5, 1984, 30000, 32222]}}
+}
+```
+
+The core generates the generic `read_policy`/AUTH facts; the operator supplies the
+Budabit members/relay semantics. `unfiltered_kinds` supports bounded completeness,
+not public-kind exceptions or unlimited history. Version-1 compatibility does not
+prove old commit-synchronized guarantees, and generic AUTH alone does not prove
+member-only access. NIP-11 remains an operator claim, not confidentiality evidence.
+
+## Retention, isolation and diagnostics
+
+Private retained input is deletion-aware, including e-only NIP-09 grant deletion
+without older-grant revival. Global persistence, notifications, search and
+extensions do not consume it.
 App-wide debug/performance diagnostics redact known private locators, encoded
 coordinates, event IDs and endpoint context before retention/serialization. A
 capture that visits a private route is marked even if exported after leaving or
@@ -71,14 +102,23 @@ Restore discards legacy private arms; learning private intent or a private event
 purges any matching arm immediately, without requiring another settings visit.
 Unrelated public `/git` and community targets retain their normal arming behavior.
 
+## Verification
+
 Browser regression (full `pnpm dev` stack required):
 
 ```sh
 pnpm exec playwright test -c tests/e2e/private-community.config.ts
 ```
 
+This test uses isolated cold contexts, controlled NIP-07 keys, the existing mock
+relay helper and blocked off-origin HTTP. It signs AUTH and one explicitly allowed
+controlled text fixture, never writes to a real relay, and verifies denied access,
+grant retry on a newly authenticated socket, capability rejection before signing,
+private posting, shared repository exclusion, reload and revocation.
+`PRIVATE_TEST_OUTPUT` can place artifacts outside the checkout.
+
 Opt-in production-loader/native-core regression (initialized, built local strfry
-checkout; isolated loopback port40584, controlled raw AUTH, no TLS proxy or live accounts):
+checkout; isolated loopback port 40584, controlled raw AUTH, no TLS proxy or live accounts):
 
 ```sh
 STRFRY_SOURCE=/path/to/strfry pnpm exec vitest run --project=main src/app/core/private-community-native.test.ts
@@ -89,16 +129,10 @@ query's omitted older ban/grant/deletion, and verifies the isolated authority
 filter fetches the evidence before exposing text. The supplied TMPDIR must be a
 session-owned test directory; the fixture creates/removes only its own database.
 
-This test uses isolated cold contexts, controlled NIP-07 keys, the existing mock
-relay helper and blocked off-origin HTTP. It signs AUTH and one explicitly allowed
-controlled text fixture, never writes to a real relay, and verifies denied access,
-grant retry on a newly authenticated socket, capability rejection before signing, private
-posting, shared repository exclusion, reload and revocation.
-`PRIVATE_TEST_OUTPUT` can place artifacts outside the checkout.
+## Implemented contract
 
-## Recommended contract
-
-- Read restrictions default off and require active Budabit write enforcement.
+- Community read admission defaults off; the Budabit private preset requires active
+  write enforcement. Independent DM participant restrictions do not default off.
 - The initial private mode uses one operator-pinned exact community per relay
   endpoint/database, with auto-hosting disabled.
 - A valid NIP-42 identity with any current community role may read the relay;
@@ -139,22 +173,33 @@ posting, shared repository exclusion, reload and revocation.
   fork also retains protection for old kind4/1059 data. NIP-70 is separately default
   off and ignores its protection semantics without deleting or rejecting tags.
 
-## Client work covered by the full plan
+## Client implementation map
 
-1. Shared Python/TypeScript reader-eligibility vectors and a small Communikeys
-   amendment for private publication intent.
-2. Generation-safe Welshman auth and explicit idempotent-read replay semantics.
-3. Relay metadata/runtime policy resolution without permanent public-URL auth
-   overrides; separate authentication consent from trusting unsigned events.
-4. Bunker-aware timeout budgets and reuse of existing NIP-46 receiver recovery.
-5. Cold private-invitation bootstrap, per-relay access outcomes, and useful guest,
-   pubkey-only, signing, denied, unavailable, and retry-after-grant states.
-6. Publication/notification/extension routing audit; disable unsafe external
-   features initially rather than silently exporting private context.
-7. Private data provenance and memory-only/account-isolated handling before any
-   later offline-cache feature.
-8. Deterministic race tests, raw-relay integration, targeted isolated browser
-   verification, and a dedicated private-relay rollout.
+Paths are relative to the repository root; companion tests live beside the modules.
+Within a row, bare filenames share the first file's directory.
+
+| Responsibility | Source |
+| --- | --- |
+| Invitation hints and session privacy markers | `src/app/core/private-community-scope.ts` |
+| Access lifecycle, fresh retry and terminal callback guards | `src/app/core/private-community-access.ts` |
+| Signed intent and destination/capability guards | `src/app/core/private-community-policy.ts`, `private-community-publish.ts` in the same directory |
+| Explicit unfiltered-kind and result-limit evidence | `src/app/core/private-relay-profile.ts` |
+| Reader predicate and current content permissions | `src/app/core/community-read-access.ts`, `community-permissions.ts`, `community-reports.ts` |
+| Isolated route shell | `src/app/components/CommunityAccessShell.svelte`, `src/routes/c/[community]/+layout.svelte` |
+| AUTH consent/coordinator | `src/app/core/relay-auth-consent.ts`, `relay-auth-coordinator.ts` |
+| Shared AUTH/replay and deletion-aware repositories | `packages/welshman/packages/net/src/auth.ts`, `read-replay.ts`, `repository.ts` |
+| Diagnostics capture/export/arming boundary | `src/app/core/diagnostics-privacy.ts`, `performance-diagnostics.ts`, `debug-diagnostics.ts` |
+| Role conformance and immutable publication pin | `src/app/core/community-policy-vectors.test.ts`, `./community-policy-conformance.json` |
+
+## Release and unsupported workflows
+
+Implementation and local tests do not constitute a dedicated private-relay rollout.
+The server publication/client pin, container execution and private-capable rollback,
+deployed proxy/real-signer probes and production retention review remain release
+work. See the sibling relay's
+[verification record](../../../strfry/deploy/budabit/READ-ADMISSION-VERIFICATION.md).
+Discovery, joining UI and applicant ACLs remain deferred; no public stored-kind
+exceptions are provided.
 
 Public reads remain the current deployment/default. Communikeys, community
 architecture, moderation, publishing and relay I/O documents describe the optional

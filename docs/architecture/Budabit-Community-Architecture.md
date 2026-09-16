@@ -4,6 +4,11 @@ This document describes Budabit's community architecture after the pivot from re
 
 Budabit treats this as a clean redesign of the community foundation. Legacy relay spaces, relay URL identity, and NIP-29 room metadata are not part of the model.
 
+The [access decision record](Community-Access-Decisions.md) explains deployment
+levels, the identity/read/write/content boundaries, eventual consistency, independent
+DM protection and deferred discovery/joining. This document describes community
+structure; [Communikeys](Communikeys.md) owns the wire specification.
+
 ## Summary
 
 ### Optional private branch scope

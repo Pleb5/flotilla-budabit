@@ -14,9 +14,12 @@ independent proof of confidentiality.
 Signed top-level `["read-access","members"]` overrides the public rules below.
 Any present but unsupported read-access intent also blocks public publication.
 Only the isolated private publisher can send private data, to an explicit subset
-of definition relays that advertise NIP-11 `auth_required: true` and exactly
-`budabit.read_control: {version: 1, mode: "members", scope: "relay"}`. Checks run
-before signing or optimistic insertion and again before transport. AUTH alone is
+of definition relays that advertise NIP-11 `limitation.auth_required: true` and a
+supported `budabit.read_control` members/relay claim. Version `1` remains recognized;
+version `2` also requires generic `read_policy` version `1`, `admission: "req"`,
+`consistency: "eventual"`, and integer `recheck_seconds` in 1–300. See the
+[capability contract](Community-Read-Control-Plan.md#private-publication-and-relay-capabilities).
+Checks run before signing or optimistic insertion and again before transport. AUTH alone is
 not membership and does not turn off signature verification.
 
 | Public exception | Private behavior |

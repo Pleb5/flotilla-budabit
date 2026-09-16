@@ -4,6 +4,10 @@ This document describes how moderation, admission, and section access should wor
 
 The goal is to let communities stay readable and discoverable while keeping publication rights high-signal, fine-grained, and delegated to moderators instead of requiring the branch owner key for day-to-day work.
 
+That is the public/default workflow. The [access decision record](Community-Access-Decisions.md)
+separates optional private readership from write permission and current content
+visibility; private discovery and applicant ACLs remain deferred.
+
 ## Summary
 
 ### Member-only read override
@@ -14,7 +18,8 @@ reader eligibility from a completed, eventually consistent local moderation scan
 unbanned structural/list-reference roles, active moderators and any section grantee.
 Personal renunciation preferences do not change relay eligibility. A successful
 AUTH is not a grant. The owner may bootstrap without a definition only after a
-successful complete scan; unavailable policy denies owner reads too.
+successful complete scan; unavailable policy blocks owner reads too, as a temporary
+error rather than a membership denial.
 The plugin checks membership once per REQ and on periodic active-connection
 rechecks. A ban need not take effect at its database commit; the next successful
 policy refresh and connection recheck determine when the socket is disconnected.
@@ -40,6 +45,13 @@ an independently private-capable moderation workflow, then retry access. The rel
 still supports signed-author repair writes when reads are unavailable. See
 [private routing rules](Budabit-Relay-Publishing-Policy.md#private-community-override)
 and [implementation/limitations](Community-Read-Control-Plan.md).
+
+Write-side exceptions for shaped nonmember applications do not provide read-side
+exceptions. Forms, definitions, lists and responses remain behind whole-relay
+admission. Public `1069` answers are plaintext tags and must not be reused as a
+private application channel; a positive `7` review alone does not establish
+membership without the actual `30000` grant. Explicit retry after a grant reconnects
+and authenticates a fresh socket once the relay's read cache has observed it.
 
 ### Public/default moderation
 

@@ -23,8 +23,11 @@ sockets plus in-memory repositories. Shared reads targeting known private endpoi
 or leaking private coordinates receive a local restricted CLOSED outcome, not EOSE.
 The general community loader reports per-relay denied/cancelled/timeout/unavailable
 outcomes and permits one bounded unavailable-policy retry without re-signing.
-The private shell exposes explicit full-filter retry on the authenticated socket;
-partial or saturated results never claim complete history. Private publish checks
+The private shell disposes denied/revoked sockets; explicit full-filter retry
+creates and authenticates a fresh socket when the old one is disposed. This is
+separate from bounded AUTH recovery on a still-live connection, and never becomes
+an automatic denial-signing/reconnect loop. Partial or saturated results never
+claim complete history. Private publish checks
 run before signing and at final queued transmission. See
 [Community-Read-Control-Plan.md](Community-Read-Control-Plan.md) for the current
 bounded archive and unsupported-provider limits. The deployment figures below
@@ -34,13 +37,15 @@ describe public scheduling context, not private relay guarantees.
 
 BudaBit must support authenticated and public Nostr relays without letting general feed traffic delay critical community state. The transport must also respect small strfry deployments with strict per-connection and per-request limits while keeping relay discovery separate from client-side community admission.
 
-The first target is `wss://relay.budabit.club/`, which currently exposes:
+The last recorded public `2fc1b38` deployment of `wss://relay.budabit.club/` has the
+following limits, from the sibling strfry `deploy/budabit/RUNBOOK.md`. These are
+recorded deployment facts, not a new live probe or universal client defaults:
 
 | Constraint                             |         Value |
 | -------------------------------------- | ------------: |
 | NIP-42 authentication                  |      Disabled |
-| Active subscription IDs per connection |            30 |
-| Filters per `REQ`                      |            10 |
+| Active subscription IDs per connection |            10 |
+| Filters per `REQ`                      |             5 |
 | Maximum events per filter              |           200 |
 | Maximum WebSocket message              | 131,072 bytes |
 | Maximum event                          |  65,536 bytes |
@@ -48,7 +53,12 @@ The first target is `wss://relay.budabit.club/`, which currently exposes:
 | Ordinary event retention               |      One year |
 | Write rate                             |       Limited |
 
-The ten-filter limit, event-size limit, tag limit, retention period, and write-rate policy are deployment configuration described in human-readable relay metadata rather than structured NIP-11 limitation fields. They therefore require explicit local policy where applicable. The relay advertises the subscription, result, and message limits through NIP-11.
+The five-filter limit, event-size limit, tag limit, retention period, and write-rate
+policy are deployment configuration described in human-readable relay metadata
+rather than structured NIP-11 limitation fields. The relay advertises subscription,
+result, and message limits through NIP-11. Do not confuse those serving limits with
+the larger client scheduling ceilings below; the client does not parse every
+restriction from free-form metadata.
 
 Profile-list grants can exceed one event's size or tag budget. A content section may therefore repeat `a` references to distinct `kind:30000` shards; clients fetch each exact coordinate and use the union of current `p` tags. Transport scheduling must not assume that one profile-list event contains every writer.
 
@@ -73,7 +83,9 @@ Grouping reduces protocol and subscription-state overhead, but the relay still p
 ## Design Principles
 
 - Reuse Welshman's pool, socket, request, auth, and relay-profile abstractions.
-- Keep one shared socket per relay rather than evading limits with extra connections.
+- Keep one shared socket per relay for public traffic rather than evading limits
+  with extra connections. Private scopes intentionally use dedicated, non-pooled
+  sockets for isolation, not as a capacity workaround.
 - Put connection-wide guarantees in Welshman, where all request paths can participate.
 - Keep BudaBit-specific relay policy and feature priority in BudaBit.
 - Group only related filters with the same relay, priority, lifetime, and failure domain.
@@ -101,16 +113,33 @@ type RelayPolicy = {
 }
 ```
 
-Policy sources are applied in this order:
+Policy is composed, not selected by a single precedence list:
 
-1. Explicit overrides for known relays.
-2. NIP-11 relay metadata already loaded by `@welshman/app`.
-3. Runtime evidence from AUTH challenges, `CLOSED`, and `NOTICE`.
-4. Conservative defaults.
+1. Defaults and explicit relay overrides establish client scheduling ceilings.
+2. Positive structured NIP-11 subscription, message and result limits clamp those
+   ceilings downward; live budgets are also clamped to the resulting capacity.
+3. AUTH uses an explicit auth override where one exists, otherwise NIP-11:
+   `auth_required` means required; a known profile without NIP-42 means none;
+   otherwise it is optional.
+4. Runtime `auth-required:` evidence overrides even a stale public/auth-none profile.
+   Challenges can initiate optional AUTH; read-replay remains idempotent-REQ-only.
 
-`wss://relay.budabit.club/` uses `auth: "none"`, 28 client-managed subscriptions, 10 filters per subscription, at most 24 live subscriptions, at most 18 background-live subscriptions, a 128 KiB message limit, and a result limit of 200. The two IDs outside the client-managed budget remain available for recovery, diagnostics, and reconnect overlap.
+`relay-policy.ts` retains 28 managed subscriptions, 10 filters per subscription,
+at most 24 live / 18 background-live subscriptions, a 128 KiB message ceiling and
+result limit 200 as its public-relay scheduling baseline. It no longer pins that
+URL permanently to `auth: "none"`. A served ten-subscription NIP-11 limit reduces
+managed capacity to ten and live/background-live budgets to at most eight; the
+old 30-ID assumption is not a claim about the current recorded deployment.
 
-Unknown relays start with the same 28-subscription, 10-filter baseline, including at most 24 live and 18 background-live subscriptions and a result limit of 200. Stricter structured NIP-11 limits and runtime evidence reduce either policy; authentication remains optional until relay metadata or runtime behavior resolves it.
+The five-filter server limit is not a structured NIP-11 field consumed by this
+policy, so the ten-filter client baseline is not evidence that a ten-filter REQ
+will be accepted there. Server rejections remain failures, not complete history.
+The private shell's two disjoint filters fit this recorded server limit.
+
+Unknown relays start with the same client ceilings. Their authentication remains
+optional until metadata or runtime behavior resolves it. A default result ceiling
+is not sufficient completeness evidence for private authority: the private reader
+requires the endpoint's explicit positive `max_limit` and unfiltered-kind claims.
 
 ## Authentication
 

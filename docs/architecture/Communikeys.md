@@ -93,10 +93,14 @@ Publishers that cannot interpret a present read-access extension MUST refuse to
 publish that definition or its scoped data, rather than assume public intent.
 
 Budabit's members publisher requires explicit destinations contained in the
-definition's `r` tags. Each destination must advertise both NIP-11
-`limitation.auth_required: true` and
-`budabit.read_control: {version: 1, mode: "members", scope: "relay"}`. A generic
-auth requirement or mere extension presence is insufficient. NIP-11 is an operator
+definition's `r` tags. Each destination must advertise NIP-11
+`limitation.auth_required: true` and a supported `budabit.read_control` claim with
+`mode: "members"` and `scope: "relay"`. Legacy version `1` remains recognized.
+Version `2` additionally requires `read_policy` version `1`, `admission: "req"`,
+`consistency: "eventual"`, and integer `recheck_seconds` in 1–300. These capability
+versions are relay extensions, not new Communikeys protocol generations; see the
+[client capability contract](Community-Read-Control-Plan.md#private-publication-and-relay-capabilities).
+A generic auth requirement or mere extension presence is insufficient. NIP-11 is an operator
 claim, not cryptographic proof of enforcement; operators and readers still trust
 the host. AUTH confirms a key, not eligibility. Client content admission and
 moderation remain separate from whole-relay reader authorization.

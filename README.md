@@ -91,6 +91,17 @@ Budabit combines Communikey communities with decentralized Git functionality thr
 - **Collaborative Development**: Work with teams using Nostr-based communication, moderation, and membership requests
 - **Notifications**: In-app badges and sounds plus an account-wide Git email digest from a provider endorsed by one of the user's communities
 
+## Community architecture and policies
+
+- [Access decisions and policy boundaries](docs/architecture/Community-Access-Decisions.md): deployment levels, membership versus writing, eventual admission, privacy and deferred discovery.
+- [Community architecture](docs/architecture/Budabit-Community-Architecture.md) and [Communikeys wire specification](docs/architecture/Communikeys.md).
+- [Moderation](docs/architecture/Budabit-Community-Moderation.md), [relay publishing](docs/architecture/Budabit-Relay-Publishing-Policy.md), and [private read lifecycle/capabilities](docs/architecture/Community-Read-Control-Plan.md).
+- [NIP-4444 project DM draft](docs/architecture/NIP-4444.md): NIP-44 encryption and inbox-relay routing.
+
+Member-only relay admission is optional and implemented in source, not a claim of
+a released or live private deployment. The public community workflows remain the
+default; private mode does not yet have full public-feature parity.
+
 ## Environment
 
 Create an optional `.env` file in the repo root. Use `.env.example` as the reference.
