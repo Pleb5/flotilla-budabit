@@ -126,9 +126,6 @@ const mergeRepositoryUpdateEnvelopes = (
 })
 
 export class Repository {
-  // Optional boundaries for isolated consumers; public repository semantics
-  // remain unchanged unless the embedding application installs a guard.
-  acceptEvent: (event: TrustedEvent) => boolean = () => true
   constructor(readonly options: {deletionAwareReplaceables?: boolean} = {}) {}
   eventsById = new Map<string, TrustedEvent>()
   eventsByAddress = new Map<string, TrustedEvent>()
@@ -415,7 +412,6 @@ export class Repository {
   }
 
   private publishNow = (event: TrustedEvent, shouldNotify: boolean): boolean => {
-    if (!this.acceptEvent(event)) return false
     if (!event?.id) {
       console.warn("Attempted to publish invalid event to repository", event)
 
@@ -525,7 +521,7 @@ export class Repository {
   }
 
   clear = () => {
-    this.takeDeferredEvents() // clearing must not flush delayed private intake
+    this.takeDeferredEvents() // clearing must not flush deferred intake
     this.load([])
   }
 

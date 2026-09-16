@@ -11,7 +11,7 @@ ReadGate design is superseded; its history is not evidence for the replacement.
 | --- | --- |
 | Wire identity, definitions, lists and signed private intent | [Communikeys](Communikeys.md) |
 | Current roles, writes and content moderation | [Community moderation](Budabit-Community-Moderation.md) |
-| Client private lifecycle, capabilities, completeness and tests | [Private read architecture](Community-Read-Control-Plan.md) |
+| Invitation connections, shared client data and tests | [Read-access client architecture](Community-Read-Control-Plan.md) |
 | Publication destinations and external disclosure boundaries | [Relay publishing policy](Budabit-Relay-Publishing-Policy.md) |
 | AUTH ownership, consent and request scheduling | [Relay I/O scheduling](community-relay-io-scheduling.md) |
 | DM wire format and encryption | [Project NIP-4444 draft](NIP-4444.md) |
@@ -30,7 +30,7 @@ the trustworthiness or freshness of a running relay.
 | --- | --- | --- |
 | Client-only moderation | Ordinary public community reads; no Budabit write plugin required | Validate signed branch authority and current content admission |
 | Public reads plus write enforcement | Reject unauthorized community writes using signed event authors | Still moderate retained history/imports; do not assume the relay curated them |
-| Optional member-only reads | Enforcing write policy plus whole-relay REQ admission and periodic connection rechecks | Use the isolated private shell and publisher, with the same content checks |
+| Optional member-only reads | Enforcing write policy plus whole-relay REQ admission and periodic connection rechecks | Authenticate with consent; use ordinary shared storage, features and content checks |
 
 The third level does not replace the first two. “Public reads” here refers to
 community content: independent DM participant privacy remains mandatory in the
@@ -64,9 +64,9 @@ must not silently expand who can read a private database.
   reports/censorship and same-author deletion. Regrant can reveal retained history;
   read admission does not rewrite or curate storage.
 
-The private shell does not expose a repair/moderation UI just because the relay can
-accept such writes. It currently supports owner bootstrap and plain-text posting
-only after complete bounded authority intake.
+The normal community UI remains available, including moderation and repair controls
+subject to ordinary write permissions. Relay read admission is not a client feature
+gate and does not imply permission to write.
 
 ## 3. Prefer whole-REQ admission and eventual consistency
 
@@ -103,40 +103,38 @@ Already transmitted data cannot be retracted.
 An anonymous REQ receives AUTH plus `CLOSED auth-required:` and may authenticate on
 the same connection. A policy denial returns `CLOSED restricted:` and disconnects;
 unavailability returns `CLOSED error:` and disconnects. Neither is a successful empty
-query. Budabit disposes denied/revoked sockets; explicit retry creates a fresh
-socket and proof, without an automatic denial-signing/reconnect loop. Late callbacks
-cannot revive a terminated view or produce false EOSE.
+query. Explicit invitation retry replaces a closed/failed pooled socket and obtains
+a fresh proof; healthy or opening pooled connections are reused. The shared loader
+reports denied, unavailable, timeout and cancellation outcomes separately from EOSE.
+Normal loaders and live-subscription recovery remain in use; there is no second
+private reader. Transport EOSE is not proof of complete authority or unlimited
+history. Ordinary content-authority loading and moderation still apply.
 
-Transport EOSE is not proof of complete authority. The private reader uses disjoint
-authority `[5,1984,30000,32222]` and text `[1]` filters, each capped at
-`min(200, advertised max_limit)`. Unknown limits, saturation, failures or missing
-`unfiltered_kinds` coverage leave the view partial and withhold posts/authoring.
-This prevents inaccessible unrelated DMs from consuming the authority budget and
-making a missing ban or deletion appear absent. The deletion-aware memory repository
-must not revive an older grant after an e-only delete.
+## 5. Protect reads at the relay, not received client data
 
-## 5. Treat privacy as an end-to-end routing boundary
+The selected contract is **relay-only read protection**. The relay decides whether
+to deliver events using AUTH and membership admission. Once delivered, events are
+ordinary client data: they enter the shared repository and persistent cache and can
+participate in search, notifications, recovery, publication and all normal features.
+Logout, account change, relay denial and revocation do not purge or hide cached data.
+Downstream disclosure is not prevented by this contract.
 
-Signed `['read-access', 'members']` intent and an explicit private invitation are
-separate from relay configuration. Neither enables enforcement. Invitations pin
-endpoints before definition lookup; no public discovery/outbox fallback or automatic
-endpoint expansion is allowed. Public routes/loaders do not mount in the private
-shell. Session storage keeps privacy markers and hints, not retained event bodies;
-content stays in a scope-owned memory repository and clears on teardown/account
-change/denial. Known private scope cannot become public by removing a URL query.
+Signed `['read-access', 'members']` remains preserved metadata, not a client routing
+or export restriction. Unsolicited definitions cannot classify endpoints, register
+private coordinates or block unrelated requests. Explicit invitations remember relay
+hints for definition lookup and require authentication consent; that lookup has no
+public discovery/outbox fallback. Subsequent ordinary application routing is not
+confined to those hints. Neither the tag nor the invitation configures relay enforcement.
 
-Private publication verifies intent and endpoint capabilities before signing and
-again at transport. Shared caches, notifications, search, recovery, applicant/app
-fanout and external providers cannot consume private data. Git HTTP, Blossom,
-remote media, widgets and context-bearing zaps are not made private by relay AUTH
-and remain disabled in this shell. Diagnostics redact known private context,
-refuse private persistent arming and block public artifact export, including after
-leaving the route or switching accounts.
+There is no isolated repository/socket/publisher, NIP-11 private-capability gate,
+restricted renderer or private-context diagnostics boundary. Git, Blossom, media,
+widgets, zaps and public fanout follow their ordinary paths. Diagnostics may include
+community context and be armed/exported normally, while retaining credential/secret
+sanitization, identity-safe signing and upload/readback verification.
 
-Disabling admission on retained private data, weakening signed intent or exporting
-to public infrastructure is **disclosure**, not routine editing or rollback.
-Authorized readers can copy data; operators see plaintext community content.
-No retroactive secrecy or prevention of copying is claimed.
+Operators and authorized clients see plaintext community content. Removing relay
+admission can expose retained data to new readers; received copies cannot be recalled.
+No end-to-end encryption, retroactive secrecy or prevention of copying is claimed.
 
 ## 6. Keep DM protection and NIP-70 independent
 

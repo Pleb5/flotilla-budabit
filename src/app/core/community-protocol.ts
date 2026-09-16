@@ -630,15 +630,11 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
   if (!ownerPubkey) return undefined
 
   const tags = event.tags || []
-  // Optional extension: malformed, duplicate or unknown values do not invalidate
-  // the base definition. Publication policy separately refuses ambiguous intent.
+  // Optional read metadata does not invalidate the base definition or impose a
+  // client routing policy. Unknown/malformed values remain preserved extensions.
+  const contentIndex = tags.findIndex(tag => tag[0] === "content")
   const readAccessTags = tags
-    .slice(
-      0,
-      tags.findIndex(tag => tag[0] === "content") < 0
-        ? tags.length
-        : tags.findIndex(tag => tag[0] === "content"),
-    )
+    .slice(0, contentIndex < 0 ? tags.length : contentIndex)
     .filter(tag => tag[0] === "read-access")
   const readAccess =
     readAccessTags.length === 1 &&
@@ -995,6 +991,11 @@ export const updateCommunityDefinition = (
 
   const topLevelExtensions: string[][] = []
   const sectionExtensions = new Map<string, string[][]>()
+  const replacementTags = options.replacement.tags
+  const replacementContentIndex = replacementTags.findIndex(tag => tag[0] === "content")
+  const replacesReadAccess = replacementTags
+    .slice(0, replacementContentIndex < 0 ? replacementTags.length : replacementContentIndex)
+    .some(tag => tag[0] === "read-access")
   let sourceSectionName = ""
   for (const tag of tags) {
     if (tag[0] === "content") {
@@ -1002,16 +1003,9 @@ export const updateCommunityDefinition = (
       continue
     }
     if (TOP_LEVEL_TAGS.has(tag[0]) || SECTION_TAGS.has(tag[0])) continue
-    // Rebuilt settings may already carry the unchanged intent. Do not duplicate
-    // it, and do not allow replacing a private marker with a public one.
-    if (
-      tag[0] === "read-access" &&
-      options.replacement.tags.some(item => item[0] === "read-access")
-    ) {
-      if (!options.replacement.tags.some(item => JSON.stringify(item) === JSON.stringify(tag)))
-        throw new Error("Changing private read intent requires an explicit disclosure migration.")
-      continue
-    }
+    // Preserve metadata through ordinary settings rebuilds. An explicit
+    // replacement owns the new value; it is not a client disclosure gate.
+    if (!sourceSectionName && tag[0] === "read-access" && replacesReadAccess) continue
     if (sourceSectionName) {
       sectionExtensions.set(sourceSectionName, [
         ...(sectionExtensions.get(sourceSectionName) || []),

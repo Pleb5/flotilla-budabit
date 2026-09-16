@@ -17,14 +17,15 @@ const normalize = (url: string) => {
   }
 }
 // Authentication consent does not add unsigned-event trust. Private invitation
-// scopes call requireExplicitRelayAuthConsent before opening their sockets.
+// scopes request consent before authenticating pooled sockets.
 const explicitOnly = new Set<string>()
 const consent = new Set<string>()
 export const relayAuthConsentVersion = writable(0)
 const notify = () => relayAuthConsentVersion.update(n => n + 1)
 export const requireExplicitRelayAuthConsent = (relays: string[]) => {
+  const size = explicitOnly.size
   for (const relay of relays) explicitOnly.add(normalize(relay))
-  notify()
+  if (explicitOnly.size !== size) notify()
 }
 export const allowRelayAuthentication = (relay: string, identity = pubkey.get()) => {
   if (identity) consent.add(`${identity}:${normalize(relay)}`)

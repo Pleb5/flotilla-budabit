@@ -14,7 +14,6 @@ import {
 } from "@welshman/util"
 import {
   publish,
-  netContext,
   PublishStatus,
   type PublishResult,
   type PublishOptions,
@@ -102,7 +101,6 @@ export class Thunk {
     options: ThunkOptions,
     diagnostic: {attempt?: number; previousPublicationId?: string} = {},
   ) {
-    netContext.beforePublish?.(options.event, options.relays)
     this.options = {...options, relays: sanitizeRelayUrls(options.relays)}
     options = this.options
 
@@ -350,12 +348,10 @@ export class Thunk {
         this.event = await makePow(this.event, this.options.pow).result
       }
 
-      netContext.beforePublish?.(this.event, this.options.relays)
       const signedEvent = await this.signer.sign(this.event, {
         signal: AbortSignal.timeout(30_000),
       })
 
-      netContext.beforePublish?.(signedEvent, this.options.relays)
       if (this.options.optimistic !== false) {
         if (this._optimisticEventId) repository.removeEvent(this._optimisticEventId)
         repository.publish(signedEvent)
@@ -383,7 +379,6 @@ export class Thunk {
   }
 
   enqueue() {
-    netContext.beforePublish?.(this.event, this.options.relays)
     thunkQueue.push(this)
 
     if (this.options.optimistic !== false && repository.publish(this.event)) {

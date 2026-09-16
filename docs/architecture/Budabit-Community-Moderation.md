@@ -12,8 +12,8 @@ visibility; private discovery and applicant ACLs remain deferred.
 
 ### Member-only read override
 
-The public discovery/admission workflow below is the default, not an exception to
-signed private intent. Optional member-only relays pin one exact branch and derive
+The public discovery/admission workflow below remains the default. Optional
+member-only relays pin one exact branch and derive
 reader eligibility from a completed, eventually consistent local moderation scan: the owner,
 unbanned structural/list-reference roles, active moderators and any section grantee.
 Personal renunciation preferences do not change relay eligibility. A successful
@@ -25,25 +25,17 @@ rechecks. A ban need not take effect at its database commit; the next successful
 policy refresh and connection recheck determine when the socket is disconnected.
 
 Read eligibility permits retained history, not authorship in every section. Client
-authoring and report/censor rules remain separate. Private clients must use a
-deletion-aware retained authority view; raw concatenated list bodies can revive an
-e-only-deleted grant. The initial private shell applies retained report state,
-requires complete authority before exposing or posting text, and labels saturated,
-unknown-limit or failed loads incomplete. The effective cap is the smaller of 200
-and the endpoint's advertised positive `max_limit`, separately for the authority
-filter (kinds5/1984/30000/32222) and text filter (kind1). EOSE at either cap is not
-proof of complete authority. Every queried kind also requires an explicit
-`budabit.read_control.unfiltered_kinds` claim: otherwise post-limit filtering
-could hide unread authority even below the received cap. Plain-text events must target the exact branch and pass
-current section-kind, author grant and section-censorship checks. Regrant or grant
-removal recomputes visibility. Revocation terminates the relay connection and clears the view.
+authoring, exact targeting and report/censor rules remain separate. Received events
+use the normal shared repository, authority loaders and moderation UI; no private
+bounded-archive or capability gate remains. Regrant or grant removal recomputes
+ordinary content visibility. Relay revocation stops future reads but does not clear
+or hide received data solely because access was lost.
 
-Private admission reviews must not fan out to applicant/app public relays. Current
-public admission, preference and roster helpers reject/omit private scopes; those
-full workflows are not mounted in the initial private shell. Arrange grants through
-an independently private-capable moderation workflow, then retry access. The relay
-still supports signed-author repair writes when reads are unavailable. See
-[private routing rules](Budabit-Relay-Publishing-Policy.md#private-community-override)
+Admission reviews, preferences and roster helpers follow normal routing, including
+their ordinary public fanout. No client confidentiality is promised for those paths.
+Arrange relay membership grants before retrying denied reads. The relay still supports
+signed-author repair writes when reads are unavailable. See
+[publishing rules](Budabit-Relay-Publishing-Policy.md)
 and [implementation/limitations](Community-Read-Control-Plan.md).
 
 Write-side exceptions for shaped nonmember applications do not provide read-side

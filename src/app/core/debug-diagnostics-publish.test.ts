@@ -151,6 +151,67 @@ describe("debug diagnostics publication", () => {
     ).rejects.toThrow("not accepted")
   })
 
+  it("owns stable artifact bytes across signing callbacks", async () => {
+    const mutable = {...artifact, bytes: artifact.bytes.slice()}
+    const expected = mutable.bytes.slice()
+    const {dependencies} = makeDependencies({
+      upload: async (prepared: PreparedDebugDiagnosticsArtifact) => {
+        expect(prepared.bytes).toEqual(expected)
+        expect(prepared.bytes).not.toBe(mutable.bytes)
+        return {url: "https://blossom.example/blob", sha256: artifact.sha256}
+      },
+    })
+    await publishDebugDiagnosticsArtifact({
+      artifact: mutable,
+      runId: "stable-bytes",
+      categories: [],
+      recordCount: 0,
+      observationCount: 0,
+      onStage: stage => {
+        if (stage === "signing-upload") mutable.bytes.fill(0)
+      },
+      dependencies,
+    })
+    expect(dependencies.verifyUpload).toHaveBeenCalledWith(
+      expect.objectContaining({bytes: expected}),
+      "https://blossom.example/blob",
+    )
+  })
+
+  it.each([
+    "signing-upload",
+    "uploading",
+    "verifying-upload",
+    "signing-run",
+    "publishing-run",
+    "verifying-run",
+  ] as const)("checks identity again after the %s stage callback", async stage => {
+    const {account, signer, dependencies} = makeDependencies()
+    await expect(
+      publishDebugDiagnosticsArtifact({
+        artifact,
+        runId: "stage-identity",
+        categories: [],
+        recordCount: 0,
+        observationCount: 0,
+        onStage: current => {
+          if (current === stage) account.pubkey = "f".repeat(64)
+        },
+        dependencies,
+      }),
+    ).rejects.toThrow("account changed")
+    const blocked = {
+      "signing-upload": signer.sign,
+      uploading: dependencies.upload,
+      "verifying-upload": dependencies.verifyUpload,
+      "signing-run": signer.sign,
+      "publishing-run": dependencies.publish,
+      "verifying-run": dependencies.verify,
+    }[stage]!
+    // Only the upload proof was signed before the run-manifest stage.
+    expect(blocked).toHaveBeenCalledTimes(stage === "signing-run" ? 1 : 0)
+  })
+
   it("rejects failed Blossom and relay readback", async () => {
     const failedUpload = makeDependencies({verifyUpload: async () => false}).dependencies
     await expect(

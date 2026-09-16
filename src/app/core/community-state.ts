@@ -1419,14 +1419,13 @@ export const loadCommunityDefinitionWithOutboxFallback = async (
     ...loadOptions,
     timeout: loadOptions.timeout ?? COMMUNITY_DEFINITION_LOOKUP_TIMEOUT,
   }
-  const privateScope = getPrivateCommunityScope(pointer)
-  if (privateScope) {
-    if (privateScope.error || !privateScope.relays.length)
+  const invitation = getPrivateCommunityScope(pointer)
+  if (invitation) {
+    if (invitation.error || !invitation.relays.length)
       throw new CommunityDefinitionRelayError("Private invitation requires explicit relay hints")
-    return loadCommunityDefinitionFromRelays(pointer, privateScope.relays, {
+    return loadCommunityDefinitionFromRelays(pointer, invitation.relays, {
       ...definitionLoadOptions,
       authenticate: true,
-      publishEvents: false,
       settle: "all",
     })
   }

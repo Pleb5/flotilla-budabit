@@ -67,6 +67,22 @@ describe("debug diagnostics", () => {
     })
   })
 
+  it("sanitizes capture IDs independently of community context", () => {
+    const recorder = createDebugDiagnosticsRecorder()
+    recorder.setCategoryEnabled("app-update", true)
+    recorder.start("bunker://fixture-secret")
+    const snapshot = recorder.snapshot()
+    expect(snapshot.capture.id).toBe("[redacted]")
+    const restored = createDebugDiagnosticsRecorder()
+    expect(
+      restored.restore({
+        ...snapshot,
+        capture: {...snapshot.capture, id: "bunker://restored-secret"},
+      }),
+    ).toBe(true)
+    expect(restored.snapshot().capture.id).toBe("[redacted]")
+  })
+
   it("persists category selections but no records", () => {
     setDebugDiagnosticCategoryEnabled("relay-normalization", true)
 

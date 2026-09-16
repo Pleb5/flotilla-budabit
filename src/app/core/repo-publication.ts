@@ -1,9 +1,5 @@
 import {GIT_REPO_ANNOUNCEMENT} from "@nostr-git/core/events"
 import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
-import {
-  assertPublicCommunityOperation,
-  assertPublicCommunityReferences,
-} from "./private-community-policy"
 
 type RepoPublicationEvent = {
   kind?: number
@@ -146,8 +142,6 @@ export const requireRepoPublicationScope = ({
   relays,
   repoAddress,
 }: RequireRepoPublicationScopeParams) => {
-  assertPublicCommunityReferences([repoAddress || ""])
-  assertPublicCommunityOperation({kind: event.kind || 0, tags: event.tags || [], content: ""})
   const authoritativeRelays = normalizeRepoPublicationRelays(relays)
   if (authoritativeRelays.length === 0) {
     throw new Error(

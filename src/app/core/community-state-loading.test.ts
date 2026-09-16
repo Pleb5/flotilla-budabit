@@ -55,6 +55,7 @@ vi.mock("@welshman/app", async importOriginal => {
 // These loading tests assume explicit consent and a connected controlled signer;
 // permission/guest/identity checks are exercised in relay-auth-coordinator.test.ts.
 vi.mock("./relay-auth-consent", () => ({
+  requireExplicitRelayAuthConsent: vi.fn(),
   isUserOwnedRelay: () => true,
   subscribeRelayAuthConsent: () => () => {},
 }))
@@ -791,20 +792,42 @@ describe("community relay loading", () => {
     })
   })
 
-  it("never runs discovery or owner-outbox fallback for a private invitation", async () => {
+  it("loads invitation hints through the normal shared repository without discovery fallback", async () => {
+    const relay = "wss://invitation-loading.test/"
+    pubkey.set(memberPubkey)
+    Pool.get().get(relay).auth.setStatus(AuthStatus.Ok)
     const pointer = makeCommunityPointer({
       ownerPubkey: communityPubkey,
       communityId: "e".repeat(64),
-      relayHints: [relayA],
+      relayHints: [relay],
     })!
     resolvePrivateCommunityScope(
-      new URL(makePrivateCommunityInvite(pointer, [relayA]), "https://app.test"),
+      new URL(makePrivateCommunityInvite(pointer, [relay]), "https://app.test"),
     )
-    loadMock.mockResolvedValue([])
-    await loadCommunityDefinitionWithOutboxFallback(pointer, {relayHints: [relayB]})
-    expect(loadMock.mock.calls.map(([options]) => options.relays)).toEqual([[relayA]])
-    expect(forceLoadRelayListMock).not.toHaveBeenCalled()
-    expect(fromPubkeysMock).not.toHaveBeenCalled()
+    const definition = makeEvent({
+      kind: COMMUNITY_DEFINITION_KIND,
+      pubkey: pointer.ownerPubkey,
+      tags: buildCommunityDefinition({
+        communityId: pointer.communityId,
+        name: "Invited community",
+        readAccess: "members",
+        relays: [relay],
+        sections: [{name: "General", kinds: [{kind: 1}], profileLists: []}],
+      }).tags,
+    })
+    loadMock.mockImplementationOnce(({onEvent}: any) => {
+      onEvent(definition, relay)
+      return Promise.resolve([definition])
+    })
+    try {
+      await loadCommunityDefinitionWithOutboxFallback(pointer, {relayHints: [relayB]})
+      expect(loadMock.mock.calls.map(([options]) => options.relays)).toEqual([[relay]])
+      expect(forceLoadRelayListMock).not.toHaveBeenCalled()
+      expect(fromPubkeysMock).not.toHaveBeenCalled()
+      expect(repository.query([{ids: [definition.id]}])).toEqual([definition])
+    } finally {
+      repository.removeEvent(definition.id)
+    }
   })
 
   it("starts the relay timeout when queued work physically starts", async () => {
@@ -967,7 +990,7 @@ describe("community relay loading", () => {
     expect(loadMock).toHaveBeenCalledTimes(2)
   })
 
-  it("does not publish private results or late callbacks from a cancelled loader", async () => {
+  it("honors publishEvents:false and ignores late callbacks from a cancelled loader", async () => {
     let receive!: (event: TrustedEvent, relay: string) => void
     loadMock.mockImplementationOnce(({onEvent, onStart}: any) => {
       receive = onEvent

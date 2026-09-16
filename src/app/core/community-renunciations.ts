@@ -439,11 +439,8 @@ export const userRenouncedCommunityAddresses = derived(
   $list => $list?.communityAddresses || [],
 )
 
-import {assertPublicCommunityReferences} from "./private-community-policy"
-
 const assertCanRenounceCommunity = (community: CommunityPointer) => {
   const pointer = normalizeCommunityPointer(community)
-  assertPublicCommunityReferences([pointer.address])
   const activePubkey = normalizePubkey(pubkey.get() || "")
 
   if (!activePubkey) throw new Error("Log in to update your groups.")

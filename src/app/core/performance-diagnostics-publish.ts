@@ -1,5 +1,4 @@
 import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
-import {assertDiagnosticsExportContext} from "./diagnostics-privacy"
 import {
   publishVerifiedDiagnosticsArtifact,
   uploadDiagnosticsArtifact,
@@ -38,7 +37,6 @@ export const buildPerformanceDiagnosticsManifest = ({
   dTag,
   createdAt = Math.floor(Date.now() / 1000),
 }: PerformanceDiagnosticsManifestInput): DiagnosticsEventTemplate => {
-  assertDiagnosticsExportContext([routes, runId, dTag, artifactUrl])
   const content = JSON.stringify({
     schema: "budabit-performance-manifest-v1",
     artifact: {

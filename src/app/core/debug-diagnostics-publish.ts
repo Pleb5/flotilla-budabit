@@ -1,5 +1,4 @@
 import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
-import {assertDiagnosticsExportContext} from "./diagnostics-privacy"
 import {
   publishVerifiedDiagnosticsArtifact,
   uploadDiagnosticsArtifact,
@@ -41,43 +40,40 @@ export const buildDebugDiagnosticsManifest = ({
   observationCount,
   dTag,
   createdAt = Math.floor(Date.now() / 1000),
-}: DebugDiagnosticsManifestInput): DiagnosticsEventTemplate => {
-  assertDiagnosticsExportContext([categories, runId, dTag, artifactUrl])
-  return {
-    kind: DEBUG_DIAGNOSTICS_MANIFEST_KIND,
-    created_at: createdAt,
-    content: JSON.stringify({
-      schema: "budabit-debug-manifest-v1",
-      artifact: {
-        url: artifactUrl,
-        sha256: artifact.sha256,
-        bytes: artifact.bytes.length,
-        uncompressedBytes: artifact.uncompressedBytes,
-        encoding: artifact.encoding,
-        contentType: artifact.contentType,
-      },
-      runId,
-      categories,
-      recordCount,
-      observationCount,
-      build: {id: APP_BUILD_ID, hash: APP_BUILD_HASH},
-      diagnosticsSchemaVersion: DEBUG_DIAGNOSTICS_SCHEMA_VERSION,
-    }),
-    tags: [
-      ["d", dTag],
-      ["x", artifact.sha256],
-      ["url", artifactUrl],
-      ["run", runId],
-      ["schema", String(DEBUG_DIAGNOSTICS_SCHEMA_VERSION)],
-      ["encoding", artifact.encoding],
-      ["size", String(artifact.bytes.length)],
-      ["records", String(recordCount)],
-      ["observations", String(observationCount)],
-      ["build", APP_BUILD_ID, APP_BUILD_HASH],
-      ...Array.from(new Set(categories)).map(category => ["category", category]),
-    ],
-  }
-}
+}: DebugDiagnosticsManifestInput): DiagnosticsEventTemplate => ({
+  kind: DEBUG_DIAGNOSTICS_MANIFEST_KIND,
+  created_at: createdAt,
+  content: JSON.stringify({
+    schema: "budabit-debug-manifest-v1",
+    artifact: {
+      url: artifactUrl,
+      sha256: artifact.sha256,
+      bytes: artifact.bytes.length,
+      uncompressedBytes: artifact.uncompressedBytes,
+      encoding: artifact.encoding,
+      contentType: artifact.contentType,
+    },
+    runId,
+    categories,
+    recordCount,
+    observationCount,
+    build: {id: APP_BUILD_ID, hash: APP_BUILD_HASH},
+    diagnosticsSchemaVersion: DEBUG_DIAGNOSTICS_SCHEMA_VERSION,
+  }),
+  tags: [
+    ["d", dTag],
+    ["x", artifact.sha256],
+    ["url", artifactUrl],
+    ["run", runId],
+    ["schema", String(DEBUG_DIAGNOSTICS_SCHEMA_VERSION)],
+    ["encoding", artifact.encoding],
+    ["size", String(artifact.bytes.length)],
+    ["records", String(recordCount)],
+    ["observations", String(observationCount)],
+    ["build", APP_BUILD_ID, APP_BUILD_HASH],
+    ...Array.from(new Set(categories)).map(category => ["category", category]),
+  ],
+})
 
 export const uploadDebugDiagnosticsArtifact = async (
   artifact: PreparedDebugDiagnosticsArtifact,

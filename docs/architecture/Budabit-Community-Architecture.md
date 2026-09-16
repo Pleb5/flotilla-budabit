@@ -22,21 +22,18 @@ authentication and a plugin membership decision. Active connections are periodic
 rechecked; membership is eventually consistent, not commit-synchronized. C++ does
 not hold the community roster or address. It is not E2E encryption.
 
-An explicit `/c/<naddr>?read-access=members` invitation pins relay hints before
-definition lookup. A separate access shell never mounts public community loaders
-or child pages. Identity/signer/consent/auth/access states are independent; partial
-or denied reads do not mean empty history. Private sockets and deletion-aware
-repositories are scope-owned and memory-only, and are cleared on cancellation,
-account change or confirmed denial/revocation. Global notification/search/cache and
-external provider components cannot consume them. Known private coordinates stay
-private across same-session reload/navigation; only invitation metadata is stored.
+An explicit `/c/<naddr>?read-access=members` invitation remembers relay hints before
+definition lookup, without a public discovery fallback for that lookup. Login,
+signer, consent and AUTH/retry controls accompany the normal community layout.
+They use pooled sockets and shared loaders, not a separate reader or content gate.
+Denial and unavailable policy are not successful empty history.
 
-Owner bootstrap/plain-text posting requires signed members intent and validated
-member-only NIP-11 capabilities for explicit definition relays. No public discovery,
-outbox recovery, mixed-target publication or profile-roster fanout is allowed.
-The initial archive is bounded at 200 events per relay and reports saturation as
-incomplete; Git/media/Blossom/widgets/zaps remain unavailable. These are deliberate
-initial limits, not a claim of private feature parity or a live deployment.
+Once delivered, events enter normal shared storage and persistent caches and may
+flow through notifications, search, publication and external providers. Logout,
+account change and revocation do not purge or hide cached events. Normal moderation
+and write permissions remain. Signed read-access metadata does not restrict client
+publication or classify relay endpoints; no private NIP-11 capability gate remains.
+This is relay-only protection, not client confidentiality or a live-deployment claim.
 
 ### Public/default architecture
 

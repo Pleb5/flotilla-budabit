@@ -84,34 +84,24 @@ A missing, empty, malformed, or duplicate `d` invalidates the definition. Reader
 
 The top-level extension `['read-access', 'members']` (JSON wire form
 `["read-access","members"]`) MAY occur once, before the first `content` section.
-It declares the owner's intent to distribute this branch only through member-only
-relays. It does **not** enable relay enforcement, prove membership, or provide
+It declares the owner's member-only relay-read intent for this branch.
+It does **not** enable relay enforcement, prove membership, or provide
 encryption. Absence preserves public behavior. Unknown values, malformed or
 duplicate occurrences MUST be ignored by the base definition parser and MUST NOT
 invalidate an otherwise valid definition. Editors MUST preserve these extensions.
-Publishers that cannot interpret a present read-access extension MUST refuse to
-publish that definition or its scoped data, rather than assume public intent.
+The extension is metadata, not a client publication/export restriction or an
+endpoint classification. Budabit uses normal shared storage and publication for
+received events, including definitions with unknown read-access extensions.
 
-Budabit's members publisher requires explicit destinations contained in the
-definition's `r` tags. Each destination must advertise NIP-11
-`limitation.auth_required: true` and a supported `budabit.read_control` claim with
-`mode: "members"` and `scope: "relay"`. Legacy version `1` remains recognized.
-Version `2` additionally requires `read_policy` version `1`, `admission: "req"`,
-`consistency: "eventual"`, and integer `recheck_seconds` in 1–300. These capability
-versions are relay extensions, not new Communikeys protocol generations; see the
-[client capability contract](Community-Read-Control-Plan.md#private-publication-and-relay-capabilities).
-A generic auth requirement or mere extension presence is insufficient. NIP-11 is an operator
-claim, not cryptographic proof of enforcement; operators and readers still trust
-the host. AUTH confirms a key, not eligibility. Client content admission and
-moderation remain separate from whole-relay reader authorization.
+Member-only reads require actual relay-side AUTH and membership enforcement.
+NIP-11 is an operator claim, not cryptographic proof of that enforcement. AUTH
+confirms a key, not eligibility. Client write permissions and content moderation
+remain independent. See the [client contract](Community-Read-Control-Plan.md).
 
-Do not remove or weaken private intent as an ordinary metadata edit. Changing to
-public reads, sharing an invitation publicly, or sending retained events to a
-public relay is a disclosure operation; already copied or previously public data
-cannot be retracted. Git HTTP, Blossom, media, widgets and payment providers need
-independent access protection. Budabit's initial private view disables those
-exports, retains events only in a scope-owned in-memory repository, and stores only
-invitation coordinates/endpoints in session storage.
+Received data may persist, be exported and flow through normal Git, Blossom, media,
+widget and payment features. Relay read control does not make those providers private
+or retract previously delivered copies. Editors preserve the signed metadata rather
+than silently stripping it; there is no separate private client mode or publisher.
 
 ### Other definition metadata
 

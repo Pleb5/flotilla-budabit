@@ -2,247 +2,186 @@ import {test, expect} from "@playwright/test"
 import {finalizeEvent, getPublicKey, nip19} from "nostr-tools"
 import {MockRelay} from "./helpers/mock-relay"
 
-const key = new Uint8Array(32).fill(27),
-  pubkey = getPublicKey(key)
-const community = "d".repeat(64),
-  relay = "wss://private-browser.test/"
-const branch = `32222:${pubkey}:${community}`
-const memberKey = new Uint8Array(32).fill(40),
-  member = getPublicKey(memberKey)
-const naddr = nip19.naddrEncode({
-  pubkey,
-  kind: 32222,
-  identifier: community,
-  relays: [relay.slice(0, -1)],
-})
+const appOrigin = new URL(process.env.PRIVATE_TEST_BASE_URL || "http://localhost:1847").origin
+
+const key = new Uint8Array(32).fill(27)
+const pubkey = getPublicKey(key)
+const community = "d".repeat(64)
+const relay = "wss://private-browser.test/"
+const naddr = nip19.naddrEncode({pubkey, kind: 32222, identifier: community, relays: [relay]})
 const invite = `/c/${naddr}?read-access=members`
 const definition = finalizeEvent(
   {
     kind: 32222,
-    created_at: 100,
+    created_at: Math.floor(Date.now() / 1000),
     content: "",
     tags: [
       ["d", community],
-      ["name", "Private browser fixture"],
-      ["r", relay.slice(0, -1)],
+      ["name", "Member relay fixture"],
+      ["r", relay],
       ["read-access", "members"],
       ["content", "General"],
       ["k", "1"],
-      ["a", `30000:${pubkey}:${community}-general`],
-    ],
-  },
-  key,
-)
-const note = finalizeEvent(
-  {
-    kind: 1,
-    created_at: 101,
-    content: "Retained private fixture history",
-    tags: [
-      ["h", community],
-      ["a", branch],
-    ],
-  },
-  key,
-)
-const memberNote = finalizeEvent(
-  {
-    kind: 1,
-    created_at: 102,
-    content: "Granted member text fixture",
-    tags: [
-      ["h", community],
-      ["a", branch],
-    ],
-  },
-  memberKey,
-)
-const wrongBranch = finalizeEvent(
-  {
-    kind: 1,
-    created_at: 103,
-    content: "Wrong branch fixture",
-    tags: [
-      ["h", community],
-      ["a", `32222:${member}:${community}`],
-    ],
-  },
-  key,
-)
-const unsupported = finalizeEvent(
-  {
-    kind: 11,
-    created_at: 104,
-    content: "Unsupported kind fixture",
-    tags: [
-      ["h", community],
-      ["a", branch],
     ],
   },
   key,
 )
 
-test("cold invitation, consent, denied reader, newly authenticated grant retry, reload and revoke", async ({
+test("invitation authenticates a pooled connection; normal routes and persistent cache stay available", async ({
   page,
 }, info) => {
-  const errors: string[] = [],
-    signed: number[] = []
-  page.on("pageerror", error => errors.push(error.stack || error.message))
-  // Do not contact public providers. MockRelay intercepts all remote WebSockets;
-  // HTTP requests outside the intended frontend are blocked too.
+  const errors: string[] = []
+  const signed: number[] = []
+  page.on("pageerror", error => errors.push(error.message))
   await page.route("**/*", route =>
-    new URL(route.request().url()).origin === "http://localhost:1847"
-      ? route.continue()
-      : route.abort(),
+    new URL(route.request().url()).origin === appOrigin ? route.continue() : route.abort(),
   )
-  let capability = true,
-    maxLimit = 2
+  // No Budabit capability extension is required by the client anymore.
   await page.route("https://private-browser.test/**", route =>
     route.fulfill({
-      json: {
-        limitation: {auth_required: true, max_limit: maxLimit},
-        ...(capability
-          ? {
-              budabit: {
-                read_control: {
-                  version: 2,
-                  mode: "members",
-                  scope: "relay",
-                  unfiltered_kinds: [1, 5, 1984, 30000, 32222],
-                },
-              },
-              read_policy: {
-                version: 1,
-                admission: "req",
-                consistency: "eventual",
-                recheck_seconds: 5,
-              },
-            }
-          : {}),
-      },
+      json: {supported_nips: [1, 42], limitation: {auth_required: true, max_limit: 200}},
     }),
   )
   let granted = false
   const mock = new MockRelay({
     authRequiredRelays: [relay],
-    seedEventsByRelay: {[relay]: [definition, note, memberNote, wrongBranch, unsupported]},
+    seedEventsByRelay: {[relay]: [definition]},
     getSubscriptionOutcome: (_filters, url) => (url === relay && !granted ? "denied" : "eose"),
   })
   await mock.setup(page)
-  await page.exposeFunction("__privateTestSign", (event: Parameters<typeof finalizeEvent>[0]) => {
-    const auth =
-      event.kind === 22242 && event.tags.some(tag => tag[0] === "relay" && tag[1] === relay)
-    const fixturePost =
-      event.kind === 1 &&
-      event.content === "Controlled private publication" &&
-      event.tags.some(tag => tag[0] === "h" && tag[1] === community)
-    if (!auth && !fixturePost) throw Error("Test signer refuses non-fixture operations")
+  await page.exposeFunction("__invitationSign", (event: Parameters<typeof finalizeEvent>[0]) => {
+    if (event.kind !== 22242 || !event.tags.some(tag => tag[0] === "relay" && tag[1] === relay))
+      throw Error("Fixture signer only permits AUTH to the controlled relay")
     signed.push(event.kind)
     return finalizeEvent(event, key)
   })
   await page.addInitScript(
     ({pubkey}) => {
       Object.defineProperty(window, "nostr", {
+        configurable: true,
         value: {
           getPublicKey: async () => pubkey,
-          signEvent: (event: unknown) => (window as any).__privateTestSign(event),
+          signEvent: (event: unknown) => (window as any).__invitationSign(event),
         },
-        configurable: true,
       })
     },
     {pubkey},
   )
   await page.goto(invite)
-  const shell = page.getByTestId("private-community-access")
-  await expect(shell.getByRole("heading", {name: "Sign in to this private community"})).toBeVisible(
-    {timeout: 25000},
-  )
-  expect((await mock.getTelemetry()).filter(entry => entry.relayUrl === relay)).toEqual([])
-  await shell.getByRole("button", {name: "Sign in", exact: true}).click()
+  const access = page.getByTestId("community-relay-access")
+  await expect(access.getByRole("button", {name: "Sign in", exact: true})).toBeVisible()
+  expect(signed).toEqual([])
+  await access.getByRole("button", {name: "Sign in", exact: true}).click()
   await page.getByRole("button", {name: "Log in with Extension", exact: true}).click()
-  await expect(
-    shell.getByRole("heading", {name: "Authenticate to the invitation relays"}),
-  ).toBeVisible()
-  await shell.getByRole("button", {name: "Authenticate and check access"}).click()
-  await expect(shell).toHaveAttribute("data-access", "denied")
-  await expect(shell.getByText(note.content, {exact: true})).toHaveCount(0)
+  await access.getByRole("button", {name: "Authenticate and retry", exact: true}).click()
+  await expect(access).toContainText("Access denied")
   expect(signed).toEqual([22242])
-  await shell.screenshot({path: info.outputPath("denied.png")})
   granted = true
-  await shell.getByRole("button", {name: "Retry access"}).click()
-  await expect(shell).toHaveAttribute("data-access", "partial")
-  await expect(shell.getByLabel("Private text post")).toHaveCount(0)
-  await expect(shell.locator("article")).toHaveCount(0)
-  maxLimit = 200
-  await shell.getByRole("button", {name: "Retry access"}).click()
-  await expect(shell).toHaveAttribute("data-access", "ready")
-  await expect(shell.getByText(note.content, {exact: true})).toBeVisible()
-  await expect(shell.getByText(memberNote.content, {exact: true})).toHaveCount(0)
-  await expect(shell.getByText(wrongBranch.content, {exact: true})).toHaveCount(0)
-  await expect(shell.getByText(unsupported.content, {exact: true})).toHaveCount(0)
-  const grant = (members: string[], created_at: number) =>
-    finalizeEvent(
-      {
-        kind: 30000,
-        content: "",
-        created_at,
-        tags: [["d", `${community}-general`], ...members.map(member => ["p", member])],
-      },
-      key,
-    )
-  await mock.injectEvents([grant([member], 105)])
-  await expect(shell.getByText(memberNote.content, {exact: true})).toBeVisible()
-  await mock.injectEvents([grant([], 106)])
-  await expect(shell.getByText(memberNote.content, {exact: true})).toHaveCount(0)
-  await mock.injectEvents([grant([member], 107)])
-  await expect(shell.getByText(memberNote.content, {exact: true})).toBeVisible()
-  expect(signed).toEqual([22242, 22242])
-  const requests = (await mock.getTelemetry()).filter(
-    entry => entry.type === "req" && entry.relayUrl === relay,
-  )
-  expect(requests.filter(entry => entry.filters?.some(filter => "since" in filter))).toEqual([])
-  expect(
-    (await mock.getTelemetry()).filter(
-      entry =>
-        entry.relayUrl !== relay &&
-        entry.filters?.some(filter => JSON.stringify(filter).includes(community)),
-    ),
-  ).toEqual([])
-  await shell.getByLabel("Private text post").fill("Controlled private publication")
-  capability = false
-  await shell.getByRole("button", {name: "Publish to private relays"}).click()
-  await expect(shell.getByRole("alert")).toContainText("Relay does not advertise")
-  expect(signed).toEqual([22242, 22242])
-  expect(mock.getPublishedEvents()).toEqual([])
-  capability = true
-  await shell.getByRole("button", {name: "Publish to private relays"}).click()
-  await expect(shell.getByLabel("Private text post")).toHaveValue("")
-  expect(signed).toEqual([22242, 22242, 1])
-  expect(mock.getPublishedEvents()).toHaveLength(1)
-  await shell.screenshot({path: info.outputPath("ready.png")})
-  // The private store remains separate even after browser event intake.
-  expect(
-    await page.evaluate(
-      async ({ids}) => {
-        const module = await import(
-          /* @vite-ignore */ "/packages/welshman/packages/app/src/index.ts"
-        )
-        return module.repository.query([{ids}]).length
-      },
-      {ids: [definition.id, note.id, ...mock.getPublishedEvents().map(event => event.id)]},
-    ),
-  ).toBe(0)
-  await page.reload()
-  await expect(
-    shell.getByRole("heading", {name: "Authenticate to the invitation relays"}),
-  ).toBeVisible()
-  await shell.getByRole("button", {name: "Authenticate and check access"}).click()
-  await expect(shell).toHaveAttribute("data-access", "ready")
+  // The mock models the real relay's post-denial disconnect.
   await page.evaluate(relay => {
     for (const socket of (window as any).__mockRelayConnections.values())
       if (socket.url === relay) socket.close()
   }, relay)
-  await expect(shell).toHaveAttribute("data-access", "revoked")
-  await expect(shell.getByText(note.content, {exact: true})).toHaveCount(0)
+  await access.getByRole("button", {name: "Authenticate and retry", exact: true}).click()
+  await expect(access).toContainText("Connected")
+  await expect
+    .poll(() =>
+      page.evaluate(async id => {
+        const app = await import(/* @vite-ignore */ "/packages/welshman/packages/app/src/index.ts")
+        return Boolean(app.repository.getEvent(id))
+      }, definition.id),
+    )
+    .toBe(true)
+  expect(signed).toEqual([22242, 22242])
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async id => {
+          const databases = await indexedDB.databases()
+          for (const {name} of databases) {
+            if (!name) continue
+            const found = await new Promise<boolean>((resolve, reject) => {
+              const request = indexedDB.open(name)
+              request.onerror = () => reject(request.error)
+              request.onsuccess = () => {
+                const db = request.result
+                if (!db.objectStoreNames.contains("events")) {
+                  db.close()
+                  resolve(false)
+                  return
+                }
+                const transaction = db.transaction("events")
+                const result = transaction.objectStore("events").get(id)
+                result.onsuccess = () => {
+                  resolve(Boolean(result.result))
+                  db.close()
+                }
+                result.onerror = () => {
+                  reject(result.error)
+                  db.close()
+                }
+              }
+            })
+            if (found) return true
+          }
+          return false
+        }, definition.id),
+      {timeout: 20000},
+    )
+    .toBe(true)
+  // Normal child routes mount; no restricted private archive/shell remains.
+  await page.getByRole("link", {name: "Admin", exact: true}).click()
+  await expect(page.getByText("Community Admin", {exact: true})).toBeVisible()
+  await expect(page.getByTestId("private-community-access")).toHaveCount(0)
+  await expect(
+    page.getByText("Previously received data remains cached on this device.", {exact: false}),
+  ).toBeVisible()
+  await page.reload()
+  await expect
+    .poll(() =>
+      page.evaluate(async id => {
+        const app = await import(/* @vite-ignore */ "/packages/welshman/packages/app/src/index.ts")
+        return Boolean(app.repository.getEvent(id))
+      }, definition.id),
+    )
+    .toBe(true)
+  await page.evaluate(async () => {
+    const app = await import(/* @vite-ignore */ "/packages/welshman/packages/app/src/index.ts")
+    app.pubkey.set(undefined)
+  })
+  await expect
+    .poll(() =>
+      page.evaluate(async id => {
+        const app = await import(/* @vite-ignore */ "/packages/welshman/packages/app/src/index.ts")
+        return Boolean(app.repository.getEvent(id))
+      }, definition.id),
+    )
+    .toBe(true)
+  await access.screenshot({path: info.outputPath("cached-after-logout.png")})
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({width, height: 800})
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const panel = document
+            .querySelector('[data-testid="community-relay-access"]')!
+            .getBoundingClientRect()
+          const bar = document.querySelector('[data-component="PageBar"]')!.getBoundingClientRect()
+          return panel.right <= window.innerWidth && panel.bottom <= bar.top
+        }),
+      )
+      .toBe(true)
+    await page.screenshot({path: info.outputPath(`cached-${width}.png`)})
+  }
   expect(errors).toEqual([])
+})
+
+test("malformed invitation is rejected before mounting loaders", async ({page}) => {
+  await page.route("**/*", route =>
+    new URL(route.request().url()).origin === appOrigin ? route.continue() : route.abort(),
+  )
+  const mock = new MockRelay()
+  await mock.setup(page)
+  await page.goto("/c/not-an-address?read-access=members")
+  await expect(page.getByRole("alert")).toContainText("Invalid private invitation")
 })

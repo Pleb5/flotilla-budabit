@@ -1,9 +1,15 @@
-<!-- Kept separate so private invitations never mount public bootstrap/live loaders. -->
 <style>
   @media (max-width: 1023.98px) {
     :global(.community-with-floating-menu [data-component="PageBar"]) {
       padding-right: calc(var(--sair) + 4rem);
     }
+  }
+  /* Child pages use fixed surfaces; reserve the measured connection panel height. */
+  .community-connection-content :global([data-component="PageBar"]) {
+    top: calc(var(--sait) + var(--community-connection-height));
+  }
+  .community-connection-content :global([data-component="PageContent"]) {
+    top: calc(var(--sait) + 3rem + var(--community-connection-height));
   }
 </style>
 
@@ -80,9 +86,11 @@
 
   type Props = {
     children?: Snippet
+    connection?: Snippet
   }
 
-  const {children}: Props = $props()
+  const {children, connection}: Props = $props()
+  let connectionHeight = $state(0)
 
   const routeCommunity = $derived($page.params.community || "")
   const exactCommunity = $derived(parseExactCommunityRouteParam(routeCommunity))
@@ -848,6 +856,7 @@
       type="button"
       class="btn btn-neutral btn-sm fixed right-[calc(var(--sair)+0.75rem)] top-[calc(var(--sait)+0.75rem)] z-nav lg:hidden"
       aria-label="Open community menu"
+      style:top={`calc(var(--sait) + ${connection ? connectionHeight : 0}px + 0.75rem)`}
       onclick={openCommunityMenu}>
       <Icon icon={MenuDots} />
     </button>
@@ -855,20 +864,31 @@
 {/if}
 
 <Page class={pageClass}>
-  {#if !exactCommunity}
-    <div class="content p-4">
-      <h1 class="text-2xl font-bold">Invalid community</h1>
-      <p>Use a valid community link.</p>
+  {#if connection}
+    <div
+      class="cw top-sai fixed z-nav max-h-[40vh] overflow-auto bg-base-200"
+      bind:clientHeight={connectionHeight}>
+      {@render connection()}
     </div>
-  {:else}
-    {#if relayAuthError && authRelayUrl}
-      <div class="card2 m-2 border border-error/30 bg-error/10 p-4 text-sm">
-        <strong>Community relay access issue</strong>
-        <p class="mt-1 opacity-80">
-          {displayRelayUrl(authRelayUrl)} reported: {relayAuthError}
-        </p>
-      </div>
-    {/if}
-    {@render children?.()}
   {/if}
+  <div
+    class:community-connection-content={Boolean(connection)}
+    style:--community-connection-height={`${connectionHeight}px`}>
+    {#if !exactCommunity}
+      <div class="content p-4">
+        <h1 class="text-2xl font-bold">Invalid community</h1>
+        <p>Use a valid community link.</p>
+      </div>
+    {:else}
+      {#if relayAuthError && authRelayUrl}
+        <div class="card2 m-2 border border-error/30 bg-error/10 p-4 text-sm">
+          <strong>Community relay access issue</strong>
+          <p class="mt-1 opacity-80">
+            {displayRelayUrl(authRelayUrl)} reported: {relayAuthError}
+          </p>
+        </div>
+      {/if}
+      {@render children?.()}
+    {/if}
+  </div>
 </Page>

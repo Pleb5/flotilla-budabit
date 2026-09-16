@@ -767,19 +767,6 @@ type RequestTask = {
 }
 
 export const requestOne = (options: RequestOneOptions) => {
-  if (
-    netContext.beforeRequest?.(
-      options.filters,
-      [options.relay],
-      Boolean(options.context?.getAdapter),
-    ) === false
-  ) {
-    const denied = defer<TrustedEvent[]>()
-    options.onClosed?.("restricted: request blocked by local privacy policy", options.relay)
-    options.onClose?.()
-    denied.resolve([])
-    return denied
-  }
   const relay = normalizeRelayUrl(options.relay)
   const relayPolicy = resolveRequestPolicy(relay) || {}
 

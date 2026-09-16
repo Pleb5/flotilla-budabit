@@ -2,7 +2,7 @@
 
 ## Purpose
 
-### Private transport override
+### Shared authenticated transport
 
 Optional private community reads now use one ACK-confirmed auth owner per socket
 and one idempotent REQ replay owner. Signing has a 90-second budget; the matching
@@ -18,20 +18,16 @@ before replay. No EVENT or Negentropy message is implicitly replayed. Runtime
 `auth-required:` evidence overrides stale public metadata; authentication consent
 does not grant unsigned-event trust.
 
-Explicit invitation scopes use only pinned endpoints and dedicated non-pooled
-sockets plus in-memory repositories. Shared reads targeting known private endpoints
-or leaking private coordinates receive a local restricted CLOSED outcome, not EOSE.
-The general community loader reports per-relay denied/cancelled/timeout/unavailable
-outcomes and permits one bounded unavailable-policy retry without re-signing.
-The private shell disposes denied/revoked sockets; explicit full-filter retry
-creates and authenticates a fresh socket when the old one is disposed. This is
-separate from bounded AUTH recovery on a still-live connection, and never becomes
-an automatic denial-signing/reconnect loop. Partial or saturated results never
-claim complete history. Private publish checks
-run before signing and at final queued transmission. See
-[Community-Read-Control-Plan.md](Community-Read-Control-Plan.md) for the current
-bounded archive and unsupported-provider limits. The deployment figures below
-describe public scheduling context, not private relay guarantees.
+Explicit invitations use their relay hints for definition lookup through pooled
+sockets and the normal shared repository. They require authentication consent but
+do not blacklist endpoints or coordinates for unrelated requests. Signed definitions
+cannot register such restrictions. The shared loader reports per-relay
+denied/cancelled/timeout/unavailable outcomes and permits a bounded policy-unavailable
+retry. Explicit invitation retry replaces closed/failed connections, retaining healthy
+and opening sockets. Normal live-subscription recovery still applies. Account-change
+socket cleanup does not purge received events. There are no private publisher or
+capability checks; see [the client contract](Community-Read-Control-Plan.md).
+The deployment figures below are not private-relay guarantees.
 
 ### Public scheduling context
 
@@ -83,9 +79,8 @@ Grouping reduces protocol and subscription-state overhead, but the relay still p
 ## Design Principles
 
 - Reuse Welshman's pool, socket, request, auth, and relay-profile abstractions.
-- Keep one shared socket per relay for public traffic rather than evading limits
-  with extra connections. Private scopes intentionally use dedicated, non-pooled
-  sockets for isolation, not as a capacity workaround.
+- Keep one shared socket per relay for ordinary and member-only traffic rather than
+  evading limits with extra connections.
 - Put connection-wide guarantees in Welshman, where all request paths can participate.
 - Keep BudaBit-specific relay policy and feature priority in BudaBit.
 - Group only related filters with the same relay, priority, lifetime, and failure domain.
@@ -134,12 +129,11 @@ old 30-ID assumption is not a claim about the current recorded deployment.
 The five-filter server limit is not a structured NIP-11 field consumed by this
 policy, so the ten-filter client baseline is not evidence that a ten-filter REQ
 will be accepted there. Server rejections remain failures, not complete history.
-The private shell's two disjoint filters fit this recorded server limit.
 
 Unknown relays start with the same client ceilings. Their authentication remains
-optional until metadata or runtime behavior resolves it. A default result ceiling
-is not sufficient completeness evidence for private authority: the private reader
-requires the endpoint's explicit positive `max_limit` and unfiltered-kind claims.
+optional until metadata, an explicit invitation or runtime behavior resolves it.
+A default result ceiling or EOSE is not proof of unlimited/complete history. The
+client uses normal authority loaders, not a separate private-capability gate.
 
 ## Authentication
 

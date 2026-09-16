@@ -36,6 +36,18 @@ describe("Repository", () => {
       expect(repo.getEvent(event.id)).toEqual(event)
     })
 
+    it("clears deferred intake without flushing it later", async () => {
+      vi.useFakeTimers()
+      try {
+        repo.publish(createEvent(1), {deferMs: 100})
+        repo.clear()
+        await vi.advanceTimersByTimeAsync(200)
+        expect(repo.dump()).toEqual([])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
     it("should not publish invalid events", () => {
       const invalidEvent = {} as TrustedEvent
       const result = repo.publish(invalidEvent)
