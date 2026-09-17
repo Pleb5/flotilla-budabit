@@ -1,7 +1,7 @@
 # Optional member-only relay reads — client architecture
 
 Status: **relay admission implemented in source; default off, not live-deployed**.
-Updated 2026-09-16. The filename is retained for existing links. This is the current
+Updated 2026-09-17. The filename is retained for existing links. This is the current
 client contract, superseding the isolated private reader/publisher design.
 For rationale and independent policy boundaries, see
 [Community-Access-Decisions.md](Community-Access-Decisions.md).
@@ -63,6 +63,15 @@ queries the exact definition through the normal status-aware loader. A completed
 query triggers normal community bootstrap recovery. Denial and unavailability are
 distinct from completion; a later grant can be followed by explicit retry.
 
+Community background history, follow-up, delete and live reads pause on terminal
+membership or authentication failures, scoped to community/account/relay. Remounting
+or a late sibling EOSE does not clear the denial. A successful explicit invitation
+retry, or an explicit bootstrap access-recovery action, clears the affected relay
+state. Unrelated shared-client requests and other identities remain independent.
+Policy-unavailable retries are bounded; component timers do not renew an exhausted
+finite-loader retry budget. Transport retry timers back off from 5.5 seconds to at
+most 60 seconds. This recovery state is not a global endpoint blacklist or cache gate.
+
 Cancellation and identity/signer changes stop the connection attempt and invalidate
 stale signing work. Account-change socket cleanup does not clear the repository.
 AUTH consent never grants unsigned-event trust. The coordinator retains verified
@@ -107,6 +116,8 @@ It uses fresh browser contexts, a disposable NIP-07 identity, the existing mock 
 and blocked off-origin HTTP. Only AUTH for the fixture relay can be signed. It checks
 login/consent, denial, explicit retry, shared repository intake, IndexedDB persistence,
 normal child routes, reload, retained data after logout and malformed invitations.
+It also verifies that a revoked live community read is not recreated over a
+12-second observation window, and that successful explicit retry clears its block.
 `PRIVATE_TEST_OUTPUT` can place artifacts outside the checkout. This is mocked evidence,
 not a deployed relay/proxy/signer test. The removed native isolated-archive test is
 not evidence for the new shared client path.
@@ -114,8 +125,18 @@ not evidence for the new shared client path.
 The independent socket fix preserves pending CLOSED reasons on peer disconnect or
 error without draining queued EVENT/EOSE, and discards them on local cancellation.
 `socket-terminal.test.ts` covers this separately from the mocked browser flow.
-The earlier adjacent AUTH/CLOSED replay-ordering finding remains follow-up work;
-neither this socket fix nor the browser regression verifies that race.
+The adjacent AUTH/CLOSED replay-ordering finding was fixed in `f576df3f7`.
+AUTH challenges update state at wire ingress, before adjacent closures are classified;
+a consented challenge-probe continuation gets one microtask to start signing.
+Requested state alone never suppresses a terminal CLOSED, and read replay waits for
+the matching positive AUTH ACK. Suppressed closures are removed from both receive
+and pending disconnect-flush queues. `auth-replay-order.test.ts` covers wire ordering,
+ACK matching, absent consent, superseding challenges and disconnect behavior;
+`relay-auth-coordinator.test.ts` covers the existing-probe continuation race.
+
+`community-read-recovery.test.ts` covers scoped denials, remount/late-EOSE behavior,
+explicit reset, bounded policy retries and transport backoff, including execution
+of the production live effect with controlled dependencies.
 
 ## Client implementation map
 
@@ -125,6 +146,7 @@ neither this socket fix nor the browser regression verifies that race.
 | Explicit pooled connection/retry | `src/app/core/community-relay-access.ts` |
 | Connection controls and normal layout | `src/app/components/CommunityRelayAccess.svelte`, `CommunityLayout.svelte` |
 | Shared loading, bootstrap and recovery | `src/app/core/community-state.ts` |
+| Scoped background read recovery | `src/app/core/community-read-recovery.ts` |
 | AUTH consent/coordinator | `src/app/core/relay-auth-consent.ts`, `relay-auth-coordinator.ts` |
 | Shared AUTH/replay/repository | `packages/welshman/packages/net/src/auth.ts`, `read-replay.ts`, `repository.ts` |
 | Current content permissions/moderation | `src/app/core/community-permissions.ts`, `community-reports.ts` |
