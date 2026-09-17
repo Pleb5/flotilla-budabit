@@ -24,6 +24,7 @@ function getRestApiBaseUrl(provider: string, host?: string): string | undefined 
     case "gitlab":
       return `https://${hostname}/api/v4`
     case "gitea":
+    case "forgejo":
       return `https://${hostname}/api/v1`
     case "bitbucket":
       return hostname === "bitbucket.org" ? undefined : `https://${hostname}/api/2.0`

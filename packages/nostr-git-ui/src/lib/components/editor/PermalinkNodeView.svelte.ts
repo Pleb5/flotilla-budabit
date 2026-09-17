@@ -15,7 +15,7 @@ import { mount, unmount, type Component } from "svelte";
 import Spinner from "./Spinner.svelte";
 import PermalinkNodeViewWrapper from "./PermalinkNodeViewWrapper.svelte";
 
-const PERMALINK_REGEX = /https?:\/\/(?:github\.com|gitlab\.com|gitea\.com)\/\S+/gi;
+const PERMALINK_REGEX = /https?:\/\/(?:github\.com|gitlab\.com|gitea\.com|codeberg\.org)\/\S+/gi;
 
 const createPasteRuleMatch = <T extends Record<string, unknown>>(
   match: RegExpMatchArray,

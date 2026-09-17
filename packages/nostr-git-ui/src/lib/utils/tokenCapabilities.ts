@@ -174,7 +174,7 @@ function getApiBaseUrl(provider: RemoteTargetProvider, host: string): string | u
   if (provider === "github") return "https://api.github.com";
   if (provider === "gitlab") return "https://gitlab.com/api/v4";
   if (provider === "bitbucket") return "https://api.bitbucket.org/2.0";
-  if (provider === "gitea") return `https://${host}/api/v1`;
+  if (provider === "gitea" || provider === "forgejo") return `https://${host}/api/v1`;
   return undefined;
 }
 

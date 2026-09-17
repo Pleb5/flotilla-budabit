@@ -1,6 +1,8 @@
+import {detectVendorFromUrl} from './vendor-providers.js';
+
 export interface PermalinkData {
   host: string;
-  platform: 'github' | 'gitlab' | 'gitea' | 'unknown';
+  platform: 'github' | 'gitlab' | 'gitea' | 'forgejo' | 'unknown';
   owner: string;
   repo: string;
   branch: string;
@@ -22,9 +24,10 @@ export function isPermalink(url: string): boolean {
     const parsed = new URL(url);
     const { hostname, pathname } = parsed;
     const pathParts = pathname.split('/').filter(Boolean);
-    const isGitHub = hostname.includes('github') && pathParts.length >= 4;
-    const isGitLab = hostname.includes('gitlab') && pathParts.includes('blob');
-    const isGitea = hostname.includes('gitea') && pathParts.length >= 5;
+    const vendor = detectVendorFromUrl(url);
+    const isGitHub = vendor === 'github' && pathParts.length >= 4;
+    const isGitLab = vendor === 'gitlab' && pathParts.includes('blob');
+    const isGitea = (vendor === 'gitea' || vendor === 'forgejo') && pathParts.length >= 5;
     return isGitHub || isGitLab || isGitea;
   } catch (err) {
     console.log(err);
@@ -45,12 +48,13 @@ export function parsePermalink(url: string): PermalinkData | null {
 
     let platform: PermalinkData['platform'] = 'unknown';
 
-    if (hostname.includes('github')) {
+    const vendor = detectVendorFromUrl(url);
+    if (vendor === 'github') {
       platform = 'github';
-    } else if (hostname.includes('gitlab')) {
+    } else if (vendor === 'gitlab') {
       platform = 'gitlab';
-    } else if (hostname.includes('gitea')) {
-      platform = 'gitea';
+    } else if (vendor === 'gitea' || vendor === 'forgejo') {
+      platform = vendor;
     }
 
     let startLine: number | undefined;
@@ -156,6 +160,7 @@ export function parsePermalink(url: string): PermalinkData | null {
         break;
       }
       case 'gitea':
+      case 'forgejo':
         if (pathParts.length < 5) return null;
         owner = pathParts[0];
         repo = pathParts[1];

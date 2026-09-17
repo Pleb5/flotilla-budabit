@@ -139,6 +139,7 @@
     github: "GitHub",
     gitlab: "GitLab",
     gitea: "Gitea",
+    forgejo: "Forgejo",
     bitbucket: "Bitbucket",
     grasp: "GRASP",
     "grasp-rest": "GRASP",

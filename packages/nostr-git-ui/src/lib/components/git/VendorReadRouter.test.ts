@@ -32,6 +32,7 @@ const hostedVendorUrls = [
   "https://github.com/example/repo.git",
   "https://gitlab.com/example/repo.git",
   "https://gitea.com/example/repo.git",
+  "https://codeberg.org/example/repo.git",
 ];
 
 describe("VendorReadRouter.listRefs", () => {

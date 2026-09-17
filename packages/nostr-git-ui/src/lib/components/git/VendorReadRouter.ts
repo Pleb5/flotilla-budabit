@@ -2105,7 +2105,8 @@ export class VendorReadRouter {
       if (!isGitVendorEnabled(v)) return null;
       if (v === "github") return "github";
       if (v === "gitlab") return "gitlab";
-      if (v === "gitea") return "gitea";
+      // Forgejo shares the compatible v1 read adapter; retain the actual remote host.
+      if (v === "gitea" || v === "forgejo") return "gitea";
       if (v === "bitbucket") return "bitbucket";
       if (v === "grasp-rest") return ENABLE_GRASP_REST_READS ? "grasp-rest" : null;
       return null;

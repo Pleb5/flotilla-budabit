@@ -13,6 +13,7 @@ export type GitVendor =
   | "github"
   | "gitlab"
   | "gitea"
+  | "forgejo"
   | "bitbucket"
   | "generic"
   | "grasp"
@@ -23,6 +24,7 @@ export interface RepoMetadata {
   name: string
   fullName: string
   description?: string
+  topics?: string[]
   defaultBranch: string
   isPrivate: boolean
   cloneUrl: string
@@ -96,16 +98,48 @@ export interface UpdateRepoOptions {
 /**
  * Detect Git vendor from URL
  */
-export function detectVendorFromUrl(url: string): GitVendor {
-  const normalizedUrl = url.toLowerCase()
+const configuredGitHosts = new Map<string, GitVendor>()
 
-  if (normalizedUrl.includes("github.com")) {
+/** Shared across source inspection, REST factories and target selection. */
+export function registerGitHost(host: string, vendor: GitVendor): void {
+  configuredGitHosts.set(host.toLowerCase(), vendor)
+}
+
+export function clearGitHosts(): void {
+  configuredGitHosts.clear()
+}
+
+export function gitUrlToHttp(value: string): URL | null {
+  try {
+    let input = value.trim()
+    const scp = input.match(/^git@([^:/]+):(.+)$/)
+    if (scp) input = `https://${scp[1]}/${scp[2]}`
+    if (!input.includes("://")) input = `https://${input}`
+    const parsed = new URL(input)
+    if (parsed.protocol === "ssh:" && !parsed.password && (!parsed.username || parsed.username === "git")) {
+      return new URL(`https://${parsed.host}${parsed.pathname}${parsed.search}${parsed.hash}`)
+    }
+    return parsed
+  } catch {
+    return null
+  }
+}
+
+export function detectVendorFromUrl(url: string): GitVendor {
+  const parsed = gitUrlToHttp(url)
+  const host = parsed?.hostname.toLowerCase() || ""
+  const configured = configuredGitHosts.get(parsed?.host.toLowerCase() || host)
+  if (configured) return configured
+
+  if (host === "github.com") {
     return "github"
-  } else if (normalizedUrl.includes("gitlab.com") || normalizedUrl.includes("gitlab.")) {
+  } else if (host === "gitlab.com" || host.startsWith("gitlab.")) {
     return "gitlab"
-  } else if (normalizedUrl.includes("gitea.")) {
+  } else if (host === "codeberg.org" || host.startsWith("forgejo.")) {
+    return "forgejo"
+  } else if (host.startsWith("gitea.")) {
     return "gitea"
-  } else if (normalizedUrl.includes("bitbucket.org") || normalizedUrl.includes("bitbucket.")) {
+  } else if (host === "bitbucket.org" || host.startsWith("bitbucket.")) {
     return "bitbucket"
   } else if (isGraspRepoHttpUrl(url) || isGraspRelayUrl(url)) {
     return "grasp-rest"
@@ -152,18 +186,8 @@ export function extractHostname(url: string): string {
  * Normalize Git URL to HTTPS format
  */
 export function normalizeGitUrl(url: string): string {
-  // Convert SSH to HTTPS
-  if (url.startsWith("git@")) {
-    const match = url.match(/git@([^:]+):(.+)\.git$/)
-    if (match) {
-      return `https://${match[1]}/${match[2]}.git`
-    }
-  }
-
-  // Ensure .git suffix
-  if (!url.endsWith(".git")) {
-    return `${url}.git`
-  }
-
-  return url
+  const parsed = gitUrlToHttp(url)
+  if (!parsed) return url
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "").replace(/\.git$/i, "") + ".git"
+  return parsed.toString()
 }

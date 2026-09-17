@@ -250,7 +250,7 @@ export function hasRestApiSupport(url: string): boolean {
   const vendor = detectVendorFromUrl(url);
   // These vendors have REST APIs that can be used for faster repo access
   return isGitRemoteUrlEnabled(url) && (
-    vendor === 'github' || vendor === 'gitlab' || vendor === 'gitea' || vendor === 'bitbucket'
+    vendor === 'github' || vendor === 'gitlab' || vendor === 'gitea' || vendor === 'forgejo' || vendor === 'bitbucket'
   );
 }
 

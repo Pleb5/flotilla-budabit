@@ -16,6 +16,7 @@ describe("git/provider-factory", () => {
       "github",
       "gitlab",
       "gitea",
+      "forgejo",
       "grasp",
       "grasp-rest",
     ])

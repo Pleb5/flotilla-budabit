@@ -10,6 +10,7 @@ export * from "./providers/grasp.js";
 export {GitHubApi} from "./providers/github.js"
 export {GitLabApi} from "./providers/gitlab.js"
 export {GiteaApi} from "./providers/gitea.js"
+export {ForgejoApi} from "./providers/forgejo.js"
 export {BitbucketApi} from "./providers/bitbucket.js"
 export {GraspApiProvider} from "./providers/grasp.js"
 export {GraspRestApiProvider} from "./providers/grasp-rest.js"

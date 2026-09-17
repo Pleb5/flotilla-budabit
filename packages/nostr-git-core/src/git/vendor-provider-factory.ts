@@ -4,10 +4,10 @@ import type {
   CreateRepoOptions,
   UpdateRepoOptions,
 } from "./vendor-providers.js"
-import {detectVendorFromUrl, extractHostname} from "./vendor-providers.js"
+import {detectVendorFromUrl, extractHostname, gitUrlToHttp, registerGitHost, clearGitHosts} from "./vendor-providers.js"
 import type {GitForkOptions, RepoMetadata} from "../api/api.js"
 import {normalizeHttpOrigin} from "../api/providers/grasp-capabilities.js"
-import {getGitServiceApi} from "./provider-factory.js"
+import {getGitServiceApi, getGitApiBaseUrl} from "./provider-factory.js"
 import {toNpub} from "../utils/nostr-pubkey.js"
 import {assertGitVendorEnabled} from "./provider-policy.js"
 
@@ -25,7 +25,7 @@ class RestVendorProvider implements VendorProvider {
   constructor(vendor: GitVendor, url: string) {
     this.vendor = vendor
     this.originalUrl = url
-    const host = extractHostname(url)
+    const host = gitUrlToHttp(url)?.host || extractHostname(url)
     this.hostname = host ? host.toLowerCase() : url
   }
 
@@ -36,7 +36,8 @@ class RestVendorProvider implements VendorProvider {
       case "gitlab":
         return `https://${this.hostname}/api/v4`
       case "gitea":
-        return `https://${this.hostname}/api/v1`
+      case "forgejo":
+        return getGitApiBaseUrl(this.vendor, this.originalUrl)
       case "bitbucket":
         return this.hostname === "bitbucket.org" ? undefined : `https://${this.hostname}/api/2.0`
       case "grasp":
@@ -151,6 +152,7 @@ class RestVendorProvider implements VendorProvider {
         return {Authorization: `token ${token}`}
       case "gitlab":
       case "gitea":
+      case "forgejo":
         return {Authorization: `Bearer ${token}`}
       case "bitbucket":
         return {Authorization: `Bearer ${token}`}
@@ -189,6 +191,8 @@ class RestVendorProvider implements VendorProvider {
  */
 export function registerProviderOverride(hostname: string, vendor: GitVendor): void {
   providerOverrides.set(hostname.toLowerCase(), vendor)
+  registerGitHost(hostname, vendor)
+  providerRegistry.clear()
 }
 
 /**
@@ -196,28 +200,31 @@ export function registerProviderOverride(hostname: string, vendor: GitVendor): v
  */
 export function clearProviderOverrides(): void {
   providerOverrides.clear()
+  clearGitHosts()
+  providerRegistry.clear()
 }
 
 /**
  * Get or create a vendor provider for the given URL
  */
 export function resolveVendorProvider(url: string): VendorProvider {
-  const hostname = extractHostname(url).toLowerCase()
+  const hostname = (gitUrlToHttp(url)?.host || extractHostname(url)).toLowerCase()
 
   const overrideVendor = providerOverrides.get(hostname)
   const vendor = overrideVendor || detectVendorFromUrl(url)
   assertGitVendorEnabled(vendor, "vendor provider resolution")
 
   // Check if we already have a provider for this hostname
-  if (providerRegistry.has(hostname)) {
-    return providerRegistry.get(hostname)!
+  const key = `${vendor}:${hostname}`
+  if (providerRegistry.has(key)) {
+    return providerRegistry.get(key)!
   }
 
   // Check for provider overrides first
   const provider = new RestVendorProvider(vendor, url)
 
   // Cache the provider
-  providerRegistry.set(hostname, provider)
+  providerRegistry.set(key, provider)
 
   return provider
 }

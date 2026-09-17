@@ -32,9 +32,9 @@ export class GiteaApi implements GitServiceApi {
   private readonly token: string
   private readonly baseUrl: string
 
-  constructor(token: string, baseUrl?: string) {
+  constructor(token: string, baseUrl?: string, private readonly serviceName = "Gitea") {
     if (!baseUrl) {
-      throw new Error("Gitea requires a base URL for self-hosted instances")
+      throw new Error(`${serviceName} requires a base URL for self-hosted instances`)
     }
     this.token = token
     this.baseUrl = baseUrl.replace(/\/$/, "") // Remove trailing slash
@@ -62,7 +62,7 @@ export class GiteaApi implements GitServiceApi {
 
     if (!response.ok) {
       const errorBody = await response.text()
-      throw new Error(`Gitea API error ${response.status}: ${errorBody}`)
+      throw new Error(`${this.serviceName} API error ${response.status}: ${errorBody}`)
     }
 
     if (response.status === 204) {

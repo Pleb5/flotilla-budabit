@@ -9,16 +9,17 @@
  */
 
 import type {GitServiceApi} from "../api/index.js"
-import type {GitVendor} from "./vendor-providers.js"
+import {detectVendorFromUrl, gitUrlToHttp, type GitVendor} from "./vendor-providers.js"
 import {GitHubApi} from "../api/providers/github.js"
 import {GitLabApi} from "../api/providers/gitlab.js"
 import {GiteaApi} from "../api/providers/gitea.js"
+import {ForgejoApi} from "../api/providers/forgejo.js"
 import {BitbucketApi} from "../api/providers/bitbucket.js"
 import {GraspApiProvider} from "../api/providers/grasp.js"
 import {normalizeHttpOrigin} from "../api/providers/grasp-capabilities.js"
 import {GraspRestApiProvider} from "../api/providers/grasp-rest.js"
 import {createInvalidInputError, type GitErrorContext} from "../errors/index.js"
-import {isGraspRelayUrl, isGraspRepoHttpUrl} from "../utils/grasp-url.js"
+import {parseGraspRepoHttpUrl} from "../utils/grasp-url.js"
 import {
   ENABLE_BITBUCKET_PROVIDER,
   assertGitVendorEnabled,
@@ -61,6 +62,9 @@ export function getGitServiceApi(
 
     case "gitea":
       return new GiteaApi(token, baseUrl)
+
+    case "forgejo":
+      return new ForgejoApi(token, baseUrl)
 
     case "bitbucket":
       if (!ENABLE_BITBUCKET_PROVIDER) {
@@ -126,42 +130,28 @@ export function getGitServiceApi(
  * ```
  */
 export function getGitServiceApiFromUrl(url: string, token: string): GitServiceApi {
-  const normalizedUrl = url.toLowerCase()
-
-  // Detect provider from URL
-  let provider: GitVendor
-  let baseUrl: string | undefined
-
-  if (normalizedUrl.includes("github.com")) {
-    provider = "github"
-    baseUrl = "https://api.github.com"
-  } else if (normalizedUrl.includes("gitlab.com")) {
-    provider = "gitlab"
-    baseUrl = "https://gitlab.com/api/v4"
-  } else if (normalizedUrl.includes("gitlab.")) {
-    provider = "gitlab"
-    // Extract base URL for self-hosted GitLab
-    const match = url.match(/https?:\/\/([^\/]+)/)
-    baseUrl = match ? `${match[0]}/api/v4` : undefined
-  } else if (normalizedUrl.includes("gitea.")) {
-    provider = "gitea"
-    // Extract base URL for self-hosted Gitea
-    const match = url.match(/https?:\/\/([^\/]+)/)
-    baseUrl = match ? `${match[0]}/api/v1` : undefined
-  } else if (normalizedUrl.includes("bitbucket.org") || normalizedUrl.includes("bitbucket.")) {
-    provider = "bitbucket"
-    baseUrl = "https://api.bitbucket.org/2.0"
-  } else if (isGraspRepoHttpUrl(url) || isGraspRelayUrl(url)) {
-    provider = "grasp-rest"
-    baseUrl = url
-  } else {
+  const provider = detectVendorFromUrl(url)
+  if (provider === "generic") {
     throw createInvalidInputError(
-      `Unable to detect Git provider from URL: ${url}. Supported providers: GitHub, GitLab, Gitea, Bitbucket, GRASP`,
+      "Unable to detect Git provider. Supported providers: GitHub, GitLab, Gitea, Forgejo, GRASP",
       buildContext({operation: "getGitServiceApiFromUrl", remote: url}),
     )
   }
+  return getGitServiceApi(provider, token, getGitApiBaseUrl(provider, url))
+}
 
-  return getGitServiceApi(provider, token, baseUrl)
+/** Use the parsed origin, retaining custom ports and avoiding hostname substring dispatch. */
+export function getGitApiBaseUrl(provider: GitVendor, url: string): string | undefined {
+  if (provider === "grasp" || provider === "grasp-rest")
+    return parseGraspRepoHttpUrl(url)?.httpBase || url
+  const parsed = gitUrlToHttp(url)
+  if (!parsed) return undefined
+  if (provider === "github")
+    return parsed.hostname === "github.com" ? "https://api.github.com" : `${parsed.origin}/api/v3`
+  if (provider === "gitlab") return `${parsed.origin}/api/v4`
+  if (provider === "gitea" || provider === "forgejo") return `${parsed.origin}/api/v1`
+  if (provider === "bitbucket") return "https://api.bitbucket.org/2.0"
+  return undefined
 }
 
 /**
@@ -174,6 +164,7 @@ export function getAvailableProviders(): GitVendor[] {
     "github",
     "gitlab",
     "gitea",
+    "forgejo",
     "bitbucket",
     "grasp",
     "grasp-rest",
@@ -190,7 +181,7 @@ export function getAvailableProviders(): GitVendor[] {
 export function supportsRestApi(provider: GitVendor): boolean {
   return (
     isGitVendorEnabled(provider) &&
-    ["github", "gitlab", "gitea", "bitbucket", "grasp", "grasp-rest"].includes(provider)
+    ["github", "gitlab", "gitea", "forgejo", "bitbucket", "grasp", "grasp-rest"].includes(provider)
   )
 }
 
@@ -208,9 +199,10 @@ export function getDefaultApiBaseUrl(provider: GitVendor): string {
       return "https://api.github.com"
     case "gitlab":
       return "https://gitlab.com/api/v4"
+    case "forgejo":
     case "gitea":
       throw createInvalidInputError(
-        "Gitea requires a custom base URL for self-hosted instances",
+        `${provider === "forgejo" ? "Forgejo" : "Gitea"} requires a custom base URL for self-hosted instances`,
         buildContext({operation: "getDefaultApiBaseUrl"}),
       )
     case "bitbucket":

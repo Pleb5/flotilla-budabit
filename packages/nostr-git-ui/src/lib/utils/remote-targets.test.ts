@@ -10,6 +10,21 @@ import {
 } from "./remote-targets";
 
 describe("remote target helpers", () => {
+  it("keeps Codeberg and multiple self-hosted forges distinct", () => {
+    const targets = buildRemoteTargetOptions({
+      tokenList: [
+        { host: "codeberg.org", token: "target-only" },
+        { host: "forgejo.example.com", token: "target-only" },
+        { host: "gitea.example.com", token: "target-only" },
+      ],
+      graspRelayUrls: [],
+    });
+    expect(targets.map(({ id, provider, label }) => ({ id, provider, label }))).toEqual([
+      { id: "git:codeberg.org", provider: "forgejo", label: "Codeberg" },
+      { id: "git:forgejo.example.com", provider: "forgejo", label: "Forgejo (forgejo.example.com)" },
+      { id: "git:gitea.example.com", provider: "gitea", label: "Gitea (gitea.example.com)" },
+    ]);
+  });
   it("builds git and GRASP target seeds", () => {
     const targets = buildRemoteTargetOptions({
       tokenList: [

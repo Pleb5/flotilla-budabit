@@ -1,5 +1,5 @@
 import { getGitServiceApi } from "@nostr-git/core";
-import { isGitVendorEnabled } from "@nostr-git/core/git";
+import { detectVendorFromUrl, isGitVendorEnabled } from "@nostr-git/core/git";
 import {
   hasMatchingGraspRepoCloneUrl,
   normalizeRelayUrl as canonicalizeRelayUrl,
@@ -14,7 +14,7 @@ import { matchesHost } from "./tokenMatcher.js";
 import { AllTokensFailedError, TokenNotFoundError } from "./tokenErrors.js";
 import { tryTokensForHost } from "./tokenHelpers.js";
 
-export type RemoteTargetProvider = "github" | "gitlab" | "gitea" | "bitbucket" | "grasp";
+export type RemoteTargetProvider = "github" | "gitlab" | "gitea" | "forgejo" | "bitbucket" | "grasp";
 export type RemoteTargetStatus = "checking" | "ready" | "failed" | "unsupported" | "no-token";
 
 export interface RemoteTargetOption {
@@ -75,10 +75,9 @@ export function inferRemoteTargetProvider(
     .trim()
     .toLowerCase();
 
-  if (normalizedHost.includes("github")) return "github";
-  if (normalizedHost.includes("gitlab")) return "gitlab";
-  if (normalizedHost.includes("gitea") || normalizedHost === "codeberg.org") return "gitea";
-  if (normalizedHost.includes("bitbucket")) return "bitbucket";
+  const detected = detectVendorFromUrl(`https://${normalizedHost}`);
+  if (["github", "gitlab", "gitea", "forgejo", "bitbucket"].includes(detected))
+    return detected as RemoteTargetProvider;
 
   if (normalizedToken.startsWith("github_pat_") || normalizedToken.startsWith("ghp_")) {
     return "github";
@@ -92,6 +91,7 @@ export function getRemoteTargetProviderLabel(provider: RemoteTargetProvider): st
   if (provider === "github") return "GitHub";
   if (provider === "gitlab") return "GitLab";
   if (provider === "gitea") return "Gitea";
+  if (provider === "forgejo") return "Forgejo";
   if (provider === "bitbucket") return "Bitbucket";
   return "GRASP";
 }
@@ -112,7 +112,7 @@ export function getProviderBaseUrl(
     if (normalizedHost === "gitlab.com") return undefined;
     return `https://${host}/api/v4`;
   }
-  if (provider === "gitea") {
+  if (provider === "gitea" || provider === "forgejo") {
     return `https://${host}/api/v1`;
   }
   if (provider === "bitbucket") {
@@ -167,7 +167,7 @@ export function buildRemoteTargetOptions(params: {
 
     targetMap.set(`git:${host}`, {
       id: `git:${host}`,
-      label: `${getRemoteTargetProviderLabel(provider)} (${host})`,
+      label: host === "codeberg.org" ? "Codeberg" : `${getRemoteTargetProviderLabel(provider)} (${host})`,
       provider,
       host,
       status: "checking",

@@ -86,6 +86,16 @@ export const PROVIDER_CAPABILITIES: Record<string, ProviderCapabilities> = {
     settingsUrlPattern: "/settings",
     forkSettingsUrlPattern: null,
   },
+  forgejo: {
+    allowOwnRepoFork: false,
+    allowMultipleForks: false,
+    namespaceRestriction: "Forgejo fork availability depends on the instance",
+    supportsForkChecking: false,
+    supportsRenaming: true,
+    supportsForkRelationshipRemoval: false,
+    settingsUrlPattern: "/settings",
+    forkSettingsUrlPattern: null,
+  },
   bitbucket: {
     allowOwnRepoFork: true,
     allowMultipleForks: true,
@@ -132,6 +142,7 @@ export function getProviderCapabilities(provider: string): ProviderCapabilities 
 export const SERVICE_TO_PROVIDER: Record<string, string> = {
   "github.com": "github",
   "gitlab.com": "gitlab",
+  "codeberg.org": "forgejo",
   "bitbucket.org": "bitbucket",
   grasp: "grasp",
 }

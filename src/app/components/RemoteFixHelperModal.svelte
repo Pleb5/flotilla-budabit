@@ -400,17 +400,19 @@
 
   const isKnownBackfillVendor = (
     provider: string,
-  ): provider is "github" | "gitlab" | "gitea" | "bitbucket" =>
+  ): provider is "github" | "gitlab" | "gitea" | "forgejo" | "bitbucket" =>
     isGitVendorEnabled(provider as any) &&
     (provider === "github" ||
       provider === "gitlab" ||
       provider === "gitea" ||
+      provider === "forgejo" ||
       provider === "bitbucket")
 
-  const getKnownBackfillVendorLabel = (provider: "github" | "gitlab" | "gitea" | "bitbucket") => {
+  const getKnownBackfillVendorLabel = (provider: "github" | "gitlab" | "gitea" | "forgejo" | "bitbucket") => {
     if (provider === "github") return "GitHub"
     if (provider === "gitlab") return "GitLab"
     if (provider === "gitea") return "Gitea"
+    if (provider === "forgejo") return "Forgejo"
     return "Bitbucket"
   }
 

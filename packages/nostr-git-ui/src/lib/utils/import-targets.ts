@@ -1,7 +1,7 @@
 import { parseRepoUrl, type RepoMetadata } from "@nostr-git/core";
 
 interface ExistingTargetRepoMatchParams {
-  provider: "github" | "gitlab" | "gitea" | "bitbucket" | "grasp";
+  provider: "github" | "gitlab" | "gitea" | "forgejo" | "bitbucket" | "grasp";
   requestedOwner: string;
   requestedRepo: string;
   existingRepo: RepoMetadata;
@@ -23,6 +23,7 @@ function getProviderLabel(provider: ExistingTargetRepoMatchParams["provider"]): 
   if (provider === "github") return "GitHub";
   if (provider === "gitlab") return "GitLab";
   if (provider === "gitea") return "Gitea";
+  if (provider === "forgejo") return "Forgejo";
   if (provider === "bitbucket") return "Bitbucket";
   return "GRASP";
 }

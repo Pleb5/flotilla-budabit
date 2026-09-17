@@ -1,6 +1,7 @@
 export * from "./provider.js"
 export * from "./vendor-providers.js"
 export * from "./provider-policy.js"
+export * from "./public-repo-source.js"
 
 export * from "./config.js"
 export {
