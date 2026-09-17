@@ -44,6 +44,7 @@
   import {
     DEFAULT_COMMUNITY_SECTION_NAMES,
     COMMUNITY_DEFINITION_KIND,
+    COMMUNITY_SECTION_FREELANCE,
     FORM_RESPONSE_KIND,
     buildCommunityDefinition,
     getCommunitySectionKindAssignments,
@@ -297,6 +298,11 @@
     {label: "Repository Announcements", kind: 30617},
     {label: "Permalinks", kind: 1623},
     {label: "Smart Widgets", kind: 30033},
+    {label: "Freelance Services", kind: 32765},
+    {label: "Freelance Orders", kind: 32766},
+    {label: "Freelance Jobs", kind: 32767},
+    {label: "Freelance Proposals", kind: 32768},
+    {label: "Freelance Reviews", kind: 1986},
   ] satisfies Array<{label: string; kind: number; subtype?: string}>
 
   const kindOptionValue = (kind: number, subtype = "") => `${kind}:${subtype}`
@@ -2425,6 +2431,37 @@
     scrollToSection(nextSectionIndex)
   }
 
+  const addFreelanceSection = () => {
+    const kinds = getDefaultCommunitySectionKinds(COMMUNITY_SECTION_FREELANCE)
+    const existingIndex = sectionDrafts.findIndex(
+      section => getSectionNameKey(section.name) === getSectionNameKey(COMMUNITY_SECTION_FREELANCE),
+    )
+    if (existingIndex >= 0) {
+      scrollToSection(existingIndex)
+      return
+    }
+    const assigned = sectionDrafts.find(section =>
+      section.kinds.some(draft => kinds.some(kind => kind.kind === Number(draft.kind))),
+    )
+    if (assigned) {
+      errors = {
+        ...errors,
+        sections: `Freelance publish types are already assigned to ${assigned.name}. Edit the existing section to avoid duplicate assignments.`,
+      }
+      return
+    }
+    const nextSectionIndex = sectionDrafts.length
+    sectionDrafts = [
+      ...sectionDrafts,
+      {
+        ...makeEmptySectionDraft(),
+        name: COMMUNITY_SECTION_FREELANCE,
+        kinds: kinds.map(toKindDraft),
+      },
+    ]
+    scrollToSection(nextSectionIndex)
+  }
+
   const makeRestoredDefaultSectionDrafts = () =>
     DEFAULT_COMMUNITY_SECTION_NAMES.map(name => {
       const nameKey = getSectionNameKey(name)
@@ -3065,6 +3102,12 @@
                 onclick={addSection}
                 {disabled}>
                 Add section
+              </Button>
+              <Button
+                class="btn btn-outline btn-sm w-full sm:w-auto"
+                onclick={addFreelanceSection}
+                {disabled}>
+                Add Freelance
               </Button>
             </div>
           </div>

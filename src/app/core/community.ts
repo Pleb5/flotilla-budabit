@@ -25,6 +25,7 @@ export const COMMUNITY_SECTION_CALENDAR = "Calendar-event-creator"
 export const COMMUNITY_SECTION_GOALS = "Fundraiser-goals-creator"
 export const COMMUNITY_SECTION_REPO_CURATOR = "Code-curator"
 export const COMMUNITY_SECTION_WIDGETS = "Widget-curator"
+export const COMMUNITY_SECTION_FREELANCE = "Freelance"
 
 export const COMMUNITY_SUBTYPE_ROOM = "room"
 export const COMMUNITY_SUBTYPE_THREADS = "threads"
@@ -351,6 +352,8 @@ export const getDefaultCommunitySectionKinds = (name: string): CommunitySectionK
       return [{kind: 30617}, {kind: 1623}]
     case COMMUNITY_SECTION_WIDGETS:
       return [{kind: 30033}]
+    case COMMUNITY_SECTION_FREELANCE:
+      return [{kind: 32765}, {kind: 32766}, {kind: 32767}, {kind: 32768}, {kind: 1986}]
     default:
       return []
   }
