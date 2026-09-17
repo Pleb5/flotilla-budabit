@@ -140,17 +140,46 @@ describe("worker.pushToRemote API", () => {
     setAuthConfig({tokens: []})
   })
 
-  it("uses anonymous reads and the direct GRASP endpoint for initial-import refs", async () => {
-    setAuthConfig({tokens: [{host: "github.com", token: "disposable-test-token"}]})
-    await exposed.listServerRefs({url: "https://github.com/owner/repo.git", initialImport: true})
-    expect(listServerRefsMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({onAuth: undefined, maxHttpBytes: 2 * 1024 * 1024}),
-    )
-    await exposed.listServerRefs({url: GRASP_REMOTE_URL, initialImport: true})
-    expect(listServerRefsMock).toHaveBeenLastCalledWith(
-      expect.objectContaining({corsProxy: null, onAuth: undefined}),
-    )
-  })
+  it.each(["initialImport", "publicSource"])(
+    "uses anonymous reads and the direct GRASP endpoint for %s refs",
+    async mode => {
+      setAuthConfig({tokens: [{host: "github.com", token: "disposable-test-token"}]})
+      await exposed.listServerRefs({url: "https://github.com/owner/repo.git", [mode]: true})
+      expect(listServerRefsMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({onAuth: undefined, maxHttpBytes: 2 * 1024 * 1024}),
+      )
+      await exposed.listServerRefs({url: GRASP_REMOTE_URL, initialImport: true})
+      expect(listServerRefsMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({corsProxy: null, onAuth: undefined}),
+      )
+    },
+  )
+
+  it.each(["github", "gitlab", "gitea", "forgejo"])(
+    "pins independent-copy refs for %s and never overwrites conflicting destinations",
+    async provider => {
+      const params = {
+        repoId: "owner/repo",
+        remoteUrl: "https://destination.example/me/repo.git",
+        provider,
+        token: "destination-only",
+        refs: ["refs/heads/main"],
+        initialImportRefs: [{ref: "refs/heads/main", oid: "a".repeat(40)}],
+      }
+      const result = await exposed.pushToRemote(params)
+      expect(result.success).toBe(true)
+      expect(pushMock).toHaveBeenCalledWith(
+        expect.objectContaining({remoteRef: "refs/heads/main", maxHttpBytes: 64 * 1024 * 1024}),
+      )
+      expect(pushMock.mock.calls[0][0]).not.toHaveProperty("force")
+      expect(pushMock.mock.calls[0][0].onAuth().password).toBe("destination-only")
+      pushMock.mockClear()
+      listServerRefsMock.mockResolvedValue([{ref: "refs/heads/main", oid: "b".repeat(40)}])
+      expect((await exposed.pushToRemote(params)).success).toBe(false)
+      expect(pushMock).not.toHaveBeenCalled()
+      expect(fetchMock).not.toHaveBeenCalled()
+    },
+  )
 
   it("does not treat a failed initial-import ref probe as an absent destination ref", async () => {
     listServerRefsMock.mockRejectedValue(new Error("advertisement exceeded byte limit"))

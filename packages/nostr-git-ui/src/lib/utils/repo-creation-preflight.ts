@@ -50,6 +50,7 @@ export interface RepoCreationPrerequisites {
   hasRollbackCallback?: boolean;
   /** Existing accepted identifiers are opaque; do not revalidate them as new slugs. */
   existingCoordinate?: boolean;
+  announcementOnly?: boolean;
 }
 
 export function assertRepoCreationPrerequisites(params: RepoCreationPrerequisites): string[] {
@@ -63,7 +64,8 @@ export function assertRepoCreationPrerequisites(params: RepoCreationPrerequisite
     const error = validateRepoIdentifier(params.repoName);
     if (error) throw new Error(error);
   }
-  if (params.targets.length === 0) throw new Error("Select at least one repository target");
+  if (!params.announcementOnly && params.targets.length === 0)
+    throw new Error("Select at least one repository target");
   if (relayUrls.length === 0) throw new Error("Repository creation requires a metadata relay");
   if (!params.onPublishEvent) {
     throw new Error("Repository creation requires metadata publication with relay outcomes");
@@ -71,7 +73,7 @@ export function assertRepoCreationPrerequisites(params: RepoCreationPrerequisite
   if (!params.onFetchRelayEvents) {
     throw new Error("Repository creation requires exact per-relay metadata reads");
   }
-  if (!params.onDeleteEvent && !params.hasRollbackCallback) {
+  if (!params.announcementOnly && !params.onDeleteEvent && !params.hasRollbackCallback) {
     throw new Error("Repository creation requires provisional metadata compensation");
   }
 

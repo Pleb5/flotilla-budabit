@@ -38,6 +38,8 @@ export interface CloneRemoteRepoOptions {
   operationId?: string
   /** Bounded initial-import lane: no worktree checkout or unlimited HTTP buffers. */
   initialImport?: boolean
+  /** Anonymous bounded full-history reads; never consult saved worker credentials. */
+  publicSource?: boolean
 }
 
 /**
@@ -1137,6 +1139,7 @@ export async function cloneRemoteRepoUtil(
   operation?: OperationControl,
 ): Promise<void> {
   const {url, depth, dir, token, onProgress} = options
+  const anonymous = Boolean(options.publicSource || options.initialImport)
   let localCloneStarted = false
 
   try {
@@ -1151,9 +1154,18 @@ export async function cloneRemoteRepoUtil(
       throw new Error(`Invalid repository URL: ${url}`)
     }
 
-    if (options.initialImport && (token || depth)) {
+    if (anonymous && (token || depth)) {
       throw new Error("Initial import requires anonymous Git access and complete history")
     }
+    if (
+      anonymous &&
+      (repoUrl.protocol !== "https:" ||
+        repoUrl.username ||
+        repoUrl.password ||
+        repoUrl.search ||
+        repoUrl.hash)
+    )
+      throw new Error("Public source requires an HTTPS URL without credentials or query parameters")
     if (token) {
       const hostname = repoUrl.hostname
       setAuthConfig({tokens: [{host: hostname, token}]})
@@ -1231,9 +1243,9 @@ export async function cloneRemoteRepoUtil(
           git.listServerRefs({
             url,
             corsProxy: transport.corsProxy,
-            onAuth: options.initialImport ? undefined : getAuthCallback(url),
+            onAuth: anonymous ? undefined : getAuthCallback(url),
             signal,
-            ...(options.initialImport ? {maxHttpBytes: 2 * 1024 * 1024} : {}),
+            ...(anonymous ? {maxHttpBytes: 2 * 1024 * 1024, anonymous: true} : {}),
           }),
         timeoutMs,
         "listServerRefs",
@@ -1317,10 +1329,10 @@ export async function cloneRemoteRepoUtil(
         dir,
         url,
         corsProxy: transport.corsProxy,
-        onAuth: options.initialImport ? undefined : getAuthCallback(url),
+        onAuth: anonymous ? undefined : getAuthCallback(url),
         singleBranch: false,
-        noCheckout: Boolean(options.initialImport),
-        ...(options.initialImport ? {maxHttpBytes: 64 * 1024 * 1024} : {}),
+        noCheckout: anonymous,
+        ...(anonymous ? {maxHttpBytes: 64 * 1024 * 1024, anonymous: true} : {}),
         ...(operation ? {signal: operation.signal} : {}),
         onProgress: (progress: any) => {
           onGitProgress?.({
@@ -1392,7 +1404,7 @@ export async function cloneRemoteRepoUtil(
 
     const defaultBranch = await resolveBranchName(git, dir)
     operation?.throwIfCancellationRequested()
-    if (!options.initialImport) await git.checkout({dir, ref: defaultBranch})
+    if (!anonymous) await git.checkout({dir, ref: defaultBranch})
 
     const headCommit = await git.resolveRef({dir, ref: "HEAD"})
     const branches = await git.listBranches({dir})
@@ -1408,7 +1420,7 @@ export async function cloneRemoteRepoUtil(
 
     // Initial imports own a temporary mirror, not a browsable repository cache entry.
     // In particular, do not leave a /repos/... cache key behind after canonical-key cleanup.
-    if (!options.initialImport) {
+    if (!anonymous) {
       await cacheManager.init()
       await cacheManager.setRepoCache(cache)
     }

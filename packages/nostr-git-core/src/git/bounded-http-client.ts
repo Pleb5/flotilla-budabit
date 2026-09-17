@@ -34,6 +34,7 @@ export function createBoundedGitHttpClient(
     signal?: AbortSignal
     inactivityTimeoutMs?: number
     maxBytes?: number
+    anonymous?: boolean
     fetcher?: FetchLike
   } = {},
 ): GitHttpClient {
@@ -57,6 +58,7 @@ export function createBoundedGitHttpClient(
         fetcher,
         signal: options.signal,
         maxBytes,
+        anonymous: options.anonymous,
         inactivityTimeoutMs: options.inactivityTimeoutMs ?? GIT_HTTP_INACTIVITY_TIMEOUT_MS,
       })
     },
@@ -70,6 +72,7 @@ async function requestWithInactivityTimeout(
     signal?: AbortSignal
     inactivityTimeoutMs: number
     maxBytes?: number
+    anonymous?: boolean
   },
 ): Promise<GitHttpResponse> {
   const controller = new AbortController()
@@ -110,10 +113,17 @@ async function requestWithInactivityTimeout(
     controller.signal.throwIfAborted()
     const response = await options.fetcher(request.url, {
       method: request.method || "GET",
-      headers: request.headers,
+      headers: options.anonymous
+        ? Object.fromEntries(
+            Object.entries(request.headers || {}).filter(
+              ([key]) => !/^(authorization|cookie|proxy-authorization)$/i.test(key),
+            ),
+          )
+        : request.headers,
       ...(body ? {body: body as BodyInit} : {}),
       signal: controller.signal,
       ...(options.maxBytes ? {credentials: "omit" as const} : {}),
+      ...(options.anonymous ? {credentials: "omit" as const, redirect: "error" as const} : {}),
     })
     armTimeout()
 

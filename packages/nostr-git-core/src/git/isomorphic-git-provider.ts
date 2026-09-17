@@ -49,6 +49,7 @@ export class IsomorphicGitProvider implements GitProvider {
       signal: options?.signal,
       inactivityTimeoutMs: this.httpInactivityTimeoutMs,
       maxBytes: options?.maxHttpBytes,
+      anonymous: options?.anonymous,
     })
   }
 

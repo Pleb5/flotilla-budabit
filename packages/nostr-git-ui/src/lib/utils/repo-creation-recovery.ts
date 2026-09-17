@@ -530,7 +530,7 @@ async function recoverRecord(
   if (
     record.phase === "metadata-pending" &&
     getLatestPublishedEvent(record, 30617) &&
-    getLatestPublishedEvent(record, 30618)
+    (getLatestPublishedEvent(record, 30618) || record.announcementOnly)
   ) {
     try {
       await retryPendingRepoCreationMetadata(record, deps.publisher, deps.fetchRelayEvents);

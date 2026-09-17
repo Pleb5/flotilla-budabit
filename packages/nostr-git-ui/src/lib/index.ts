@@ -29,6 +29,7 @@ export {
   IMPORT_PHASE_LABELS,
 } from "./hooks/useImportRepo.svelte";
 export { type NewRepoResult } from "./hooks/useNewRepo.svelte";
+export { type PublicRepoResult } from "./hooks/usePublicRepo.svelte";
 export { toast } from "./stores/toast";
 export { loadTokensFromStorage, saveTokensToStorage, type TokenEntry } from "./utils/tokenLoader";
 export { tryTokensForHost, getTokensForHost } from "./utils/tokenHelpers";

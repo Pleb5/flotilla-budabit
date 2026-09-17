@@ -48,14 +48,14 @@ describe("cloneRemoteRepoUtil GRASP transport selection", () => {
       expect(git.clone).not.toHaveBeenCalled()
     },
   )
-  it("initial import bounds discovery/clone HTTP and skips checkout without truncating history", async () => {
+  it.each(["initialImport", "publicSource"])("%s bounds discovery/clone HTTP and skips checkout without truncating history", async mode => {
     setAuthConfig({tokens: [{host: "github.com", token: "disposable-test-token"}]})
     const git = makeGitMock()
     const cache = makeCacheMock()
     await cloneRemoteRepoUtil(git, cache as any, {
       url: "https://github.com/owner/repo.git",
       dir: "/repos/owner/initial-test",
-      initialImport: true,
+      [mode]: true,
     })
     expect(git.listServerRefs).toHaveBeenCalledWith(
       expect.objectContaining({maxHttpBytes: 2 * 1024 * 1024}),

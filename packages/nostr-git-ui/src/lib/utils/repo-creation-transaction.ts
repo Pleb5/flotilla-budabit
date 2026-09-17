@@ -115,6 +115,8 @@ export interface RepoCreationEventAckEvidence {
 }
 
 export interface RepoCreationRecoveryRecord {
+  /** An announcement of an external source, with no local clone, state or writable targets. */
+  announcementOnly?: boolean;
   version: 2;
   id: string;
   operation: RepoCreationOperation;
@@ -480,6 +482,7 @@ export class RepoCreationTransactionJournal {
     params: {
       id: string;
       operation: RepoCreationOperation;
+      announcementOnly?: boolean;
       ownerPubkey: string;
       repoName: string;
       repositoryRelayUrls?: string[];
@@ -507,6 +510,7 @@ export class RepoCreationTransactionJournal {
       version: 2,
       id: params.id,
       operation: params.operation,
+      ...(params.announcementOnly ? { announcementOnly: true } : {}),
       ownerPubkey: params.ownerPubkey,
       repoName: params.repoName,
       ...(params.repositoryRelayUrls
@@ -827,7 +831,7 @@ export class RepoCreationTransactionJournal {
       ...(stage === "final" ? { metadataAttempt } : {}),
       ...(this.#record.phase === "metadata-preparing" &&
       metadataAttempt.announcementEventId &&
-      metadataAttempt.stateEventId
+      (metadataAttempt.stateEventId || this.#record.announcementOnly)
         ? { phase: "metadata-pending" as const }
         : {}),
     });
@@ -1014,13 +1018,40 @@ export async function retryPendingRepoCreationMetadata(
   record: RepoCreationRecoveryRecord,
   publisher: PublishRepoEvent,
   fetchRelayEvents?: FetchRelayEvents
-): Promise<{ announcement: PublishRepoEventResult; state: PublishRepoEventResult }> {
+): Promise<{ announcement: PublishRepoEventResult; state?: PublishRepoEventResult }> {
   if (record.phase !== "metadata-pending") {
     throw new Error(`Repository transaction ${record.id} is not metadata-pending`);
   }
 
   const announcement = getLatestPublishedEvent(record, 30617);
   const state = getLatestPublishedEvent(record, 30618);
+  if (
+    record.announcementOnly &&
+    announcement &&
+    !state &&
+    !record.targets.length &&
+    !record.localRepoId
+  ) {
+    if (!fetchRelayEvents) throw new Error("Announcement recovery requires current relay reads");
+    assertRepoCreationEvent(record, announcement.event, true);
+    await assertRecoveryAnnouncementCurrent(record, announcement.event, fetchRelayEvents);
+    const journal = RepoCreationTransactionJournal.resume(record);
+    const relays = getAnnouncementRelays(announcement.event);
+    if (!relays.length) throw new Error("Announcement recovery requires explicit relays");
+    const result = await trackRepoCreationPublisher(journal, publisher)!(announcement.event, {
+      relays,
+      stage: "final",
+      assertFresh: () =>
+        assertRecoveryAnnouncementCurrent(record, announcement.event, fetchRelayEvents).then(
+          () => {}
+        ),
+    });
+    const acked = new Set(sanitizeRelays(extractPublishRelayAck(result).ackedRelays));
+    if (relays.some((relay) => !acked.has(normalizeRelayUrl(relay))))
+      throw new RepoCreationMetadataDeliveryError(announcement.event);
+    journal.complete();
+    return { announcement: result };
+  }
   if (!announcement || !state) {
     throw new Error("Metadata recovery requires exact signed announcement and state events");
   }

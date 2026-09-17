@@ -3,6 +3,30 @@ import {describe, expect, it, vi} from "vitest"
 import {createBoundedGitHttpClient} from "../../src/git/bounded-http-client.js"
 
 describe("bounded Git HTTP client", () => {
+  it("explicit anonymous transport strips credentials and refuses redirects", async () => {
+    const fetcher = vi.fn(async (_url: string, _init?: RequestInit) => new Response(null))
+    const client = createBoundedGitHttpClient({request: vi.fn()} as any, {
+      fetcher,
+      maxBytes: 8,
+      anonymous: true,
+    })
+    const result = await client.request({
+      url: "https://example.com/repo.git",
+      headers: {
+        Authorization: "saved-token",
+        Cookie: "private",
+        "Proxy-Authorization": "secret",
+        Accept: "application/x-git-upload-pack-result",
+      },
+    })
+    expect(fetcher.mock.calls[0][1]).toMatchObject({
+      credentials: "omit",
+      redirect: "error",
+      headers: {Accept: "application/x-git-upload-pack-result"},
+    })
+    expect(Object.keys(fetcher.mock.calls[0][1]!.headers!)).toEqual(["Accept"])
+    await result.body.return!()
+  })
   it("keeps internal clone/push ref advertisements below the larger pack-transfer budget", async () => {
     const fetcher = vi.fn(
       async () => new Response(null, {headers: {"content-length": String(3 * 1024 * 1024)}}),

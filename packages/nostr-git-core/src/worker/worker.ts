@@ -1669,13 +1669,16 @@ const api = {
     prefix?: string
     symrefs?: boolean
     initialImport?: boolean
+    publicSource?: boolean
   }) {
+    const anonymous = Boolean(opts.publicSource || opts.initialImport)
     try {
-      const list = opts.initialImport
+      const list = anonymous
         ? (options: any) =>
             git.listServerRefs({
               ...options,
               maxHttpBytes: 2 * 1024 * 1024,
+              anonymous: true,
               signal: AbortSignal.timeout(30_000),
             })
         : (options: any) => listAdvertisedServerRefs(git, options)
@@ -1683,9 +1686,8 @@ const api = {
         url: opts.url,
         prefix: opts.prefix,
         symrefs: opts.symrefs ?? true,
-        onAuth: opts.initialImport ? undefined : getAuthCallback(opts.url),
-        corsProxy:
-          opts.initialImport && isGraspRepoHttpUrl(opts.url) ? null : resolveDefaultCorsProxy(),
+        onAuth: anonymous ? undefined : getAuthCallback(opts.url),
+        corsProxy: anonymous && isGraspRepoHttpUrl(opts.url) ? null : resolveDefaultCorsProxy(),
       })
       return toPlain(refs)
     } catch (error: any) {
@@ -2817,6 +2819,23 @@ const api = {
       for (const targetRef of refsToPush) {
         startPushRef(targetRef)
         const sourceRef = await materializeSourceRef(targetRef)
+        if (opts.initialImportRefs) {
+          const expected = opts.initialImportRefs.find(item => item.ref === targetRef)?.oid
+          if (!expected || (await git.resolveRef({dir, ref: sourceRef})) !== expected)
+            throw new Error("Public copy source snapshot changed; no push attempted")
+          const advertised = await git.listServerRefs({
+            url: remoteUrl,
+            onAuth,
+            corsProxy,
+            maxHttpBytes: 2 * 1024 * 1024,
+            ...(operation ? {signal: operation.signal} : {}),
+          })
+          const existing = advertised.find(
+            (item: {ref: string; oid: string}) => item.ref === targetRef,
+          )
+          if (existing && existing.oid !== expected)
+            throw new Error("Copy destination ref already exists; no overwrite attempted")
+        }
         operation?.throwIfCancellationRequested()
         operation?.markSideEffectBoundary(`Pushing ${targetRef}`)
         await (git as any).push({
@@ -2826,6 +2845,7 @@ const api = {
           remoteRef: targetRef,
           ...(corsProxy !== null ? {corsProxy} : {}),
           onAuth,
+          ...(opts.initialImportRefs ? {maxHttpBytes: 64 * 1024 * 1024} : {}),
           ...(operation ? {signal: operation.signal} : {}),
         })
         pushedRefs.push(targetRef)

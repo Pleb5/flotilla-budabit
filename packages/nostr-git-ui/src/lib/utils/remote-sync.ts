@@ -160,6 +160,8 @@ export interface SyncLocalRepoToTargetsOptions {
   onLatestRepoMetadataCreatedAt?: (value: number) => void;
   requireNonGraspSuccessBeforeGrasp?: boolean;
   allowApiBranchFastPath?: boolean;
+  /** Verify the full source snapshot locally and prohibit repair fetches during copies. */
+  strictSourceSnapshot?: boolean;
   graspFirst?: boolean;
   prepublishedAnnouncement?: NostrEvent;
   prepublishedAnnouncementByGraspRelay?: Record<string, NostrEvent>;
@@ -1772,6 +1774,14 @@ export async function syncLocalRepoToTargets(
                   provider: "grasp",
                   repoRelays: canonicalGraspRelays,
                   operationId: mutationOperationId,
+                  ...(options.strictSourceSnapshot
+                    ? {
+                        initialImportRefs: orderedRefs.map((ref) => ({
+                          ref: ref.ref,
+                          oid: ref.commit,
+                        })),
+                      }
+                    : {}),
                 }),
               `Pushing ${ref.name} to ${target.label}`,
               0
@@ -2065,6 +2075,14 @@ export async function syncLocalRepoToTargets(
                       provider: target.provider,
                       repoRelays: sanitizeRelays(relays),
                       operationId: mutationOperationId,
+                      ...(options.strictSourceSnapshot
+                        ? {
+                            initialImportRefs: orderedRefs.map((ref) => ({
+                              ref: ref.ref,
+                              oid: ref.commit,
+                            })),
+                          }
+                        : {}),
                     }),
                   `Pushing ${ref.name} to ${target.label}`,
                   0
