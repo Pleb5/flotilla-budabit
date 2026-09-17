@@ -97,6 +97,8 @@ describe("RepoCreationTransactionJournal", () => {
           relays: ["wss://fixture.test/"],
           stage,
           repoAddress: `30617:${owner}:my-great-repo`,
+          onPrepare: expect.any(Function),
+          onBeforePublish: expect.any(Function),
         });
       }
     }
@@ -605,47 +607,82 @@ describe("RepoCreationTransactionJournal", () => {
     expect(JSON.stringify(journal.record)).not.toContain(secret);
   });
 
-  it("retries the latest exact signed metadata without recreating targets", async () => {
-    Object.defineProperty(globalThis, "localStorage", {
-      configurable: true,
-      value: new MemoryStorage(),
-    });
-    const journal = new RepoCreationTransactionJournal({
-      id: "import:owner:repo:1",
-      operation: "import",
-      ownerPubkey: "f".repeat(64),
-      repoName: "repo",
-    });
-    const announcement = {
-      id: "announcement-id",
-      sig: "signature",
-      pubkey: "f".repeat(64),
-      kind: 30617,
-      created_at: 2,
-      tags: [
-        ["d", "repo"],
-        ["relays", "wss://relay.example/"],
-      ],
-      content: "",
-    };
-    const state = { ...announcement, id: "state-id", kind: 30618, tags: [["d", "repo"]] };
-    journal.recordPublishedEvent({ event: announcement }, ["wss://relay.example/"], "final");
-    journal.recordPublishedEvent({ event: state }, ["wss://relay.removed/"], "final");
-    journal.setPhase("metadata-pending");
-    const publisher = vi.fn(async (event) => ({
-      event,
-      ackedRelays: ["wss://relay.example/"],
-      failedRelays: [],
-    }));
+  it.each([false, true])(
+    "retries exact metadata and retains unresolved destinations: %s",
+    async (incomplete) => {
+      Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: new MemoryStorage(),
+      });
+      const journal = new RepoCreationTransactionJournal({
+        id: "import:owner:repo:1",
+        operation: "import",
+        ownerPubkey: "f".repeat(64),
+        repoName: "repo",
+      });
+      const announcement = {
+        id: "announcement-id",
+        sig: "signature",
+        pubkey: "f".repeat(64),
+        kind: 30617,
+        created_at: 2,
+        tags: [
+          ["d", "repo"],
+          ["relays", "wss://relay.example/"],
+        ],
+        content: "",
+      };
+      const state = { ...announcement, id: "state-id", kind: 30618, tags: [["d", "repo"]] };
+      journal.recordPublishedEvent({ event: announcement }, ["wss://relay.example/"], "final");
+      journal.recordPublishedEvent({ event: state }, ["wss://relay.removed/"], "final");
+      journal.setPhase("metadata-pending");
+      const good = {
+        id: "good",
+        label: "Good",
+        provider: "forgejo" as const,
+        success: true,
+        createdRemote: true,
+      };
+      const bad = {
+        id: "bad",
+        label: "Partial",
+        provider: "gitlab" as const,
+        success: false,
+        createdRemote: true,
+        remoteUrl: "https://gitlab.com/o/r.git",
+        pushedRefs: ["refs/heads/main"],
+        failedRefs: [{ ref: "refs/tags/v1", error: "rejected" }],
+      };
+      if (incomplete) journal.setTargetResults([good, bad]);
+      const publisher = vi.fn(async (event) => ({
+        event,
+        ackedRelays: ["wss://relay.example/"],
+        failedRelays: [],
+      }));
 
-    await retryPendingRepoCreationMetadata(journal.record, publisher);
+      await retryPendingRepoCreationMetadata(journal.record, publisher);
 
-    expect(publisher.mock.calls.map((call) => call[0])).toEqual([announcement, state]);
-    expect(publisher.mock.calls.every((call) => call[1].relays[0] === "wss://relay.example/")).toBe(
-      true
-    );
-    expect(getPendingRepoCreationTransactions()).toHaveLength(0);
-  });
+      expect(publisher.mock.calls.map((call) => call[0])).toEqual([announcement, state]);
+      expect(
+        publisher.mock.calls.every((call) => call[1].relays[0] === "wss://relay.example/")
+      ).toBe(true);
+      expect(getPendingRepoCreationTransactions()).toHaveLength(incomplete ? 1 : 0);
+      if (incomplete) {
+        const [pending] = getPendingRepoCreationTransactions();
+        expect(pending.phase).toBe("cleanup-pending");
+        expect(pending.targets).toEqual(journal.record.targets);
+        await retryRepoCreationCompensations(pending, vi.fn(), publisher);
+        expect(getPendingRepoCreationTransactions()).toHaveLength(1);
+        // Confirmed remote cleanup releases its receipts; a mere metadata retry does not.
+        const resumed = RepoCreationTransactionJournal.resume(
+          getPendingRepoCreationTransactions()[0]
+        );
+        resumed.setTargetResults([good, { ...bad, cleanup: { attempted: true, success: true } }]);
+        resumed.complete();
+        expect(getPendingRepoCreationTransactions()).toHaveLength(0);
+      }
+    }
+  );
 
   it("requires exact GRASP visibility before completing metadata recovery", async () => {
     Object.defineProperty(globalThis, "localStorage", {

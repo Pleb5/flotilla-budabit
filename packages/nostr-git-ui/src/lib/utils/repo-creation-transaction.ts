@@ -117,6 +117,8 @@ export interface RepoCreationEventAckEvidence {
 export interface RepoCreationRecoveryRecord {
   /** An announcement of an external source, with no local clone, state or writable targets. */
   announcementOnly?: boolean;
+  /** Set by checkpoint-aware publishers before signing; cleared before any delivery. */
+  publicationNotStarted?: boolean;
   version: 2;
   id: string;
   operation: RepoCreationOperation;
@@ -474,6 +476,37 @@ function cleanupStateFromResult(result: RemoteSyncTargetResult): RepoCreationCle
   };
 }
 
+/** Receipts must outlive partial success, including all metadata/cleanup retry paths. */
+export function hasUnresolvedRepoCreationTargets(record: RepoCreationRecoveryRecord): boolean {
+  return record.targets.some(
+    (target) =>
+      target.cleanup.stage !== "completed" &&
+      (target.manualAttention ||
+        target.cleanup.manualAttention ||
+        !["not-needed", "completed"].includes(target.cleanup.stage) ||
+        (target.stage !== "verified" &&
+          (target.createdRemote ||
+            ["creating", "created", "pushing", "unknown"].includes(target.stage) ||
+            target.refs.some((ref) => ["pushing", "pushed", "unknown"].includes(ref.stage)))))
+  );
+}
+
+export function isSideEffectFreeAnnouncement(record: RepoCreationRecoveryRecord): boolean {
+  return Boolean(
+    record.announcementOnly &&
+    record.publicationNotStarted &&
+    !record.publishedEvents.length &&
+    !record.targets.length &&
+    !record.targetResults.length &&
+    !record.localRepoId &&
+    !record.localResource.id &&
+    !record.localResource.ownedByTransaction &&
+    record.localResource.stage === "planned" &&
+    !record.pendingCompensations.length &&
+    !record.workerOperations?.length
+  );
+}
+
 export class RepoCreationTransactionJournal {
   #record: RepoCreationRecoveryRecord;
   #secrets = new Set<string>();
@@ -510,7 +543,7 @@ export class RepoCreationTransactionJournal {
       version: 2,
       id: params.id,
       operation: params.operation,
-      ...(params.announcementOnly ? { announcementOnly: true } : {}),
+      ...(params.announcementOnly ? { announcementOnly: true, publicationNotStarted: true } : {}),
       ownerPubkey: params.ownerPubkey,
       repoName: params.repoName,
       ...(params.repositoryRelayUrls
@@ -827,6 +860,7 @@ export class RepoCreationTransactionJournal {
     };
     this.#update({
       publishedEvents: next,
+      publicationNotStarted: false,
       eventAcks: [...this.#record.eventAcks, evidence],
       ...(stage === "final" ? { metadataAttempt } : {}),
       ...(this.#record.phase === "metadata-preparing" &&
@@ -877,6 +911,16 @@ export class RepoCreationTransactionJournal {
   }
 
   complete(): void {
+    if (hasUnresolvedRepoCreationTargets(this.#record)) {
+      this.#update({
+        phase: "cleanup-pending",
+        manualAttention: {
+          required: true,
+          reason: "Incomplete destinations require recovery or cleanup",
+        },
+      });
+      return;
+    }
     if (this.#record.pendingCompensations.length > 0) {
       this.setPhase("cleanup-pending");
       return;
@@ -901,6 +945,10 @@ export class RepoCreationTransactionJournal {
         },
       };
     }
+  }
+
+  setPublicationNotStarted(value: boolean): void {
+    this.#update({ publicationNotStarted: value });
   }
 
   #update(patch: Partial<RepoCreationRecoveryRecord>): void {
@@ -1019,7 +1067,7 @@ export async function retryPendingRepoCreationMetadata(
   publisher: PublishRepoEvent,
   fetchRelayEvents?: FetchRelayEvents
 ): Promise<{ announcement: PublishRepoEventResult; state?: PublishRepoEventResult }> {
-  if (record.phase !== "metadata-pending") {
+  if (record.phase !== "metadata-pending" && !record.announcementOnly) {
     throw new Error(`Repository transaction ${record.id} is not metadata-pending`);
   }
 
@@ -1291,9 +1339,10 @@ export async function retryPendingRepoCreationMetadata(
       updatedAt: Date.now(),
     });
   } else if (
-    recoveredRecord.operation !== "new" &&
-    recoveredRecord.localResource.ownedByTransaction &&
-    !["planned", "cleaned"].includes(recoveredRecord.localResource.stage)
+    hasUnresolvedRepoCreationTargets(recoveredRecord) ||
+    (recoveredRecord.operation !== "new" &&
+      recoveredRecord.localResource.ownedByTransaction &&
+      !["planned", "cleaned"].includes(recoveredRecord.localResource.stage))
   ) {
     writeRecord({ ...recoveredRecord, phase: "cleanup-pending", updatedAt: Date.now() });
   } else {
@@ -1352,6 +1401,7 @@ export async function retryRepoCreationCompensations(
   };
   if (
     remaining.length > 0 ||
+    hasUnresolvedRepoCreationTargets(next) ||
     (record.operation !== "new" &&
       record.localResource.ownedByTransaction &&
       !["planned", "cleaned"].includes(record.localResource.stage))
@@ -1369,7 +1419,30 @@ export function trackRepoCreationPublisher(
 
   const scoped = scopeRepoCreationPublisher(journal.record, publisher);
   return async (event, context): Promise<PublishRepoEventResult> => {
-    const result = await scoped(event, context);
+    // A publisher without lifecycle checkpoints has an unknown outcome if it
+    // throws. Only a checkpoint-aware publisher can attest that delivery has not started.
+    if (journal.record.announcementOnly) journal.setPublicationNotStarted(false);
+    const result = await scoped(event, {
+      ...context,
+      relays: context?.relays || [],
+      onPrepare: () => {
+        journal.setPublicationNotStarted(true);
+        context?.onPrepare?.();
+      },
+      onBeforePublish: (signed) => {
+        if (!getPublishedEvent({ event: signed }))
+          throw new Error("A signed publication receipt is required before delivery");
+        assertRepoCreationEvent(journal.record, signed, true);
+        if (signed.kind !== event.kind || (event.id && signed.id !== event.id))
+          throw new Error("Repository publication changed the requested signed payload");
+        journal.recordPublishedEvent(
+          { event: signed, ackedRelays: [], failedRelays: [] },
+          context?.relays || [],
+          context?.stage || "provisional"
+        );
+        context?.onBeforePublish?.(signed);
+      },
+    });
     if (event.kind === 30617 || event.kind === 30618) {
       journal.recordPublishedEvent(result, context?.relays || [], context?.stage || "provisional");
     }

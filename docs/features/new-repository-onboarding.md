@@ -55,12 +55,15 @@ The advertised source snapshot must match both the complete local clone and a se
 probe before pushing. A changed/incomplete source fails rather than silently copying a subset.
 GRASP admission acknowledgements and state visibility precede pushes; destination refs are
 verified afterward. Final clone metadata includes only successfully verified destinations.
-Partial target failures are reported explicitly.
+Partial target failures are reported explicitly. Incomplete destination receipts remain in
+recovery even after the successful destinations have been announced and local cleanup finishes.
 
 Closing cancels pending work where possible, but signed events and remote writes may already
 exist. Unknown worker outcomes and incomplete publication are recorded in repository recovery;
 resume that record rather than starting another creation. Announcement-only recovery replays
-the exact signed announcement without inventing a state event.
+the exact signed announcement without inventing a state event, including after a temporary relay
+outage. Rejecting signing before any delivery releases the identifier for a fresh attempt;
+unknown delivery outcomes retain their recovery record.
 
 ## Verification scope
 

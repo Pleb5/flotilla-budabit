@@ -13,6 +13,7 @@ export function createRepoCreationPublisher({
   transport: Pick<RepoPublishTransport, "publish">
 }): PublishRepoEvent {
   return async (event, context) => {
+    context?.onPrepare?.()
     const repoAddress = context?.repoAddress
     const prefix = `30617:${ownerPubkey}:`
     const assertCurrent = () => {
@@ -39,6 +40,8 @@ export function createRepoCreationPublisher({
       repoAddress,
       assertCurrent,
       assertFresh: context?.assertFresh,
+      onPrepare: context?.onPrepare,
+      onBeforePublish: context?.onBeforePublish,
     })
   }
 }

@@ -10,6 +10,7 @@ export const evidence = {
   events: [] as any[],
   result: null as any,
 }
+export const preflight = {occupied: false, actorChanged: false}
 let originalFetch: typeof fetch | undefined
 let finishSlow: (() => void) | undefined
 export function finishSlowInspection() {
@@ -32,6 +33,8 @@ export function openOnboardingFixture(withTargetToken = false) {
   evidence.mutations = []
   evidence.events = []
   evidence.result = null
+  preflight.occupied = false
+  preflight.actorChanged = false
   tokens.clear()
   tokens.setTokenLoader(async () =>
     withTargetToken ? [{host: "codeberg.org", token: "disposable-fixture-token"}] : [],
@@ -73,6 +76,18 @@ export function openOnboardingFixture(withTargetToken = false) {
       })
     }
     if (url.pathname === "/api/v1/user") return Response.json({login: "fixture-target", id: 7})
+    if (preflight.occupied && url.pathname.startsWith("/api/v1/repos/fixture-target/")) {
+      const name = url.pathname.split("/").at(-1)
+      return Response.json({
+        id: 456,
+        name,
+        full_name: `fixture-target/${name}`,
+        private: false,
+        owner: {login: "fixture-target"},
+        clone_url: `https://codeberg.org/fixture-target/${name}.git`,
+        html_url: `https://codeberg.org/fixture-target/${name}`,
+      })
+    }
     return new Response("Not found", {status: 404})
   }
   const workerApi = {
@@ -115,9 +130,16 @@ export function openOnboardingFixture(withTargetToken = false) {
     NewRepoWizard,
     {
       userPubkey: TEST_PUBKEYS.alice,
+      assertActor: () => {
+        if (preflight.actorChanged)
+          throw new Error(
+            "The active account changed. Reopen the repository operation before publishing.",
+          )
+      },
       workerApi,
       defaultRelays: ["wss://metadata.fixture.test/"],
       onPublishEvent: async (event: any, context: any) => {
+        context?.onPrepare?.()
         context?.assertCurrent?.()
         await context?.assertFresh?.()
         const signed = {
@@ -126,6 +148,7 @@ export function openOnboardingFixture(withTargetToken = false) {
           id: (evidence.events.length + 1).toString(16).padStart(64, "0"),
           sig: "mock-signature",
         }
+        context?.onBeforePublish?.(signed)
         evidence.events.push(signed)
         return {
           event: signed,

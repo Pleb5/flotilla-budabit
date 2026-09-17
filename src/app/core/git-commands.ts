@@ -312,6 +312,8 @@ export type RepoPublishOptions = {
   repoAddress?: string
   assertCurrent?: () => void
   assertFresh?: () => Promise<void>
+  onPrepare?: () => void
+  onBeforePublish?: (event: NostrEvent) => void
 }
 type RepoPublishExecutionOptions = RepoPublishOptions & {signal?: AbortSignal}
 
@@ -321,6 +323,7 @@ const publishRepoEventWithRelayOutcomesUsingPool = async (
   relays: string[],
   options: RepoPublishExecutionOptions = {},
 ) => {
+  options.onPrepare?.()
   const scopedRelays = getScopedRelayUrls(event, relays, options.repoAddress)
   options.assertCurrent?.()
   await options.assertFresh?.()
@@ -352,6 +355,7 @@ const publishRepoEventWithRelayOutcomesUsingPool = async (
   if (!isSignedEvent(event as TrustedEvent) && signedEvent.pubkey !== activePubkey)
     throw new Error("Repository event signer returned a different owner")
 
+  options.onBeforePublish?.(signedEvent as NostrEvent)
   if (options.publishLocally !== false) {
     repository.publish(signedEvent as TrustedEvent)
   }

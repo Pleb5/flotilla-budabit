@@ -155,6 +155,38 @@ describe("budabit commands", () => {
   })
 
   describe("publishRepoEventWithRelayOutcomes", () => {
+    it("checkpoints the signing boundary and persists the signed event before any delivery", async () => {
+      const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
+      const event = {
+        kind: 30617,
+        content: "",
+        created_at: 1,
+        tags: [
+          ["d", "repo"],
+          ["relays", "wss://metadata.test/"],
+        ],
+      }
+      const onPrepare = vi.fn()
+      const onBeforePublish = vi.fn(() => {
+        throw new Error("Journal unavailable")
+      })
+      mockSignerSign.mockRejectedValueOnce(new Error("User rejected signing"))
+      const options = {repoAddress: `30617:${"a".repeat(64)}:repo`, onPrepare, onBeforePublish}
+      await expect(
+        publishRepoEventWithRelayOutcomes(event as any, ["wss://metadata.test/"], options),
+      ).rejects.toThrow("User rejected signing")
+      expect(onPrepare).toHaveBeenCalledOnce()
+      expect(onBeforePublish).not.toHaveBeenCalled()
+      mockSignerSign.mockImplementation(async value => ({...value, sig: "signature"}))
+      await expect(
+        publishRepoEventWithRelayOutcomes(event as any, ["wss://metadata.test/"], options),
+      ).rejects.toThrow("Journal unavailable")
+      expect(onBeforePublish).toHaveBeenCalledWith(
+        expect.objectContaining({kind: 30617, sig: "signature"}),
+      )
+      expect(mockRepositoryPublish).not.toHaveBeenCalled()
+      expect(mockPublish).not.toHaveBeenCalled()
+    })
     it("awaits recovery freshness before signing and again before any delivery", async () => {
       const {publishRepoEventWithRelayOutcomes} = await import("./git-commands")
       const event = {

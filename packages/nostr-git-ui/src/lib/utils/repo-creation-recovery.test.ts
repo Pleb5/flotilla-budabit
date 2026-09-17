@@ -51,6 +51,169 @@ function storage() {
 describe("repository creation recovery", () => {
   beforeEach(() => vi.stubGlobal("localStorage", storage()));
 
+  it.each(["metadata-pending", "metadata-review"] as const)(
+    "replays an announcement after a relay outage from %s without Git receipts",
+    async (phase) => {
+      const exact = {
+        id: "signed-announcement",
+        sig: "sig",
+        kind: 30617,
+        pubkey: "a".repeat(64),
+        created_at: 1,
+        content: "",
+        tags: [
+          ["d", "repo"],
+          ["clone", "https://codeberg.org/o/r.git"],
+          ["relays", "wss://relay.example/"],
+        ],
+      };
+      const pending = persistRepoCreationRecoveryRecord(
+        record({
+          operation: "import",
+          announcementOnly: true,
+          phase,
+          localRepoId: undefined,
+          localResource: { ownedByTransaction: false, stage: "planned" },
+          publishedEvents: [{ event: exact, relayUrls: [], stage: "final" }],
+          metadataAttempt: { announcementEventId: exact.id },
+        })
+      );
+      const publisher = vi.fn(async (event, context) => ({
+        event,
+        ackedRelays: context.relays,
+        failedRelays: [],
+      }));
+      const fetchRelayEvents = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("relay offline"))
+        .mockResolvedValue([exact]);
+      const workerApi = { listServerRefs: vi.fn(), deleteRepo: vi.fn() };
+      const deps = { publisher, fetchRelayEvents, workerApi, onDeleteEvent: vi.fn() };
+      const offline = await recoverRepoCreationRecord(pending, deps);
+      expect(offline.status).toBe("pending");
+      expect(offline.reason).toMatch(/relay offline/);
+      expect(offline.record?.phase).toBe(phase);
+      expect(publisher).not.toHaveBeenCalled();
+      const [reloaded] = getPendingRepoCreationTransactions();
+      expect(await recoverRepoCreationRecord(reloaded, deps)).toEqual({ status: "recovered" });
+      expect(publisher).toHaveBeenCalledWith(exact, expect.anything());
+      expect(getPendingRepoCreationTransactions()).toEqual([]);
+      expect(workerApi.listServerRefs).not.toHaveBeenCalled();
+      expect(workerApi.deleteRepo).not.toHaveBeenCalled();
+    }
+  );
+
+  it("does not replay a superseded announcement even after a later relay outage", async () => {
+    const exact = {
+      id: "old",
+      sig: "sig",
+      kind: 30617,
+      pubkey: "a".repeat(64),
+      created_at: 1,
+      content: "",
+      tags: [
+        ["d", "repo"],
+        ["relays", "wss://relay.example/"],
+      ],
+    };
+    const current = { ...exact, id: "new-owner-edit", created_at: 2 };
+    const pending = record({
+      announcementOnly: true,
+      operation: "import",
+      phase: "metadata-pending",
+      localRepoId: undefined,
+      localResource: { ownedByTransaction: false, stage: "planned" },
+      publishedEvents: [{ event: exact, relayUrls: [], stage: "final" }],
+    });
+    const deps = {
+      publisher: vi.fn(),
+      fetchRelayEvents: vi.fn().mockResolvedValue([current]),
+      workerApi: {},
+      onDeleteEvent: vi.fn(),
+    };
+    const review = await recoverRepoCreationRecord(pending, deps);
+    expect(review.record?.phase).toBe("metadata-review");
+    deps.fetchRelayEvents.mockRejectedValueOnce(new Error("offline"));
+    await recoverRepoCreationRecord(review.record!, deps);
+    deps.fetchRelayEvents.mockResolvedValue([]);
+    const result = await recoverRepoCreationRecord(getPendingRepoCreationTransactions()[0], deps);
+    expect(result.reason).toMatch(/Owner metadata changed/);
+    expect(deps.publisher).not.toHaveBeenCalled();
+  });
+
+  it("releases known unsigned announcement attempts but preserves unknown delivery", async () => {
+    const pending = record({
+      announcementOnly: true,
+      operation: "import",
+      phase: "metadata-preparing",
+      localRepoId: undefined,
+      localResource: { ownedByTransaction: false, stage: "planned" },
+    });
+    const deps = {
+      publisher: vi.fn(),
+      fetchRelayEvents: vi.fn(),
+      workerApi: {},
+      onDeleteEvent: vi.fn(),
+    };
+    expect((await recoverRepoCreationRecord(pending, deps)).reason).toMatch(/no signed receipt/);
+    expect(getPendingRepoCreationTransactions()).toHaveLength(1);
+    expect(
+      await recoverRepoCreationRecord({ ...pending, publicationNotStarted: true }, deps)
+    ).toEqual({ status: "recovered" });
+    expect(getPendingRepoCreationTransactions()).toEqual([]);
+    expect(deps.publisher).not.toHaveBeenCalled();
+  });
+
+  it("keeps incomplete destination receipts after successful metadata and local cleanup", async () => {
+    const pending = persistRepoCreationRecoveryRecord(
+      record({
+        operation: "import",
+        phase: "cleanup-pending",
+        localResource: { id: "owner/repo", ownedByTransaction: true, stage: "cleaned" },
+        targets: [
+          {
+            id: "good",
+            label: "Good",
+            provider: "forgejo",
+            stage: "verified",
+            refs: [],
+            cleanup: { stage: "not-needed", manualAttention: false },
+            manualAttention: false,
+            updatedAt: 1,
+          },
+          {
+            id: "partial",
+            label: "Partial",
+            provider: "gitlab",
+            stage: "failed",
+            createdRemote: true,
+            remoteUrl: "https://gitlab.com/o/r.git",
+            refs: [
+              { ref: "refs/heads/main", commit: "b".repeat(40), stage: "pushed" },
+              { ref: "refs/tags/v1", commit: "c".repeat(40), stage: "failed" },
+            ],
+            cleanup: { stage: "pending", manualAttention: true },
+            manualAttention: true,
+            updatedAt: 1,
+          },
+        ],
+      })
+    );
+    const deps = {
+      publisher: vi.fn(),
+      fetchRelayEvents: vi.fn(),
+      workerApi: { deleteRepo: vi.fn() },
+      onDeleteEvent: vi.fn(),
+    };
+    expect((await recoverRepoCreationRecord(pending, deps)).status).toBe("pending");
+    const [reloaded] = getPendingRepoCreationTransactions();
+    expect(reloaded.targets).toEqual(pending.targets);
+    expect((await recoverRepoCreationRecord(reloaded, deps)).status).toBe("pending");
+    expect(getPendingRepoCreationTransactions()[0].targets).toEqual(pending.targets);
+    expect(deps.publisher).not.toHaveBeenCalled();
+    expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
+  });
+
   it("keeps an ambiguous remote without replaying mutations", async () => {
     const createRemoteRepo = vi.fn();
     const pushToRemote = vi.fn();
@@ -174,7 +337,13 @@ describe("repository creation recovery", () => {
       }
     );
 
-    expect(result.status).toBe("recovered");
+    // The surviving destination can be announced, but the ambiguous failed
+    // GRASP target still needs its recovery receipts after that publication.
+    expect(result.status).toBe("pending");
+    expect(
+      result.record?.targets.find((target) => target.provider === "grasp")?.manualAttention
+    ).toBe(true);
+    expect(result.record?.manualAttention.required).toBe(true);
     expect(publisher).toHaveBeenCalled();
     const finalAnnouncement = publisher.mock.calls
       .map(([event]) => event)

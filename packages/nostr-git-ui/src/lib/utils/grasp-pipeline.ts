@@ -90,6 +90,10 @@ export interface PublishRepoEventContext {
   assertCurrent?: () => void;
   /** Recovery freshness reads, awaited before signing and before delivery. */
   assertFresh?: () => Promise<void>;
+  /** Checkpoint-aware publishers call this before signing, and onBeforePublish before any delivery. */
+  onPrepare?: () => void;
+  /** Persist the exact signed event before local or relay delivery; failure must prevent delivery. */
+  onBeforePublish?: (event: NostrEvent) => void;
   relays: string[];
   additionalRelays?: string[];
   stage?: "provisional" | "final";

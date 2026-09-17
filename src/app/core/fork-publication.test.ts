@@ -141,4 +141,31 @@ describe("creation/recovery route publication", () => {
     )
     expect(assertFresh).toHaveBeenCalledOnce()
   })
+
+  it("forwards signing/delivery checkpoints through the owner-bound publisher", async () => {
+    const signed = {...announcement, pubkey: owner, id: "signed", sig: "sig"}
+    const onPrepare = vi.fn()
+    const onBeforePublish = vi.fn()
+    const publisher = createPublisher({
+      ownerPubkey: owner,
+      getActivePubkey: () => owner,
+      transport: {
+        publish: vi.fn(async (_event, relays, options) => {
+          options.onPrepare?.()
+          options.onBeforePublish?.(signed)
+          return {
+            event: signed,
+            ackedRelays: relays,
+            failedRelays: [],
+            successCount: relays.length,
+            hasRelayOutcomes: true,
+            relayOutcomes: [],
+          }
+        }),
+      },
+    })
+    await publisher(announcement, {relays: [relay], repoAddress, onPrepare, onBeforePublish})
+    expect(onPrepare).toHaveBeenCalled()
+    expect(onBeforePublish).toHaveBeenCalledWith(signed)
+  })
 })

@@ -785,20 +785,35 @@
   }
 
   // Repository creation using useNewRepo hook
+  let preflightError = $state("");
+  let isPreflighting = $state(false);
   async function startRepositoryCreation() {
+    if (isPreflighting) return;
+    preflightError = "";
+    isPreflighting = true;
+    let editStep = 3;
+    let executionStarted = false;
+    progressSteps = [
+      { step: "preflight", message: "Checking repository availability…", completed: false },
+    ];
     try {
       assertActor?.();
+      editStep = 2;
       if (!validateStep1()) throw new Error("Review the repository details before continuing");
 
+      editStep = 1;
       if (needsTargets && (selectedProviders.length === 0 || !isValidGraspConfig()))
         throw new Error("Select valid target remotes before continuing");
 
       const availability = await checkNameAvailability(repoDetails.name);
       if (closed) return;
+      editStep = 3;
       assertActor?.();
+      editStep = 2;
       if (availabilityBlocksCreation(availability))
         throw new Error("Destination availability changed. Review target errors before continuing");
 
+      editStep = 3;
       const relayCount = getEffectiveRepoRelays().length;
       if (relayCount === 0 || relaySelectionError)
         throw new Error(relaySelectionError || "Select a metadata relay");
@@ -810,6 +825,8 @@
       );
 
       createdResult = null;
+      executionStarted = true;
+      isPreflighting = false;
       if (importing && source) {
         progressSteps = [
           { step: "source", message: "Rechecking the public repository…", completed: false },
@@ -881,7 +898,20 @@
         cloneUrl: advancedSettings.cloneUrls.find((v) => v && v.trim()) || "",
       });
     } catch (error) {
-      console.error("Repository creation failed:", error);
+      if (closed) return;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!executionStarted) {
+        preflightError = message;
+        currentStep = editStep;
+        progressSteps = [];
+      } else {
+        progressSteps = [
+          ...progressSteps,
+          { step: "error", message, error: message, completed: false },
+        ];
+      }
+    } finally {
+      isPreflighting = false;
     }
   }
 
@@ -1041,7 +1071,7 @@
 
   {#if currentStep === 4}
     <RepoProgressStep
-      isCreating={isCreating() || publicRepo.isCreating}
+      isCreating={isPreflighting || isCreating() || publicRepo.isCreating}
       progress={progressSteps}
       onRetry={importing ? undefined : handleRetry}
       onClose={handleClose}
@@ -1058,6 +1088,11 @@
       class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-wrap:anywhere]"
     >
       <div class="px-4 pb-12 pt-5 sm:px-6 sm:pb-16 sm:pt-6">
+        {#if preflightError}
+          <p role="alert" class="mb-4 rounded border border-destructive p-3 text-destructive">
+            {preflightError}
+          </p>
+        {/if}
         {#if currentStep === 0}
           <RepoTypeStep
             mode={repoType}

@@ -181,3 +181,54 @@ test("brand new repository retains initialization and explicit author controls",
   await expect(page.getByRole("button", {name: "Create Repository", exact: true})).toBeDisabled()
   // No actual new repository creation: initialization stays covered by the existing hook suites.
 })
+
+for (const failure of ["occupied", "actorChanged"] as const) {
+  test(`final ${failure} preflight failure is visible and returns to editable settings`, async ({
+    page,
+  }) => {
+    await open(page, true)
+    await inspect(page)
+    await next(page)
+    await page.getByRole("radio", {name: "Copy to target remotes", exact: true}).check()
+    await page.getByRole("checkbox", {name: "Codeberg / Forgejo codeberg.org", exact: true}).check()
+    await next(page)
+    await page.getByLabel("Repository identifier *", {exact: true}).fill("preflight-retry")
+    await expect(page.getByText("Available on checked destinations.", {exact: true})).toBeVisible()
+    await next(page)
+    await page.evaluate(
+      async ({fixture, failure}) => {
+        ;(await import(/* @vite-ignore */ fixture)).preflight[failure] = true
+      },
+      {fixture, failure},
+    )
+    await page.getByRole("button", {name: "Copy and Announce Repository", exact: true}).click()
+    await expect(page.getByRole("alert")).toContainText(
+      failure === "occupied" ? "Destination availability changed" : "active account changed",
+    )
+    await expect(page.getByRole("button", {name: "Previous", exact: true})).toBeVisible()
+    await expect(page.getByText("Ready to Create Repository", {exact: true})).toHaveCount(0)
+    const evidence = await page.evaluate(
+      async fixture => (await import(/* @vite-ignore */ fixture)).evidence,
+      fixture,
+    )
+    expect(evidence.mutations).toEqual([])
+    expect(evidence.events).toEqual([])
+    if (failure === "occupied") {
+      await expect(page.getByLabel("Repository identifier *", {exact: true})).toHaveValue(
+        "preflight-retry",
+      )
+      await page.evaluate(async fixture => {
+        ;(await import(/* @vite-ignore */ fixture)).preflight.occupied = false
+      }, fixture)
+      await page.getByLabel("Repository identifier *", {exact: true}).fill("preflight-corrected")
+      await expect(
+        page.getByText("Available on checked destinations.", {exact: true}),
+      ).toBeVisible()
+      await next(page)
+      await page.getByRole("button", {name: "Copy and Announce Repository", exact: true}).click()
+      await expect(
+        page.getByRole("heading", {name: "Repository Created Successfully!"}),
+      ).toBeVisible()
+    }
+  })
+}

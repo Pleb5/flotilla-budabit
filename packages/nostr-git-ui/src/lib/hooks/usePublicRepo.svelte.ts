@@ -15,6 +15,7 @@ import { extractPublishRelayAck, toNpubOrSelf } from "../utils/grasp-pipeline.js
 import { normalizeRelayUrl } from "../utils/remote-targets.js";
 import {
   getPendingRepoCreationTransactions,
+  isSideEffectFreeAnnouncement,
   RepoCreationTransactionJournal,
   trackRepoCreationPublisher,
 } from "../utils/repo-creation-transaction.js";
@@ -145,7 +146,10 @@ export function usePublicRepo(options: UseForkRepoOptions = {}) {
       return { announcementEvent: published.event as RepoAnnouncementEvent, remotePushResults: [] };
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
-      if (journal) journal.setPhase(journal.record.phase, error);
+      if (journal) {
+        if (isSideEffectFreeAnnouncement(journal.record)) journal.complete();
+        else journal.setPhase(journal.record.phase, error);
+      }
       return null;
     } finally {
       announcing = false;

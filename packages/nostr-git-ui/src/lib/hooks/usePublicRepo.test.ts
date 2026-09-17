@@ -139,6 +139,66 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("public repository execution", () => {
+  it("releases a rejected signing attempt and permits retrying the same identifier", async () => {
+    const { hook, publish } = setup();
+    const config = {
+      mode: "announce" as const,
+      source,
+      forkName: "sign-retry",
+      targets: [],
+      relays: [relay],
+    };
+    publish.mockImplementationOnce(async (_event, context) => {
+      context.onPrepare();
+      throw new Error("Signer rejected the request");
+    });
+    expect(await hook.createRepository(config)).toBeNull();
+    expect(hook.error).toMatch(/Signer rejected/);
+    expect(getPendingRepoCreationTransactions()).toEqual([]);
+    expect(await hook.createRepository(config)).not.toBeNull();
+  });
+
+  it("retains the exact signed receipt when delivery throws before returning ACKs", async () => {
+    const { hook, publish } = setup();
+    publish.mockImplementationOnce(async (event, context) => {
+      context.onPrepare();
+      context.onBeforePublish({ ...event, pubkey: owner, id: "d".repeat(64), sig: "signature" });
+      throw new Error("Transport disconnected after delivery started");
+    });
+    expect(
+      await hook.createRepository({
+        mode: "announce",
+        source,
+        forkName: "lost-ack",
+        targets: [],
+        relays: [relay],
+      })
+    ).toBeNull();
+    expect(getPendingRepoCreationTransactions()[0]).toMatchObject({
+      phase: "metadata-pending",
+      publicationNotStarted: false,
+      publishedEvents: [{ event: { id: "d".repeat(64) } }],
+    });
+  });
+
+  it("does not discard an uncheckpointed publisher's unknown outcome", async () => {
+    const { hook, publish } = setup();
+    publish.mockRejectedValueOnce(new Error("Unknown publication outcome"));
+    expect(
+      await hook.createRepository({
+        mode: "announce",
+        source,
+        forkName: "unknown-announcement",
+        targets: [],
+        relays: [relay],
+      })
+    ).toBeNull();
+    expect(getPendingRepoCreationTransactions()[0]).toMatchObject({
+      publicationNotStarted: false,
+      publishedEvents: [],
+    });
+  });
+
   it("announces an existing public URL with no clone, state, target credentials or fork relationship", async () => {
     const { hook, worker, publish } = setup();
     const result = await hook.createRepository({
@@ -256,16 +316,53 @@ describe("public repository execution", () => {
   it("announces only verified destinations after a partial copy failure", async () => {
     const { hook } = setup();
     vi.mocked(syncLocalRepoToTargets).mockResolvedValueOnce([
-      { id: "good", label: "Good", provider: "forgejo", success: true, remoteUrl: "https://codeberg.org/me/copy.git" },
-      { id: "bad", label: "Bad", provider: "gitlab", success: false, remoteUrl: "https://gitlab.com/me/copy.git", error: "rejected" },
+      {
+        id: "good",
+        label: "Good",
+        provider: "forgejo",
+        success: true,
+        remoteUrl: "https://codeberg.org/me/copy.git",
+      },
+      {
+        id: "bad",
+        label: "Bad",
+        provider: "gitlab",
+        success: false,
+        createdRemote: true,
+        pushedRefs: ["refs/heads/trunk"],
+        failedRefs: [{ ref: "refs/tags/v1", error: "rejected" }],
+        remoteUrl: "https://gitlab.com/me/copy.git",
+        error: "rejected",
+      },
     ]);
-    const result = await hook.createRepository({ mode: "copy", source, forkName: "partial", relays: [relay], targets: [
-      { id: "good", label: "Good", provider: "forgejo", host: "codeberg.org" },
-      { id: "bad", label: "Bad", provider: "gitlab", host: "gitlab.com" },
-    ] });
+    const result = await hook.createRepository({
+      mode: "copy",
+      source,
+      forkName: "partial",
+      relays: [relay],
+      targets: [
+        { id: "good", label: "Good", provider: "forgejo", host: "codeberg.org" },
+        { id: "bad", label: "Bad", provider: "gitlab", host: "gitlab.com" },
+      ],
+    });
     expect(result).not.toBeNull();
     expect(hook.warning).toMatch(/Synced 1\/2/);
-    expect(result!.announcementEvent.tags.filter(tag => tag[0] === "clone")).toEqual([["clone", "https://codeberg.org/me/copy.git"]]);
+    expect(result!.announcementEvent.tags.filter((tag) => tag[0] === "clone")).toEqual([
+      ["clone", "https://codeberg.org/me/copy.git"],
+    ]);
+    const [pending] = getPendingRepoCreationTransactions();
+    expect(pending).toMatchObject({
+      phase: "cleanup-pending",
+      manualAttention: { required: true },
+    });
+    expect(pending.targets.find((target) => target.id === "bad")).toMatchObject({
+      manualAttention: true,
+      createdRemote: true,
+      refs: [
+        { ref: "refs/heads/trunk", stage: "pushed" },
+        { ref: "refs/tags/v1", stage: "failed" },
+      ],
+    });
   });
 
   it("retains an unknown worker outcome without pushing or deleting the clone", async () => {
