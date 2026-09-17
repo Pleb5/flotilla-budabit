@@ -57,6 +57,11 @@ GRASP admission acknowledgements and state visibility precede pushes; destinatio
 verified afterward. Final clone metadata includes only successfully verified destinations.
 Partial target failures are reported explicitly. Incomplete destination receipts remain in
 recovery even after the successful destinations have been announced and local cleanup finishes.
+After repairing an incomplete destination externally, choose **Retry recovery**. It rechecks
+every checkpointed branch/tag commit with a bounded read-only probe and clears the receipt
+when all match. Empty/missing refs or an unavailable server do not establish cleanup. A
+confirmed remote-deletion receipt also resolves the target. Definite creation rejections with
+no remote or attempted ref writes are not treated as unresolved destinations.
 
 Closing cancels pending work where possible, but signed events and remote writes may already
 exist. Unknown worker outcomes and incomplete publication are recorded in repository recovery;
@@ -64,6 +69,9 @@ resume that record rather than starting another creation. Announcement-only reco
 the exact signed announcement without inventing a state event, including after a temporary relay
 outage. Rejecting signing before any delivery releases the identifier for a fresh attempt;
 unknown delivery outcomes retain their recovery record.
+Copy rollback also retains signed provisional announcements when ACKs are lost. Each attempted
+relay remains unresolved until a final replacement is acknowledged there or exact-event deletion
+succeeds there; failed cleanup remains retryable with the saved signed event.
 
 ## Verification scope
 

@@ -164,6 +164,8 @@ export interface RepoCreationRecoveryRecord {
   >;
   publishedEvents: RepoCreationPublishedEvent[];
   eventAcks: RepoCreationEventAckEvidence[];
+  /** Confirmed exact-event deletions, independent of publication ACKs. */
+  eventCleanups?: Array<{ eventId: string; relayUrls: string[] }>;
   workerOperations?: OperationStatus[];
   pendingCompensations: Array<{
     action: "delete" | "republish";
@@ -476,19 +478,33 @@ function cleanupStateFromResult(result: RemoteSyncTargetResult): RepoCreationCle
   };
 }
 
-/** Receipts must outlive partial success, including all metadata/cleanup retry paths. */
-export function hasUnresolvedRepoCreationTargets(record: RepoCreationRecoveryRecord): boolean {
-  return record.targets.some(
-    (target) =>
-      target.cleanup.stage !== "completed" &&
-      (target.manualAttention ||
-        target.cleanup.manualAttention ||
-        !["not-needed", "completed"].includes(target.cleanup.stage) ||
-        (target.stage !== "verified" &&
-          (target.createdRemote ||
-            ["creating", "created", "pushing", "unknown"].includes(target.stage) ||
-            target.refs.some((ref) => ["pushing", "pushed", "unknown"].includes(ref.stage)))))
+/** A definite creation rejection has no remote or attempted ref mutation to reconcile. */
+export function isSideEffectFreeRepoCreationTarget(target: RepoCreationTargetRecord): boolean {
+  return (
+    target.stage === "failed" &&
+    target.createdRemote === false &&
+    target.cleanup.stage === "not-needed" &&
+    !target.cleanup.manualAttention &&
+    target.refs.every((ref) => ref.stage === "planned")
   );
+}
+
+export function repoCreationTargetNeedsRecovery(target: RepoCreationTargetRecord): boolean {
+  if (target.cleanup.stage === "completed" || isSideEffectFreeRepoCreationTarget(target))
+    return false;
+  return Boolean(
+    target.manualAttention ||
+    target.cleanup.manualAttention ||
+    target.cleanup.stage !== "not-needed" ||
+    (target.stage !== "verified" &&
+      (target.createdRemote ||
+        ["creating", "created", "pushing", "unknown"].includes(target.stage) ||
+        target.refs.some((ref) => ["pushing", "pushed", "unknown"].includes(ref.stage))))
+  );
+}
+
+export function hasUnresolvedRepoCreationTargets(record: RepoCreationRecoveryRecord): boolean {
+  return record.targets.some(repoCreationTargetNeedsRecovery);
 }
 
 export function isSideEffectFreeAnnouncement(record: RepoCreationRecoveryRecord): boolean {
@@ -911,6 +927,16 @@ export class RepoCreationTransactionJournal {
   }
 
   complete(): void {
+    if (getRepoCreationProvisionalEvents(this.#record).length) {
+      this.#update({
+        phase: "cleanup-pending",
+        manualAttention: {
+          required: true,
+          reason: "Provisional publication delivery or exact cleanup remains unresolved",
+        },
+      });
+      return;
+    }
     if (hasUnresolvedRepoCreationTargets(this.#record)) {
       this.#update({
         phase: "cleanup-pending",
@@ -949,6 +975,24 @@ export class RepoCreationTransactionJournal {
 
   setPublicationNotStarted(value: boolean): void {
     this.#update({ publicationNotStarted: value });
+  }
+
+  recordEventCleanup(eventId: string, relayUrls: string[]): void {
+    const previous = this.#record.eventCleanups || [];
+    this.#update({
+      eventCleanups: [
+        ...previous.filter((item) => item.eventId !== eventId),
+        {
+          eventId,
+          relayUrls: sanitizeRelays([
+            ...previous
+              .filter((item) => item.eventId === eventId)
+              .flatMap((item) => item.relayUrls),
+            ...relayUrls.map((relay) => persistableRelayUrl(relay, this.#secrets)),
+          ]),
+        },
+      ],
+    });
   }
 
   #update(patch: Partial<RepoCreationRecoveryRecord>): void {
@@ -1021,14 +1065,63 @@ export class RepoCreationTransactionJournal {
       ...(error ? { error } : {}),
       updatedAt: Date.now(),
     };
+    if (isSideEffectFreeRepoCreationTarget(next) || next.cleanup.stage === "completed")
+      next.manualAttention = false;
     return [...targets.filter((target) => target.id !== result.id), next];
   }
 }
 
+/** Unresolved delivery scopes: a missing ACK cannot establish absence. A confirmed
+ * replacement or exact deletion resolves only the relays covered by that receipt. */
 export function getRepoCreationProvisionalEvents(
   record: RepoCreationRecoveryRecord
 ): RepoCreationPublishedEvent[] {
-  return record.publishedEvents.filter((item) => item.stage === "provisional");
+  return record.publishedEvents
+    .filter((item) => item.stage !== "final")
+    .flatMap((item) => {
+      const attempted = sanitizeRelays([
+        ...item.relayUrls,
+        ...record.eventAcks
+          .filter((ack) => ack.eventId === item.event.id)
+          .flatMap((ack) => [...ack.requestedRelayUrls, ...ack.ackedRelays, ...ack.failedRelays]),
+      ]);
+      // Legacy receipts without a destination cannot be silently declared clean.
+      if (!attempted.length) return [{ ...item, relayUrls: [] }];
+      const resolved = new Set(
+        sanitizeRelays([
+          ...(record.eventCleanups || [])
+            .filter((cleanup) => cleanup.eventId === item.event.id)
+            .flatMap((cleanup) => cleanup.relayUrls),
+          ...record.publishedEvents
+            .filter(
+              (replacement) =>
+                replacement.stage === "final" &&
+                replacement.event.kind === item.event.kind &&
+                replacement.event.pubkey === item.event.pubkey &&
+                replacement.event.tags.find((tag) => tag[0] === "d")?.[1] ===
+                  item.event.tags.find((tag) => tag[0] === "d")?.[1] &&
+                (replacement.event.created_at > item.event.created_at ||
+                  (replacement.event.created_at === item.event.created_at &&
+                    replacement.event.id < item.event.id))
+            )
+            .flatMap((replacement) => replacement.relayUrls),
+        ])
+      );
+      const relayUrls = attempted.filter((relay) => !resolved.has(relay));
+      return relayUrls.length ? [{ ...item, relayUrls }] : [];
+    });
+}
+
+export function trackRepoCreationDeletion(
+  journal: RepoCreationTransactionJournal,
+  deleter?: DeleteRepoEvent
+): DeleteRepoEvent | undefined {
+  if (!deleter) return undefined;
+  return async (event, relays) => {
+    assertRepoCreationEvent(journal.record, event, true);
+    await deleter(event, relays);
+    journal.recordEventCleanup(event.id, relays);
+  };
 }
 
 export function getLatestPublishedEvent(
@@ -1339,6 +1432,7 @@ export async function retryPendingRepoCreationMetadata(
       updatedAt: Date.now(),
     });
   } else if (
+    getRepoCreationProvisionalEvents(recoveredRecord).length > 0 ||
     hasUnresolvedRepoCreationTargets(recoveredRecord) ||
     (recoveredRecord.operation !== "new" &&
       recoveredRecord.localResource.ownedByTransaction &&
@@ -1356,9 +1450,30 @@ export async function retryRepoCreationCompensations(
   onDeleteEvent: DeleteRepoEvent,
   publisher?: PublishRepoEvent
 ): Promise<RepoCreationRecoveryRecord> {
-  if (publisher) publisher = scopeRepoCreationPublisher(record, publisher);
+  const journal = RepoCreationTransactionJournal.resume(record);
+  if (publisher) publisher = trackRepoCreationPublisher(journal, publisher);
+  const deleteEvent = trackRepoCreationDeletion(journal, onDeleteEvent)!;
   const remaining: RepoCreationRecoveryRecord["pendingCompensations"] = [];
-  for (const compensation of record.pendingCompensations) {
+  const compensations = new Map<
+    string,
+    RepoCreationRecoveryRecord["pendingCompensations"][number]
+  >();
+  for (const item of [
+    ...record.pendingCompensations,
+    ...getRepoCreationProvisionalEvents(record).map((item) => ({
+      action: "delete" as const,
+      eventId: item.event.id,
+      relayUrls: item.relayUrls,
+      error: "Publication outcome requires exact cleanup",
+    })),
+  ]) {
+    const key = `${item.action}:${item.eventId}`;
+    compensations.set(key, {
+      ...item,
+      relayUrls: sanitizeRelays([...(compensations.get(key)?.relayUrls || []), ...item.relayUrls]),
+    });
+  }
+  for (const compensation of compensations.values()) {
     const event = record.publishedEvents.find(
       (item) => item.event.id === compensation.eventId
     )?.event;
@@ -1368,6 +1483,8 @@ export async function retryRepoCreationCompensations(
     }
 
     try {
+      if (!compensation.relayUrls.length)
+        throw new Error("Publication destinations are unavailable for exact cleanup");
       assertRepoCreationEvent(record, event, true);
       if (compensation.action === "republish") {
         if (!publisher) throw new Error("Repository event publisher is unavailable");
@@ -1383,7 +1500,7 @@ export async function retryRepoCreationCompensations(
           throw new Error("Final de-list replacement was not acknowledged");
         }
       } else {
-        await onDeleteEvent(event, compensation.relayUrls);
+        await deleteEvent(event, compensation.relayUrls);
       }
     } catch (error) {
       remaining.push({
@@ -1394,15 +1511,17 @@ export async function retryRepoCreationCompensations(
   }
 
   const next = {
-    ...record,
+    ...journal.record,
     phase: remaining.length > 0 ? ("cleanup-pending" as const) : record.phase,
     pendingCompensations: remaining,
     updatedAt: Date.now(),
   };
   if (
     remaining.length > 0 ||
+    getRepoCreationProvisionalEvents(next).length > 0 ||
     hasUnresolvedRepoCreationTargets(next) ||
-    (record.operation !== "new" &&
+    ((record.operation !== "new" ||
+      !record.targets.some((target) => target.stage === "verified")) &&
       record.localResource.ownedByTransaction &&
       !["planned", "cleaned"].includes(record.localResource.stage))
   )

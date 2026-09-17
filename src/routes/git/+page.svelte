@@ -4094,9 +4094,7 @@
     assertCurrent?: () => void,
   ) => {
     const repoAddress = getRepoPublicationAddress(event)
-    const targetRelays =
-      event.kind === GIT_REPO_ANNOUNCEMENT ? getDeclaredRepoRelays(event) : relayUrls
-    const relays = Array.from(new Set(targetRelays.map(relay => normalizeRelayUrl(relay))))
+    const relays = Array.from(new Set(relayUrls.map(relay => normalizeRelayUrl(relay))))
     if (relays.length === 0) throw new Error("Exact event deletion requires relay destinations")
     const result = await publishRepoEventWithRelayOutcomes(
       makeExactEventDelete({event: event as any}) as any,

@@ -107,6 +107,17 @@ describe("repository publication source contract", () => {
     expect(deleteRepo).not.toContain("getMetadataDeleteRelays")
     expect(gitPage).not.toContain("repoEvent.kind === 0")
     expect(gitPage).not.toContain("publishThunk({event: repoEvent")
+    for (const source of [layout, gitPage]) {
+      const start = source.indexOf("const deleteExactRepoEvent =")
+      const end = source.indexOf("if (result.successCount !== relays.length)", start)
+      expect(start).toBeGreaterThan(-1)
+      expect(end).toBeGreaterThan(start)
+      const exactCleanup = source.slice(start, end)
+      // Journal cleanup receipts cover attempted destinations, even when they
+      // differ from the announcement's declared final relay list.
+      expect(exactCleanup).toContain("relayUrls.map(")
+      expect(exactCleanup).not.toContain("getDeclaredRepoRelays(event)")
+    }
   })
 
   it("validates repository state relays before transport", () => {

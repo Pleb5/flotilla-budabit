@@ -44,6 +44,7 @@ export interface RepoCreationProvisionalEvent {
   relayUrls: string[];
 }
 
+/** Resolves only after exact-event deletion is acknowledged on every supplied relay. */
 export type DeleteRepoEvent = (event: NostrEvent, relayUrls: string[]) => Promise<void> | void;
 
 export interface ReconcileRepoCreationEventsParams {

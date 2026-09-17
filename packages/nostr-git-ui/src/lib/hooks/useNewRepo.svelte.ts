@@ -23,6 +23,7 @@ import {
 } from "../utils/remote-targets.js";
 import {
   getRepoCreationProvisionalEvents,
+  trackRepoCreationDeletion,
   getPendingRepoCreationTransactions,
   RepoCreationTransactionJournal,
   trackRepoCreationPublisher,
@@ -1169,7 +1170,7 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
           onPublishEvent: transactionPublisher,
           fetchRelayEvents: options.onFetchRelayEvents,
           provisionalEvents: getRepoCreationProvisionalEvents(transactionJournal.record),
-          onDeleteEvent: options.onDeleteEvent,
+          onDeleteEvent: trackRepoCreationDeletion(transactionJournal, options.onDeleteEvent),
           minCreatedAt: latestRepoMetadataCreatedAt,
           ownerPubkey: creationPubkey,
           identifier: config.name,
@@ -1284,7 +1285,12 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
       ) {
         const cleanupResults = await Promise.allSettled(
           compensableEvents.map((item) =>
-            Promise.resolve(options.onDeleteEvent?.(item.event, item.relayUrls))
+            Promise.resolve(
+              trackRepoCreationDeletion(transactionJournal!, options.onDeleteEvent)?.(
+                item.event,
+                item.relayUrls
+              )
+            )
           )
         );
         transactionJournal?.setPendingCompensations(

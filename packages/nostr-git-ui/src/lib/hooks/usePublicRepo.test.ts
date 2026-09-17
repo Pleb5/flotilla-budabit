@@ -6,6 +6,7 @@ import {
 } from "../utils/repo-creation-transaction";
 import { publishRepoSyncAnnouncement, syncLocalRepoToTargets } from "../utils/remote-sync";
 import { tokens } from "$lib/stores/tokens";
+import { recoverRepoCreationRecord } from "../utils/repo-creation-recovery";
 import type { PublicRepoSource } from "@nostr-git/core/git";
 
 vi.mock("$lib/stores/tokens", () => ({
@@ -105,14 +106,15 @@ function setup() {
     hasRelayOutcomes: true,
   }));
   const fetchEvents = vi.fn(async () => []);
+  const deleteEvent = vi.fn();
   const hook = usePublicRepo({
     workerApi: worker,
     userPubkey: owner,
     onPublishEvent: publish,
     onFetchRelayEvents: fetchEvents,
-    onDeleteEvent: vi.fn(),
+    onDeleteEvent: deleteEvent,
   });
-  return { hook, worker, publish, fetchEvents };
+  return { hook, worker, publish, fetchEvents, deleteEvent };
 }
 
 beforeEach(() => {
@@ -139,6 +141,105 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("public repository execution", () => {
+  it("keeps zero-ACK copy announcements until exact cleanup succeeds", async () => {
+    const { hook, worker, publish, fetchEvents, deleteEvent } = setup();
+    const actual =
+      await vi.importActual<typeof import("../utils/remote-sync")>("../utils/remote-sync");
+    vi.mocked(publishRepoSyncAnnouncement).mockImplementationOnce((params) =>
+      actual.publishRepoSyncAnnouncement({ ...params, announcementRetryDelayMs: 0 })
+    );
+    let signed = 0;
+    publish.mockImplementation(async (event, context) => {
+      const exact = event.id
+        ? event
+        : {
+            ...event,
+            pubkey: owner,
+            id: (++signed).toString().padStart(64, "0"),
+            sig: "signature",
+          };
+      context.onBeforePublish(exact);
+      return { event: exact, ackedRelays: [], failedRelays: [relay], hasRelayOutcomes: true };
+    });
+    deleteEvent.mockRejectedValue(new Error("Deletion ACK lost"));
+    expect(
+      await hook.createRepository({
+        mode: "copy",
+        source,
+        forkName: "lost-copy-acks",
+        relays: [relay],
+        targets: [
+          { id: "destination", label: "Codeberg", provider: "forgejo", host: "codeberg.org" },
+        ],
+      })
+    ).toBeNull();
+    expect(signed).toBe(1);
+    expect(publish).toHaveBeenCalledTimes(3);
+    expect(deleteEvent).toHaveBeenCalledTimes(1);
+    const [pending] = getPendingRepoCreationTransactions();
+    expect(pending.publishedEvents).toHaveLength(1);
+    expect(pending.pendingCompensations).toHaveLength(1);
+    expect(pending.eventAcks).toHaveLength(6);
+    expect(pending.eventAcks.every((ack) => ack.ackedRelays.length === 0)).toBe(true);
+    expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+    expect(syncLocalRepoToTargets).not.toHaveBeenCalled();
+    deleteEvent.mockResolvedValue(undefined);
+    expect(
+      (
+        await recoverRepoCreationRecord(pending, {
+          workerApi: worker,
+          publisher: publish,
+          fetchRelayEvents: fetchEvents,
+          onDeleteEvent: deleteEvent,
+        })
+      ).status
+    ).toBe("recovered");
+    expect(getPendingRepoCreationTransactions()).toEqual([]);
+    expect(deleteEvent.mock.calls.slice(1).map(([event, relays]) => [event.id, relays])).toEqual(
+      pending.publishedEvents.map((item) => [item.event.id, [relay]])
+    );
+    expect(publish).toHaveBeenCalledTimes(3);
+  });
+  it("retains copy publication evidence when delivery throws after checkpointing", async () => {
+    const { hook, worker, publish, fetchEvents, deleteEvent } = setup();
+    deleteEvent.mockRejectedValueOnce(new Error("Deletion disconnected"));
+    const actual =
+      await vi.importActual<typeof import("../utils/remote-sync")>("../utils/remote-sync");
+    vi.mocked(publishRepoSyncAnnouncement).mockImplementationOnce((params) =>
+      actual.publishRepoSyncAnnouncement({ ...params, announcementRetryDelayMs: 0 })
+    );
+    publish.mockImplementationOnce(async (event, context) => {
+      context.onBeforePublish({ ...event, pubkey: owner, id: "e".repeat(64), sig: "signature" });
+      throw new Error("Transport disconnected after delivery started");
+    });
+    expect(
+      await hook.createRepository({
+        mode: "copy",
+        source,
+        forkName: "copy-disconnected",
+        relays: [relay],
+        targets: [
+          { id: "destination", label: "Codeberg", provider: "forgejo", host: "codeberg.org" },
+        ],
+      })
+    ).toBeNull();
+    const [pending] = getPendingRepoCreationTransactions();
+    expect(pending.publishedEvents[0].event.id).toBe("e".repeat(64));
+    expect(pending.eventAcks).toHaveLength(1);
+    expect(
+      (
+        await recoverRepoCreationRecord(pending, {
+          workerApi: worker,
+          publisher: publish,
+          fetchRelayEvents: fetchEvents,
+          onDeleteEvent: deleteEvent,
+        })
+      ).status
+    ).toBe("recovered");
+    expect(deleteEvent).toHaveBeenCalledWith(pending.publishedEvents[0].event, [relay]);
+    expect(publish).toHaveBeenCalledTimes(1);
+    expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+  });
   it("releases a rejected signing attempt and permits retrying the same identifier", async () => {
     const { hook, publish } = setup();
     const config = {

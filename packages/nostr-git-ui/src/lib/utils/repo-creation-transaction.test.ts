@@ -3,11 +3,13 @@ import { nip19 } from "nostr-tools";
 
 import {
   getPendingRepoCreationTransactions,
+  getRepoCreationProvisionalEvents,
   removeRepoCreationRecoveryRecord,
   RepoCreationTransactionJournal,
   retryPendingRepoCreationMetadata,
   retryRepoCreationCompensations,
   trackRepoCreationPublisher,
+  trackRepoCreationDeletion,
 } from "./repo-creation-transaction";
 
 class MemoryStorage implements Storage {
@@ -519,7 +521,7 @@ describe("RepoCreationTransactionJournal", () => {
     expect(journal.record.publishedEvents[0].relayUrls).toEqual(["wss://accepted.example/"]);
   });
 
-  it("records no rollback scope when publication has no relay outcomes", async () => {
+  it("retains attempted rollback scopes without mistaking missing outcomes for ACKs", async () => {
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
       value: new MemoryStorage(),
@@ -552,7 +554,141 @@ describe("RepoCreationTransactionJournal", () => {
       ackedRelays: [],
       hasRelayOutcomes: false,
     });
+    journal.complete();
+    expect(getPendingRepoCreationTransactions()[0].phase).toBe("cleanup-pending");
+    expect(getRepoCreationProvisionalEvents(journal.record)).toEqual([
+      { event, relayUrls: ["wss://requested.example/"], stage: "provisional" },
+    ]);
   });
+
+  it("resolves only relay scopes covered by acknowledged replacement or exact cleanup", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: new MemoryStorage(),
+    });
+    const journal = new RepoCreationTransactionJournal({
+      id: "import:relay-scopes",
+      operation: "import",
+      ownerPubkey: "f".repeat(64),
+      repoName: "repo",
+    });
+    const event = {
+      id: "provisional",
+      sig: "signature",
+      pubkey: "f".repeat(64),
+      kind: 30617,
+      created_at: 1,
+      tags: [["d", "repo"]],
+      content: "",
+    };
+    const relays = [
+      "wss://replaced.example/",
+      "wss://deleted.example/",
+      "wss://unresolved.example/",
+    ];
+    journal.recordPublishedEvent(
+      { event, ackedRelays: [], failedRelays: relays },
+      relays,
+      "provisional"
+    );
+    journal.recordPublishedEvent(
+      {
+        event: { ...event, id: "final", created_at: 2 },
+        ackedRelays: [relays[0]],
+        failedRelays: [relays[1], relays[2]],
+      },
+      relays,
+      "final"
+    );
+    const deleter = vi.fn().mockResolvedValue(undefined);
+    await trackRepoCreationDeletion(journal, deleter)!(event, [relays[1]]);
+    journal.complete();
+    const [reloaded] = getPendingRepoCreationTransactions();
+    expect(reloaded.eventCleanups).toEqual([{ eventId: event.id, relayUrls: [relays[1]] }]);
+    expect(getRepoCreationProvisionalEvents(reloaded).map((item) => item.relayUrls)).toEqual([
+      [relays[2]],
+    ]);
+    deleter.mockRejectedValueOnce(new Error("Deletion timed out"));
+    await retryRepoCreationCompensations(reloaded, deleter);
+    expect(getPendingRepoCreationTransactions()).toHaveLength(1);
+    await retryRepoCreationCompensations(getPendingRepoCreationTransactions()[0], deleter);
+    expect(deleter.mock.calls.slice(1)).toEqual([
+      [event, [relays[2]]],
+      [event, [relays[2]]],
+    ]);
+    expect(getPendingRepoCreationTransactions()).toEqual([]);
+  });
+
+  it("retains legacy signed receipts without known delivery destinations", async () => {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: new MemoryStorage(),
+    });
+    const journal = new RepoCreationTransactionJournal({
+      id: "import:unknown-relays",
+      operation: "import",
+      ownerPubkey: "f".repeat(64),
+      repoName: "repo",
+    });
+    journal.recordPublishedEvent({
+      event: {
+        id: "legacy",
+        sig: "signature",
+        pubkey: "f".repeat(64),
+        kind: 30617,
+        created_at: 1,
+        tags: [["d", "repo"]],
+        content: "",
+      },
+    });
+    journal.complete();
+    const deleter = vi.fn();
+    await retryRepoCreationCompensations(getPendingRepoCreationTransactions()[0], deleter);
+    expect(getPendingRepoCreationTransactions()[0].pendingCompensations[0].error).toContain(
+      "destinations are unavailable"
+    );
+    expect(deleter).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { outcome: "failed" as const, refStage: "planned" as const, retained: false },
+    { outcome: "unknown" as const, refStage: "planned" as const, retained: true },
+    { outcome: "failed" as const, refStage: "pushing" as const, retained: true },
+  ])(
+    "classifies creation results using side-effect evidence: $outcome / $refStage",
+    ({ outcome, refStage, retained }) => {
+      Object.defineProperty(globalThis, "localStorage", {
+        configurable: true,
+        value: new MemoryStorage(),
+      });
+      const journal = new RepoCreationTransactionJournal({
+        id: "import:creation-failure",
+        operation: "import",
+        ownerPubkey: "f".repeat(64),
+        repoName: "repo",
+      });
+      const target = { id: "forge", label: "Forge", provider: "forgejo" as const };
+      journal.setTargets([target]);
+      journal.recordRemoteSyncCheckpoint({
+        action: "target",
+        position: "before",
+        target,
+        stage: "planned",
+        createdRemote: false,
+        refs: [{ ref: "refs/heads/main", commit: "b".repeat(40), stage: refStage }],
+      });
+      journal.recordTargetResult({
+        ...target,
+        success: false,
+        outcome,
+        createdRemote: false,
+        error: "Creation rejected",
+      });
+      expect(journal.record.targets[0].manualAttention).toBe(retained);
+      journal.complete();
+      expect(getPendingRepoCreationTransactions()).toHaveLength(retained ? 1 : 0);
+    }
+  );
 
   it("persists sanitized worker terminal receipts", () => {
     Object.defineProperty(globalThis, "localStorage", {

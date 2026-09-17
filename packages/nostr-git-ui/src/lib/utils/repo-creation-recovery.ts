@@ -16,9 +16,12 @@ import {
   RepoCreationMetadataDeliveryError,
   scopeRepoCreationPublisher,
   trackRepoCreationPublisher,
+  trackRepoCreationDeletion,
   getRepoCreationProvisionalEvents,
   getPendingRepoCreationTransactions,
   hasUnresolvedRepoCreationTargets,
+  repoCreationTargetNeedsRecovery,
+  isSideEffectFreeRepoCreationTarget,
   isSideEffectFreeAnnouncement,
   persistRepoCreationRecoveryRecord,
   removeRepoCreationRecoveryRecord,
@@ -80,6 +83,7 @@ function refsMatch(
   const expected = target.refs.filter((ref) => ref.commit);
   return (
     expected.length > 0 &&
+    expected.length === target.refs.length &&
     expected.every(
       (ref) =>
         advertisedByRef.get(ref.ref) === ref.commit ||
@@ -93,9 +97,17 @@ async function probeTarget(
   target: RepoCreationTargetRecord,
   deps: RepoCreationRecoveryDependencies
 ): Promise<RepoCreationTargetRecord> {
+  if (target.cleanup.stage === "completed" || isSideEffectFreeRepoCreationTarget(target))
+    return { ...target, manualAttention: false };
   if (!target.remoteUrl) {
     if (target.stage === "planned") {
-      return { ...target, stage: "failed", manualAttention: false, updatedAt: Date.now() };
+      return {
+        ...target,
+        stage: "failed",
+        createdRemote: false,
+        manualAttention: false,
+        updatedAt: Date.now(),
+      };
     }
     return {
       ...target,
@@ -106,16 +118,21 @@ async function probeTarget(
     };
   }
 
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const advertised = (await deps.workerApi.listServerRefs({
-      url: target.remoteUrl,
-      symrefs: true,
-    })) as Array<{ ref?: string; oid?: string }>;
+    const advertised = (await Promise.race([
+      deps.workerApi.listServerRefs({ url: target.remoteUrl, symrefs: true }),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Git-ref recovery read timed out")), 10000);
+      }),
+    ])) as Array<{ ref?: string; oid?: string }>;
     if (!refsMatch(target, advertised || [])) {
       return {
         ...target,
-        stage: "failed",
-        manualAttention: Boolean(target.createdRemote),
+        // A failed read-back is not proof that an earlier ambiguous creation or
+        // push was rejected without effects (an empty remote can still exist).
+        stage: target.stage === "failed" ? "failed" : "unknown",
+        manualAttention: true,
         error: "Advertised refs do not match the checkpointed commits",
         updatedAt: Date.now(),
       };
@@ -165,6 +182,8 @@ async function probeTarget(
       error: error instanceof Error ? error.message : String(error),
       updatedAt: Date.now(),
     };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -209,6 +228,14 @@ async function cleanupLocalResource(
       manualAttention: { required: true, reason: "Local repository cleanup is pending" },
     };
   }
+}
+
+function localCleanupSettled(record: RepoCreationRecoveryRecord): boolean {
+  return (
+    !record.localResource.ownedByTransaction ||
+    (record.operation === "new" && record.targets.some((target) => target.stage === "verified")) ||
+    ["cleaned", "planned"].includes(record.localResource.stage)
+  );
 }
 
 function buildRecoveredState(
@@ -418,7 +445,7 @@ async function finalizeVerifiedTargets(
     onPublishEvent: publisher,
     fetchRelayEvents: deps.fetchRelayEvents,
     provisionalEvents: getRepoCreationProvisionalEvents(record),
-    onDeleteEvent: deps.onDeleteEvent,
+    onDeleteEvent: trackRepoCreationDeletion(journal, deps.onDeleteEvent),
     minCreatedAt: Math.max(
       sourceAnnouncement?.created_at || 0,
       provisionalAnnouncement?.created_at || 0,
@@ -507,10 +534,9 @@ async function finalizeVerifiedTargets(
   next = await cleanupLocalResource(next, deps.workerApi, deps.assertCurrent);
   if (
     !hasUnresolvedRepoCreationTargets(next) &&
+    getRepoCreationProvisionalEvents(next).length === 0 &&
     next.pendingCompensations.length === 0 &&
-    (!next.localResource.ownedByTransaction ||
-      next.operation === "new" ||
-      next.localResource.stage === "cleaned")
+    localCleanupSettled(next)
   ) {
     removeRepoCreationRecoveryRecord(record.id);
     return { status: "recovered" };
@@ -647,10 +673,9 @@ async function recoverRecord(
     const next = await cleanupLocalResource(persisted, deps.workerApi, deps.assertCurrent);
     if (
       !hasUnresolvedRepoCreationTargets(next) &&
+      getRepoCreationProvisionalEvents(next).length === 0 &&
       next.pendingCompensations.length === 0 &&
-      (next.operation === "new" ||
-        !next.localResource.ownedByTransaction ||
-        ["cleaned", "planned"].includes(next.localResource.stage))
+      localCleanupSettled(next)
     ) {
       removeRepoCreationRecoveryRecord(record.id);
       return { status: "recovered" };
@@ -660,14 +685,24 @@ async function recoverRecord(
   }
 
   if (record.phase === "cleanup-pending") {
+    const targets = await Promise.all(
+      record.targets.map((target) =>
+        repoCreationTargetNeedsRecovery(target)
+          ? probeTarget(record, target, deps)
+          : isSideEffectFreeRepoCreationTarget(target)
+            ? { ...target, manualAttention: false }
+            : target
+      )
+    );
+    deps.assertCurrent?.();
+    record = persistRepoCreationRecoveryRecord({ ...record, targets });
     let next = await retryRepoCreationCompensations(record, deps.onDeleteEvent, deps.publisher);
     next = await cleanupLocalResource(next, deps.workerApi, deps.assertCurrent);
     if (
       !hasUnresolvedRepoCreationTargets(next) &&
+      getRepoCreationProvisionalEvents(next).length === 0 &&
       next.pendingCompensations.length === 0 &&
-      (next.operation === "new" ||
-        !next.localResource.ownedByTransaction ||
-        ["cleaned", "planned"].includes(next.localResource.stage))
+      localCleanupSettled(next)
     ) {
       removeRepoCreationRecoveryRecord(record.id);
       return { status: "recovered" };
@@ -704,30 +739,17 @@ async function recoverRecord(
   }
 
   if (unknown.length === 0 && !targets.some((target) => target.createdRemote)) {
-    const failures: RepoCreationRecoveryRecord["pendingCompensations"] = [];
-    for (const item of getRepoCreationProvisionalEvents(record).filter(
-      (event) => event.relayUrls.length > 0
-    )) {
-      try {
-        await deps.onDeleteEvent(item.event, item.relayUrls);
-      } catch (error) {
-        failures.push({
-          action: "delete",
-          eventId: item.event.id,
-          relayUrls: item.relayUrls,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    let next = await cleanupLocalResource(
-      { ...record, targets, pendingCompensations: failures },
-      deps.workerApi,
-      deps.assertCurrent
+    const compensated = await retryRepoCreationCompensations(
+      record,
+      deps.onDeleteEvent,
+      deps.publisher
     );
+    let next = await cleanupLocalResource(compensated, deps.workerApi, deps.assertCurrent);
     if (
       !hasUnresolvedRepoCreationTargets(next) &&
-      failures.length === 0 &&
-      ["cleaned", "planned"].includes(next.localResource.stage)
+      getRepoCreationProvisionalEvents(next).length === 0 &&
+      next.pendingCompensations.length === 0 &&
+      localCleanupSettled(next)
     ) {
       removeRepoCreationRecoveryRecord(record.id);
       return { status: "recovered" };

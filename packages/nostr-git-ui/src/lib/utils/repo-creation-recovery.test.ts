@@ -202,17 +202,226 @@ describe("repository creation recovery", () => {
     const deps = {
       publisher: vi.fn(),
       fetchRelayEvents: vi.fn(),
-      workerApi: { deleteRepo: vi.fn() },
+      workerApi: {
+        deleteRepo: vi.fn(),
+        listServerRefs: vi
+          .fn()
+          .mockResolvedValue([{ ref: "refs/heads/main", oid: "b".repeat(40) }]),
+      },
       onDeleteEvent: vi.fn(),
     };
     expect((await recoverRepoCreationRecord(pending, deps)).status).toBe("pending");
     const [reloaded] = getPendingRepoCreationTransactions();
-    expect(reloaded.targets).toEqual(pending.targets);
-    expect((await recoverRepoCreationRecord(reloaded, deps)).status).toBe("pending");
-    expect(getPendingRepoCreationTransactions()[0].targets).toEqual(pending.targets);
+    expect(reloaded.targets[1]).toMatchObject({
+      stage: "failed",
+      manualAttention: true,
+      refs: pending.targets[1].refs,
+    });
+    // The user repairs the missing tag outside Budabit; retry is read-only.
+    deps.workerApi.listServerRefs.mockResolvedValue([
+      { ref: "refs/heads/main", oid: "b".repeat(40) },
+      { ref: "refs/tags/v1", oid: "c".repeat(40) },
+    ]);
+    expect((await recoverRepoCreationRecord(reloaded, deps)).status).toBe("recovered");
+    expect(deps.workerApi.listServerRefs).toHaveBeenCalledTimes(2);
+    expect(deps.workerApi.listServerRefs).toHaveBeenCalledWith({
+      url: "https://gitlab.com/o/r.git",
+      symrefs: true,
+    });
+    expect(getPendingRepoCreationTransactions()).toEqual([]);
     expect(deps.publisher).not.toHaveBeenCalled();
     expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
   });
+
+  it.each(["failed", "unknown"] as const)(
+    "distinguishes creation rejection from unknown outcome: %s",
+    async (stage) => {
+      const pending = persistRepoCreationRecoveryRecord(
+        record({
+          operation: "import",
+          phase: "cleanup-pending",
+          localRepoId: undefined,
+          localResource: { ownedByTransaction: true, stage: "planned" },
+          targets: [
+            {
+              id: "rejected",
+              label: "Rejected",
+              provider: "forgejo",
+              stage,
+              createdRemote: false,
+              refs: [],
+              cleanup: { stage: "not-needed", manualAttention: false },
+              manualAttention: true,
+              updatedAt: 1,
+            },
+          ],
+        })
+      );
+      const deps = {
+        workerApi: { listServerRefs: vi.fn(), deleteRepo: vi.fn() },
+        publisher: vi.fn(),
+        fetchRelayEvents: vi.fn(),
+        onDeleteEvent: vi.fn(),
+      };
+      expect((await recoverRepoCreationRecord(pending, deps)).status).toBe(
+        stage === "failed" ? "recovered" : "pending"
+      );
+      expect(getPendingRepoCreationTransactions()).toHaveLength(stage === "failed" ? 0 : 1);
+      expect(deps.workerApi.listServerRefs).not.toHaveBeenCalled();
+      expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
+    }
+  );
+
+  it("keeps an ambiguous creation receipt when the remote advertises no refs", async () => {
+    const pending = record({
+      operation: "import",
+      phase: "cleanup-pending",
+      localRepoId: undefined,
+      localResource: { ownedByTransaction: true, stage: "planned" },
+      targets: [
+        {
+          id: "ambiguous",
+          label: "Ambiguous",
+          provider: "forgejo",
+          stage: "unknown",
+          createdRemote: false,
+          remoteUrl: "https://codeberg.org/o/r.git",
+          refs: [{ ref: "refs/heads/main", commit: "b".repeat(40), stage: "planned" }],
+          cleanup: { stage: "not-needed", manualAttention: false },
+          manualAttention: true,
+          updatedAt: 1,
+        },
+      ],
+    });
+    const deps = {
+      workerApi: { listServerRefs: vi.fn().mockResolvedValue([]) },
+      publisher: vi.fn(),
+      fetchRelayEvents: vi.fn(),
+      onDeleteEvent: vi.fn(),
+    };
+    expect((await recoverRepoCreationRecord(pending, deps)).status).toBe("pending");
+    expect(getPendingRepoCreationTransactions()[0].targets[0]).toMatchObject({
+      stage: "unknown",
+      manualAttention: true,
+    });
+  });
+
+  it("bounds unavailable remote probes and retains the exact target receipt for retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const target = {
+        id: "partial",
+        label: "Partial",
+        provider: "forgejo" as const,
+        stage: "failed" as const,
+        createdRemote: true,
+        remoteUrl: "https://codeberg.org/o/r.git",
+        refs: [{ ref: "refs/heads/main", commit: "b".repeat(40), stage: "pushed" as const }],
+        cleanup: { stage: "pending" as const, manualAttention: true },
+        manualAttention: true,
+        updatedAt: 1,
+      };
+      const pending = record({
+        operation: "import",
+        phase: "cleanup-pending",
+        localRepoId: undefined,
+        localResource: { ownedByTransaction: true, stage: "planned" },
+        targets: [target],
+      });
+      const deps = {
+        workerApi: {
+          listServerRefs: vi
+            .fn()
+            .mockImplementationOnce(() => new Promise(() => {}))
+            .mockResolvedValue([{ ref: "refs/heads/main", oid: "b".repeat(40) }]),
+        },
+        publisher: vi.fn(),
+        fetchRelayEvents: vi.fn(),
+        onDeleteEvent: vi.fn(),
+      };
+      const attempt = recoverRepoCreationRecord(pending, deps);
+      await vi.advanceTimersByTimeAsync(10000);
+      expect((await attempt).status).toBe("pending");
+      const [reloaded] = getPendingRepoCreationTransactions();
+      expect(reloaded.targets[0]).toMatchObject({
+        stage: "unknown",
+        refs: target.refs,
+        error: "Git-ref recovery read timed out",
+      });
+      expect((await recoverRepoCreationRecord(reloaded, deps)).status).toBe("recovered");
+      expect(deps.publisher).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("accepts a confirmed remote cleanup receipt without probing the removed destination", async () => {
+    const pending = record({
+      operation: "import",
+      phase: "cleanup-pending",
+      localRepoId: undefined,
+      localResource: { ownedByTransaction: true, stage: "planned" },
+      targets: [
+        {
+          id: "removed",
+          label: "Removed",
+          provider: "gitlab",
+          stage: "failed",
+          createdRemote: true,
+          remoteUrl: "https://gitlab.com/o/r.git",
+          refs: [{ ref: "refs/heads/main", stage: "failed" }],
+          cleanup: { stage: "completed", manualAttention: false },
+          manualAttention: true,
+          updatedAt: 1,
+        },
+      ],
+    });
+    const deps = {
+      workerApi: { listServerRefs: vi.fn() },
+      publisher: vi.fn(),
+      fetchRelayEvents: vi.fn(),
+      onDeleteEvent: vi.fn(),
+    };
+    expect((await recoverRepoCreationRecord(pending, deps)).status).toBe("recovered");
+    expect(deps.workerApi.listServerRefs).not.toHaveBeenCalled();
+  });
+
+  it.each([{ refs: [] }, { refs: [{ ref: "refs/heads/main", oid: "b".repeat(40) }] }])(
+    "does not infer cleanup or repair from empty/incomplete remote refs %j",
+    async ({ refs }) => {
+      const pending = record({
+        operation: "import",
+        phase: "cleanup-pending",
+        localRepoId: undefined,
+        localResource: { ownedByTransaction: true, stage: "planned" },
+        targets: [
+          {
+            id: "partial",
+            label: "Partial",
+            provider: "gitlab",
+            stage: "failed",
+            createdRemote: true,
+            remoteUrl: "https://gitlab.com/o/r.git",
+            refs: [
+              { ref: "refs/heads/main", commit: "b".repeat(40), stage: "pushed" },
+              { ref: "refs/tags/v1", commit: "c".repeat(40), stage: "failed" },
+            ],
+            cleanup: { stage: "pending", manualAttention: true },
+            manualAttention: true,
+            updatedAt: 1,
+          },
+        ],
+      });
+      const deps = {
+        workerApi: { listServerRefs: vi.fn().mockResolvedValue(refs) },
+        publisher: vi.fn(),
+        fetchRelayEvents: vi.fn(),
+        onDeleteEvent: vi.fn(),
+      };
+      expect((await recoverRepoCreationRecord(pending, deps)).status).toBe("pending");
+      expect(getPendingRepoCreationTransactions()[0].targets[0].cleanup.stage).toBe("pending");
+    }
+  );
 
   it("keeps an ambiguous remote without replaying mutations", async () => {
     const createRemoteRepo = vi.fn();
@@ -392,7 +601,7 @@ describe("repository creation recovery", () => {
           },
         ],
         publishedEvents: [
-          { event: provisional, relayUrls: ["wss://relay/"], stage: "provisional" },
+          { event: provisional, relayUrls: ["wss://relay.example/"], stage: "provisional" },
         ],
       }),
       {
@@ -404,24 +613,30 @@ describe("repository creation recovery", () => {
     );
 
     expect(result.status).toBe("recovered");
-    expect(onDeleteEvent).toHaveBeenCalledWith(provisional, ["wss://relay/"]);
+    expect(onDeleteEvent).toHaveBeenCalledWith(provisional, ["wss://relay.example/"]);
     expect(deleteRepo).toHaveBeenCalledWith({ repoId: "owner/repo" });
   });
 
-  it("retains failed local cleanup for retry", async () => {
-    const result = await recoverRepoCreationRecord(
-      record({ phase: "cleanup-pending", operation: "import" }),
-      {
-        workerApi: { deleteRepo: vi.fn().mockResolvedValue({ success: false, error: "busy" }) },
-        publisher: vi.fn(),
-        fetchRelayEvents: vi.fn(),
-        onDeleteEvent: vi.fn(),
-      }
-    );
+  it.each(["import", "new"] as const)(
+    "retains failed local cleanup for retry (%s)",
+    async (operation) => {
+      const result = await recoverRepoCreationRecord(
+        record({ phase: "cleanup-pending", operation }),
+        {
+          workerApi: { deleteRepo: vi.fn().mockResolvedValue({ success: false, error: "busy" }) },
+          publisher: vi.fn(),
+          fetchRelayEvents: vi.fn(),
+          onDeleteEvent: vi.fn(),
+        }
+      );
 
-    expect(result.status).toBe("pending");
-    expect(result.record?.localResource).toMatchObject({ stage: "cleanup-pending", error: "busy" });
-  });
+      expect(result.status).toBe("pending");
+      expect(result.record?.localResource).toMatchObject({
+        stage: "cleanup-pending",
+        error: "busy",
+      });
+    }
+  );
 
   it("does not clean up a persisted unknown worker outcome after reload", async () => {
     const deleteRepo = vi.fn();

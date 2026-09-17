@@ -45,6 +45,7 @@ import {
 import { matchesHost } from "../utils/tokenMatcher.js";
 import {
   getRepoCreationProvisionalEvents,
+  trackRepoCreationDeletion,
   getPendingRepoCreationTransactions,
   RepoCreationTransactionJournal,
   trackRepoCreationPublisher,
@@ -1249,7 +1250,7 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
         onPublishEvent: transactionPublisher!,
         fetchRelayEvents: options.onFetchRelayEvents,
         provisionalEvents: getRepoCreationProvisionalEvents(transactionJournal.record),
-        onDeleteEvent: options.onDeleteEvent,
+        onDeleteEvent: trackRepoCreationDeletion(transactionJournal, options.onDeleteEvent),
         minCreatedAt: latestRepoMetadataCreatedAt,
         ownerPubkey: userPubkey,
         identifier: forkName,
@@ -1415,13 +1416,17 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
         for (const item of provisionalEvents.filter((event) => event.relayUrls.length > 0)) {
           try {
             if (options.onDeleteEvent) {
-              await options.onDeleteEvent(item.event, item.relayUrls);
+              await trackRepoCreationDeletion(transactionJournal!, options.onDeleteEvent)!(
+                item.event,
+                item.relayUrls
+              );
             } else {
               await onRollbackPublishedRepoEvents?.({
                 repoName: publishedRepoRollbackContext.repoName,
                 relays: item.relayUrls,
                 events: [item.event],
               });
+              transactionJournal?.recordEventCleanup(item.event.id, item.relayUrls);
             }
           } catch (rollbackError) {
             const message =
@@ -1474,6 +1479,8 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
                 throw new Error(rollbackResult?.error || `Failed to delete ${result.label}`);
               }
               deleted = true;
+              result.cleanup = { attempted: true, success: true };
+              transactionJournal?.recordTargetResult(result);
               break;
             } catch (rollbackError) {
               lastRollbackError =
