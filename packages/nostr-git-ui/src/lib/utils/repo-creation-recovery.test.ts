@@ -5,11 +5,14 @@ import { recoverRepoCreationRecord } from "./repo-creation-recovery.js";
 import {
   getPendingRepoCreationTransactions,
   persistRepoCreationRecoveryRecord,
+  RepoCreationTransactionJournal,
+  trackRepoCreationPublisher,
+  trackRepoCreationDeletion,
   type RepoCreationRecoveryRecord,
 } from "./repo-creation-transaction.js";
-import { createRepoStateEvent } from "@nostr-git/core/events";
+import { createRepoAnnouncementEvent, createRepoStateEvent } from "@nostr-git/core/events";
 import { reserveRepoCreation } from "./repo-creation-preflight.js";
-import type { PublishRepoEvent } from "./grasp-pipeline.js";
+import { reconcileRepoCreationEvents, type PublishRepoEvent } from "./grasp-pipeline.js";
 
 function record(overrides: Partial<RepoCreationRecoveryRecord> = {}): RepoCreationRecoveryRecord {
   return {
@@ -50,6 +53,133 @@ function storage() {
 
 describe("repository creation recovery", () => {
   beforeEach(() => vi.stubGlobal("localStorage", storage()));
+
+  it.each(["ack", "de-list", "unrelated"] as const)(
+    "retains each unresolved relay after reconciliation cleanup retry (%s)",
+    async (outcome) => {
+      const owner = "a".repeat(64);
+      const [a, b, c] = ["wss://a.example/", "wss://b.example/", "wss://c.example/"];
+      const journal = new RepoCreationTransactionJournal({
+        id: "import:multi-relay-cleanup",
+        operation: "import",
+        ownerPubkey: owner,
+        repoName: "repo",
+        localResource: { ownedByTransaction: true, stage: "cleaned" },
+      });
+      journal.recordTargetResult({
+        id: "copied",
+        label: "Copied",
+        provider: "forgejo",
+        success: true,
+        createdRemote: true,
+        remoteUrl: "https://codeberg.org/o/repo.git",
+        pushedRefs: ["refs/heads/main"],
+        outcome: "ok",
+      });
+      let signedCount = 0;
+      const publish: PublishRepoEvent = async (event, context) => ({
+        event: event.id
+          ? event
+          : { ...event, pubkey: owner, id: `signed-${++signedCount}`, sig: "fixture-signature" },
+        relayOutcomes: (context?.relays || []).map((relay) => {
+          const accepted = relay === a || (event.kind === 30617 && context!.relays.includes(a));
+          return {
+            relay,
+            status: accepted ? "success" : "timeout",
+            detail: accepted ? "stored" : "timed out",
+          };
+        }),
+      });
+      const reconciled = await reconcileRepoCreationEvents({
+        relayUrls: [a, b, c],
+        ownerPubkey: owner,
+        identifier: "repo",
+        stateEvent: createRepoStateEvent({
+          repoId: "repo",
+          refs: [{ type: "heads", name: "main", commit: "b".repeat(40) }],
+          head: "main",
+        }),
+        onPublishEvent: trackRepoCreationPublisher(journal, publish)!,
+        onDeleteEvent: trackRepoCreationDeletion(journal, vi.fn()),
+        buildAnnouncement: ({ relays, createdAt }) =>
+          createRepoAnnouncementEvent({
+            repoId: "repo",
+            clone: ["https://codeberg.org/o/repo.git"],
+            relays,
+            created_at: createdAt,
+          }),
+      });
+      expect(reconciled.relays).toEqual([a]);
+      expect(reconciled.cleanupFailures).toEqual(
+        [b, c].map((relay) => ({
+          action: "republish",
+          eventId: reconciled.announcementEvent.id,
+          relayUrls: [relay],
+          error: "timed out",
+        }))
+      );
+      journal.setPendingCompensations(reconciled.cleanupFailures);
+      journal.complete();
+      const [pending] = getPendingRepoCreationTransactions();
+      const retryPublish = vi.fn<PublishRepoEvent>(async (event) => ({
+        event,
+        relayOutcomes:
+          outcome === "unrelated"
+            ? [
+                { relay: a, status: "success", detail: "stored" },
+                {
+                  relay: "wss://unrelated.example/",
+                  status: "failure",
+                  detail: "service not listed",
+                },
+              ]
+            : [
+                {
+                  relay: b.slice(0, -1),
+                  status: outcome === "ack" ? "success" : "failure",
+                  detail: outcome === "ack" ? "stored" : "service not listed",
+                },
+                { relay: c, status: "timeout", detail: "timed out" },
+              ],
+      }));
+      const deps = {
+        publisher: retryPublish,
+        onDeleteEvent: vi.fn(),
+        fetchRelayEvents: vi.fn(),
+        workerApi: { listServerRefs: vi.fn(), deleteRepo: vi.fn() },
+      };
+      expect((await recoverRepoCreationRecord(pending, deps)).status).toBe("pending");
+      expect(retryPublish).toHaveBeenCalledTimes(1);
+      expect(retryPublish).toHaveBeenCalledWith(
+        reconciled.announcementEvent,
+        expect.objectContaining({ relays: [b, c] })
+      );
+      const [reloaded] = getPendingRepoCreationTransactions();
+      const unresolved = outcome === "unrelated" ? [b, c] : [c];
+      expect(reloaded.phase).toBe("cleanup-pending");
+      expect(reloaded.pendingCompensations).toEqual([
+        expect.objectContaining({
+          action: "republish",
+          eventId: reconciled.announcementEvent.id,
+          relayUrls: unresolved,
+        }),
+      ]);
+      retryPublish.mockImplementation(async (event, context) => ({
+        event,
+        ackedRelays: context!.relays,
+        failedRelays: [],
+      }));
+      expect(await recoverRepoCreationRecord(reloaded, deps)).toEqual({ status: "recovered" });
+      expect(retryPublish).toHaveBeenLastCalledWith(
+        reconciled.announcementEvent,
+        expect.objectContaining({ relays: unresolved })
+      );
+      expect(getPendingRepoCreationTransactions()).toEqual([]);
+      expect(deps.onDeleteEvent).not.toHaveBeenCalled();
+      expect(deps.workerApi.listServerRefs).not.toHaveBeenCalled();
+      expect(deps.workerApi.deleteRepo).not.toHaveBeenCalled();
+    }
+  );
 
   it.each(["metadata-pending", "metadata-review"] as const)(
     "replays an announcement after a relay outage from %s without Git receipts",

@@ -1493,11 +1493,26 @@ export async function retryRepoCreationCompensations(
           stage: "final",
         });
         const ack = extractPublishRelayAck(result);
-        const expectedDelistRejection = ack.relayOutcomes?.some((outcome) =>
-          /service.*not listed|not listed|service.*omitted/i.test(outcome.detail || "")
+        const ackedRelays = new Set(ack.ackedRelays.map(relayUrlKey));
+        const delistedRelays = new Set(
+          (ack.relayOutcomes || [])
+            .filter((outcome) =>
+              /service.*not listed|not listed|service.*omitted/i.test(outcome.detail || "")
+            )
+            .map((outcome) => relayUrlKey(outcome.relay))
         );
-        if (ack.ackedRelays.length === 0 && !expectedDelistRejection) {
-          throw new Error("Final de-list replacement was not acknowledged");
+        // Merging obligations for an event must not merge their success criteria.
+        // An ACK or expected de-list response resolves only its own relay.
+        const unresolvedRelays = compensation.relayUrls.filter((relay) => {
+          const key = relayUrlKey(relay);
+          return !ackedRelays.has(key) && !delistedRelays.has(key);
+        });
+        if (unresolvedRelays.length > 0) {
+          remaining.push({
+            ...compensation,
+            relayUrls: unresolvedRelays,
+            error: `Final de-list replacement was not acknowledged by: ${unresolvedRelays.join(", ")}`,
+          });
         }
       } else {
         await deleteEvent(event, compensation.relayUrls);
