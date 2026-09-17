@@ -4,4 +4,5 @@ export const PERFORMANCE_DIAGNOSTICS_ENABLED = import.meta.env.VITE_PERFORMANCE_
 
 export const DIAGNOSTICS_ENABLED = import.meta.env.VITE_DIAGNOSTICS === "1"
 
-export const IMPORT_REPO_ENABLED = __IMPORT_REPO__
+// Retired history importer; independent of New Repo's public repository onramp.
+export const IMPORT_REPO_ENABLED = false

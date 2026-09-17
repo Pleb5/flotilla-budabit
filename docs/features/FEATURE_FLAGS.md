@@ -46,10 +46,10 @@ Enables experimental CI/CD automation hooks.
 ### `__IMPORT_REPO__`
 
 **Type**: Feature
-**Default**: Disabled unless `FEATURE_IMPORT_REPO=1`
-**Control**: `FEATURE_IMPORT_REPO`
+**Default**: Always disabled in development and production
+**Control**: None; `FEATURE_IMPORT_REPO` is ignored
 
-Enables the repository import dialog and its entry points.
+The alternative issue/comment importer is retired. Its app entry points and handler are removed; dormant implementation sources are retained. New Repo onboarding is independent of this constant.
 
 ## Removed Flags
 
@@ -71,7 +71,7 @@ export default defineConfig({
     __DEVELOPMENT__: JSON.stringify(process.env.NODE_ENV !== "production"),
     __GRASP__: JSON.stringify(process.env.FEATURE_GRASP !== "0"),
     __CICD__: JSON.stringify(process.env.FEATURE_CICD === "1"),
-    __IMPORT_REPO__: JSON.stringify(process.env.FEATURE_IMPORT_REPO === "1"),
+    __IMPORT_REPO__: JSON.stringify(false),
   },
 })
 ```

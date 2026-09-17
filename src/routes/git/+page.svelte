@@ -50,7 +50,7 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import RepoSearchSettingsModal from "@app/components/RepoSearchSettingsModal.svelte"
   import PerformanceDiagnosticsStatus from "@app/components/PerformanceDiagnosticsStatus.svelte"
-  import {IMPORT_REPO_ENABLED, PERFORMANCE_DIAGNOSTICS_ENABLED} from "@app/core/feature-flags"
+  import {PERFORMANCE_DIAGNOSTICS_ENABLED} from "@app/core/feature-flags"
   import {
     activePerformanceDiagnosticsRun,
     completeAutomaticPerformanceDiagnosticsCapture,
@@ -101,11 +101,6 @@
     type RepoCreationRecoveryRecord,
     toast,
     NewRepoWizard,
-    InitialImportDialog,
-    IndexedInitialImportStore,
-    createInitialImportGit,
-    type InitialImportJob,
-    type InitialImportRuntime,
   } from "@nostr-git/ui"
   import type {
     ImportResult,
@@ -159,14 +154,10 @@
     makeTargetedPublicationOriginalFilterPlan,
     makeTargetedPublicationOriginalRelayHintPlans,
   } from "@app/core/community-feeds"
-  import {
-    fetchRelayEventsWithTimeout,
-    fetchInitialImportRelayEvents,
-  } from "@app/util/fetch-relay-events"
+  import {fetchRelayEventsWithTimeout} from "@app/util/fetch-relay-events"
   import AddCircle from "@assets/icons/add-circle.svg?dataurl"
   import Git from "@assets/icons/git.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
-  import Download from "@assets/icons/download.svg?dataurl"
   import {
     GIT_COMMUNITY_ENTRY,
     GIT_COMMUNITY_PARAM,
@@ -4473,13 +4464,6 @@
             back()
           },
           onDispose: () => operationPublishTransport.dispose(),
-          onImportSource: IMPORT_REPO_ENABLED
-            ? () => {
-                operationPublishTransport.dispose()
-                clearModals()
-                void onImportRepo()
-              }
-            : undefined,
           defaultRelays: [...defaultRepoRelays],
           platformRelays: [...GIT_RELAYS],
           platformUrl: $APP_URL,
@@ -4515,123 +4499,6 @@
       pushToast({message: `Failed to open New Repo wizard: ${String(error)}`, theme: "error"})
     }
   }
-
-  const onImportRepo = async () => {
-    if (!IMPORT_REPO_ENABLED) return
-
-    if (!$session || !$pubkey) {
-      pushModal(LogIn)
-      return
-    }
-
-    // Get signer for event signing (supports NIP-07, NIP-46, NIP-01)
-    const {getSigner} = await import("@welshman/app")
-    const importOwner = $pubkey
-    const importSession = $session
-    const signer = getSigner(importSession)
-
-    if (!signer) {
-      pushToast({
-        theme: "error",
-        message:
-          "No signer available. Please log in with a supported signer (NIP-01, NIP-07, or NIP-46).",
-      })
-      return
-    }
-
-    // Ensure worker is initialized before opening import dialog
-    if (!workerApi || !workerInstance) {
-      console.log("[+page.svelte] Worker not initialized for import, initializing...")
-      try {
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(
-            () => reject(new Error("Worker initialization timeout after 15 seconds")),
-            15000,
-          )
-        })
-
-        const workerPromise = getInitializedGitWorker()
-
-        const {api, worker} = (await Promise.race([workerPromise, timeoutPromise])) as {
-          api: any
-          worker: Worker
-        }
-
-        workerApi = api
-        workerInstance = worker
-        console.log("[+page.svelte] Worker initialized for import")
-      } catch (error) {
-        console.error("[+page.svelte] Failed to initialize worker for import:", error)
-        pushToast({
-          message: `Failed to initialize Git worker: ${String(error)}`,
-          theme: "error",
-        })
-        return
-      }
-    }
-
-    let publishTransport: RepoPublishTransport | undefined
-    try {
-      const assertActor = (owner: string) => {
-        if (owner !== importOwner || $pubkey !== importOwner || $session !== importSession) {
-          throw new Error(
-            "Active account changed. Reopen the saved import under its original account.",
-          )
-        }
-      }
-      publishTransport = createTrackedRepoPublishTransport()
-      const operationPublishTransport = publishTransport
-      const runtime: InitialImportRuntime = {
-        getKnownRepoEvents: (owner, identifier) =>
-          [30617, 30618].flatMap(kind => {
-            const event = repository.getEvent(`${kind}:${owner}:${identifier}`)
-            return event ? [event] : []
-          }),
-        store: new IndexedInitialImportStore(),
-        git: createInitialImportGit(workerApi),
-        assertActor,
-        sign: async template => {
-          assertActor(importOwner)
-          const event = await signer.sign(template)
-          assertActor(importOwner)
-          return event
-        },
-        publish: async (event, context) => {
-          assertActor(event.pubkey)
-          if (context?.relays.length !== 1)
-            throw new Error("Initial import requires exactly one repository relay")
-          // The journal, not the app's event cache, owns retry state and bodies.
-          return operationPublishTransport.publish(event, context.relays, {publishLocally: false})
-        },
-        fetchEvents: fetchInitialImportRelayEvents,
-      }
-      const modalId = pushModal(
-        InitialImportDialog,
-        {
-          owner: importOwner,
-          runtime,
-          subscribeGitProgress: subscribeGitWorkerProgress,
-          onClose: () => clearModals(),
-          onDispose: () => operationPublishTransport.dispose(),
-          onOpenRepo: async (job: InitialImportJob) => {
-            if (!job.announcement || !job.state)
-              throw new Error("Repository metadata is not yet confirmed")
-            const result = {announcementEvent: job.announcement, stateEvent: job.state}
-            hydrateRepoEvents(result)
-            await navigateToCreatedRepo(result, "imported repo")
-          },
-        },
-        {fullscreen: true, noEscape: true},
-      )
-      if (!modalId) operationPublishTransport.dispose()
-    } catch (error) {
-      publishTransport?.dispose()
-      pushToast({
-        message: `Failed to open Import Repo dialog: ${String(error)}`,
-        theme: "error",
-      })
-    }
-  }
 </script>
 
 <svelte:head>
@@ -4663,14 +4530,6 @@
         <Icon icon={AddCircle} />
         New Repo
       </Button>
-      {#if IMPORT_REPO_ENABLED}
-        <Button
-          class="btn btn-secondary btn-sm !text-primary-content"
-          onclick={() => onImportRepo()}>
-          <Icon icon={Download} />
-          Import Repo
-        </Button>
-      {/if}
     </div>
     <GitCommunityMenuButton />
   {/snippet}
@@ -4692,14 +4551,6 @@
       <Icon icon={AddCircle} />
       New Repo
     </Button>
-    {#if IMPORT_REPO_ENABLED}
-      <Button
-        class="btn btn-secondary btn-sm w-full !text-primary-content"
-        onclick={() => onImportRepo()}>
-        <Icon icon={Download} />
-        Import Repo
-      </Button>
-    {/if}
   </div>
   <!-- Tabs and Search Bar -->
   <div class="flex flex-col gap-3">

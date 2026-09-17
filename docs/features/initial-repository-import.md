@@ -1,6 +1,6 @@
-# Create a repository from GitHub
+# Alternative GitHub history importer (disabled)
 
-Use **Git → Import Repo**, or **New Repo → Create from GitHub**. Sign in with the Nostr account that should own the new repository.
+**This alternative importer is unavailable in development and production.** Its entry points and app wiring are removed; `FEATURE_IMPORT_REPO=1` cannot enable it. The notes below describe the retained dormant implementation, not an available user workflow. New Repo onboarding is separate and does not import issue/comment history.
 
 1. Enter a public GitHub repository URL, a **new destination name**, and one GRASP service URL.
 2. Optionally select issues/current status and conversation comments. A read-only GitHub token can increase the history API allowance; it stays only in the open dialog and must be entered again after reload.
@@ -24,7 +24,7 @@ Once publication is attempted, cancellation cannot promise rollback. An announce
 
 The automated tests use simulated Git/relay outcomes and real browser IndexedDB. Before relying on a large migration, test with a small disposable **public** source and a destination you are willing to publish permanently:
 
-1. Run the full `pnpm dev` stack, not Vite alone; use one hostname consistently. The lane is enabled unless `FEATURE_IMPORT_REPO=0` is set. Restart the stack after changing that flag.
+1. This historical acceptance checklist cannot be run through the app while the importer is disabled. Its isolated test fixture remains available for maintenance; no environment flag restores the app entry point.
 2. First import **Git only**. Include a second branch and an annotated tag in the source. Confirm the new repo opens, its default branch is correct, and `git ls-remote --heads --tags <destination>` matches the corresponding source refs. Ignore peeled `^{}` entries when counting refs.
 3. Use another new destination with a few open/closed issues and comments. Confirm statuses, original-author/source labels, comment order, and the displayed confirmed counts.
 4. Stop during history delivery. Confirm the repository remains usable. Close/reopen the dialog or reload and select the saved job. Verify no second Git push or duplicate issues/comments after Resume. Source edits during interruption may affect only unfinished items.

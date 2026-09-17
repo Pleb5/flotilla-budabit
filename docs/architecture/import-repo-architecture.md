@@ -1,6 +1,6 @@
 # Initial Repository Import
 
-The supported importer is **new repository creation plus one-time initial data delivery**, not incremental forge synchronization. It is available from `/git` → **Import Repo**, or **New Repo** → **Create from GitHub**. `FEATURE_IMPORT_REPO=0` hides the entry points; the supported lane is otherwise enabled. The [legacy importer](./legacy-repository-import.md) remains dormant, not merged with this executor.
+**Disabled in development and production.** The alternative history importer has no app entry points or handler, and `FEATURE_IMPORT_REPO` cannot enable it. Its implementation and tests are retained, not connected to New Repo onboarding. The following documents its dormant design: **new repository creation plus one-time initial data delivery**, not incremental forge synchronization. The [legacy importer](./legacy-repository-import.md) also remains dormant.
 
 ## Supported lane
 

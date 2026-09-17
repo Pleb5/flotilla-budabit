@@ -10,7 +10,7 @@ The root `vite.config.ts` defines these compile-time flags from environment vari
 | --------------------- | --------------------- | -------------------------- | ------------------------------------- |
 | `FEATURE_GRASP`       | `__GRASP__`           | Enabled unless set to `0`  | GRASP and Nostr Git integration.      |
 | `FEATURE_CICD`        | `__CICD__`            | Disabled unless set to `1` | Experimental CI/CD automation hooks.  |
-| `FEATURE_IMPORT_REPO` | `__IMPORT_REPO__`     | Disabled unless set to `1` | Repository import dialog and actions. |
+| None | `__IMPORT_REPO__` | Always disabled | Retired alternative history importer; environment cannot enable it. |
 
 ## Community Architecture Note
 
