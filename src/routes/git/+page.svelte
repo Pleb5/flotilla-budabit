@@ -3241,6 +3241,18 @@
   const hasMoreAccountSearchRepos = $derived(
     accountSearchVisibleRepos.length >= repoResultsVisibleLimit,
   )
+  // An empty cache is not a search result: wait for outbox discovery, the relay
+  // request, and card computation for this exact search/page before reporting it.
+  const accountSearchPending = $derived(
+    isAccountSearch &&
+      !accountSearch.invalid &&
+      Boolean(accountSearch.pubkey) &&
+      (!$repoListHydrationReadyStore ||
+        settledAccountSearchLoadContext !== accountSearchRenderedContext ||
+        renderedAccountSearchContext !== accountSearchRenderedContext ||
+        renderedAccountSearchRepoCount !==
+          Math.min(accountSearchVisibleRepos.length, repoResultsVisibleLimit)),
+  )
 
   // Update account search repo cards
   $effect(() => {
@@ -4885,25 +4897,31 @@
     </div>
   {:else if isAccountSearch}
     <div class="flex min-w-0 flex-col gap-2" in:fade={{duration: 200}}>
-      {#if accountSearch.mode === "naddr" && accountSearch.invalid}
-        <p class="text-sm text-muted-foreground">Invalid repository naddr.</p>
-      {:else if accountSearch.mode === "npub" && accountSearch.invalid}
-        <p class="text-sm text-muted-foreground">Invalid npub.</p>
-      {:else if accountSearch.mode === "naddr" && !matchedNaddrRepo}
-        {#if sortedAccountSearchRepoCards.length > 0}
-          <p class="text-sm text-muted-foreground">
-            Repository not found, but here are other repositories we found from this account.
-          </p>
-        {:else}
-          <p class="text-sm text-muted-foreground">
-            Repository not found, and we could not find other repositories from this account.
-          </p>
+      <div role="status" class="flex min-h-10 items-center text-sm text-muted-foreground">
+        {#if accountSearch.mode === "naddr" && accountSearch.invalid}
+          <p>Invalid repository naddr.</p>
+        {:else if accountSearch.mode === "npub" && accountSearch.invalid}
+          <p>Invalid npub.</p>
+        {:else if accountSearchPending}
+          <Spinner loading>Searching repositories...</Spinner>
+        {:else if accountSearch.mode === "naddr" && !matchedNaddrRepo}
+          {#if sortedAccountSearchRepoCards.length > 0}
+            <p>
+              Repository not found, but here are other repositories we found from this account.
+            </p>
+          {:else}
+            <p>
+              Repository not found, and we could not find other repositories from this account.
+            </p>
+          {/if}
+        {:else if accountSearch.mode === "naddr"}
+          <p>Found repository. Showing this repository only.</p>
+        {:else if accountSearch.mode === "npub" && sortedAccountSearchRepoCards.length === 0}
+          <p>No repositories loaded for this account.</p>
+        {:else if accountSearch.mode === "npub"}
+          <p>Repositories published by this account.</p>
         {/if}
-      {:else if accountSearch.mode === "naddr"}
-        <p class="text-sm text-muted-foreground">Found repository. Showing this repository only.</p>
-      {:else if accountSearch.mode === "npub"}
-        <p class="text-sm text-muted-foreground">Repositories published by this account.</p>
-      {/if}
+      </div>
 
       {#if sortedAccountSearchRepoCards.length > 0}
         <div
