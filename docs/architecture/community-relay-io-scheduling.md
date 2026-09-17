@@ -17,6 +17,10 @@ Reconnects authenticate
 before replay. No EVENT or Negentropy message is implicitly replayed. Runtime
 `auth-required:` evidence overrides stale public metadata; authentication consent
 does not grant unsigned-event trust.
+AUTH challenges update state at wire ingress, before adjacent auth-required CLOSED
+frames are classified. A pending challenge-probe continuation gets one microtask
+to start consented signing; Requested alone does not suppress a terminal closure.
+Buffered closures are removed from the disconnect flush as well as the receive queue.
 
 Explicit invitations use their relay hints for definition lookup through pooled
 sockets and the normal shared repository. They require authentication consent but
@@ -24,7 +28,14 @@ do not blacklist endpoints or coordinates for unrelated requests. Signed definit
 cannot register such restrictions. The shared loader reports per-relay
 denied/cancelled/timeout/unavailable outcomes and permits a bounded policy-unavailable
 retry. Explicit invitation retry replaces closed/failed connections, retaining healthy
-and opening sockets. Normal live-subscription recovery still applies. Account-change
+and opening sockets. Community background history/follow-up/delete/live recovery
+pauses terminal membership or authentication failures per community/account/relay;
+neither remounting nor a late sibling EOSE clears a denial. A successful explicit
+invitation retry, or an explicit bootstrap access-recovery action, clears that state.
+Another identity has independent recovery state. Policy-unavailable recovery is
+bounded (the finite loader's retry is not renewed by component timers); transport
+retry timers back off from 5.5 seconds to at most 60 seconds. This is not a global
+relay blacklist: unrelated shared-client queries remain independent. Account-change
 socket cleanup does not purge received events. There are no private publisher or
 capability checks; see [the client contract](Community-Read-Control-Plan.md).
 The deployment figures below are not private-relay guarantees.

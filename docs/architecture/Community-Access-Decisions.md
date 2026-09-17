@@ -1,7 +1,7 @@
 # Community access: decisions and policy boundaries
 
 Status: **implemented in local source, private admission default off**. Updated
-2026-09-16. This is the cross-repository decision record for Budabit and its strfry
+2026-09-17. This is the cross-repository decision record for Budabit and its strfry
 fork, not a release or live-deployment claim. The earlier commit-synchronized
 ReadGate design is superseded; its history is not evidence for the replacement.
 
@@ -42,6 +42,53 @@ Each private endpoint/database pins **one exact**
 infrastructure, not community identities. Auto-hosting is useful for public write
 enforcement but prohibited in the private preset: discovering a new definition
 must not silently expand who can read a private database.
+
+### Hosting boundary: shared public writes, dedicated member-only reads
+
+Budabit supports shared relays for publicly readable communities with independently
+enforced write permissions. Member-only reads instead use one exact community
+authority governing the entire relay endpoint/database. **Multi-community read
+isolation within one database is deliberately deferred**, not a protocol prohibition
+or a promised roadmap item.
+
+For member-only communities, prefer a dedicated relay instance/database under
+community control, either self-operated or entrusted to a chosen operator. This
+aligns the read boundary with the deployment boundary. Separate private instances
+may share a physical host, but different URLs pointing to the same database do not
+establish separate reader populations. The host administrator remains trusted, and
+shared infrastructure still couples availability and resource use.
+
+The trade-offs are intentional:
+
+- **Simpler read authorization:** one community decision covers ordinary stored
+  events without community-specific result filtering, mixed-community query
+  semantics or per-community live-subscription isolation. Independent DM participant
+  restrictions still apply.
+- **Reduced cross-community disclosure risk:** there is no supported shared private
+  database in which a missed community check can expose another tenant's content.
+  This does not eliminate implementation, configuration or host-compromise risks.
+- **Higher operating cost:** each community or chosen operator must manage its
+  instance's updates, monitoring, backups, recovery and availability. Dedicated
+  instances sacrifice some hosting efficiency and convenience.
+- **A different trust relationship, not guaranteed security:** self-hosting gives
+  the community operational control; a well-run trusted service can be safer than a
+  poorly maintained self-hosted instance. Private multi-tenant relays are not
+  inherently unsafe, but require isolation mechanisms and verification absent here.
+- **Public hosting still needs isolation:** public community content removes the
+  community-read confidentiality boundary, not independent write-authority checks,
+  moderation, spam controls, quotas or resource limits.
+
+Dedicated hosting adds no encryption or downstream confidentiality. Operators can
+access plaintext community content, authorized readers can retain or redistribute
+it, and ordinary client storage/publication remains unchanged. Eventual revocation
+cannot recall delivered copies; see sections 3 and 5.
+
+Revisit this decision only for a concrete need to serve distinct reader populations
+from one endpoint. That requires authorization covering each result's actual
+community across history, live delivery and auxiliary read paths, plus explicit
+revocation, query-completeness and cross-community isolation tests. Adding more
+community addresses to the current whole-relay admission configuration is not that
+design.
 
 ## 2. Separate identity, readership, writing and visibility
 
@@ -107,7 +154,10 @@ query. Explicit invitation retry replaces a closed/failed pooled socket and obta
 a fresh proof; healthy or opening pooled connections are reused. The shared loader
 reports denied, unavailable, timeout and cancellation outcomes separately from EOSE.
 Normal loaders and live-subscription recovery remain in use; there is no second
-private reader. Transport EOSE is not proof of complete authority or unlimited
+private reader. Community background recovery stops on terminal denial for that
+community/account/relay until explicit retry/access recovery, rather than reconnecting
+every few seconds. Other identities and unrelated shared-client requests are not
+blocked by that recovery state. Transport EOSE is not proof of complete authority or unlimited
 history. Ordinary content-authority loading and moderation still apply.
 
 ## 5. Protect reads at the relay, not received client data

@@ -5,6 +5,7 @@ import {allowRelayAuthentication} from "./relay-auth-consent"
 import {recordRelayAuthRequired} from "./relay-policy"
 import {loadCommunityEventsWithStatus, makeExactCommunityDefinitionFilter} from "./community-state"
 import type {PrivateCommunityScope} from "./private-community-scope"
+import {communityReadRecovery} from "./community-read-recovery"
 
 // Explicit connection recovery, not a second reader or a content visibility gate.
 // Delivered definitions use the ordinary loader, repository and persistence.
@@ -16,6 +17,7 @@ export const connectCommunityInvitation = async (
   const signing = signer.get()
   if (!identity || !signing) throw Error("Connect a signing account to authenticate")
   if (scope.error || !scope.relays.length) throw Error(scope.error || "Missing invitation relays")
+  const recovery = communityReadRecovery(scope.pointer.address, identity)
   const current = () => {
     if (signal.aborted || pubkey.get() !== identity || signer.get() !== signing)
       throw new AuthError("cancelled")
@@ -48,6 +50,8 @@ export const connectCommunityInvitation = async (
           {signal},
         )
         current()
+        if (result.complete) recovery.reset([relay])
+        else recovery.result(result)
         return {
           relay,
           outcome: result.complete ? "complete" : result.outcomes?.[relay] || "disconnected",

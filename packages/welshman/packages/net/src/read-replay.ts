@@ -59,16 +59,27 @@ class ReadReplay {
         if (!isRelayClosed(message)) return
         const read = this.reads.get(message[1])
         if (!read) return
-        const token = `${socket.auth.generation}:${socket.auth.challenge}`
-        if (
-          message[2]?.startsWith("auth-required:") &&
-          pendingAuth(socket) &&
-          read.replayed !== token
-        ) {
-          read.waiting = true
-          read.closed = message
-          socket._recvQueue.remove(message)
-        } else this.reads.delete(message[1])
+        const generation = socket._generation
+        const decide = () => {
+          if (socket._generation !== generation || this.reads.get(message[1]) !== read) return
+          const token = `${socket.auth.generation}:${socket.auth.challenge}`
+          if (
+            message[2]?.startsWith("auth-required:") &&
+            pendingAuth(socket) &&
+            read.replayed !== token
+          ) {
+            read.waiting = true
+            read.closed = message
+            socket._recvQueue.remove(message)
+            socket._pendingClosed.delete(message)
+          } else this.reads.delete(message[1])
+        }
+        // A consented coordinator may be resuming its challenge probe promise.
+        // Give that continuation one microtask, still before queued Receive.
+        // Requested alone is never enough to suppress a terminal CLOSED.
+        if (message[2]?.startsWith("auth-required:") && socket.auth.status === AuthStatus.Requested)
+          queueMicrotask(decide)
+        else decide()
       }),
       on(socket.auth, AuthStateEvent.Status, (status: AuthStatus) => {
         if (status === AuthStatus.Ok) this.flush()

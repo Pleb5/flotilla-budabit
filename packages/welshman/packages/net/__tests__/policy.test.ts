@@ -112,14 +112,14 @@ describe("read replay policies", () => {
     socket.send(["REQ", "history", {kinds: [1], since: 123, limit: 100}])
     socket.send(["EVENT", {id: "published"} as any])
     await vi.advanceTimersByTimeAsync(200)
-    socket.emit(SocketEvent.Receive, ["AUTH", "old"])
+    socket.emit(SocketEvent.Receiving, ["AUTH", "old"])
     socket.auth.setStatus(AuthStatus.Ok)
     socket.close()
     const sent = vi.fn()
     socket.on(SocketEvent.Send, sent)
     socket.on(SocketEvent.Status, status => {
       if (status === SocketStatus.Open) {
-        socket.emit(SocketEvent.Receive, ["AUTH", "new"])
+        socket.emit(SocketEvent.Receiving, ["AUTH", "new"])
         socket.auth.setStatus(AuthStatus.PendingSignature)
       }
     })

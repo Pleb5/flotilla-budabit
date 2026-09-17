@@ -1,7 +1,7 @@
 import {readFileSync} from "node:fs"
 import {describe, expect, it} from "vitest"
 
-const source = readFileSync("src/routes/c/[community]/+layout.svelte", "utf8")
+const source = readFileSync("src/app/components/CommunityLayout.svelte", "utf8")
 const homeSource = readFileSync("src/routes/c/[community]/+page.svelte", "utf8")
 
 describe("community layout request lifecycle", () => {

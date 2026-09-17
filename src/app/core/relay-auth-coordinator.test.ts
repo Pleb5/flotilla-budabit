@@ -73,7 +73,7 @@ describe("relay auth coordinator", () => {
     vi.useRealTimers()
   })
   const challenge = (socket: Socket, value = "challenge") =>
-    socket.emit(SocketEvent.Receive, ["AUTH", value])
+    socket.emit(SocketEvent.Receiving, ["AUTH", value])
   const ack = (socket: Socket) =>
     socket.emit(SocketEvent.Receive, ["OK", socket.auth.request, true, ""])
 
@@ -123,6 +123,30 @@ describe("relay auth coordinator", () => {
     await expect(authenticateRelay(socket)).rejects.toMatchObject({status: "signer-required"})
     expect(model.sign).not.toHaveBeenCalled()
     expect(socket.attemptToOpen).not.toHaveBeenCalled()
+  })
+
+  it("holds an adjacent read closure while an existing challenge probe resumes signing", async () => {
+    const release = socketPolicyAuthBuffer(socket)
+    const cleanup = coordinatedAuthPolicy(socket)
+    const pending = authenticateRelay(socket)
+    const sent = vi.spyOn(socket, "send")
+    const received = vi.fn()
+    socket.on(SocketEvent.Receive, received)
+    socket.send(["REQ", "concurrent-read", {kinds: [1]}])
+    challenge(socket)
+    const closed = ["CLOSED", "concurrent-read", "auth-required: authenticate"] as any
+    socket._recvQueue.push(closed)
+    socket.emit(SocketEvent.Receiving, closed)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(model.sign).toHaveBeenCalledOnce()
+    expect(received.mock.calls.some(([m]) => m[0] === "CLOSED")).toBe(false)
+    ack(socket)
+    await pending
+    expect(
+      sent.mock.calls.filter(([m]) => m[0] === "REQ" && m[1] === "concurrent-read"),
+    ).toHaveLength(2)
+    cleanup()
+    release()
   })
 
   it("requires independent authentication consent, without mutating trust settings", async () => {

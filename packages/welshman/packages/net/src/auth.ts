@@ -69,6 +69,12 @@ export class AuthState extends EventEmitter {
           attempt.finish(message[2] ? undefined : new AuthError("forbidden"))
           this.setStatus(message[2] ? AuthStatus.Ok : AuthStatus.Forbidden)
         }
+      }),
+      // Learn challenges at wire ingress, before read-replay sees an adjacent
+      // auth-required CLOSED. Deferred Receive processing is too late. Do not
+      // process AUTH again there: an older queued challenge could replace a
+      // newer one. Matching ACKs still settle through the normal receive queue.
+      on(socket, SocketEvent.Receiving, (message: RelayMessage) => {
         if (isRelayAuth(message) && message[1] !== this.challenge) {
           this.cancel(new AuthError("superseded"))
           this.challenged = true

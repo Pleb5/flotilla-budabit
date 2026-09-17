@@ -277,7 +277,8 @@
     "wss://relay.budabit.club",
     "wss://nos.lol",
   ])
-  const STRFRY_RELAY_URL = "https://github.com/hoytech/strfry"
+  const STRFRY_RELAY_URL =
+    "https://budabit.club/git/naddr1qvzqqqrhnypzp5zweue6xqa9npf0md5pak95zgsph2za35sentk88jmzdqwk925sqyvhwumn8ghj7emjv9ehqtnzw4jxzcnfwshxxmr4vghsqpnnw3exvunek7tdhm"
   const BLOSSOM_SERVER_URL =
     "https://budabit.club/git/naddr1qvzqqqrhnypzqfngzhsvjggdlgeycm96x4emzjlwf8dyyzdfg4hefp89zpkdgz99qyvhwumn8ghj7emfwsh8x6rpddjhxur9v9ex2tnyd9usz9rhwden5te0wfjkccte9ehxw6t59ejx2aspr9mhxue69uhhq7tjv9kkjepwve5kzar2v9nzucm0d5qqucnvdaehxmmd94ek2unkv4eqs93a9j"
   const EMAIL_DIGEST_PROVIDER_IMPLEMENTATION_URL =

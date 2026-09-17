@@ -409,7 +409,7 @@ const makeAuthEvent = (event: Parameters<typeof finalizeEvent>[0] = signMock.moc
   finalizeEvent(event, new Uint8Array(32).fill(5))
 
 const sendAuthChallenge = (socket: Socket, challenge = "challenge") => {
-  socket.emit(SocketEvent.Receive, [RelayMessageType.Auth, challenge], socket.url)
+  socket.emit(SocketEvent.Receiving, [RelayMessageType.Auth, challenge], socket.url)
 }
 
 const acceptAuth = (socket: Socket) => {

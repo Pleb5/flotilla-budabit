@@ -4,6 +4,16 @@ import {describe, expect, it} from "vitest"
 const readProjectFile = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8")
 
 describe("Communikeys create source contract", () => {
+  it("links relay hosting guidance to the Budabit strfry fork", () => {
+    const component = readProjectFile("../components/CommunityCreate.svelte")
+    const relayUrl = component.match(/const STRFRY_RELAY_URL\s*=\s*"([^"]+)"/)?.[1]
+
+    expect(relayUrl).toBe(
+      "https://budabit.club/git/naddr1qvzqqqrhnypzp5zweue6xqa9npf0md5pak95zgsph2za35sentk88jmzdqwk925sqyvhwumn8ghj7emjv9ehqtnzw4jxzcnfwshxxmr4vghsqpnnw3exvunek7tdhm",
+    )
+    expect(component).toContain("href={STRFRY_RELAY_URL}")
+  })
+
   it("routes create and edit through kind-32222 publication only", () => {
     const component = readProjectFile("../components/CommunityCreate.svelte")
 

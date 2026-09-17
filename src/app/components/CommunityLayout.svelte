@@ -78,6 +78,10 @@
     registerCommunityLiveOwnership,
   } from "@app/core/community-live"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
+  import {
+    communityReadRecovery,
+    communityReadRecoveryVersion,
+  } from "@app/core/community-read-recovery"
   import {activeCommunityRoomLoad} from "@app/core/community-foreground"
   import {
     createCommunityMaintenanceAdmission,
@@ -94,6 +98,11 @@
 
   const routeCommunity = $derived($page.params.community || "")
   const exactCommunity = $derived(parseExactCommunityRouteParam(routeCommunity))
+  const readRecovery = $derived(communityReadRecovery(exactCommunity?.address || "", $pubkey || ""))
+  const readableRelays = $derived.by(() => {
+    void $communityReadRecoveryVersion
+    return readRecovery.available(normalizeCommunityLiveValues($activeExactCommunityRelays))
+  })
   const exactCommunityBootstrapKey = $derived(
     exactCommunity
       ? getCommunityBootstrapKey(makeExactCommunitySession(exactCommunity), $pubkey || "")
@@ -460,7 +469,7 @@
     }
 
     maintenanceAdmission.start(
-      JSON.stringify([definition.pointer.address, definition.event.id, relays]),
+      JSON.stringify([definition.pointer.address, definition.event.id, $pubkey, relays]),
     )
   })
 
@@ -473,7 +482,8 @@
     }
 
     const exactDefinition = $activeExactCommunityDefinition
-    const relays = normalizeCommunityLiveValues($activeExactCommunityRelays)
+    const relays = readableRelays
+    const recovery = readRecovery
     const authorityReady = Boolean(
       exactDefinition &&
       exactDefinition.pointer.address === exactCommunity?.address &&
@@ -486,10 +496,11 @@
 
     if (!exactDefinition || !authorityReady || relays.length === 0) {
       stopCommunityHistoryLoad()
+      if (!relays.length) maintenanceAdmission.settle(maintenanceAdmission.getKey(), "history")
       return
     }
 
-    const key = `${exactDefinition.pointer.address}::${relays.join("|")}`
+    const key = `${exactDefinition.pointer.address}::${$pubkey || ""}::${relays.join("|")}`
     if (communityHistoryLoadKey === key) return
 
     communityHistoryLoadController?.abort()
@@ -514,16 +525,20 @@
         if (communityHistoryLoadController !== controller) return
         communityHistoryLoadController = null
         maintenanceAdmission.settle(admissionKey, "history")
+        if (controller.signal.aborted) return
+        recovery.result(result)
 
-        if (result.complete || controller.signal.aborted) return
+        if (result.complete) return
 
         console.warn("[community-history] Community historical discovery is incomplete", result)
         communityHistoryLoadKey = ""
+        const retryRelays = recovery.available(relays)
+        if (!retryRelays.length) return
         if (communityHistoryRetryTimer) clearTimeout(communityHistoryRetryTimer)
         communityHistoryRetryTimer = setTimeout(() => {
           communityHistoryRetryTimer = null
           communityHistoryRetryVersion += 1
-        }, 5000)
+        }, recovery.delay(retryRelays))
       },
       error => {
         if (controller.signal.aborted || communityHistoryLoadController !== controller) return
@@ -532,11 +547,14 @@
         communityHistoryLoadKey = ""
         maintenanceAdmission.settle(admissionKey, "history")
         console.warn("[community-history] Failed to load community history", error)
+        relays.forEach(relay => recovery.record(relay, "disconnected"))
+        const retryRelays = recovery.available(relays)
+        if (!retryRelays.length) return
         if (communityHistoryRetryTimer) clearTimeout(communityHistoryRetryTimer)
         communityHistoryRetryTimer = setTimeout(() => {
           communityHistoryRetryTimer = null
           communityHistoryRetryVersion += 1
-        }, 5000)
+        }, recovery.delay(retryRelays))
       },
     )
   })
@@ -550,7 +568,8 @@
     }
 
     const authorityDefinition = $activeExactCommunityDefinition
-    const relays = normalizeCommunityLiveValues($activeExactCommunityRelays)
+    const relays = readableRelays
+    const recovery = readRecovery
 
     if (
       !authorityDefinition ||
@@ -558,6 +577,7 @@
       relays.length === 0
     ) {
       stopCommunityFollowUpLoad()
+      if (!relays.length) maintenanceAdmission.settle(maintenanceAdmission.getKey(), "follow-up")
       return
     }
 
@@ -570,7 +590,7 @@
       reportEvents: effectiveCommunityReportEvents,
       moderatorRequests: $activeCommunityModeratorRequests,
       moderatorRequestReactionEvents: $activeCommunityModeratorRequestReactionEvents,
-    })
+    }).filter(plan => !recovery.blocked(plan.relay))
 
     if (plans.length === 0) {
       stopCommunityFollowUpLoad()
@@ -578,7 +598,8 @@
       return
     }
 
-    const key = JSON.stringify(
+    const key = JSON.stringify([
+      $pubkey,
       plans.map(plan =>
         getCommunityLiveSubscriptionKey({
           communityPubkey: authorityDefinition.pointer.address,
@@ -586,7 +607,7 @@
           filters: plan.filters,
         }),
       ),
-    )
+    ])
     if (communityFollowUpLoadKey === key) return
 
     communityFollowUpLoadController?.abort()
@@ -612,14 +633,18 @@
         if (communityFollowUpLoadController !== controller) return
         communityFollowUpLoadController = null
         maintenanceAdmission.settle(admissionKey, "follow-up")
+        if (controller.signal.aborted) return
+        results.forEach(recovery.result)
         if (results.every(result => result.complete)) return
 
         communityFollowUpLoadKey = ""
+        const retryRelays = recovery.available(relays)
+        if (!retryRelays.length) return
         if (communityFollowUpRetryTimer) clearTimeout(communityFollowUpRetryTimer)
         communityFollowUpRetryTimer = setTimeout(() => {
           communityFollowUpRetryTimer = null
           communityFollowUpRetryVersion += 1
-        }, 5000)
+        }, recovery.delay(retryRelays))
       },
       error => {
         if (controller.signal.aborted || communityFollowUpLoadController !== controller) return
@@ -628,11 +653,14 @@
         communityFollowUpLoadKey = ""
         maintenanceAdmission.settle(admissionKey, "follow-up")
         console.warn("[community-follow-up] Failed to load community follow-up events", error)
+        relays.forEach(relay => recovery.record(relay, "disconnected"))
+        const retryRelays = recovery.available(relays)
+        if (!retryRelays.length) return
         if (communityFollowUpRetryTimer) clearTimeout(communityFollowUpRetryTimer)
         communityFollowUpRetryTimer = setTimeout(() => {
           communityFollowUpRetryTimer = null
           communityFollowUpRetryVersion += 1
-        }, 5000)
+        }, recovery.delay(retryRelays))
       },
     )
   })
@@ -646,7 +674,8 @@
     }
 
     const definition = $activeExactCommunityDefinition
-    const relays = normalizeCommunityLiveValues($activeExactCommunityRelays)
+    const relays = readableRelays
+    const recovery = readRecovery
 
     if (
       !definition ||
@@ -654,6 +683,7 @@
       relays.length === 0
     ) {
       stopCommunityDeleteLoad()
+      if (!relays.length) maintenanceAdmission.settle(maintenanceAdmission.getKey(), "deletes")
       return
     }
 
@@ -673,7 +703,7 @@
       )
     }
     communityDeleteCheckpointKey = deleteSeenKey
-    const key = `${exactCommunity.address}::${relays.join("|")}::${since}`
+    const key = `${exactCommunity.address}::${$pubkey || ""}::${relays.join("|")}::${since}`
     if (communityDeleteLoadKey === key) return
 
     communityDeleteLoadController?.abort()
@@ -683,12 +713,14 @@
     const admissionKey = maintenanceAdmission.getKey()
 
     const scheduleRetry = () => {
+      const retryRelays = recovery.available(relays)
+      if (!retryRelays.length) return
       if (communityDeleteRetryTimer) clearTimeout(communityDeleteRetryTimer)
       communityDeleteRetryTimer = setTimeout(() => {
         communityDeleteRetryTimer = null
         communityDeleteLoadKey = ""
         communityDeleteRetryVersion += 1
-      }, 5000)
+      }, recovery.delay(retryRelays))
     }
     const timeout = setTimeout(() => {
       if (communityDeleteLoadController !== controller) return
@@ -696,6 +728,7 @@
       controller.abort()
       communityDeleteLoadController = null
       maintenanceAdmission.settle(admissionKey, "deletes")
+      relays.forEach(relay => recovery.record(relay, "timeout"))
       scheduleRetry()
     }, COMMUNITY_DELETE_LOAD_TIMEOUT_MS)
 
@@ -705,6 +738,7 @@
       kinds: communityDeleteKinds,
       since,
       signal: controller.signal,
+      onClosed: (reason, relay) => recovery.closed(relay, reason),
     }).then(
       latest => {
         if (communityDeleteLoadController !== controller) return
@@ -741,7 +775,8 @@
     }
 
     const exactDefinition = $activeExactCommunityDefinition
-    const relays = normalizeCommunityLiveValues($activeExactCommunityRelays)
+    const relays = readableRelays
+    const recovery = readRecovery
 
     if (
       !exactDefinition ||
@@ -764,11 +799,11 @@
 
     // Key on the filter/community shape without relays. If it changes we
     // tear down and rebuild; if only the relay set changes we diff below.
-    const filtersKey = getCommunityLiveSubscriptionKey({
+    const filtersKey = `${$pubkey || ""}:${getCommunityLiveSubscriptionKey({
       communityPubkey: exactDefinition.pointer.address,
       relays: [],
       filters,
-    })
+    })}`
     if (communityLiveFiltersKey !== filtersKey) {
       stopCommunityLiveSubscription()
       communityLiveFiltersKey = filtersKey
@@ -789,6 +824,7 @@
       const controller = new AbortController()
       const releaseOwnership = registerCommunityLiveOwnership(exactDefinition.pointer.address, url)
       let failed = false
+      let closedReason: string | undefined
       const subscription = {controller, releaseOwnership}
       communityLiveSubscriptionsByRelay.set(url, subscription)
       request({
@@ -798,13 +834,15 @@
         signal: controller.signal,
         priority: RELAY_REQUEST_PRIORITY.live,
         owner: "community-core",
-        onClosed: () => {
+        onClosed: reason => {
           failed = true
+          closedReason = reason
           controller.abort()
         },
         onDisconnect: () => {
           failed = true
         },
+        onEose: () => recovery.record(url, "complete"),
         onEvent: (event, relay) => {
           tracker.addRelay(event.id, relay)
           repository.publish(event)
@@ -820,11 +858,17 @@
           if (communityLiveSubscriptionsByRelay.get(url) !== subscription) return
           communityLiveSubscriptionsByRelay.delete(url)
           releaseOwnership()
+          if (closedReason) recovery.closed(url, closedReason)
+          else recovery.record(url, "disconnected")
+          if (recovery.blocked(url)) return
           if (communityLiveRetryTimer) clearTimeout(communityLiveRetryTimer)
-          communityLiveRetryTimer = setTimeout(() => {
-            communityLiveRetryTimer = null
-            communityLiveRetryVersion += 1
-          }, 5500)
+          communityLiveRetryTimer = setTimeout(
+            () => {
+              communityLiveRetryTimer = null
+              communityLiveRetryVersion += 1
+            },
+            recovery.delay([url]),
+          )
         })
     }
   })

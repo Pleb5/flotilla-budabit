@@ -93,7 +93,7 @@ Budabit combines Communikey communities with decentralized Git functionality thr
 
 ## Community architecture and policies
 
-- [Access decisions and policy boundaries](docs/architecture/Community-Access-Decisions.md): deployment levels, membership versus writing, eventual admission, privacy and deferred discovery.
+- [Access decisions and policy boundaries](docs/architecture/Community-Access-Decisions.md): deployment levels, hosting trade-offs, membership versus writing, eventual admission, privacy and deferred discovery.
 - [Community architecture](docs/architecture/Budabit-Community-Architecture.md) and [Communikeys wire specification](docs/architecture/Communikeys.md).
 - [Moderation](docs/architecture/Budabit-Community-Moderation.md), [relay publishing](docs/architecture/Budabit-Relay-Publishing-Policy.md), and [private read lifecycle/capabilities](docs/architecture/Community-Read-Control-Plan.md).
 - [NIP-4444 project DM draft](docs/architecture/NIP-4444.md): NIP-44 encryption and inbox-relay routing.
@@ -101,6 +101,11 @@ Budabit combines Communikey communities with decentralized Git functionality thr
 Member-only relay admission is optional and implemented in source, not a claim of
 a released or live private deployment. The public community workflows remain the
 default; private mode does not yet have full public-feature parity.
+
+Shared relays can host publicly readable communities with independent write control.
+For member-only reads, prefer a dedicated, community-controlled relay instance/database;
+multi-community read isolation within one database is deliberately deferred. See the
+[hosting decision and trade-offs](docs/architecture/Community-Access-Decisions.md#hosting-boundary-shared-public-writes-dedicated-member-only-reads).
 
 ## Environment
 

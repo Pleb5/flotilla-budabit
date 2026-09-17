@@ -45,7 +45,7 @@ describe("ACK-confirmed auth", () => {
     vi.useRealTimers()
   })
   const challenge = (socket: Socket, text = "challenge") =>
-    socket.emit(SocketEvent.Receive, ["AUTH", text])
+    socket.emit(SocketEvent.Receiving, ["AUTH", text])
 
   it("initializes/reset state, emits status and ignores unsolicited ACKs", () => {
     expect(socket.auth.status).toBe(AuthStatus.None)

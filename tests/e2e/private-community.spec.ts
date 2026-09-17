@@ -1,6 +1,10 @@
 import {test, expect} from "@playwright/test"
 import {finalizeEvent, getPublicKey, nip19} from "nostr-tools"
 import {MockRelay} from "./helpers/mock-relay"
+import {
+  buildCommunityDefinition,
+  parseCommunityDefinition,
+} from "../../src/app/core/community-protocol"
 
 const appOrigin = new URL(process.env.PRIVATE_TEST_BASE_URL || "http://localhost:1847").origin
 
@@ -12,17 +16,14 @@ const naddr = nip19.naddrEncode({pubkey, kind: 32222, identifier: community, rel
 const invite = `/c/${naddr}?read-access=members`
 const definition = finalizeEvent(
   {
-    kind: 32222,
+    ...buildCommunityDefinition({
+      communityId: community,
+      name: "Member relay fixture",
+      readAccess: "members",
+      relays: [relay],
+      sections: [{name: "General", kinds: [{kind: 1}], profileLists: []}],
+    }),
     created_at: Math.floor(Date.now() / 1000),
-    content: "",
-    tags: [
-      ["d", community],
-      ["name", "Member relay fixture"],
-      ["r", relay],
-      ["read-access", "members"],
-      ["content", "General"],
-      ["k", "1"],
-    ],
   },
   key,
 )
@@ -30,8 +31,17 @@ const definition = finalizeEvent(
 test("invitation authenticates a pooled connection; normal routes and persistent cache stay available", async ({
   page,
 }, info) => {
+  test.setTimeout(60_000)
+  expect(parseCommunityDefinition(definition)).toBeDefined()
   const errors: string[] = []
   const signed: number[] = []
+  // Reused Vite stacks may serve timestamped module URLs after HMR. Import the
+  // application's actual instance rather than create a second unversioned store.
+  const moduleUrls = new Map<string, string>()
+  page.on("response", response => {
+    const url = new URL(response.url())
+    if (url.pathname.startsWith("/src/app/core/")) moduleUrls.set(url.pathname, response.url())
+  })
   page.on("pageerror", error => errors.push(error.message))
   await page.route("**/*", route =>
     new URL(route.request().url()).origin === appOrigin ? route.continue() : route.abort(),
@@ -131,7 +141,118 @@ test("invitation authenticates a pooled connection; normal routes and persistent
     .toBe(true)
   // Normal child routes mount; no restricted private archive/shell remains.
   await page.getByRole("link", {name: "Admin", exact: true}).click()
-  await expect(page.getByText("Community Admin", {exact: true})).toBeVisible()
+  await expect(page.locator("strong").filter({hasText: /^Community Admin$/})).toBeVisible()
+  // Revoke an already-live connection with cached authority. The former 5.5s
+  // component timer must not recreate that read after a terminal membership denial.
+  expect(errors).toEqual([])
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          async ({pubkey, community, relay, moduleUrl}) => {
+            const {communityLiveOwnership, isCommunityLiveOwned} = await import(
+              /* @vite-ignore */ moduleUrl
+            )
+            let owned = false
+            communityLiveOwnership.subscribe(value => {
+              owned = isCommunityLiveOwned(value, `32222:${pubkey}:${community}`, relay)
+            })()
+            return owned
+          },
+          {pubkey, community, relay, moduleUrl: moduleUrls.get("/src/app/core/community-live.ts")!},
+        ),
+      {timeout: 10000},
+    )
+    .toBe(true)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        ({relay, community}) => {
+          const sockets = [...(window as any).__mockRelayConnections.values()] as any[]
+          return sockets.some(
+            socket =>
+              socket.url === relay &&
+              [...socket.subscriptions.values()].some((filters: any) =>
+                filters.some(
+                  (filter: any) =>
+                    filter.limit === 0 &&
+                    filter.kinds?.includes(32222) &&
+                    filter["#d"]?.includes(community),
+                ),
+              ),
+          )
+        },
+        {relay, community},
+      ),
+    )
+    .toBe(true)
+  granted = false
+  await page.evaluate(relay => {
+    for (const socket of (window as any).__mockRelayConnections.values()) {
+      if (socket.url !== relay) continue
+      for (const sub of [...socket.subscriptions.keys()])
+        socket.sendMessage(["CLOSED", sub, "restricted: revoked"])
+      socket.close()
+    }
+  }, relay)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async ({pubkey, community, relay, moduleUrl}) => {
+          const {communityReadRecovery} = await import(/* @vite-ignore */ moduleUrl)
+          return communityReadRecovery(`32222:${pubkey}:${community}`, pubkey).blocked(relay)
+        },
+        {
+          pubkey,
+          community,
+          relay,
+          moduleUrl: moduleUrls.get("/src/app/core/community-read-recovery.ts")!,
+        },
+      ),
+    )
+    .toBe(true)
+  const liveRequests = async () =>
+    (await mock.getTelemetry()).filter(
+      entry =>
+        entry.type === "req" &&
+        entry.relayUrl === relay &&
+        entry.filters?.some(
+          filter =>
+            filter.limit === 0 &&
+            filter.kinds?.includes(32222) &&
+            filter["#d"]?.includes(community),
+        ),
+    ).length
+  const requestsAfterRevocation = await liveRequests()
+  // A silence assertion needs an observation window spanning multiple old retries.
+  // This is a shared socket: unrelated application queries may still use it.
+  await page.waitForTimeout(12_000)
+  expect(await liveRequests()).toBe(requestsAfterRevocation)
+  await expect(page.locator("strong").filter({hasText: /^Community Admin$/})).toBeVisible()
+  await page.evaluate(relay => {
+    for (const socket of (window as any).__mockRelayConnections.values())
+      if (socket.url === relay) socket.close()
+  }, relay)
+  const signCountBeforeRetry = signed.length
+  granted = true
+  await access.getByRole("button", {name: "Authenticate and retry", exact: true}).click()
+  await expect.poll(() => signed.length).toBe(signCountBeforeRetry + 1)
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async ({pubkey, community, relay, moduleUrl}) => {
+          const {communityReadRecovery} = await import(/* @vite-ignore */ moduleUrl)
+          return communityReadRecovery(`32222:${pubkey}:${community}`, pubkey).blocked(relay)
+        },
+        {
+          pubkey,
+          community,
+          relay,
+          moduleUrl: moduleUrls.get("/src/app/core/community-read-recovery.ts")!,
+        },
+      ),
+    )
+    .toBe(false)
   await expect(page.getByTestId("private-community-access")).toHaveCount(0)
   await expect(
     page.getByText("Previously received data remains cached on this device.", {exact: false}),

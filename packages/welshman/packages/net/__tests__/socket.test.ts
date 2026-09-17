@@ -185,7 +185,7 @@ describe("Socket", () => {
     it("checks a cancelled managed AUTH even after its queue batch was popped", async () => {
       socket.open()
       await vi.advanceTimersByTimeAsync(0)
-      socket.emit(SocketEvent.Receive, ["AUTH", "challenge"])
+      socket.emit(SocketEvent.Receiving, ["AUTH", "challenge"])
       socket.send(["REQ", "first", {}])
       const controller = new AbortController()
       const proof = socket.auth.authenticate(

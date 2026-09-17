@@ -30,12 +30,14 @@ export const hydrateCommunityDeleteEvents = async ({
   kinds,
   since,
   signal,
+  onClosed,
 }: {
   relays: string[]
   community: CommunityPointer
   kinds: number[]
   since: number
   signal?: AbortSignal
+  onClosed?: (reason: string, relay: string) => void
 }) => {
   const pointer = parseCommunityDefinitionAddress(community.address)
   if (
@@ -55,6 +57,7 @@ export const hydrateCommunityDeleteEvents = async ({
     autoClose: true,
     threshold: 0.5,
     signal,
+    onClosed,
     priority: RELAY_REQUEST_PRIORITY.community,
     filters: [{kinds: [DELETE], "#h": [pointer.communityId], "#k": kinds.map(String), since}],
     onEvent: event => {

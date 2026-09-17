@@ -89,6 +89,7 @@ import {
 import {FINITE_RELAY_ADMISSION_TIMEOUT_MS} from "@app/core/finite-relay-request"
 import {recoverActiveNip46Receiver} from "@app/util/nip46"
 import {authenticateRelay} from "@app/core/relay-auth-coordinator"
+import {communityReadRecovery} from "@app/core/community-read-recovery"
 import {getPrivateCommunityScope} from "@app/core/private-community-scope"
 
 export const COMMUNITY_SESSION_STORAGE_KEY = "budabit/community-session"
@@ -3589,6 +3590,7 @@ export const recoverCommunityBootstrap = async (
     await recoverActiveNip46Receiver().catch(() => false)
     const definition = readCachedCommunityDefinition(pointer)
     const relays = normalizeRelays([...(definition?.relays || []), ...session.relayHints])
+    communityReadRecovery(pointer.address, viewerPubkey).reset(relays)
 
     await Promise.allSettled(
       relays.map(relay => recoverCommunityRelayAuth(relay, {timeout: options.authTimeout})),

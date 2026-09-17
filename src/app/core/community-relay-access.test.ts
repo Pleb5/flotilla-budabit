@@ -6,6 +6,7 @@ import {buildCommunityDefinition, makeCommunityPointer} from "./community-protoc
 import {connectCommunityInvitation} from "./community-relay-access"
 import {authenticateRelay} from "./relay-auth-coordinator"
 import {loadCommunityEventsWithStatus} from "./community-state"
+import {communityReadRecovery} from "./community-read-recovery"
 
 vi.mock("@welshman/app", async original => {
   const signing = {sign: vi.fn()}
@@ -47,6 +48,7 @@ const definition = finalizeEvent(
 )
 let pool: Pool
 beforeEach(() => {
+  communityReadRecovery(pointer.address, owner).reset([relay])
   vi.clearAllMocks()
   pool = new Pool({makeSocket: url => new Socket(url, [])})
   vi.spyOn(Pool, "get").mockReturnValue(pool)
@@ -103,6 +105,7 @@ describe("invitation connection with ordinary client data handling", () => {
       {relay, outcome: "denied"},
     ])
     expect(authenticateRelay).toHaveBeenCalledTimes(1)
+    expect(communityReadRecovery(pointer.address, owner).blocked(relay)).toBe(true)
     const denied = pool.get(relay)
     denied.close()
     expect(await connectCommunityInvitation(scope, new AbortController().signal)).toEqual([
@@ -110,6 +113,7 @@ describe("invitation connection with ordinary client data handling", () => {
     ])
     expect(pool.get(relay)).not.toBe(denied)
     expect(denied._disposed).toBe(true)
+    expect(communityReadRecovery(pointer.address, owner).blocked(relay)).toBe(false)
   })
   it("never purges received events on disconnect or account change", async () => {
     await connectCommunityInvitation(scope, new AbortController().signal)
