@@ -86,6 +86,7 @@ import {
 } from "../utils/grasp-service-coupling.js";
 
 export interface ForkConfig {
+  webUrls?: string[];
   description?: string;
   /** Exact destination identifier (legacy field name). */
   forkName: string;
@@ -771,11 +772,11 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
 
       selectedTargets = (config.targets || []).filter((target) => Boolean(target?.id));
       if (selectedTargets.length === 0) {
-        throw new Error("Select at least one writable fork target");
+        throw new Error("Select at least one writable repository target");
       }
       const disabledTarget = selectedTargets.find((target) => !isGitVendorEnabled(target.provider));
       if (disabledTarget) {
-        throw new Error(`${disabledTarget.label} provider is disabled for repository fork`);
+        throw new Error(`${disabledTarget.label} provider is disabled for repository copies`);
       }
 
       const selectedGraspRelays = selectedTargets
@@ -840,7 +841,8 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
         userPubkey,
         repoName: forkName,
         allowExistingRepoReuse: sameLogicalRepo,
-        existingRepoMessage: "Destination already exists. A renamed fork requires unused targets.",
+        existingRepoMessage:
+          "Destination already exists. Independent copies require unused targets.",
       });
 
       if (!gitWorkerApi) {
@@ -1104,7 +1106,7 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
         const failedSummary = remotePushResults
           .map((result) => `${result.label}: ${result.error || "sync failed"}`)
           .join("; ");
-        throw new Error(`Failed to sync all selected fork targets (${failedSummary})`);
+        throw new Error(`Failed to sync all selected repository targets (${failedSummary})`);
       }
 
       warning = getForkRemoteSyncWarning(remotePushResults);
@@ -1143,7 +1145,9 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
         ? (originalRepo.webUrls || []).filter(
             (webUrl) => !selectedGraspSourceWebUrlKeys.has(comparableRemoteUrl(webUrl))
           )
-        : [];
+        : publicSource
+          ? config.webUrls || []
+          : [];
       const successfulWebUrls = Array.from(
         new Set(
           [

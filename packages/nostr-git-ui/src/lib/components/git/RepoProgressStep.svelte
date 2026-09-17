@@ -2,6 +2,7 @@
   import { Loader2 } from "@lucide/svelte";
   import { tick } from "svelte";
   import type { NewRepoResult } from "../../hooks/useNewRepo.svelte";
+  import type { PublicRepoResult } from "../../hooks/usePublicRepo.svelte";
   import type { GitOperationActivity as GitOperationActivityValue } from "../../utils/git-operation-progress.js";
   import GitOperationActivity from "./GitOperationActivity.svelte";
   import {
@@ -11,6 +12,7 @@
   } from "../../utils/tokenManagement";
 
   interface Props {
+    announcementOnly?: boolean;
     isCreating: boolean;
     progress: {
       step: string;
@@ -21,13 +23,14 @@
     onRetry?: () => void;
     onClose?: () => void;
     /** Set when repo was just created; enables "Navigate to repo" when onNavigateToRepo is provided */
-    createdRepoResult?: NewRepoResult | null;
-    onNavigateToRepo?: (result: NewRepoResult) => void | Promise<void>;
+    createdRepoResult?: NewRepoResult | PublicRepoResult | null;
+    onNavigateToRepo?: (result: NewRepoResult | PublicRepoResult) => void | Promise<void>;
     modalLayout?: boolean;
     operationActivity?: GitOperationActivityValue;
   }
 
   const {
+    announcementOnly = false,
     isCreating,
     progress,
     onRetry,
@@ -42,7 +45,7 @@
   const totalSteps = $derived(progress.length);
   const progressPercentage = $derived(totalSteps > 0 ? (completedSteps / totalSteps) * 100 : 0);
   const hasErrors = $derived(progress.some((step) => step.error));
-  const isComplete = $derived(completedSteps === totalSteps && !hasErrors);
+  const isComplete = $derived(Boolean(createdRepoResult) && !isCreating && !hasErrors);
 
   let isNavigatingToRepo = $state(false);
 
@@ -76,9 +79,11 @@
     <div class="space-y-4">
       <h2 class="text-xl font-semibold text-gray-100">
         {#if isCreating}
-          Creating Repository...
+          {announcementOnly ? "Announcing Repository…" : "Creating Repository..."}
         {:else if isComplete}
-          Repository Created Successfully!
+          {announcementOnly
+            ? "Repository Announced Successfully!"
+            : "Repository Created Successfully!"}
         {:else if hasErrors}
           Repository Creation Failed
         {:else}
@@ -90,11 +95,14 @@
         <p class="text-sm text-gray-300">Please wait while we set up your repository.</p>
       {:else if isComplete}
         <p class="text-sm text-green-700 dark:text-green-400">
-          Your repository has been created and is ready to use.
+          {announcementOnly
+            ? "The public repository is announced on Nostr. No Git copies were made."
+            : "Your repository has been created and is ready to use."}
         </p>
       {:else if hasErrors}
         <p class="text-sm text-red-700 dark:text-red-400">
-          There was an error creating your repository. Please try again.
+          Repository setup did not complete. Check saved repository recovery before retrying if
+          publication or copying had started.
         </p>
       {/if}
     </div>

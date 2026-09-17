@@ -4,6 +4,8 @@
 
 ## Supported lane
 
+For the active, Git-only wizard (no history import), see [New repository onboarding](../features/new-repository-onboarding.md). The lane below is dormant.
+
 - One public, nonempty GitHub repository. Both inspection and source Git reads are anonymous even when a history API token or saved worker credentials exist. Only the selected history API requests may use the optional token.
 - One **new** GRASP destination and kind-30617 coordinate under the active Nostr account. Existing, provisioned-but-empty, and ambiguous destinations cannot be adopted by a fresh job.
 - All advertised branch and tag tips, including their reachable history, within the limits below. There is no silent top-five branch selection or shallow-history default.

@@ -1,5 +1,15 @@
 <script lang="ts">
   import RepoDetailsStep from "./RepoDetailsStep.svelte";
+  import RepoTypeStep from "./RepoTypeStep.svelte";
+  import { onDestroy } from "svelte";
+  import type { PublicRepoSource } from "@nostr-git/core/git";
+  import { usePublicRepo, type PublicRepoResult } from "../../hooks/usePublicRepo.svelte.js";
+  import {
+    newRepoTargets,
+    newRepoTargetHost,
+    validGraspSelection,
+  } from "../../utils/new-repo-targets.js";
+  import { preflightRemoteTargets } from "../../utils/remote-targets.js";
   import {
     suggestRepoIdentifier,
     validateRepoIdentifier,
@@ -20,11 +30,7 @@
     type DeleteRepoEvent,
     type PublishRepoEvent,
   } from "../../utils/grasp-pipeline.js";
-  import {
-    useNewRepo,
-    type NewRepoResult,
-    checkProviderRepoAvailability,
-  } from "../../hooks/useNewRepo.svelte";
+  import { useNewRepo, type NewRepoResult } from "../../hooks/useNewRepo.svelte";
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { graspServersStore } from "../../stores/graspServers.js";
   import type { RepoCommunityOption } from "./repo-community-options.js";
@@ -71,12 +77,13 @@
   }
 
   interface Props {
+    assertActor?: () => void;
     workerApi?: any; // Git worker API instance (optional for backward compatibility)
     workerInstance?: Worker; // Worker instance for event signing
     subscribeGitProgress?: SubscribeGitProgress;
-    onRepoCreated?: (repoData: NewRepoResult) => void;
+    onRepoCreated?: (repoData: NewRepoResult | PublicRepoResult) => void;
     /** Called when user chooses to navigate to the newly created repo (app should goto repo URL) */
-    onNavigateToRepo?: (repoData: NewRepoResult) => void | Promise<void>;
+    onNavigateToRepo?: (repoData: NewRepoResult | PublicRepoResult) => void | Promise<void>;
     onCancel?: () => void;
     onDispose?: () => void;
     onPublishEvent?: PublishRepoEvent;
@@ -118,6 +125,7 @@
   }
 
   const {
+    assertActor,
     workerApi,
     workerInstance,
     subscribeGitProgress,
@@ -146,11 +154,52 @@
   $effect(() => {
     return () => {
       if (isCreating()) abortCreation("Repository wizard unmounted");
+      publicRepo.abort();
       onDispose?.();
     };
   });
 
-  let createdResult = $state<NewRepoResult | null>(null);
+  let createdResult = $state<NewRepoResult | PublicRepoResult | null>(null);
+  let closed = false;
+  let repoType = $state<"new" | "import" | null>(null);
+  let importAction = $state<"announce" | "copy">("announce");
+  let sourceUrl = $state("");
+  let source = $state<PublicRepoSource | null>(null);
+  const importing = $derived(repoType === "import");
+  const needsTargets = $derived(!importing || importAction === "copy");
+  const edited = new Set<string>();
+  const publicRepo = usePublicRepo({
+    workerApi,
+    workerInstance,
+    userPubkey,
+    onPublishEvent,
+    onDeleteEvent,
+    onFetchRelayEvents,
+    getKnownRepoEvents,
+    subscribeGitProgress,
+    assertActor,
+    onProgress: (steps) => {
+      progressSteps = steps.map((step) => ({
+        ...step,
+        step: step.step === "fork" ? "copy" : step.step,
+        completed: step.status === "completed",
+      }));
+    },
+  });
+
+  function acceptSource(value: PublicRepoSource) {
+    source = value;
+    if (value.empty) importAction = "announce";
+    if (!edited.has("displayName")) repoDetails.displayName = value.displayName;
+    if (!identifierEdited) repoDetails.name = suggestRepoIdentifier(value.name);
+    if (!edited.has("description")) repoDetails.description = value.description;
+    advancedSettings.defaultBranch = value.defaultBranch;
+    if (!edited.has("tags")) advancedSettings.tags = value.topics;
+    if (!userEditedWebUrl) advancedSettings.webUrls = [value.url];
+    if (!userEditedCloneUrl) advancedSettings.cloneUrls = [value.cloneUrl];
+    updateValidationErrors();
+    debouncedNameCheck(repoDetails.name);
+  }
 
   // Initialize the useNewRepo hook
   const { createRepository, isCreating, progress, error, reset, abortCreation, operationActivity } =
@@ -180,12 +229,16 @@
     });
 
   // Store result when repo is created so we can offer "Navigate to repo"
-  let createdRepoResult = $state<NewRepoResult | null>(null);
+  let createdRepoResult = $state<NewRepoResult | PublicRepoResult | null>(null);
 
   // Token management
   let tokens = $state<Token[]>([]);
   let selectedProviders = $state<string[]>([]);
   let graspRelayUrls = $state<string[]>([]);
+  const selectedTargets = $derived(
+    needsTargets ? newRepoTargets(selectedProviders, graspRelayUrls, tokens) : []
+  );
+  const graspSelected = $derived(needsTargets && selectedProviders.includes("grasp"));
   let userEditedWebUrl = $state(false);
   let userEditedCloneUrl = $state(false);
   let userEditedRelays = $state(false);
@@ -196,7 +249,7 @@
 
   // Grasp server options sourced from global singleton store
   let graspServerOptions = $state<string[]>([]);
-  graspServersStore.subscribe((urls) => {
+  const unsubscribeGrasp = graspServersStore.subscribe((urls) => {
     graspServerOptions = urls;
   });
 
@@ -217,20 +270,21 @@
   let isCheckingAvailability = $state(false);
 
   // Subscribe to token store changes
-  tokensStore.subscribe((t) => {
+  const unsubscribeTokens = tokensStore.subscribe((t) => {
     tokens = t;
+  });
+  onDestroy(() => {
+    closed = true;
+    unsubscribeGrasp();
+    unsubscribeTokens();
+    nameCheckRun++;
+    graspServiceResolutionRunId++;
+    if (nameCheckTimeout) clearTimeout(nameCheckTimeout);
   });
 
   // Compute sensible defaults for Advanced Settings
   function providerHost(p?: string): string | undefined {
-    if (!p) return undefined;
-    const map: Record<string, string> = {
-      github: "github.com",
-      gitlab: "gitlab.com",
-      gitea: "gitea.com",
-      bitbucket: "bitbucket.org",
-    };
-    return map[p] || undefined;
+    return p ? newRepoTargetHost(p) || undefined : undefined;
   }
 
   function dedupeStrings(values: string[]): string[] {
@@ -251,7 +305,7 @@
   }
 
   function syncGraspRelaysToPreferredRelays(urls: string[]) {
-    if (!selectedProviders.includes("grasp")) return;
+    if (!graspSelected) return;
     const nextRelays = getEditableRepoRelayUrls(advancedSettings.relays || [], urls || []);
 
     if (!arraysEqual(advancedSettings.relays, nextRelays)) {
@@ -261,16 +315,13 @@
 
   function getDefaultEditableRepoRelays(urls: string[] = graspRelayUrls): string[] {
     const defaultRelaySet = dedupeStrings([...(defaultRelays || [])]);
-    return getEditableRepoRelayUrls(
-      defaultRelaySet,
-      selectedProviders.includes("grasp") ? urls || [] : []
-    );
+    return getEditableRepoRelayUrls(defaultRelaySet, graspSelected ? urls || [] : []);
   }
 
   function getEffectiveRepoRelays(): string[] {
     return getEffectiveRepoRelayUrls(
       advancedSettings.relays || [],
-      selectedProviders.includes("grasp") ? graspRelayUrls || [] : []
+      graspSelected ? graspRelayUrls || [] : []
     );
   }
 
@@ -299,16 +350,18 @@
   const unbackedGraspRelays = $derived.by(() =>
     getUnbackedKnownGraspRelayUrls({
       repoRelayUrls: getEffectiveRepoRelays(),
-      backedGraspRelayUrls: selectedProviders.includes("grasp") ? graspRelayUrls : [],
+      backedGraspRelayUrls: graspSelected ? graspRelayUrls : [],
       knownServices: resolvedGraspServices,
     })
   );
   const relayCouplingError = $derived.by(() =>
-    resolvingGraspServices
-      ? "Checking repository relay capabilities..."
-      : unbackedGraspRelays.length > 0
-        ? formatUnbackedGraspRelayError(unbackedGraspRelays)
-        : ""
+    importing && importAction === "announce"
+      ? ""
+      : resolvingGraspServices
+        ? "Checking repository relay capabilities..."
+        : unbackedGraspRelays.length > 0
+          ? formatUnbackedGraspRelayError(unbackedGraspRelays)
+          : ""
   );
   const relaySelectionError = $derived.by(() =>
     getEffectiveRepoRelays().length === 0
@@ -320,6 +373,11 @@
     const relayUrls = getEffectiveRepoRelays();
     const knownServices = [...declaredGraspServices];
     const runId = ++graspServiceResolutionRunId;
+    if (importing && importAction === "announce") {
+      resolvingGraspServices = false;
+      resolvedGraspServices = knownServices;
+      return;
+    }
     resolvingGraspServices = true;
     void resolveKnownGraspServices({ relayUrls, knownServices })
       .then((services) => {
@@ -335,7 +393,7 @@
   });
 
   const mandatoryGraspRelays = $derived.by(() =>
-    selectedProviders.includes("grasp") ? getMandatoryGraspRelayUrls(graspRelayUrls || []) : []
+    graspSelected ? getMandatoryGraspRelayUrls(graspRelayUrls || []) : []
   );
 
   function buildBudabitRepoUrl(name: string): string | undefined {
@@ -422,6 +480,7 @@
   }
 
   function updateAdvancedDefaults() {
+    if (importing) return;
     const name = repoDetails.name?.trim();
     if (!name) return;
     const providerDefaults = getProviderUrlDefaults(name);
@@ -454,7 +513,7 @@
   }
 
   // Step management (1: Choose Service, 2: Repo Details, 3: Advanced, 4: Create)
-  let currentStep = $state(1);
+  let currentStep = $state(0);
   let stepContentContainer = $state<HTMLDivElement | undefined>();
 
   // Repository details (Step 1)
@@ -517,7 +576,7 @@
   let nameCheckRun = 0;
   async function checkNameAvailability(name: string): Promise<typeof nameAvailabilityResults> {
     const run = ++nameCheckRun;
-    if (validateRepoIdentifier(name) || selectedProviders.length === 0) {
+    if (validateRepoIdentifier(name) || !needsTargets || selectedProviders.length === 0) {
       nameAvailabilityResults = null;
       isCheckingAvailability = false;
       return null;
@@ -525,21 +584,29 @@
 
     isCheckingAvailability = true;
     try {
-      const checks = await Promise.all(
-        selectedProviders.flatMap((provider) =>
-          provider === "grasp"
-            ? graspRelayUrls.map((relayUrl) =>
-                checkProviderRepoAvailability(provider, name, tokens, relayUrl, userPubkey)
-              )
-            : [checkProviderRepoAvailability(provider, name, tokens, undefined, userPubkey)]
-        )
-      );
-
+      const checked = await preflightRemoteTargets({
+        targets: selectedTargets.map((target) => ({ ...target, status: "checking" as const })),
+        tokenList: tokens,
+        userPubkey: userPubkey || "",
+        repoName: name,
+        options: { allowExistingRepoReuse: false },
+      });
       const merged = {
-        results: checks.flatMap((result) => result.results),
-        hasConflicts: checks.some((result) => result.hasConflicts),
-        availableProviders: dedupeStrings(checks.flatMap((result) => result.availableProviders)),
-        conflictProviders: dedupeStrings(checks.flatMap((result) => result.conflictProviders)),
+        results: checked.map((target) => ({
+          provider: target.provider,
+          host: target.host || target.relayUrl || "",
+          username: target.username,
+          available: target.status === "ready",
+          reason: target.detail,
+          error: target.status === "ready" ? undefined : target.detail,
+        })),
+        hasConflicts: checked.some((target) => target.existsAlready),
+        availableProviders: checked
+          .filter((target) => target.status === "ready")
+          .map((target) => target.provider),
+        conflictProviders: checked
+          .filter((target) => target.existsAlready)
+          .map((target) => target.provider),
       };
 
       if (run !== nameCheckRun || name !== repoDetails.name) return null;
@@ -621,7 +688,12 @@
   }
 
   // Navigation
+  function changeImportAction(value: "announce" | "copy") {
+    importAction = value;
+    debouncedNameCheck(repoDetails.name);
+  }
   function availabilityBlocksCreation(result: typeof nameAvailabilityResults): boolean {
+    if (!needsTargets) return false;
     return (
       !result ||
       result.hasConflicts ||
@@ -630,10 +702,13 @@
   }
 
   async function nextStep() {
-    if (currentStep === 1) {
+    if (currentStep === 0) {
+      if (repoType && (!importing || source)) currentStep = 1;
+    } else if (currentStep === 1) {
       // Require provider selection (and valid GRASP relay when applicable)
-      if (selectedProviders.length > 0 && isValidGraspConfig()) {
+      if (!needsTargets || (selectedProviders.length > 0 && isValidGraspConfig())) {
         currentStep = 2;
+        if (needsTargets && repoDetails.name) debouncedNameCheck(repoDetails.name);
       }
     } else if (currentStep === 2 && validateStep1()) {
       const availability = await checkNameAvailability(repoDetails.name);
@@ -646,7 +721,8 @@
   }
 
   function prevStep() {
-    if (currentStep === 2) {
+    if (currentStep === 1) currentStep = 0;
+    else if (currentStep === 2) {
       currentStep = 1;
     } else if (currentStep === 3) {
       currentStep = 2;
@@ -666,12 +742,7 @@
     }
     // Clear previous availability results when provider changes
     nameAvailabilityResults = null;
-    // Reset web/clone URL state so they reflect the new service
-    advancedSettings.webUrls = [];
-    advancedSettings.cloneUrls = [];
-    userEditedRelays = false;
-    userEditedWebUrl = false;
-    userEditedCloneUrl = false;
+    // Preserve user edits; untouched new-repo defaults are recomputed below.
     // Auto re-check if a name is already entered
     if (repoDetails.name && repoDetails.name.trim().length > 0) {
       debouncedNameCheck(repoDetails.name);
@@ -710,35 +781,78 @@
 
   // Validate relay URL for GRASP provider
   function isValidGraspConfig(): boolean {
-    if (!selectedProviders.includes("grasp")) return true;
-    const urls = graspRelayUrls || [];
-    if (urls.length === 0) return false;
-    return urls.every((u) => {
-      const v = (u || "").trim();
-      return v !== "" && (v.startsWith("wss://") || v.startsWith("ws://"));
-    });
+    return validGraspSelection(graspSelected, graspRelayUrls);
   }
 
   // Repository creation using useNewRepo hook
   async function startRepositoryCreation() {
-    if (!validateStep1()) return;
-
-    if (selectedProviders.length === 0) return;
-
-    const availability = await checkNameAvailability(repoDetails.name);
-    if (availabilityBlocksCreation(availability)) return;
-
-    const relayCount = getEffectiveRepoRelays().length;
-    if (relayCount === 0 || relaySelectionError) return;
-
-    const providerDefaults = getProviderUrlDefaults(repoDetails.name.trim());
-    const cloneProviderOrder = getCloneProviderOrder(providerDefaults);
-    const selectedCommunity = getRepoCommunityOptionBinding(
-      findRepoCommunityOption(communityOptions, selectedCommunityPubkey)
-    );
-
     try {
+      assertActor?.();
+      if (!validateStep1()) throw new Error("Review the repository details before continuing");
+
+      if (needsTargets && (selectedProviders.length === 0 || !isValidGraspConfig()))
+        throw new Error("Select valid target remotes before continuing");
+
+      const availability = await checkNameAvailability(repoDetails.name);
+      if (closed) return;
+      assertActor?.();
+      if (availabilityBlocksCreation(availability))
+        throw new Error("Destination availability changed. Review target errors before continuing");
+
+      const relayCount = getEffectiveRepoRelays().length;
+      if (relayCount === 0 || relaySelectionError)
+        throw new Error(relaySelectionError || "Select a metadata relay");
+
+      const providerDefaults = getProviderUrlDefaults(repoDetails.name.trim());
+      const cloneProviderOrder = getCloneProviderOrder(providerDefaults);
+      const selectedCommunity = getRepoCommunityOptionBinding(
+        findRepoCommunityOption(communityOptions, selectedCommunityPubkey)
+      );
+
       createdResult = null;
+      if (importing && source) {
+        progressSteps = [
+          { step: "source", message: "Rechecking the public repository…", completed: false },
+        ];
+        const result = await publicRepo.createRepository({
+          source,
+          mode: importAction,
+          forkName: repoDetails.name,
+          displayName: repoDetails.displayName,
+          description: repoDetails.description,
+          targets: selectedTargets,
+          relays: getEffectiveRepoRelays(),
+          tags: advancedSettings.tags,
+          webUrls: advancedSettings.webUrls,
+          maintainers: advancedSettings.maintainers,
+          community: selectedCommunity,
+          knownGraspServices: resolvedGraspServices,
+        });
+        createdRepoResult = result;
+        if (result) {
+          progressSteps = [
+            {
+              step: "complete",
+              message:
+                importAction === "announce"
+                  ? "Repository announced on Nostr. No Git copies were made."
+                  : publicRepo.warning || "Independent copies and Nostr metadata verified.",
+              completed: true,
+            },
+          ];
+          onRepoCreated?.(result);
+        } else
+          progressSteps = [
+            ...progressSteps,
+            {
+              step: "error",
+              message: publicRepo.error || "Repository operation failed",
+              error: publicRepo.error || "Repository operation failed",
+              completed: false,
+            },
+          ];
+        return;
+      }
       await createRepository({
         name: repoDetails.name,
         displayName: repoDetails.displayName.trim(),
@@ -747,8 +861,9 @@
         gitignoreTemplate: advancedSettings.gitignoreTemplate,
         licenseTemplate: advancedSettings.licenseTemplate,
         defaultBranch: advancedSettings.defaultBranch,
-        provider: selectedProviders[0] as string,
-        providers: [...selectedProviders],
+        provider: selectedTargets[0]?.provider || "grasp",
+        providers: [...new Set(selectedTargets.map((target) => target.provider))],
+        targets: selectedTargets,
         relayUrls: selectedProviders.includes("grasp") ? graspRelayUrls : undefined,
         relayUrl: selectedProviders.includes("grasp") ? graspRelayUrls[0] : undefined,
         authorName: advancedSettings.authorName,
@@ -778,6 +893,8 @@
   }
 
   function handleClose() {
+    closed = true;
+    publicRepo.abort();
     if (isCreating()) abortCreation("User cancelled repository creation");
     if (onCancel) {
       onCancel();
@@ -792,6 +909,7 @@
 
   // Step component event handlers
   function handleDisplayNameChange(name: string) {
+    edited.add("displayName");
     repoDetails.displayName = name;
     if (!identifierEdited) {
       repoDetails.name = suggestRepoIdentifier(name);
@@ -813,6 +931,7 @@
   }
 
   function handleDescriptionChange(description: string) {
+    edited.add("description");
     repoDetails.description = description;
     // Update validation errors after change
     updateValidationErrors();
@@ -857,6 +976,7 @@
   }
 
   function handleTagsChange(tags: string[]) {
+    edited.add("tags");
     advancedSettings.tags = tags;
   }
 
@@ -905,23 +1025,30 @@
     <!-- Header -->
     <div class="text-center space-y-2">
       <h1 class="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-        Create a New Repository
+        {currentStep === 0
+          ? "New Repository"
+          : importing
+            ? "Import an existing Repo"
+            : "Create a New Repository"}
       </h1>
       <p class="break-words text-sm text-muted-foreground sm:text-base">
-        Set up a new git repository with Nostr integration
+        {importing
+          ? "Public source reads are anonymous. Issues, pull requests and comments are not imported."
+          : "Set up a git repository with Nostr integration"}
       </p>
     </div>
   </div>
 
   {#if currentStep === 4}
     <RepoProgressStep
-      isCreating={isCreating()}
+      isCreating={isCreating() || publicRepo.isCreating}
       progress={progressSteps}
-      onRetry={handleRetry}
+      onRetry={importing ? undefined : handleRetry}
       onClose={handleClose}
       createdRepoResult={createdRepoResult}
       onNavigateToRepo={onNavigateToRepo}
-      operationActivity={operationActivity()}
+      operationActivity={importing ? publicRepo.operationActivity : operationActivity()}
+      announcementOnly={importing && importAction === "announce"}
       modalLayout={true}
     />
   {:else}
@@ -931,17 +1058,70 @@
       class="min-h-0 flex-1 overflow-x-hidden overflow-y-auto [overflow-wrap:anywhere]"
     >
       <div class="px-4 pb-12 pt-5 sm:px-6 sm:pb-16 sm:pt-6">
-        {#if currentStep === 1}
-          <StepChooseService
-            selectedProviders={selectedProviders}
-            onProvidersChange={handleProvidersChange as any}
-            disabledProviders={nameAvailabilityResults?.conflictProviders || []}
-            relayUrls={graspRelayUrls}
-            onRelayUrlsChange={handleRelayUrlsChange}
-            graspServerOptions={recommendedGraspServerOptions}
+        {#if currentStep === 0}
+          <RepoTypeStep
+            mode={repoType}
+            sourceUrl={sourceUrl}
+            source={source}
+            onModeChange={(mode) => {
+              repoType = mode;
+              nameAvailabilityResults = null;
+              if (mode === "import" && source) acceptSource(source);
+            }}
+            onUrlChange={(value) => {
+              sourceUrl = value;
+              source = null;
+            }}
+            onSource={acceptSource}
           />
+        {:else if currentStep === 1}
+          {#if importing}
+            <fieldset class="mb-5 space-y-3 rounded border border-border p-4">
+              <legend class="px-1 font-semibold">Choose target remotes</legend>
+              <label class="flex items-center gap-3"
+                ><input
+                  type="radio"
+                  name="import-action"
+                  checked={importAction === "announce"}
+                  onchange={() => changeImportAction("announce")}
+                /> Announce only</label
+              >
+              <p class="text-sm text-muted-foreground">
+                Publish the existing public source URLs on Nostr. No Git copy, destination token or
+                source ownership claim.
+              </p>
+              <label class="flex items-center gap-3"
+                ><input
+                  type="radio"
+                  name="import-action"
+                  checked={importAction === "copy"}
+                  onchange={() => changeImportAction("copy")}
+                  disabled={source?.empty}
+                /> Copy to target remotes</label
+              >
+              <p class="text-sm text-muted-foreground">
+                Copy all branches and tags once. Synchronization remains manual; no native forge
+                fork is created.
+              </p>
+              {#if source?.empty}<p class="text-sm text-muted-foreground">
+                  This source is empty; use Announce only.
+                </p>{/if}
+            </fieldset>
+          {/if}
+          {#if needsTargets}
+            <StepChooseService
+              importing={importing}
+              selectedProviders={selectedProviders}
+              onProvidersChange={handleProvidersChange as any}
+              disabledProviders={nameAvailabilityResults?.conflictProviders || []}
+              relayUrls={graspRelayUrls}
+              onRelayUrlsChange={handleRelayUrlsChange}
+              graspServerOptions={recommendedGraspServerOptions}
+            />
+          {/if}
         {:else if currentStep === 2}
           <RepoDetailsStep
+            importing={importing}
             repoName={repoDetails.name}
             displayName={repoDetails.displayName}
             onDisplayNameChange={handleDisplayNameChange}
@@ -963,6 +1143,7 @@
           />
         {:else if currentStep === 3}
           <AdvancedSettingsStep
+            importing={importing}
             gitignoreTemplate={advancedSettings.gitignoreTemplate}
             licenseTemplate={advancedSettings.licenseTemplate}
             defaultBranch={advancedSettings.defaultBranch}
@@ -991,6 +1172,28 @@
             searchRelays={searchRelays}
             onCloneUrlsChange={handleCloneUrlsChange}
           />
+          {#if importing && source}
+            <section class="mt-6 space-y-2 rounded border border-border p-4">
+              <h3 class="font-semibold">
+                Review {importAction === "announce" ? "announcement" : "independent copies"}
+              </h3>
+              <p class="break-all text-sm">Source: {source.url}</p>
+              <p class="text-sm">
+                {importAction === "announce"
+                  ? "Announce the existing public source URLs; no Git writes."
+                  : `Create independent copies on: ${selectedTargets.map((target) => target.label).join(", ")}. Only verified destinations will be announced.`}
+              </p>
+              <p class="text-sm text-muted-foreground">
+                Issues, pull requests and comments are not imported. Existing authorship and files
+                are preserved. Copies are limited to 100 branches/tags, a 50 MiB reported source
+                estimate and 64 MiB per Git HTTP body. Larger repositories can still be announced.
+              </p>
+              <p class="text-sm text-muted-foreground">
+                Publication is public and may remain after cancellation. If interrupted, use saved
+                repository recovery rather than starting again.
+              </p>
+            </section>
+          {/if}
           <div class="mt-6">
             <RepoCommunitySelect
               options={communityOptions}
@@ -1014,7 +1217,7 @@
         >
 
         <div class="flex flex-col-reverse gap-3 sm:flex-row">
-          {#if currentStep > 1}
+          {#if currentStep > 0}
             <Button
               onclick={prevStep}
               variant="outline"
@@ -1025,16 +1228,18 @@
 
           <Button
             onclick={nextStep}
-            disabled={(currentStep === 1 &&
-              (selectedProviders.length === 0 ||
-                (selectedProviders.includes("grasp") && !isValidGraspConfig()))) ||
+            disabled={(currentStep === 0 && (!repoType || (importing && !source))) ||
+              (currentStep === 1 &&
+                needsTargets &&
+                (selectedProviders.length === 0 ||
+                  (selectedProviders.includes("grasp") && !isValidGraspConfig()))) ||
               (currentStep === 2 &&
                 (!validateStep1() ||
                   isCheckingAvailability ||
                   availabilityBlocksCreation(nameAvailabilityResults))) ||
               (currentStep === 3 &&
-                (!advancedSettings.authorName.trim() ||
-                  !advancedSettings.authorEmail.trim() ||
+                ((!importing &&
+                  (!advancedSettings.authorName.trim() || !advancedSettings.authorEmail.trim())) ||
                   getEffectiveRepoRelays().length === 0 ||
                   Boolean(relaySelectionError) ||
                   isCheckingAvailability ||
@@ -1042,7 +1247,13 @@
             variant="git"
             class="w-full sm:w-auto"
           >
-            {currentStep === 3 ? "Create Repository" : "Next"}
+            {currentStep === 3
+              ? importing
+                ? importAction === "announce"
+                  ? "Announce Repository"
+                  : "Copy and Announce Repository"
+                : "Create Repository"
+              : "Next"}
           </Button>
         </div>
       </div>

@@ -116,6 +116,7 @@ export function usePublicRepo(options: UseForkRepoOptions = {}) {
         description: config.description ?? source.description,
         clone: [source.cloneUrl],
         web: [source.url],
+        ...(config.webUrls ? { web: config.webUrls.filter((value) => value.trim()) } : {}),
         relays,
         hashtags: config.tags,
         maintainers: config.maintainers,

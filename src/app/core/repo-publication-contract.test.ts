@@ -122,11 +122,15 @@ describe("repository publication source contract", () => {
     expect(layout).toContain(
       "relays: options.relays !== undefined ? options.relays : fallbackRelays",
     )
-    expect(
-      gitPage.match(
-        /repoEvent\.kind === GIT_REPO_STATE && context\?\.relays !== undefined/g,
-      ),
-    ).toHaveLength(2)
+    // New Repo and recovery share the scoped owner-bound publisher. The retired
+    // history importer no longer contributes a separate inline callback.
+    expect(gitPage.match(/createRepoCreationPublisher\(\{/g)).toHaveLength(2)
+    const creationPublisher = readProjectFile("./fork-publication.ts")
+    const creationScope = creationPublisher.indexOf("requireRepoPublicationScope({event")
+    const creationTransport = creationPublisher.indexOf("return transport.publish(event")
+    expect(creationScope).toBeGreaterThan(-1)
+    expect(creationTransport).toBeGreaterThan(creationScope)
+    expect(creationPublisher).toContain("relays: context?.relays || []")
   })
 
   it("completes strict repository inventory before destructive deletion work", () => {

@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
-
   interface Props {
+    importing?: boolean;
     repoName: string;
     displayName: string;
     ownerPubkey?: string;
@@ -39,6 +38,7 @@
   }
 
   const {
+    importing = false,
     repoName,
     displayName,
     ownerPubkey,
@@ -58,14 +58,6 @@
     nameAvailabilityResults = null,
     isCheckingAvailability = false,
   }: Props = $props();
-
-  // State for real-time repository name validation
-  let tokens = $state<Token[]>([]);
-
-  // Subscribe to token store
-  tokensStore.subscribe((t) => {
-    tokens = t;
-  });
 
   const gitignoreOptions = [
     { value: "", label: "None" },
@@ -142,7 +134,9 @@
   <div class="space-y-4">
     <h2 class="text-xl font-semibold text-foreground">Repository Details</h2>
     <p class="text-sm text-muted-foreground">
-      Set up the basic information for your new repository.
+      {importing
+        ? "Review the public source metadata and choose your Nostr repository identity. No source ownership is implied."
+        : "Set up the basic information for your new repository."}
     </p>
   </div>
 
@@ -316,79 +310,90 @@
     </div>
 
     <!-- Initialize with README -->
-    <div class="border-t border-border pt-4">
-      <div class="space-y-3">
-        <h3 class="text-sm font-medium text-foreground">Initialize repository</h3>
-        <label class="flex items-center space-x-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={initializeWithReadme}
-            onchange={handleReadmeChange}
-            class="h-4 w-4 rounded border-input text-primary focus:ring-ring"
-          />
-          <div>
-            <div class="text-sm font-medium text-foreground">Add a README file</div>
-            <div class="text-sm text-muted-foreground">
-              This is where you can write a long description for your project
-            </div>
-          </div>
-        </label>
-
-        <div class="mt-4 border-t border-border pt-4">
-          <div class="space-y-4">
+    {#if importing}
+      <p class="rounded border border-border p-3 text-sm text-muted-foreground">
+        Source default branch: <strong>{defaultBranch || "None (empty repository)"}</strong>.
+        Existing files, licenses and commit authorship are preserved; no initialization files are
+        generated.
+      </p>
+    {:else}
+      <div class="border-t border-border pt-4">
+        <div class="space-y-3">
+          <h3 class="text-sm font-medium text-foreground">Initialize repository</h3>
+          <label class="flex items-center space-x-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={initializeWithReadme}
+              onchange={handleReadmeChange}
+              class="h-4 w-4 rounded border-input text-primary focus:ring-ring"
+            />
             <div>
-              <label for="default-branch" class="mb-2 block text-sm font-medium text-foreground">
-                Default branch name
-              </label>
-              <input
-                id="default-branch"
-                type="text"
-                value={defaultBranch}
-                oninput={handleBranchInput}
-                placeholder="master"
-                class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-              />
+              <div class="text-sm font-medium text-foreground">Add a README file</div>
+              <div class="text-sm text-muted-foreground">
+                This is where you can write a long description for your project
+              </div>
             </div>
+          </label>
 
-            <!-- .gitignore Template -->
-            <div>
-              <label
-                for="gitignore-template"
-                class="mb-2 block text-sm font-medium text-foreground"
-              >
-                .gitignore template
-              </label>
-              <select
-                id="gitignore-template"
-                value={gitignoreTemplate}
-                onchange={handleGitignoreChange}
-                class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {#each gitignoreOptions as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
-            </div>
+          <div class="mt-4 border-t border-border pt-4">
+            <div class="space-y-4">
+              <div>
+                <label for="default-branch" class="mb-2 block text-sm font-medium text-foreground">
+                  Default branch name
+                </label>
+                <input
+                  id="default-branch"
+                  type="text"
+                  value={defaultBranch}
+                  oninput={handleBranchInput}
+                  placeholder="master"
+                  class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
 
-            <!-- License Template -->
-            <div>
-              <label for="license-template" class="mb-2 block text-sm font-medium text-foreground">
-                License
-              </label>
-              <select
-                id="license-template"
-                value={licenseTemplate}
-                onchange={handleLicenseChange}
-                class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-              >
-                {#each licenseOptions as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
+              <!-- .gitignore Template -->
+              <div>
+                <label
+                  for="gitignore-template"
+                  class="mb-2 block text-sm font-medium text-foreground"
+                >
+                  .gitignore template
+                </label>
+                <select
+                  id="gitignore-template"
+                  value={gitignoreTemplate}
+                  onchange={handleGitignoreChange}
+                  class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {#each gitignoreOptions as option}
+                    <option value={option.value}>{option.label}</option>
+                  {/each}
+                </select>
+              </div>
+
+              <!-- License Template -->
+              <div>
+                <label
+                  for="license-template"
+                  class="mb-2 block text-sm font-medium text-foreground"
+                >
+                  License
+                </label>
+                <select
+                  id="license-template"
+                  value={licenseTemplate}
+                  onchange={handleLicenseChange}
+                  class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {#each licenseOptions as option}
+                    <option value={option.value}>{option.label}</option>
+                  {/each}
+                </select>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    {/if}
   </div>
 </div>

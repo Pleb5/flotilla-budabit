@@ -8,6 +8,7 @@
     onProvidersChange: (providers: string[]) => void;
     onRelayUrlsChange?: (urls: string[]) => void;
     graspServerOptions?: string[];
+    importing?: boolean;
   }
 
   const __props = $props();
@@ -21,6 +22,7 @@
 
 <div class="space-y-4">
   <ProviderSelectionStep
+    importing={__props.importing ?? false}
     selectedProviders={selectedProviders}
     onProvidersChange={onProvidersChange as any}
     disabledProviders={disabledProviders}

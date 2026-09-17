@@ -105,6 +105,7 @@
   import type {
     ImportResult,
     NewRepoResult,
+    PublicRepoResult,
     ProfileSearchContext,
     RepoCommunityOption,
   } from "@nostr-git/ui"
@@ -4249,7 +4250,7 @@
   }
 
   const hydrateRepoEvents = (
-    result: Pick<ImportResult | NewRepoResult, "announcementEvent" | "stateEvent">,
+    result: Pick<ImportResult | NewRepoResult | PublicRepoResult, "announcementEvent" | "stateEvent">,
   ) => {
     for (const event of [result.announcementEvent, result.stateEvent]) {
       const publishedEvent = event as TrustedEvent | undefined
@@ -4265,7 +4266,7 @@
   }
 
   const navigateToCreatedRepo = async (
-    result: Pick<ImportResult | NewRepoResult, "announcementEvent" | "stateEvent">,
+    result: Pick<ImportResult | NewRepoResult | PublicRepoResult, "announcementEvent" | "stateEvent">,
     failureContext: string,
   ): Promise<void> => {
     try {
@@ -4454,11 +4455,12 @@
           workerApi, // Pass initialized worker API
           workerInstance, // Pass worker instance for event signing
           subscribeGitProgress: subscribeGitWorkerProgress,
-          onRepoCreated: (result: NewRepoResult) => {
+          assertActor: assertCreationOwner,
+          onRepoCreated: (result: NewRepoResult | PublicRepoResult) => {
             operationPublishTransport.dispose()
             setTimeout(() => hydrateRepoEvents(result), 0)
           },
-          onNavigateToRepo: (result: NewRepoResult) => navigateToCreatedRepo(result, "new repo"),
+          onNavigateToRepo: (result: NewRepoResult | PublicRepoResult) => navigateToCreatedRepo(result, "new repo"),
           onCancel: () => {
             operationPublishTransport.dispose()
             back()

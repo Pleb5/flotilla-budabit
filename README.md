@@ -85,6 +85,7 @@ Budabit combines Communikey communities with decentralized Git functionality thr
 
 - **Communikey Communities**: Select an exact `kind:32222` community branch by its canonical definition `naddr`; definition tags provide metadata, relays, sections, permissions, and media servers
 - **Decentralized Git Repositories**: Discover and manage Git repositories using Nostr relays and Git remotes
+- **[New Repo onboarding](docs/features/new-repository-onboarding.md)**: Create a repository or anonymously inspect an existing public GitHub, GitLab, Gitea or Forgejo/Codeberg source, then announce it with optional independent Git copies
 - **Issue And Pull Request Tracking**: Create, manage, and discuss issues and PRs with Nostr-native status updates
 - **Community Catalogs**: Target repositories, calendar events, goals, permalinks, and widgets to `/c/<community>` pages
 - **Extensions And Smart Widgets**: Install Smart Widget extensions from Nostr `kind:30033` events; built-in extensions are not bundled by default

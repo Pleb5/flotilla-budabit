@@ -9,6 +9,7 @@
   } from "../../types/profile-search.js";
 
   interface Props {
+    importing?: boolean;
     gitignoreTemplate: string;
     licenseTemplate: string;
     defaultBranch: string;
@@ -52,6 +53,7 @@
   }
 
   const {
+    importing = false,
     gitignoreTemplate,
     licenseTemplate,
     defaultBranch,
@@ -323,43 +325,45 @@
 
   <div class="space-y-6">
     <!-- Author Information -->
-    <div class="border-t border-border pt-6">
-      <h3 class="mb-4 text-lg font-medium text-foreground">Author Information</h3>
+    {#if !importing}
+      <div class="border-t border-border pt-6">
+        <h3 class="mb-4 text-lg font-medium text-foreground">Author Information</h3>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label for="author-name" class="mb-2 block text-sm font-medium text-foreground">
-            Author Name *
-          </label>
-          <input
-            id="author-name"
-            type="text"
-            value={authorName}
-            oninput={(e) => onAuthorNameChange((e.target as HTMLInputElement).value)}
-            placeholder="Your full name"
-            class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-            required
-          />
-        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="author-name" class="mb-2 block text-sm font-medium text-foreground">
+              Author Name *
+            </label>
+            <input
+              id="author-name"
+              type="text"
+              value={authorName}
+              oninput={(e) => onAuthorNameChange((e.target as HTMLInputElement).value)}
+              placeholder="Your full name"
+              class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+              required
+            />
+          </div>
 
-        <div>
-          <label for="author-email" class="mb-2 block text-sm font-medium text-foreground">
-            Author Email *
-          </label>
-          <input
-            id="author-email"
-            type="email"
-            value={authorEmail}
-            oninput={(e) => onAuthorEmailChange((e.target as HTMLInputElement).value)}
-            placeholder="your.email@example.com"
-            class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
-            required
-          />
+          <div>
+            <label for="author-email" class="mb-2 block text-sm font-medium text-foreground">
+              Author Email *
+            </label>
+            <input
+              id="author-email"
+              type="email"
+              value={authorEmail}
+              oninput={(e) => onAuthorEmailChange((e.target as HTMLInputElement).value)}
+              placeholder="your.email@example.com"
+              class="w-full rounded-md border border-input bg-background px-3 py-2 text-foreground shadow-sm focus:border-ring focus:outline-none focus:ring-2 focus:ring-ring"
+              required
+            />
+          </div>
         </div>
       </div>
-    </div>
 
-    <!-- NIP-34 Repository Metadata -->
+      <!-- NIP-34 Repository Metadata -->
+    {/if}
     <div class="border-t border-border pt-6">
       <h3 class="mb-4 text-lg font-medium text-foreground">Repository Metadata (NIP-34)</h3>
 
@@ -408,7 +412,9 @@
 
         <!-- Clone URLs -->
         <fieldset>
-          <legend class="mb-2 block text-sm font-medium text-foreground"> Clone URLs </legend>
+          <legend class="mb-2 block text-sm font-medium text-foreground"
+            >{importing ? "Inspected source clone URL" : "Clone URLs"}</legend
+          >
           <div class="space-y-2">
             {#if cloneUrls.length === 0}
               <p class="text-sm text-muted-foreground">
@@ -417,31 +423,34 @@
             {/if}
             {#each cloneUrls as url, index}
               <div class="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
-                <button
-                  type="button"
-                  class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40"
-                  aria-label="Move clone URL up"
-                  disabled={index === 0}
-                  onclick={() => moveCloneUrl(index, -1)}
-                >
-                  <ChevronUp class="w-4 h-4" />
-                </button>
-                <button
-                  type="button"
-                  class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40"
-                  aria-label="Move clone URL down"
-                  disabled={index === cloneUrls.length - 1}
-                  onclick={() => moveCloneUrl(index, 1)}
-                >
-                  <ChevronDown class="w-4 h-4" />
-                </button>
+                {#if !importing}
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    aria-label="Move clone URL up"
+                    disabled={index === 0}
+                    onclick={() => moveCloneUrl(index, -1)}
+                  >
+                    <ChevronUp class="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    aria-label="Move clone URL down"
+                    disabled={index === cloneUrls.length - 1}
+                    onclick={() => moveCloneUrl(index, 1)}
+                  >
+                    <ChevronDown class="w-4 h-4" />
+                  </button>
+                {/if}
                 <input
                   type="text"
                   value={cloneUrls[index]}
+                  aria-label={importing ? "Source clone URL" : `Clone URL ${index + 1}`}
                   readonly
                   class="min-w-0 flex-1 basis-[calc(100%_-_6rem)] rounded-md border border-input bg-muted/60 px-3 py-2 text-foreground shadow-sm sm:basis-auto"
                 />
-                {#if index === 0}
+                {#if index === 0 && !importing}
                   <span
                     class="rounded border border-primary/30 bg-primary/10 px-2 py-1 text-xs text-primary"
                     >Primary</span
@@ -451,7 +460,9 @@
             {/each}
           </div>
           <p class="mt-1 text-sm text-muted-foreground">
-            Reorder to choose priority. The first URL is the primary clone URL.
+            {importing
+              ? "Announce only retains this source URL. Copy mode announces only successfully verified destination clone URLs, not this source as a writable remote."
+              : "Reorder to choose priority. The first URL is the primary clone URL."}
           </p>
         </fieldset>
 

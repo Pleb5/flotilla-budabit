@@ -1,13 +1,11 @@
 <script lang="ts">
-  import { useRegistry } from "../../useRegistry";
+  import { onMount } from "svelte";
   import { normalizeGraspServerUrls } from "../../stores/graspServers.js";
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { ACCESS_TOKEN_SETTINGS_PATH } from "../../utils/tokenManagement";
   import { sanitizeRelays } from "@nostr-git/core/utils";
-  import { isGitVendorEnabled, type GitVendor } from "@nostr-git/core/git";
-  import { onMount } from "svelte";
-
-  const { Card, CardContent } = useRegistry();
+  import { registerGitHost, type GitVendor } from "@nostr-git/core/git";
+  import { newRepoTargetCards, validGraspSelection } from "../../utils/new-repo-targets.js";
 
   interface Props {
     selectedProviders: string[];
@@ -16,415 +14,172 @@
     relayUrls?: string[];
     onRelayUrlsChange?: (urls: string[]) => void;
     graspServerOptions: string[];
+    importing?: boolean;
   }
   const {
     selectedProviders,
     onProvidersChange,
-    disabledProviders,
-    relayUrls,
+    disabledProviders = [],
+    relayUrls = [],
     onRelayUrlsChange,
     graspServerOptions,
+    importing = false,
   }: Props = $props();
-
   let tokens = $state<Token[]>([]);
-  let graspRelayUrls = $state<string[]>([]);
-  let newGraspRelayUrl = $state<string>("");
-  let availableProviders = $state<
-    {
-      id: string;
-      name: string;
-      host: string;
-      icon: string;
-      description: string;
-      hasToken: boolean;
-      disabled?: boolean;
-      disabledReason?: string;
-      hasConflict?: boolean;
-    }[]
-  >([]);
-
-  // Subscribe to token store changes
-  tokensStore.subscribe((t) => {
-    tokens = t;
-    updateAvailableProviders();
-  });
-
-  onMount(async () => {
-    // Ensure tokens are loaded
-    await tokensStore.waitForInitialization();
-    updateAvailableProviders();
-  });
-
-  // Keep local input in sync if parent updates relayUrls prop
-  $effect(() => {
-    const next = (relayUrls ?? []).map((u) => (u || "").trim()).filter(Boolean);
-    if (JSON.stringify(graspRelayUrls) !== JSON.stringify(next)) {
-      graspRelayUrls = next;
-    }
-  });
-
-  const recommendedGraspServerOptions = $derived.by(() =>
-    normalizeGraspServerUrls(graspServerOptions)
-  );
-
-  function updateAvailableProviders() {
-    const providers = [
-      {
-        id: "grasp",
-        name: "GRASP Server",
-        host: "nostr-relay",
-        icon: "⚡",
-        description: "Uses Nostr signer for authentication",
-        hasToken: true, // GRASP uses Nostr signer, always available
-      },
-      {
-        id: "github",
-        name: "GitHub",
-        host: "github.com",
-        icon: "🐙",
-        description: "Create repository on GitHub.com",
-        hasToken: tokens.some((t) => t.host === "github.com"),
-      },
-      {
-        id: "gitlab",
-        name: "GitLab",
-        host: "gitlab.com",
-        icon: "🦊",
-        description: "Create repository on GitLab.com",
-        hasToken: tokens.some((t) => t.host === "gitlab.com"),
-      },
-      {
-        id: "gitea",
-        name: "Gitea",
-        host: "gitea.io",
-        icon: "🍃",
-        description: "Create repository on self-hosted Gitea",
-        hasToken: tokens.some((t) => t.host.includes("gitea")),
-      },
-      {
-        id: "bitbucket",
-        name: "Bitbucket",
-        host: "bitbucket.org",
-        icon: "🪣",
-        description: "Create repository on Bitbucket.org",
-        hasToken: tokens.some((t) => t.host === "bitbucket.org"),
-      },
-    ].filter((provider) => isGitVendorEnabled(provider.id as GitVendor));
-
-    const enabledSelections = selectedProviders.filter((provider) =>
-      isGitVendorEnabled(provider as GitVendor)
-    );
-    if (enabledSelections.length !== selectedProviders.length) {
-      onProvidersChange(enabledSelections);
-    }
-
-    // Mark providers as disabled if they have name conflicts
-    availableProviders = providers.map((provider) => {
-      const conflict = (disabledProviders ?? []).includes(provider.id);
-      const isGrasp = provider.id === "grasp";
-      const isDisabled = false;
-      return {
-        ...provider,
-        disabled: isDisabled,
-        disabledReason: isDisabled ? "Repository name already exists" : undefined,
-        hasToken: isGrasp ? true : provider.hasToken,
-        hasConflict: conflict,
-      };
+  let newRelay = $state("");
+  let inputError = $state("");
+  onMount(() => {
+    const unsubscribe = tokensStore.subscribe((value) => {
+      tokens = value;
     });
+    void tokensStore.waitForInitialization();
+    return unsubscribe;
+  });
+  const providers = $derived(newRepoTargetCards(tokens));
+  const graspValid = $derived(validGraspSelection(selectedProviders.includes("grasp"), relayUrls));
+  const recommended = $derived(normalizeGraspServerUrls(graspServerOptions));
 
-    // Auto-select first available provider if none selected
-    if (enabledSelections.length === 0 && providers.some((p) => p.hasToken)) {
-      const firstAvailable = providers.find((p) => p.hasToken);
-      if (firstAvailable) {
-        onProvidersChange([firstAvailable.id]);
-      }
-    }
-  }
-
-  function handleProviderToggle(providerId: string) {
-    const isSelected = selectedProviders.includes(providerId);
-    const next = isSelected
-      ? selectedProviders.filter((id) => id !== providerId)
-      : [...selectedProviders, providerId];
-    onProvidersChange(next);
-  }
-
-  function updateRelayUrls(next: string[]) {
-    const normalized = Array.from(
-      new Set(
-        next
-          .map((url) => {
-            const trimmed = (url || "").trim();
-            return sanitizeRelays([trimmed])[0] || trimmed;
-          })
-          .filter(Boolean)
-      )
+  function toggle(id: string) {
+    onProvidersChange(
+      selectedProviders.includes(id)
+        ? selectedProviders.filter((value) => value !== id)
+        : [...selectedProviders, id]
     );
-    graspRelayUrls = normalized;
-    onRelayUrlsChange?.(normalized);
   }
-
-  function handleRelayUrlInputChange(index: number, value: string) {
-    const next = [...graspRelayUrls];
-    next[index] = value;
-    updateRelayUrls(next);
-  }
-
-  function addRelayUrl(value?: string) {
-    const raw = (value || "").trim();
-    const v = sanitizeRelays([raw])[0] || raw;
-    const next = [...graspRelayUrls];
-    next.push(v);
-    updateRelayUrls(next);
-  }
-
-  function commitNewRelayUrl() {
-    const v = (newGraspRelayUrl || "").trim();
-    if (!v) return;
-    const normalized = sanitizeRelays([v])[0] || v;
-    if (!graspRelayUrls.includes(normalized)) {
-      addRelayUrl(v);
+  function addRelay(value: string) {
+    if (!validGraspSelection(true, [value])) {
+      inputError = "Enter a valid ws:// or wss:// server URL without credentials.";
+      return;
     }
-    newGraspRelayUrl = "";
-  }
-
-  function removeRelayUrl(index: number) {
-    const next = graspRelayUrls.filter((_, i) => i !== index);
-    updateRelayUrls(next);
-  }
-
-  function isValidRelayUrl(url: string): boolean {
-    return url.trim() !== "" && (url.startsWith("wss://") || url.startsWith("ws://"));
+    const normalized = sanitizeRelays([value])[0];
+    onRelayUrlsChange?.([...new Set([...relayUrls, normalized])]);
+    newRelay = "";
+    inputError = "";
   }
 </script>
 
-<div class="min-w-0 max-w-full space-y-6 [overflow-wrap:anywhere]">
+<div class="min-w-0 space-y-4 [overflow-wrap:anywhere]">
   <div class="space-y-2">
-    <h3 class="text-lg font-semibold text-foreground">Choose Git Service</h3>
+    {#if !importing}<h2 class="text-xl font-semibold">Choose Git Service</h2>{/if}
     <p class="text-sm text-muted-foreground">
-      Select one or more services where you'd like to create your new repository. Only services with
-      configured authentication tokens are available.
+      {importing
+        ? "Select destinations for independent Git copies. Later synchronization stays manual."
+        : "Select one or more services for your new repository."}
+      Hosted destinations need their own token; GRASP uses your Nostr signer.
     </p>
   </div>
-
-  <div class="grid gap-4">
-    {#each availableProviders as provider (provider.id)}
-      <Card
-        class="min-w-0 max-w-full overflow-hidden cursor-pointer transition-all duration-200 hover:shadow-md {selectedProviders.includes(
-          provider.id
-        )
-          ? 'ring-2 ring-accent border-accent'
-          : ''} {!provider.hasToken ? 'opacity-50 cursor-not-allowed' : ''}"
-        onclick={() => provider.hasToken && handleProviderToggle(provider.id)}
+  {#each providers as provider (provider.id)}
+    <section
+      class="rounded-lg border border-border bg-card p-4 {selectedProviders.includes(provider.id)
+        ? 'ring-2 ring-accent'
+        : ''}"
+    >
+      <label
+        class="flex min-h-10 cursor-pointer items-center gap-3 {provider.hasToken
+          ? ''
+          : 'opacity-60'}"
       >
-        <CardContent class="p-4">
-          <div class="flex min-w-0 items-start gap-3 sm:items-center sm:gap-4">
-            <div
-              class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center text-2xl"
-            >
-              {provider.icon}
-            </div>
-            <div class="min-w-0 flex-1">
-              <div class="flex min-w-0 flex-wrap items-center gap-2">
-                <h4 class="break-words font-medium text-foreground">{provider.name}</h4>
-                {#if selectedProviders.includes(provider.id)}
-                  <div class="w-2 h-2 bg-accent rounded-full"></div>
-                {/if}
-                {#if provider.hasConflict}
-                  <span
-                    class="text-xs bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 px-2 py-1 rounded"
-                    >Name Conflict</span
-                  >
-                {:else if !provider.hasToken}
-                  <span class="text-xs bg-muted text-muted-foreground px-2 py-1 rounded"
-                    >No Token</span
-                  >
-                {/if}
-              </div>
-              <p class="mt-1 break-words text-sm text-muted-foreground">{provider.description}</p>
-              {#if provider.hasToken && provider.id !== "grasp"}
-                <p class="text-xs text-muted-foreground mt-1">
-                  Token configured for {provider.host}
-                </p>
-              {:else if !provider.hasToken && provider.id !== "grasp"}
-                <p class="text-xs text-foreground mt-1">
-                  Add a token in
-                  <a
-                    href={ACCESS_TOKEN_SETTINGS_PATH}
-                    class="text-blue-500 underline underline-offset-2 hover:text-blue-400"
-                    onclick={(e) => e.stopPropagation()}
-                  >
-                    Settings
-                  </a>
-                  to enable {provider.name}.
-                </p>
-              {/if}
-
-              {#if provider.id === "grasp" && selectedProviders.includes("grasp")}
-                <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-                <!-- Inline GRASP relay URL pills - fieldset used for semantic grouping with event stopping -->
-                <fieldset
-                  class="mt-3 pt-3 border-t border-border border-x-0 border-b-0 p-0 m-0"
-                  onclick={(e) => e.stopPropagation()}
-                  onkeydown={(e) => e.stopPropagation()}
-                >
-                  <div class="flex min-w-0 flex-wrap items-center gap-1.5">
-                    {#each graspRelayUrls as url, idx (idx)}
-                      <span
-                        class="inline-flex min-w-0 max-w-full items-center gap-1 py-0.5 pl-2 text-xs rounded-full bg-accent/15 text-accent border border-accent/40 dark:bg-accent/20 {!isValidRelayUrl(
-                          url
-                        )
-                          ? 'border-red-500 bg-red-500/10 text-red-700 dark:text-red-300'
-                          : ''}"
-                      >
-                        <span class="min-w-0 break-all" title={url}
-                          >{url.replace(/^wss?:\/\//, "")}</span
-                        >
-                        <button
-                          type="button"
-                          class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-full hover:text-destructive focus:outline-none"
-                          onclick={(e) => {
-                            e.stopPropagation();
-                            removeRelayUrl(idx);
-                          }}
-                          title="Remove"
-                        >
-                          ✕
-                        </button>
-                      </span>
-                    {/each}
-
-                    <!-- Inline add input -->
-                    <div class="flex w-full min-w-0 items-center sm:w-auto">
-                      <input
-                        type="text"
-                        class="min-w-0 flex-1 rounded-l-full border border-input bg-background px-2 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent sm:w-36"
-                        placeholder="wss://relay..."
-                        bind:value={newGraspRelayUrl}
-                        onkeydown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            commitNewRelayUrl();
-                          }
-                        }}
-                        onclick={(e) => e.stopPropagation()}
-                      />
-                      <button
-                        type="button"
-                        class="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-r-full bg-accent px-2 text-xs text-accent-foreground hover:bg-accent/80"
-                        onclick={(e) => {
-                          e.stopPropagation();
-                          commitNewRelayUrl();
-                        }}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-
-                  {#if recommendedGraspServerOptions.length > 0}
-                    <div class="flex flex-wrap gap-1 mt-2">
-                      {#each recommendedGraspServerOptions.filter((opt) => {
-                        const trimmed = opt.trim();
-                        return !graspRelayUrls.includes(sanitizeRelays([trimmed])[0] || trimmed);
-                      }) as opt}
-                        <button
-                          type="button"
-                          class="max-w-full break-all rounded-full border border-dashed border-muted-foreground/50 px-2 py-1 text-left text-xs text-muted-foreground hover:border-border hover:text-foreground"
-                          onclick={(e) => {
-                            e.stopPropagation();
-                            const raw = (opt || "").trim();
-                            const trimmed = sanitizeRelays([raw])[0] || raw;
-                            if (trimmed && !graspRelayUrls.includes(trimmed)) {
-                              updateRelayUrls([...graspRelayUrls, trimmed]);
-                            }
-                          }}
-                          title="Add {opt}"
-                        >
-                          + {opt.replace(/^wss?:\/\//, "")}
-                        </button>
-                      {/each}
-                    </div>
-                  {/if}
-
-                  {#if graspRelayUrls.some((u) => u && !isValidRelayUrl(u))}
-                    <p class="text-xs text-destructive mt-1">
-                      URLs must start with ws:// or wss://
-                    </p>
-                  {:else if graspRelayUrls.length === 0}
-                    <p class="text-xs text-muted-foreground mt-1">Add at least one relay URL</p>
-                  {/if}
-                </fieldset>
-              {/if}
-            </div>
-            <div class="flex min-h-10 min-w-10 shrink-0 items-center justify-center">
-              {#if selectedProviders.includes(provider.id)}
-                <div class="w-4 h-4 bg-accent rounded-full flex items-center justify-center">
-                  <div class="w-2 h-2 bg-accent-foreground rounded-full"></div>
-                </div>
-              {:else}
-                <div class="w-4 h-4 border-2 border-muted-foreground rounded-sm"></div>
-              {/if}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    {/each}
-  </div>
-
-  {#if availableProviders.filter((p) => p.hasToken).length === 0}
-    <div class="text-center py-8 space-y-4">
-      <div class="text-4xl">🔐</div>
-      <div class="space-y-2">
-        <h4 class="font-medium text-foreground">No Authentication Tokens Found</h4>
-        <p class="text-sm text-foreground max-w-md mx-auto">
-          You need to configure authentication tokens for at least one Git service before creating a
-          repository. Go to Settings to add your GitHub, GitLab, or Gitea tokens.
-        </p>
-      </div>
-      <a
-        href={ACCESS_TOKEN_SETTINGS_PATH}
-        class="inline-flex items-center justify-center rounded-md border border-input bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
-      >
-        Go to Settings
-      </a>
-    </div>
-  {:else if selectedProviders.length === 0}
-    <div class="text-center py-4">
-      <p class="text-sm text-muted-foreground">
-        Please select at least one Git service to continue.
-      </p>
-    </div>
-  {:else if selectedProviders.includes("grasp") && selectedProviders.length === 1}
-    <div class="bg-muted/50 rounded-lg p-4">
-      <div class="flex min-w-0 items-start gap-2">
-        <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-        <p class="min-w-0 break-words text-sm text-foreground">
-          Ready to create repository on <strong>GRASP Server</strong>
-          {#if graspRelayUrls.length > 0}
-            <span class="text-muted-foreground"
-              >({graspRelayUrls.length} relay{graspRelayUrls.length > 1 ? "s" : ""})</span
-            >
-          {/if}
-        </p>
-      </div>
-    </div>
-  {:else}
-    <div class="bg-muted/50 rounded-lg p-4">
-      <div class="flex min-w-0 items-start gap-2">
-        <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-        <p class="min-w-0 break-words text-sm text-foreground">
-          Ready to create repository on
-          <strong
-            >{selectedProviders
-              .map((id) => availableProviders.find((p) => p.id === id)?.name)
-              .filter(Boolean)
-              .join(", ")}</strong
+        <input
+          type="checkbox"
+          class="h-5 w-5 shrink-0 rounded-sm accent-primary"
+          checked={selectedProviders.includes(provider.id)}
+          disabled={!provider.hasToken || !provider.supported}
+          onchange={() => toggle(provider.id)}
+        />
+        <span class="min-w-0 flex-1">
+          <span class="block font-medium">{provider.name}</span>
+          <span class="block text-sm text-muted-foreground"
+            >{provider.id === "grasp" ? "Uses your Nostr signer" : provider.host}</span
           >
+        </span>
+        {#if disabledProviders.includes(provider.id)}<span class="text-sm text-destructive"
+            >Name conflict</span
+          >{/if}
+      </label>
+      {#if !provider.hasToken}
+        <p class="mt-2 text-sm text-muted-foreground">
+          Add a destination token in <a class="underline" href={ACCESS_TOKEN_SETTINGS_PATH}
+            >Settings</a
+          >
+          to enable {provider.name}.
         </p>
-      </div>
-    </div>
+      {/if}
+      {#if !provider.supported}
+        <label class="mt-2 block text-sm"
+          >Provider for {provider.host}
+          <select
+            class="mt-1 w-full rounded border border-input bg-background px-3 py-2"
+            onchange={(event) => {
+              const family = event.currentTarget.value as GitVendor;
+              if (!family) return;
+              registerGitHost(provider.host, family);
+              tokens = [...tokens];
+              onProvidersChange([...selectedProviders]);
+            }}
+          >
+            <option value="">Choose this host's provider</option>
+            <option value="github">GitHub Enterprise</option><option value="gitlab">GitLab</option
+            ><option value="gitea">Gitea</option><option value="forgejo">Forgejo</option>
+          </select>
+        </label>
+      {/if}
+      {#if provider.id === "grasp" && selectedProviders.includes("grasp")}
+        <fieldset class="mt-3 space-y-3 border-t border-border pt-3">
+          <legend class="px-1 text-sm font-medium">GRASP servers — select at least one</legend>
+          {#if !graspValid}
+            <p role="status" class="text-sm text-destructive">
+              Select at least one valid GRASP server below to continue.
+            </p>
+          {:else}
+            <p role="status" class="text-sm text-muted-foreground">
+              {relayUrls.length} server{relayUrls.length === 1 ? "" : "s"} selected
+            </p>
+          {/if}
+          {#each [...new Set([...relayUrls, ...recommended])] as url}
+            <label class="flex min-h-10 cursor-pointer items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                class="h-4 w-4 shrink-0 rounded-sm accent-primary"
+                checked={relayUrls.includes(url)}
+                onchange={() =>
+                  relayUrls.includes(url)
+                    ? onRelayUrlsChange?.(relayUrls.filter((value) => value !== url))
+                    : addRelay(url)}
+              />
+              <span class="min-w-0 break-all">{url}</span>
+            </label>
+          {/each}
+          <div class="flex min-w-0 flex-wrap gap-2">
+            <input
+              aria-label="Custom GRASP server"
+              class="min-w-0 flex-1 rounded border border-input bg-background px-3 py-2"
+              placeholder="wss://grasp.example.org"
+              bind:value={newRelay}
+              onkeydown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addRelay(newRelay.trim());
+                }
+              }}
+            />
+            <button
+              type="button"
+              class="rounded border border-input px-3 py-2"
+              onclick={() => addRelay(newRelay.trim())}>Add server</button
+            >
+          </div>
+          {#if inputError}<p role="alert" class="text-sm text-destructive">{inputError}</p>{/if}
+        </fieldset>
+      {/if}
+    </section>
+  {/each}
+  {#if selectedProviders.length === 0}
+    <p class="text-sm text-muted-foreground">Select at least one target to continue.</p>
+  {:else if graspValid && selectedProviders.every( (id) => providers.some((provider) => provider.id === id && provider.hasToken && provider.supported) )}
+    <p role="status" class="rounded bg-muted/50 p-3 text-sm">
+      Ready: {selectedProviders
+        .map((id) => providers.find((provider) => provider.id === id)?.name)
+        .join(", ")}
+    </p>
   {/if}
 </div>
-
-<svelte:options runes={true} />

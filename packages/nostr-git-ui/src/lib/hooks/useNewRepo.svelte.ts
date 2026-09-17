@@ -505,6 +505,7 @@ export async function checkMultiProviderRepoAvailability(
 }
 
 export interface NewRepoConfig {
+  targets?: RemoteTargetSelection[];
   /** Stable identifier used for coordinates and Git paths (legacy field name). */
   name: string;
   displayName?: string;
@@ -821,31 +822,36 @@ export function useNewRepo(options: UseNewRepoOptions = {}) {
         github: "github.com",
         gitlab: "gitlab.com",
         gitea: "gitea.com",
+        forgejo: "codeberg.org",
         bitbucket: "bitbucket.org",
       };
-      let targets = selectedProviders.flatMap<RemoteTargetSelection>((provider) => {
-        if (provider === "grasp") {
-          return selectedGraspTargetRelays.map((relayUrl) => ({
-            id: `grasp:${relayUrl}`,
-            label: `GRASP (${relayUrl.replace(/^wss?:\/\//, "")})`,
-            provider: "grasp" as const,
-            relayUrl,
-          }));
-        }
+      let targets =
+        config.targets ||
+        selectedProviders.flatMap<RemoteTargetSelection>((provider) => {
+          if (provider === "grasp") {
+            return selectedGraspTargetRelays.map((relayUrl) => ({
+              id: `grasp:${relayUrl}`,
+              label: `GRASP (${relayUrl.replace(/^wss?:\/\//, "")})`,
+              provider: "grasp" as const,
+              relayUrl,
+            }));
+          }
 
-        const host = defaultProviderHosts[provider] || provider;
-        const providerTokens = getTokensForHost(availableTokens, host).map((entry) => entry.token);
-        return [
-          {
-            id: `git:${host}`,
-            label: `${provider[0]?.toUpperCase()}${provider.slice(1)} (${host})`,
-            provider: provider as RemoteTargetProvider,
-            host,
-            token: providerTokens[0],
-            tokens: providerTokens,
-          },
-        ];
-      });
+          const host = defaultProviderHosts[provider] || provider;
+          const providerTokens = getTokensForHost(availableTokens, host).map(
+            (entry) => entry.token
+          );
+          return [
+            {
+              id: `git:${host}`,
+              label: `${provider[0]?.toUpperCase()}${provider.slice(1)} (${host})`,
+              provider: provider as RemoteTargetProvider,
+              host,
+              token: providerTokens[0],
+              tokens: providerTokens,
+            },
+          ];
+        });
       transactionJournal.setTargets(targets);
 
       const workerApi = options.workerApi

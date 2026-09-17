@@ -25,6 +25,7 @@ export interface RemoteTargetOption {
   relayUrl?: string;
   status: RemoteTargetStatus;
   detail?: string;
+  username?: string;
   validatedToken?: string;
   candidateTokens?: string[];
   existsAlready?: boolean;
@@ -413,6 +414,7 @@ export async function preflightRemoteTargets(params: {
                 return {
                   token: candidateToken,
                   detail: `Will create ${getRemoteTargetProviderLabel(target.provider)} repository as ${username}/${repoName}`,
+                  username,
                   existsAlready: false,
                 };
               }
@@ -439,6 +441,7 @@ export async function preflightRemoteTargets(params: {
           ...target,
           status: "ready" as const,
           detail: result?.detail || target.detail,
+          username: result?.username,
           validatedToken: result?.token,
           candidateTokens: matchingTargetTokens,
           existsAlready: Boolean(result?.existsAlready),
