@@ -1,12 +1,6 @@
 import {writable, get} from "svelte/store"
 import type {Writable} from "svelte/store"
-import {
-  Manager,
-  initializeCoco,
-  ConsoleLogger,
-  getEncodedToken,
-  getTokenMetadata,
-} from "@cashu/coco-core"
+import {Manager, initializeCoco, getEncodedToken, getTokenMetadata} from "@cashu/coco-core"
 import type {HistoryEntry, MintQuote, MintOperation} from "@cashu/coco-core"
 import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import * as bip39 from "@scure/bip39"
@@ -38,6 +32,7 @@ export interface TokenHistoryEntry {
   mintUrl: string
   token?: string
   createdAt: number
+  state: string
 }
 
 export const cashuInitialized: Writable<boolean> = writable(false)
@@ -253,7 +248,6 @@ const _doInitialize = async (generation: number): Promise<void> => {
     openingManager = await initializeCoco({
       repo: openingRepo,
       seedGetter,
-      logger: new ConsoleLogger("coco", {level: "warn"}),
       watchers: {
         // Keep mint issuance and melt settlement/recovery enabled. Only the
         // optional polling of externally spent send proofs remains disabled.
@@ -735,7 +729,9 @@ export const refreshCashuTopUps = async (): Promise<void> => {
         }),
     )
     if (manager === active)
-      cashuTopUps.set(topUps.filter(q => q.state !== "complete" && q.state !== "expired"))
+      // Local expiry cannot establish whether payment arrived while offline.
+      // Keep the invoice available for a remote status check and recovery.
+      cashuTopUps.set(topUps.filter(q => q.state !== "complete"))
   } catch (error) {
     console.warn("[cashu] Could not refresh saved top-ups:", error)
   }
@@ -768,6 +764,7 @@ const mapHistoryEntry = (entry: HistoryEntry): TokenHistoryEntry | null => {
     mintUrl: entry.mintUrl,
     amount: cashuSatsNumber(entry.amount ?? 0),
     createdAt: entry.createdAt,
+    state: entry.state,
   }
   switch (entry.type) {
     case "send":

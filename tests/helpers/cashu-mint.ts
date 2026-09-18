@@ -36,6 +36,7 @@ export class CashuTestMint {
   readonly spent = new Set<string>()
   dropNextMintResponse = false
   mintAttempts = 0
+  meltState: "PENDING" | "PAID" | "UNPAID" = "PENDING"
 
   constructor(
     options: {
@@ -43,13 +44,14 @@ export class CashuTestMint {
       expiry?: number
       signatureMode?: "current" | "legacy"
       url?: string
+      amounts?: number[]
     } = {},
   ) {
     this.url = options.url ?? "https://cashu-test.invalid"
     this.expiry = options.expiry
     this.signatureMode = options.signatureMode ?? "current"
     this.keys = Object.fromEntries(
-      [1, 2, 4, 8, 16, 32, 64, 128].map((amount, i) => [
+      (options.amounts ?? [1, 2, 4, 8, 16, 32, 64, 128]).map((amount, i) => [
         amount,
         secp256k1.ProjectivePoint.BASE.multiply(BigInt(i + 1)).toHex(true),
       ]),
@@ -63,6 +65,11 @@ export class CashuTestMint {
 
   pay(quote: string) {
     this.quotes.get(quote)!.state = "PAID"
+  }
+
+  issueBeforeCrash(quoteId: string, outputs: Output[]) {
+    for (const output of outputs) this.sign(output)
+    this.quotes.get(quoteId)!.state = "ISSUED"
   }
 
   private sign(output: Output) {
@@ -163,12 +170,29 @@ export class CashuTestMint {
       return respond({signatures})
     }
     if (path === "/v1/restore") {
-      const outputs: Output[] = body.outputs.filter((o: Output) => this.signatures.has(o.B_))
+      const outputs: Output[] = body.outputs
+        .filter((o: Output) => this.signatures.has(o.B_))
+        .map((o: Output) => ({
+          ...o,
+          id: this.signatures.get(o.B_).id,
+          amount: this.signatures.get(o.B_).amount,
+        }))
       return respond({outputs, signatures: outputs.map(o => this.signatures.get(o.B_))})
     }
     if (path === "/v1/checkstate")
       return respond({
         states: body.Ys.map((Y: string) => ({Y, state: this.spent.has(Y) ? "SPENT" : "UNSPENT"})),
+      })
+    if (path.startsWith("/v1/melt/quote/bolt11/"))
+      return respond({
+        quote: path.split("/").at(-1),
+        state: this.meltState,
+        amount: 7,
+        fee_reserve: 1,
+        expiry: 4102444800,
+        unit: "sat",
+        request: "lnbc-fixture-melt",
+        ...(this.meltState === "PAID" ? {payment_preimage: "11".repeat(32), change: []} : {}),
       })
     if (path === "/v1/swap") {
       for (const proof of body.inputs) {

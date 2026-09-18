@@ -1,5 +1,5 @@
 diff --git a/dist/index.js b/dist/index.js
-index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c497af93c 100644
+index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42ea243b09 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -655,6 +655,15 @@ async function ensureSchema(db) {
@@ -54,7 +54,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c
  	db.version(29).stores({
  		coco_cashu_mints: "&mintUrl, name, updatedAt, trusted",
  		coco_cashu_keysets: "&[mintUrl+id], mintUrl, id, updatedAt, unit",
-@@ -805,6 +817,10 @@ async function ensureSchema(db) {
+@@ -805,6 +817,20 @@ async function ensureSchema(db) {
  			row.remoteUpdatedAt = null;
  		});
  	});
@@ -62,10 +62,20 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c
 +	db.version(32.1).stores({}).upgrade(async (tx) => {
 +		await tx.table("coco_cashu_mints").toCollection().modify({ updatedAt: 0 });
 +	});
++	// V1 had no purpose field. Preserve access to keys already attached to a
++	// saved locked quote without changing their existing P2PK use/derivation.
++	db.version(32.2).stores({}).upgrade(async (tx) => {
++		const quotes = await tx.table("coco_cashu_canonical_mint_quotes").toArray();
++		const operations = await tx.table("coco_cashu_mint_operations").toArray();
++		const owned = new Set([...quotes, ...operations].map(row => row.pubkey).filter(Boolean));
++		await tx.table("coco_cashu_keypairs").toCollection().modify(row => {
++			if (!row.purpose && owned.has(row.publicKey)) row.legacyMintQuote = true;
++		});
++	});
  }
  
  //#endregion
-@@ -898,6 +914,7 @@ var IdbKeysetRepository = class {
+@@ -898,6 +924,7 @@ var IdbKeysetRepository = class {
  			keypairs: JSON.parse(r.keypairs),
  			active: !!r.active,
  			feePpk: r.feePpk,
@@ -73,7 +83,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c
  			updatedAt: r.updatedAt
  		}));
  	}
-@@ -911,6 +928,7 @@ var IdbKeysetRepository = class {
+@@ -911,6 +938,7 @@ var IdbKeysetRepository = class {
  			keypairs: JSON.parse(row.keypairs),
  			active: !!row.active,
  			feePpk: row.feePpk,
@@ -81,7 +91,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c
  			updatedAt: row.updatedAt
  		};
  	}
-@@ -925,6 +943,7 @@ var IdbKeysetRepository = class {
+@@ -925,6 +953,7 @@ var IdbKeysetRepository = class {
  				keypairs: JSON.stringify({}),
  				active: keyset.active ? 1 : 0,
  				feePpk: keyset.feePpk,
@@ -89,7 +99,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c
  				updatedAt: now
  			});
  			return;
-@@ -934,6 +953,7 @@ var IdbKeysetRepository = class {
+@@ -934,6 +963,7 @@ var IdbKeysetRepository = class {
  			unit: keyset.unit,
  			active: keyset.active ? 1 : 0,
  			feePpk: keyset.feePpk,
@@ -97,7 +107,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c
  			updatedAt: now
  		});
  	}
-@@ -946,6 +966,7 @@ var IdbKeysetRepository = class {
+@@ -946,6 +976,7 @@ var IdbKeysetRepository = class {
  			keypairs: JSON.stringify(keyset.keypairs ?? {}),
  			active: keyset.active ? 1 : 0,
  			feePpk: keyset.feePpk,
@@ -105,3 +115,12 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c
  			updatedAt: now
  		};
  		await this.db.table("coco_cashu_keysets").put(row);
+@@ -991,7 +1022,7 @@ var IdbKeyRingRepository = class {
+ 		const row = await this.db.table("coco_cashu_keypairs").get(publicKey);
+ 		if (!row) return null;
+ 		const keypairRow = row;
+-		if (purpose && (keypairRow.purpose ?? DEFAULT_KEYPAIR_PURPOSE) !== purpose) return null;
++		if (purpose && (keypairRow.purpose ?? DEFAULT_KEYPAIR_PURPOSE) !== purpose && !(purpose === "nut20_mint_quote" && keypairRow.legacyMintQuote)) return null;
+ 		const secretKeyBytes = hexToBytes(keypairRow.secretKey);
+ 		return {
+ 			publicKeyHex: keypairRow.publicKey,

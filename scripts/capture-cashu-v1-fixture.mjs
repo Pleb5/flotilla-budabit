@@ -3,16 +3,23 @@ import "fake-indexeddb/auto"
 import {createRequire} from "node:module"
 import {readFileSync, writeFileSync} from "node:fs"
 import {dirname, resolve} from "node:path"
-import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
-import {deriveKeysetId, deriveSecret, hashToCurve, OutputData} from "@cashu/cashu-ts"
 import {secp256k1} from "@noble/curves/secp256k1"
 import {mnemonicToSeedSync} from "@scure/bip39"
 
 const require = createRequire(import.meta.url)
+// Optional exact entrypoints allow regeneration with retained v1 packages.
+const adapter = process.env.CASHU_V1_ADAPTER || "@cashu/coco-indexeddb"
+const sdk = process.env.CASHU_V1_SDK || "@cashu/cashu-ts"
+const {IndexedDbRepositories} = await import(adapter)
+const {deriveKeysetId, deriveSecret, hashToCurve, OutputData} = await import(sdk)
 const adapterPackage = JSON.parse(
-  readFileSync(resolve(dirname(require.resolve("@cashu/coco-indexeddb")), "../package.json")),
+  readFileSync(resolve(dirname(require.resolve(adapter)), "../package.json")),
 )
 if (adapterPackage.version !== "1.0.0") throw new Error("Capture requires Coco IndexedDB 1.0.0")
+const sdkPackage = JSON.parse(
+  readFileSync(resolve(dirname(require.resolve(sdk)), "../package.json")),
+)
+if (sdkPackage.version !== "3.3.0") throw new Error("Capture requires Cashu-TS 3.3.0")
 
 const mnemonic =
   "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
@@ -47,8 +54,8 @@ const proofs = [
   proof(ids[1], 8, 2, "inflight", "melt-pending"),
 ]
 const outputData = (amount, counter) => ({
-  keep: [],
-  send: OutputData.createDeterministicData(amount, seed, counter, {id: ids[1], keys}).map(o => ({
+  send: [],
+  keep: OutputData.createDeterministicData(amount, seed, counter, {id: ids[1], keys}).map(o => ({
     blindedMessage: o.blindedMessage,
     blindingFactor: o.blindingFactor.toString(16),
     secret: Buffer.from(o.secret).toString("hex"),

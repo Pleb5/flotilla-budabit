@@ -27,6 +27,7 @@
     cashuSetupRequired,
     cashuSetupResolved,
     cashuWalletError,
+    cashuInitialized,
     cashuAutoPayWhitelist,
     removeAutoPayWhitelist,
     recoverAllTrustedMints,
@@ -74,7 +75,8 @@
   const setupRequired = $derived($cashuSetupRequired)
   const setupResolved = $derived($cashuSetupResolved)
   const cashuReady = $derived(
-    setupResolved &&
+    $cashuInitialized &&
+      setupResolved &&
       backupConfirmed &&
       !setupRequired &&
       !seedLocked &&

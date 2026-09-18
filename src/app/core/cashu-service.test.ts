@@ -51,6 +51,7 @@ import {
   cashuInitialized,
   createCashuToken,
   receiveCashuToken,
+  refreshCashuTopUps,
 } from "./cashu"
 
 beforeEach(() => {
@@ -84,6 +85,10 @@ describe("Cashu app service", () => {
     expect(get(cashuTokenHistory).filter(h => h.direction === "minted")).toHaveLength(1)
     expect(mint.mintAttempts).toBe(1)
     await expect(mintTokensFromQuote(mint.url, quote.quote, 5)).rejects.toThrow("amount")
+    const token = await createCashuToken(2, mint.url)
+    expect(get(cashuTotalBalance)).toBe(2)
+    expect(await receiveCashuToken(token)).toBe(2)
+    expect(get(cashuTotalBalance)).toBe(4)
   })
 
   it("surfaces initialization failure and can retry without replacing the wallet seed", async () => {
@@ -97,6 +102,33 @@ describe("Cashu app service", () => {
     expect(get(cashuInitialized)).toBe(true)
     expect(get(cashuWalletError)).toBe("")
     expect(localStorage.getItem("budabit_cashu_mnemonic")).toBe(legacyCashuWallet.mnemonic)
+  })
+
+  it("does not report remote issuance as success when proofs cannot be recovered", async () => {
+    const mint = new CashuTestMint()
+    vi.stubGlobal("fetch", mint.fetch)
+    await initializeCashuWallet()
+    await addCashuMint(mint.url)
+    const quote = await requestMintQuote(mint.url, 4)
+    mint.quotes.get(quote.quote)!.state = "ISSUED"
+    await expect(mintTokensFromQuote(mint.url, quote.quote, 4)).rejects.toThrow()
+    expect((await getCashuTopUp(mint.url, quote.quote)).state).not.toBe("complete")
+    expect(get(cashuTotalBalance)).toBe(0)
+  })
+
+  it("keeps locally expired invoices available to reconcile payment received while offline", async () => {
+    const mint = new CashuTestMint()
+    vi.stubGlobal("fetch", mint.fetch)
+    await initializeCashuWallet()
+    await addCashuMint(mint.url)
+    const quote = await requestMintQuote(mint.url, 4)
+    vi.spyOn(Date, "now").mockReturnValue((quote.expiry! + 1) * 1000)
+    await refreshCashuTopUps()
+    expect(get(cashuTopUps)[0]).toMatchObject({quote: quote.quote, state: "expired"})
+    mint.pay(quote.quote)
+    await mintTokensFromQuote(mint.url, quote.quote, 4)
+    expect((await getCashuTopUp(mint.url, quote.quote)).state).toBe("complete")
+    expect(get(cashuTotalBalance)).toBe(4)
   })
 
   it("waits for obsolete initialization before clearing and never exposes its manager", async () => {
@@ -143,5 +175,36 @@ describe("Cashu app service", () => {
     })
     await expect(receiveCashuToken(token)).rejects.toThrow("sat-denominated")
     expect(mint.calls).toEqual([])
+  })
+
+  it("rejects BLS token inputs without attempting a swap", async () => {
+    const mint = new CashuTestMint()
+    vi.stubGlobal("fetch", mint.fetch)
+    await initializeCashuWallet()
+    await addCashuMint(mint.url)
+    const token =
+      "cashuA" +
+      Buffer.from(
+        JSON.stringify({
+          unit: "sat",
+          token: [
+            {
+              mint: mint.url,
+              proofs: [
+                {
+                  id: `02${"ab".repeat(32)}`,
+                  amount: 1,
+                  secret: "synthetic",
+                  C: `02${"ab".repeat(32)}`,
+                },
+              ],
+            },
+          ],
+        }),
+      ).toString("base64url")
+    await expect(receiveCashuToken(token)).rejects.toThrow()
+    expect(
+      mint.calls.filter(c => ["/v1/swap", "/v1/mint/bolt11", "/v1/melt/bolt11"].includes(c.path)),
+    ).toEqual([])
   })
 })

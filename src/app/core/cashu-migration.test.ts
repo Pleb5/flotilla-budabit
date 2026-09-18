@@ -57,6 +57,17 @@ describe("existing Cashu wallet compatibility", () => {
     expect(keypairs).toHaveLength(1)
     expect(keypairs[0].secretKey[31]).toBe(7)
     expect(keypairs[0].derivationIndex).toBe(3)
+    // V1 keys had no purpose discriminator. A previously locked quote retains
+    // its signing key while existing P2PK use continues to resolve the same key.
+    expect(
+      await repo.keyRingRepository.getPersistedKeyPair(
+        keypairs[0].publicKeyHex,
+        "nut20_mint_quote",
+      ),
+    ).toBeTruthy()
+    expect(
+      await repo.keyRingRepository.getPersistedKeyPair(keypairs[0].publicKeyHex, "p2pk"),
+    ).toBeTruthy()
     expect(await repo.db.table("coco_cashu_history").count()).toBe(2)
     const mint = await repo.mintQuoteRepository.getMintQuoteById({mintUrl, quoteId: "mint-unpaid"})
     expect(mint).toMatchObject({

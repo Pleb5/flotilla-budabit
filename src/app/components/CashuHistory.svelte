@@ -17,19 +17,23 @@
   const displayed = $derived(limit > 0 && !showAll ? history.slice(0, limit) : history)
 
   const directionLabel = (entry: TokenHistoryEntry) => {
+    if (!["finalized", "paid", "issued", "pending"].includes(entry.state.toLowerCase()))
+      return "Transaction"
+    if (entry.state.toLowerCase() === "pending" && entry.direction === "minted") return "Top-up"
     if (entry.direction === "sent") return "Sent"
     if (entry.direction === "received") return "Received"
     return "Minted"
   }
 
   const directionClass = (entry: TokenHistoryEntry) => {
+    if (["failed", "rolled_back", "rolledback"].includes(entry.state.toLowerCase()))
+      return "opacity-60"
+    if (!["finalized", "paid", "issued"].includes(entry.state.toLowerCase())) return "text-warning"
     if (entry.direction === "sent") return "text-error"
     return "text-success"
   }
 
-  // coco's HistoryEntry.createdAt is unix milliseconds (Date.now()), not
-  // seconds. The pre-coco-upgrade history wrote seconds, hence the legacy
-  // `ts * 1000` here — leftover from that migration.
+  // Coco history timestamps are Unix milliseconds, including migrated rows.
   const formatDate = (ts: number) =>
     new Date(ts).toLocaleString(undefined, {
       month: "short",
@@ -59,8 +63,14 @@
               {directionLabel(entry)}
             </span>
             <span class="font-mono font-bold">
-              {entry.direction === "sent" ? "-" : "+"}{formatCashuSats(entry.amount)} sats
+              {["finalized", "paid", "issued"].includes(entry.state.toLowerCase())
+                ? entry.direction === "sent"
+                  ? "-"
+                  : "+"
+                : ""}{formatCashuSats(entry.amount)} sats
             </span>
+            <span class="text-xs capitalize opacity-70"
+              >{entry.state.replaceAll("_", " ").toLowerCase()}</span>
           </div>
           <span class="text-xs opacity-50">{formatDate(entry.createdAt)}</span>
         </div>

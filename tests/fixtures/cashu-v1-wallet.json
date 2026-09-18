@@ -230,7 +230,7 @@
           "needsSwap": 0,
           "inputAmount": 8,
           "inputProofSecretsJson": "[\"43c7646bf0455b437a53047ce492791ae80af071274597c307f79140866ed8e7\"]",
-          "changeOutputDataJson": "{\"keep\":[],\"send\":[{\"blindedMessage\":{\"amount\":1,\"B_\":\"03cd50ebe9e7afa09e5b4e17e6bdc4cccd3669480d4d1842313e149f058e5fe285\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"5188fc2b66583edf5ee08d7144b99e41682a2926e692d4fb22623bcdb6ac1d55\",\"secret\":\"35313463303461613639613863626638393334376331373532303031633063363131343266623934633564626231323736633439383462393931353762646435\"}]}",
+          "changeOutputDataJson": "{\"send\":[],\"keep\":[{\"blindedMessage\":{\"amount\":1,\"B_\":\"03cd50ebe9e7afa09e5b4e17e6bdc4cccd3669480d4d1842313e149f058e5fe285\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"5188fc2b66583edf5ee08d7144b99e41682a2926e692d4fb22623bcdb6ac1d55\",\"secret\":\"35313463303461613639613863626638393334376331373532303031633063363131343266623934633564626231323736633439383462393931353762646435\"}]}",
           "swapOutputDataJson": null,
           "changeAmount": null,
           "effectiveFee": null,
@@ -319,7 +319,7 @@
           "lastObservedRemoteState": "UNPAID",
           "lastObservedRemoteStateAt": null,
           "terminalFailureJson": null,
-          "outputDataJson": "{\"keep\":[],\"send\":[{\"blindedMessage\":{\"amount\":4,\"B_\":\"039d86772397511ee0801701e945c27115e92f1982bb6ea464c2c1ffe05a56e1d7\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"2470b94c6277b9f1f9f978622b1a4aaba7b8481781710463bddaaf665704fd34\",\"secret\":\"38323537313938363066626264653663313939623963323163643233646536633231333065383263626533633636646633663434313061623532353439636466\"}]}"
+          "outputDataJson": "{\"send\":[],\"keep\":[{\"blindedMessage\":{\"amount\":4,\"B_\":\"039d86772397511ee0801701e945c27115e92f1982bb6ea464c2c1ffe05a56e1d7\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"2470b94c6277b9f1f9f978622b1a4aaba7b8481781710463bddaaf665704fd34\",\"secret\":\"38323537313938363066626264653663313939623963323163643233646536633231333065383263626533633636646633663434313061623532353439636466\"}]}"
         }
       ]
     },
@@ -535,7 +535,7 @@
           "error": null,
           "fee": 0,
           "inputProofsJson": "[{\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\",\"amount\":2,\"secret\":\"cb62fa4d5a18fc2fee1d5424c0033a14a24e21d3ee4769e91b54a6b84a8f9a03\",\"C\":\"031e91aabd183cfee7ccb1fefae539f0da0b9b7f25c17faeb3cc33a2b6322aca72\"}]",
-          "outputDataJson": "{\"keep\":[],\"send\":[{\"blindedMessage\":{\"amount\":2,\"B_\":\"027a09f04a12309ace59dff67f27f02b96c19a42ccea42b3555775a1ca97d0f242\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"ba92e54e5ec44b4ffebac2a72e2d9d9dd388d7bdc79eb30e8fb1595ef3c251d5\",\"secret\":\"64386335343766623938663239356637376437656235633161643133636539396562356165323862393535636165376630613638653064613265613962383662\"}]}"
+          "outputDataJson": "{\"send\":[],\"keep\":[{\"blindedMessage\":{\"amount\":2,\"B_\":\"027a09f04a12309ace59dff67f27f02b96c19a42ccea42b3555775a1ca97d0f242\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"ba92e54e5ec44b4ffebac2a72e2d9d9dd388d7bdc79eb30e8fb1595ef3c251d5\",\"secret\":\"64386335343766623938663239356637376437656235633161643133636539396562356165323862393535636165376630613638653064613265613962383662\"}]}"
         }
       ]
     },
