@@ -10,6 +10,7 @@
   import {notifications} from "@app/util/notifications"
   import Reply from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
 
   const {
     url,
@@ -98,7 +99,7 @@
 </div>
 <div class="btn btn-neutral btn-xs relative hidden rounded-full sm:flex">
   {#if $notifications.has(path)}
-    <div class="h-2 w-2 rounded-full bg-primary"></div>
+    <NotificationDot />
   {/if}
   Active {formatTimestampRelative(lastActive)}
 </div>

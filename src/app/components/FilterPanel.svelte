@@ -269,7 +269,8 @@
           <span>{statusOption.label}</span>
           {#if getStatusBadgeCount(statusOption.value) > 0}
             <span
-              class="text-secondary-foreground inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-secondary px-1 text-[10px]">
+              title={`${getStatusBadgeCount(statusOption.value)} unread updates`}
+              class="badge badge-info h-4 min-w-4 shrink-0 px-1 text-[10px]">
               {formatStatusBadgeCount(statusOption.value)}
             </span>
           {/if}
@@ -300,7 +301,7 @@
           More filters
           {#if advancedFilterCount > 0}
             <span
-              class="text-primary-foreground inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px]">
+              class="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-primary px-1 text-[10px] text-primary-content">
               {advancedFilterCount > 9 ? "9+" : advancedFilterCount}
             </span>
           {/if}

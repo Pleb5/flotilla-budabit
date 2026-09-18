@@ -41,15 +41,20 @@
 >
   <span class="flex items-center gap-1">
     {@render icon?.()}
-    <span class="relative">
-      {label}
-      {#if notification}
-        <span
-          class="absolute -right-2 -top-1 h-2 w-2 rounded-full bg-primary"
-          aria-label="Unread updates"
-          title="Unread updates"
-        ></span>
-      {/if}
-    </span>
+    <span>{label}</span>
+    {#if notification}
+      <span
+        data-notification-indicator
+        class="unread-dot ml-1 h-2 w-2 shrink-0 rounded-full bg-primary"
+        aria-label="Unread updates"
+        title="Unread updates"
+      ></span>
+    {/if}
   </span>
 </a>
+
+<style>
+  .unread-dot {
+    box-shadow: 0 0 0 1px hsl(var(--ng-foreground));
+  }
+</style>

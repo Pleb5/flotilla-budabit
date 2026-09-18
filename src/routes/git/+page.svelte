@@ -69,6 +69,7 @@
   import {pushModal, clearModals} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {notifications, hasRepoNotification} from "@app/util/notifications"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import {APP_URL} from "@app/core/state"
   import {makeExactEventDelete} from "@app/core/commands"
   import {
@@ -76,7 +77,7 @@
     publishRepoEventWithRelayOutcomes,
     type RepoPublishTransport,
   } from "@app/core/git-commands"
-  import {getDeclaredRepoRelays, getRepoPublicationAddress} from "@app/core/repo-publication"
+  import {getRepoPublicationAddress} from "@app/core/repo-publication"
   import {afterNavigate, goto, replaceState} from "$app/navigation"
   import {getContext, onMount, onDestroy, untrack} from "svelte"
   import {derived as _derived, get as getStore, type Readable} from "svelte/store"
@@ -4614,7 +4615,7 @@
                 ? 'btn-primary !bg-primary !text-primary-content'
                 : 'btn-ghost !bg-transparent !text-base-content'} sm:flex-none sm:!px-3 sm:text-sm">
               <span class="flex min-w-0 items-center gap-1 sm:gap-2">
-                <Folder class="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
+                <Folder class="hidden h-4 w-4 shrink-0 min-[360px]:block sm:h-5 sm:w-5" strokeWidth={2} />
                 <span class="min-w-0 truncate">Repos</span>
               </span>
             </TabsTrigger>
@@ -4625,12 +4626,10 @@
                 ? 'btn-primary !bg-primary !text-primary-content'
                 : 'btn-ghost !bg-transparent !text-base-content'} sm:flex-none sm:!px-3 sm:text-sm">
               <span class="flex min-w-0 items-center gap-1 sm:gap-2">
-                <Star class="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
+                <Star class="hidden h-4 w-4 shrink-0 min-[360px]:block sm:h-5 sm:w-5" strokeWidth={2} />
                 <span class="min-w-0 truncate">Starred</span>
                 {#if hasStarredRepoNotifications}
-                  <span
-                    class="h-1.5 w-1.5 shrink-0 rounded-full bg-primary sm:h-2 sm:w-2"
-                    aria-label="Unread updates"></span>
+                  <NotificationDot contrast={activeTab === "bookmarks"} />
                 {/if}
               </span>
             </TabsTrigger>
@@ -4641,7 +4640,7 @@
                 ? 'btn-primary !bg-primary !text-primary-content'
                 : 'btn-ghost !bg-transparent !text-base-content'} sm:flex-none sm:!px-3 sm:text-sm">
               <span class="flex min-w-0 items-center gap-1 sm:gap-2">
-                <CodeXml class="h-4 w-4 sm:h-5 sm:w-5" strokeWidth={2} />
+                <CodeXml class="hidden h-4 w-4 shrink-0 min-[360px]:block sm:h-5 sm:w-5" strokeWidth={2} />
                 <span class="min-w-0 truncate">Snippets</span>
               </span>
             </TabsTrigger>

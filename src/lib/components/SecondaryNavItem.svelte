@@ -21,7 +21,7 @@
 </style>
 
 <script lang="ts">
-  import {fade} from "@lib/transition"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import {page} from "$app/stores"
 
   const {children, href = "", notification = false, replaceState = false, ...restProps} = $props()
@@ -39,7 +39,7 @@
     class:bg-base-100={active}>
     {@render children?.()}
     {#if !active && notification}
-      <div class="absolute right-2 top-5 h-2 w-2 rounded-full bg-primary" transition:fade></div>
+      <NotificationDot class="ml-auto" />
     {/if}
   </a>
 {:else}
@@ -48,9 +48,9 @@
     class="{restProps.class} relative flex w-full items-center gap-3 text-left transition-all hover:bg-base-100 hover:text-base-content"
     class:text-base-content={active}
     class:bg-base-100={active}>
-    {#if !active && notification}
-      <div class="absolute right-2 top-5 h-2 w-2 rounded-full bg-primary" transition:fade></div>
-    {/if}
     {@render children?.()}
+    {#if !active && notification}
+      <NotificationDot class="ml-auto" />
+    {/if}
   </button>
 {/if}

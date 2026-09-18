@@ -1,5 +1,6 @@
 <script lang="ts">
   import Link from "@lib/components/Link.svelte"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import CardButton from "@lib/components/CardButton.svelte"
   import RelayIcon from "@app/components/RelayIcon.svelte"
   import RelayName from "@app/components/RelayName.svelte"
@@ -22,7 +23,7 @@
       <div class="flex gap-1">
         <RelayName {url} />
         {#if $notifications.has(path)}
-          <div class="relative top-1 h-2 w-2 rounded-full bg-primary"></div>
+          <NotificationDot class="relative top-1" />
         {/if}
       </div>
     {/snippet}

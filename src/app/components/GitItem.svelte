@@ -6,6 +6,7 @@
   import {repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import NoteCard from "./NoteCard.svelte"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import GitActions from "./GitActions.svelte"
   import EventShareButton from "./EventShareButton.svelte"
   import {sanitizeRelays} from "@nostr-git/core/utils"
@@ -302,10 +303,7 @@
           </button>
         {/if}
         {#if hasNotifications}
-          <span
-            class="h-2 w-2 rounded-full bg-primary"
-            aria-label="Unread repository updates"
-            title="Unread updates"></span>
+          <NotificationDot label="Unread repository updates" />
         {/if}
       </div>
     </div>

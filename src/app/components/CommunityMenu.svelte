@@ -646,14 +646,15 @@
       <SecondaryNavItem {replaceState} href={badgesPath}>
         <Icon icon={MedalStar} /> Badges
         {#if pendingBadgeAwardCount > 0}
-          <span class="badge badge-info badge-sm ml-auto">{pendingBadgeAwardCount} new</span>
+          <span class="badge badge-info badge-sm ml-auto shrink-0 whitespace-nowrap"
+            >{pendingBadgeAwardCount} new</span>
         {/if}
       </SecondaryNavItem>
 
       <SecondaryNavItem {replaceState} href={accessPath}>
         <Icon icon={ShieldUser} /> Membership
         {#if $notifications.has(accessPath)}
-          <span class="badge badge-info badge-sm ml-auto">updated</span>
+          <span class="badge badge-info badge-sm ml-auto shrink-0 whitespace-nowrap">updated</span>
         {/if}
       </SecondaryNavItem>
 

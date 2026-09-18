@@ -36,7 +36,6 @@
     recordPerformanceDiagnostics,
   } from "@app/core/performance-diagnostics"
   import PublicationStatus from "@app/components/PublicationStatus.svelte"
-  import {fade} from "@lib/transition"
   import {normalizeRelays, parseAddressRef} from "@app/core/community"
   import {
     activeCommunityDescriptor,
@@ -89,6 +88,7 @@
     type CommunityHomeWidgetSlotInitialState,
   } from "@app/extensions/community-home-widget-recovery"
   import {notifications} from "@app/util/notifications"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import {hasGitNotification} from "@app/util/repo-watch-notifications"
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
@@ -1046,10 +1046,7 @@
         <Icon icon={Git} />
         Git
         {#if hasGitNotification($notifications)}
-          <div
-            class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary-content"
-            transition:fade>
-          </div>
+          <NotificationDot contrast class="absolute -right-3 -top-1" />
         {/if}
       </div>
     </Link>
@@ -1061,8 +1058,7 @@
           <Icon icon={NotesMinimalistic} size={6} />
           Threads
           {#if $notifications.has(threadsPath)}
-            <div class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white" transition:fade>
-            </div>
+            <NotificationDot contrast class="absolute -right-3 -top-1" />
           {/if}
         </div>
       </Link>
@@ -1075,8 +1071,7 @@
           <Icon icon={CalendarMinimalistic} size={6} />
           Calendar
           {#if $notifications.has(calendarPath)}
-            <div class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white" transition:fade>
-            </div>
+            <NotificationDot contrast class="absolute -right-3 -top-1" />
           {/if}
         </div>
       </Link>
@@ -1089,8 +1084,7 @@
           <Icon icon={StarFallMinimalistic} />
           Goals
           {#if $notifications.has(goalsPath)}
-            <div class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-white" transition:fade>
-            </div>
+            <NotificationDot contrast class="absolute -right-3 -top-1" />
           {/if}
         </div>
       </Link>
@@ -1105,7 +1099,7 @@
           <span class="ellipsize">{room.name}</span>
         </div>
         {#if $notifications.has(roomPath)}
-          <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary" transition:fade></div>
+          <NotificationDot class="absolute right-1 top-1" />
         {/if}
       </Link>
     {/each}

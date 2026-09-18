@@ -2,6 +2,7 @@
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import SpaceMenu from "@app/components/SpaceMenu.svelte"
   import {notifications} from "@app/util/notifications"
   import {makeExactCommunityPath, parseExactCommunityRouteParam} from "@app/util/routes"
@@ -21,6 +22,6 @@
   class="btn btn-neutral btn-sm relative lg:hidden">
   <Icon icon={MenuDots} />
   {#if $notifications.has(path)}
-    <div class="absolute right-0 top-0 -mr-1 -mt-1 h-2 w-2 rounded-full bg-primary"></div>
+    <NotificationDot class="absolute right-1 top-1" />
   {/if}
 </Button>

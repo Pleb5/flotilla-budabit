@@ -1,6 +1,7 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import Button from "@lib/components/Button.svelte"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import {isMobile} from "@lib/html"
 
   const {
@@ -35,7 +36,7 @@
       data-tip={tooltipEnabled ? title : undefined}>
       {@render children?.()}
       {#if !active && notification}
-        <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary"></div>
+        <NotificationDot class="absolute right-1 top-1" />
       {/if}
     </div>
   </a>
@@ -48,7 +49,7 @@
       data-tip={tooltipEnabled ? title : undefined}>
       {@render children?.()}
       {#if !active && notification}
-        <div class="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary"></div>
+        <NotificationDot class="absolute right-1 top-1" />
       {/if}
     </div>
   </Button>

@@ -5,7 +5,7 @@
   import type {TrustedEvent} from "@welshman/util"
   import {pubkey, forceLoadMessagingRelayList, getPlaintext} from "@welshman/app"
   import {ensureDmPlaintext, getMessagingRelayHints} from "@app/core/dm"
-  import {fade} from "@lib/transition"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import Link from "@lib/components/Link.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
@@ -97,7 +97,7 @@
           {/if}
         </div>
         {#if !active && $notifications.has(path)}
-          <div class="h-2 w-2 rounded-full bg-primary" transition:fade></div>
+          <NotificationDot />
         {/if}
       </div>
       <p class="overflow-hidden text-ellipsis whitespace-nowrap text-sm">

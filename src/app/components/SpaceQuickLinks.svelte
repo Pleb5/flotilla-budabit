@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {fade} from "@lib/transition"
+  import NotificationDot from "@lib/components/NotificationDot.svelte"
   import CompassBig from "@assets/icons/compass-big.svg?dataurl"
   import StarFallMinimalistic from "@assets/icons/star-fall-minimalistic.svg?dataurl"
   import ChatRound from "@assets/icons/chat-round.svg?dataurl"
@@ -29,8 +29,7 @@
         <Icon icon={ChatRound} />
         Chat
         {#if $notifications.has(chatPath)}
-          <div class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-primary" transition:fade>
-          </div>
+          <NotificationDot class="absolute -right-3 -top-1" />
         {/if}
       </div>
     </Link>
@@ -39,10 +38,7 @@
         <Icon icon={StarFallMinimalistic} />
         Goals
         {#if $notifications.has(goalsPath)}
-          <div
-            class="absolute -right-3 -top-1 h-2 w-2 rounded-full bg-neutral-content"
-            transition:fade>
-          </div>
+          <NotificationDot class="absolute -right-3 -top-1" />
         {/if}
       </div>
     </Link>
