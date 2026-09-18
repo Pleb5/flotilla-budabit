@@ -15,7 +15,10 @@ export type WidgetHomeSlotType =
   | "community-home-before-quicklinks"
   | "community-home-after-quicklinks"
 
-export type WidgetActionSlotType = "chat-message-actions" | "global-menu"
+export type WidgetActionSlotType =
+  | "chat-message-actions"
+  | "global-menu"
+  | "community-home-quicklinks"
 
 export type WidgetCommunitySlotType = WidgetHomeSlotType | WidgetActionSlotType
 

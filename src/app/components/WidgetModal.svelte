@@ -9,14 +9,15 @@
     widget: SmartWidgetEvent
     context?: Record<string, unknown>
     communityRuntimeContextProvider?: () => CommunityWidgetRuntimeContext | undefined
+    wide?: boolean
   }
 
-  const {widget, context = {}, communityRuntimeContextProvider}: Props = $props()
+  const {widget, context = {}, communityRuntimeContextProvider, wide = false}: Props = $props()
 </script>
 
 <div
-  class="flex h-[85vh] w-full max-w-md flex-col overflow-hidden rounded-xl bg-base-100 shadow-xl">
-  <div class="flex items-center justify-between border-b border-base-300 px-4 py-3">
+  class={`flex h-[85vh] flex-col overflow-hidden rounded-xl bg-base-100 shadow-xl ${wide ? "w-[calc(100vw-3rem)] max-w-5xl" : "w-full max-w-md"}`}>
+  <div class="flex shrink-0 items-center justify-between border-b border-base-300 px-4 py-3">
     <div class="flex items-center gap-3">
       {#if widget.iconUrl || widget.imageUrl}
         <img
@@ -25,16 +26,18 @@
           class="h-8 w-8 rounded object-cover" />
       {/if}
       <div>
-        <h2 class="font-semibold">{widget.content || widget.identifier}</h2>
+        <h2 class="font-semibold">
+          {(wide && widget.slot?.label) || widget.content || widget.identifier}
+        </h2>
         <p class="text-xs opacity-70">Smart Widget • {widget.widgetType}</p>
       </div>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick={() => clearModals()}>
+    <button class="btn btn-ghost btn-sm" aria-label="Close widget" onclick={() => clearModals()}>
       <Icon icon={CloseCircle} size={5} />
     </button>
   </div>
 
-  <div class="relative flex-1 overflow-hidden">
+  <div class={`relative min-h-0 flex-1 ${wide ? "overflow-y-auto" : "overflow-hidden"}`}>
     <WidgetFrame
       {widget}
       {context}

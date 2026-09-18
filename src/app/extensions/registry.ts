@@ -19,6 +19,7 @@ const getTags = (tags: string[][], name: string) => tags.filter(t => t[0] === na
 const COMMUNITY_SLOT_TYPES = new Set<WidgetCommunitySlotType>([
   "community-home-before-quicklinks",
   "community-home-after-quicklinks",
+  "community-home-quicklinks",
   "chat-message-actions",
   "global-menu",
 ])

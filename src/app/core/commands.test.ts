@@ -1761,24 +1761,27 @@ describe("commands", () => {
     expect(registryMocks.loadWidget).toHaveBeenCalledOnce()
   })
 
-  it("installWidgetFromEvent enables home widgets without preloading a hidden runtime", async () => {
-    const {installWidgetFromEvent} = await import("./commands")
-    const widget = {
-      id: "calendar-event",
-      kind: 30033,
-      pubkey: "a".repeat(64),
-      identifier: "calendar",
-      slot: {type: "community-home-after-quicklinks", label: "Calendar"},
-    } as any
-    registryMocks.parseSmartWidget.mockReturnValue(widget)
+  it.each(["community-home-after-quicklinks", "community-home-quicklinks"])(
+    "installWidgetFromEvent enables %s without preloading a hidden runtime",
+    async slotType => {
+      const {installWidgetFromEvent} = await import("./commands")
+      const widget = {
+        id: "calendar-event",
+        kind: 30033,
+        pubkey: "a".repeat(64),
+        identifier: "calendar",
+        slot: {type: slotType, label: "Calendar"},
+      } as any
+      registryMocks.parseSmartWidget.mockReturnValue(widget)
 
-    await installWidgetFromEvent(widget)
+      await installWidgetFromEvent(widget)
 
-    const next = settingsMocks.update.mock.calls[0][0](settingsMocks.value)
-    expect(next.enabled).toContain(getWidgetLineId(widget))
-    expect(settingsMocks.syncExtensionSettingsNow).toHaveBeenCalledTimes(1)
-    expect(registryMocks.loadWidget).not.toHaveBeenCalled()
-  })
+      const next = settingsMocks.update.mock.calls[0][0](settingsMocks.value)
+      expect(next.enabled).toContain(getWidgetLineId(widget))
+      expect(settingsMocks.syncExtensionSettingsNow).toHaveBeenCalledTimes(1)
+      expect(registryMocks.loadWidget).not.toHaveBeenCalled()
+    },
+  )
 
   it("installWidgetByNaddr installs enabled with one sync and keeps the source hints", async () => {
     const {installWidgetByNaddr} = await import("./commands")
@@ -1965,27 +1968,30 @@ describe("commands", () => {
     })
   })
 
-  it("refreshWidget does not preload community-home widgets into the hidden runtime", async () => {
-    const {refreshWidget} = await import("./commands")
-    const oldWidget = {
-      id: "calendar-1",
-      identifier: "calendar",
-      pubkey: "a".repeat(64),
-      kind: 30033,
-      tags: [["d", "calendar"]],
-      widgetType: "tool",
-      slot: {type: "community-home-after-quicklinks", label: "Featured event"},
-    } as any
-    const newWidget = {...oldWidget, id: "calendar-2", created_at: 2}
-    const widgetId = getWidgetLineId(oldWidget)
+  it.each(["community-home-after-quicklinks", "community-home-quicklinks"])(
+    "refreshWidget does not preload %s into the hidden runtime",
+    async slotType => {
+      const {refreshWidget} = await import("./commands")
+      const oldWidget = {
+        id: "calendar-1",
+        identifier: "calendar",
+        pubkey: "a".repeat(64),
+        kind: 30033,
+        tags: [["d", "calendar"]],
+        widgetType: "tool",
+        slot: {type: slotType, label: "Featured event"},
+      } as any
+      const newWidget = {...oldWidget, id: "calendar-2", created_at: 2}
+      const widgetId = getWidgetLineId(oldWidget)
 
-    settingsMocks.isExtensionEnabled.mockReturnValue(true)
+      settingsMocks.isExtensionEnabled.mockReturnValue(true)
 
-    await refreshWidget(widgetId, newWidget)
+      await refreshWidget(widgetId, newWidget)
 
-    expect(registryMocks.unloadExtension).toHaveBeenCalledWith(widgetId)
-    expect(registryMocks.loadWidget).not.toHaveBeenCalled()
-  })
+      expect(registryMocks.unloadExtension).toHaveBeenCalledWith(widgetId)
+      expect(registryMocks.loadWidget).not.toHaveBeenCalled()
+    },
+  )
 
   it("prependParent uses explicit event relays for quoted git comments", async () => {
     const {prependParent} = await import("./commands")

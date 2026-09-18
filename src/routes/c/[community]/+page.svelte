@@ -22,6 +22,7 @@
   import Content from "@app/components/Content.svelte"
   import CommunityExtensionsPrompt from "@app/components/community/CommunityExtensionsPrompt.svelte"
   import CommunityHomeWidgetSlot from "@app/components/community/CommunityHomeWidgetSlot.svelte"
+  import CommunityWidgetSlotLaunchers from "@app/components/community/CommunityWidgetSlotLaunchers.svelte"
   import CommunityHomeWidgetRecovery from "@app/components/community/CommunityHomeWidgetRecovery.svelte"
   import CommunityRoomCreate from "@app/components/community/CommunityRoomCreate.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
@@ -1088,6 +1089,14 @@
           {/if}
         </div>
       </Link>
+    {/if}
+    {#if communityPointer && communityHomeExtensionsReady}
+      {#key roomCatalogReadinessKey}
+        <CommunityWidgetSlotLaunchers
+          community={communityPointer}
+          slotType="community-home-quicklinks"
+          variant="home-quicklinks" />
+      {/key}
     {/if}
     {#each rooms as room (room.id)}
       {@const roomPath = makeExactCommunityRoomPath(communityPointer!, room.id)}

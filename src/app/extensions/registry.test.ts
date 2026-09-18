@@ -42,6 +42,7 @@ describe("extension registry", () => {
     const cases = [
       ["community-home-before-quicklinks", "Home: before"],
       ["community-home-after-quicklinks", "Home: after"],
+      ["community-home-quicklinks", "Freelance"],
       ["chat-message-actions", "Message action"],
       ["global-menu", "Community launcher"],
     ]

@@ -264,6 +264,7 @@
   const getWidgetSlotLabel = (slotType?: string) => {
     if (slotType === "community-home-before-quicklinks") return "Home: above quicklinks"
     if (slotType === "community-home-after-quicklinks") return "Home: below quicklinks"
+    if (slotType === "community-home-quicklinks") return "Home: quicklink"
     if (slotType === "chat-message-actions") return "Chat message actions"
     if (slotType === "global-menu") return "Global menu"
 
@@ -697,6 +698,7 @@
           <option value="">No slot launcher</option>
           <option value="community-home-before-quicklinks">Above home quicklinks</option>
           <option value="community-home-after-quicklinks">Below home quicklinks</option>
+          <option value="community-home-quicklinks">Home quicklink</option>
           <option value="chat-message-actions">Chat message actions</option>
           <option value="global-menu">Global menu</option>
         </select>

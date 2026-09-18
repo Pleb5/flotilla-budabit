@@ -10,6 +10,7 @@ import {
 const supportedCommunitySlots = [
   "community-home-before-quicklinks",
   "community-home-after-quicklinks",
+  "community-home-quicklinks",
   "chat-message-actions",
   "global-menu",
 ] as const

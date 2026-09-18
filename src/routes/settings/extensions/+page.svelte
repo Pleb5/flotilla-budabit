@@ -674,6 +674,8 @@
             <span class="badge badge-secondary badge-sm">Home: above quicklinks</span>
           {:else if widget.slot?.type === "community-home-after-quicklinks"}
             <span class="badge badge-secondary badge-sm">Home: below quicklinks</span>
+          {:else if widget.slot?.type === "community-home-quicklinks"}
+            <span class="badge badge-secondary badge-sm">Home: quicklink</span>
           {:else if widget.slot?.type === "chat-message-actions"}
             <span class="badge badge-secondary badge-sm">Chat message actions</span>
           {:else if widget.slot?.type === "global-menu"}

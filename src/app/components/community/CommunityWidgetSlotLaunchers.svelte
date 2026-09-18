@@ -24,7 +24,7 @@
   import {pushModal} from "@app/util/modal"
   import {makeExactCommunityInputValue} from "@app/util/community-stars"
 
-  type LauncherVariant = "message-actions" | "top-menu"
+  type LauncherVariant = "message-actions" | "top-menu" | "home-quicklinks"
 
   type Props = {
     community: CommunityPointer
@@ -66,12 +66,18 @@
     }),
   )
   const containerClass = $derived(
-    variant === "top-menu" ? "relative isolate flex items-center gap-1" : "flex items-center gap-1",
+    variant === "home-quicklinks"
+      ? "contents"
+      : variant === "top-menu"
+        ? "relative isolate flex items-center gap-1"
+        : "flex items-center gap-1",
   )
   const buttonClass = $derived(
-    variant === "top-menu"
-      ? "btn btn-outline btn-sm gap-1"
-      : "btn btn-circle btn-xs border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur",
+    variant === "home-quicklinks"
+      ? "btn btn-neutral gap-2 border-base-content/15 shadow-sm hover:border-base-content/25 md:text-lg"
+      : variant === "top-menu"
+        ? "btn btn-outline btn-sm gap-1"
+        : "btn btn-circle btn-xs border border-solid border-neutral bg-base-100/90 shadow-sm backdrop-blur",
   )
 
   const getWidgetTitle = (widget: SmartWidgetEvent) =>
@@ -153,22 +159,29 @@
   const openWidget = (widget: SmartWidgetEvent) => {
     if (!widget.appUrl || !exactCommunity || !communityReady) return
 
-    pushModal(WidgetModal, {
-      widget,
-      context: {
-        ...context,
-        slot: {type: slotType, label: widget.slot?.label},
-        community: {
-          address: exactCommunity.address,
-          ownerPubkey: exactCommunity.ownerPubkey,
-          communityId: exactCommunity.communityId,
-          naddr: exactCommunity.naddr,
-          relays: relayHints,
+    pushModal(
+      WidgetModal,
+      {
+        widget,
+        wide: variant === "home-quicklinks",
+        context: {
+          ...context,
+          slot: {type: slotType, label: widget.slot?.label},
+          community: {
+            address: exactCommunity.address,
+            ownerPubkey: exactCommunity.ownerPubkey,
+            communityId: exactCommunity.communityId,
+            naddr: exactCommunity.naddr,
+            relays: relayHints,
+          },
+          ...(communityContext ? {communityContext} : {}),
         },
-        ...(communityContext ? {communityContext} : {}),
+        communityRuntimeContextProvider: getCurrentCommunityRuntimeContext,
       },
-      communityRuntimeContextProvider: getCurrentCommunityRuntimeContext,
-    })
+      variant === "home-quicklinks"
+        ? {fullscreen: true, trapFocus: true, ariaLabel: getWidgetTitle(widget)}
+        : {},
+    )
   }
 
   const refreshWidgets = (force = false) => {
@@ -267,16 +280,26 @@
   <div class={containerClass} data-widget-slot={slotType}>
     {#each slotWidgets as widget (getWidgetLineId(widget))}
       {@const title = getWidgetTitle(widget)}
-      <button class={buttonClass} {title} aria-label={title} onclick={() => openWidget(widget)}>
+      <button
+        type="button"
+        class={buttonClass}
+        {title}
+        aria-label={title}
+        aria-haspopup="dialog"
+        onclick={() => openWidget(widget)}>
         {#if widget.iconUrl || widget.imageUrl}
           <img
             src={widget.iconUrl || widget.imageUrl}
             alt=""
-            class="h-4 w-4 shrink-0 rounded object-cover" />
+            class={variant === "home-quicklinks"
+              ? "h-6 w-6 shrink-0 object-contain"
+              : "h-4 w-4 shrink-0 rounded object-cover"} />
         {:else}
           <img src={WidgetIcon} alt="" class="h-4 w-4 shrink-0" />
         {/if}
-        {#if variant === "top-menu"}
+        {#if variant === "home-quicklinks"}
+          <span class="truncate">{title}</span>
+        {:else if variant === "top-menu"}
           <span class="hidden max-w-[100px] truncate lg:inline">{title}</span>
         {/if}
       </button>

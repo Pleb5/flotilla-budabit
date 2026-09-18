@@ -135,6 +135,7 @@
     if (widget.slot.type === "repo-tab") return "Repo Tab"
     if (widget.slot.type === "community-home-before-quicklinks") return "Home: above quicklinks"
     if (widget.slot.type === "community-home-after-quicklinks") return "Home: below quicklinks"
+    if (widget.slot.type === "community-home-quicklinks") return "Home: quicklink"
     if (widget.slot.type === "chat-message-actions") return "Chat message actions"
     if (widget.slot.type === "global-menu") return "Global menu"
     return ""
