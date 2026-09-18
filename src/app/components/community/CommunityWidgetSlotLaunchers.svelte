@@ -16,6 +16,7 @@
     getCommunityWidgetCurationEvidenceKey,
     getEnabledCommunitySlotWidgets,
     loadCachedCommunityCuratedWidgets,
+    shouldPreserveCuratedWidgetView,
   } from "@app/extensions/community-widget-slots"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
@@ -49,6 +50,7 @@
   )
   let curatedWidgets = $state<SmartWidgetEvent[]>([])
   let loadKey = ""
+  let curationContextKey = ""
   let loadRequestId = 0
   let loadRefreshNonce = $state(0)
   let forceNextLoad = false
@@ -212,13 +214,19 @@
     if (!key || !input) {
       curatedWidgets = []
       loadKey = ""
+      curationContextKey = ""
       loadRequestId += 1
       return
     }
 
     if (key === loadKey) return
     loadKey = key
-    curatedWidgets = []
+    // Refresh in place on focus/visibility changes. Only a different community,
+    // account, slot, or authority snapshot invalidates the displayed launchers.
+    if (key !== curationContextKey) {
+      curatedWidgets = []
+      curationContextKey = key
+    }
     const force = forceNextLoad
     forceNextLoad = false
     const requestId = ++loadRequestId
@@ -244,13 +252,22 @@
           return
         }
 
-        curatedWidgets = result?.status === "community" ? result.widgets : []
+        const nextWidgets = result?.status === "community" ? result.widgets : []
+        if (
+          !shouldPreserveCuratedWidgetView(
+            curatedWidgets,
+            nextWidgets,
+            key === curationContextKey,
+            result?.complete ?? true,
+          )
+        ) {
+          curatedWidgets = nextWidgets
+        }
       })
       .catch(error => {
         if (requestId !== loadRequestId || key !== loadKey) return
 
         console.warn("[community-widget-slots] Failed to load widgets", error)
-        curatedWidgets = []
         loadKey = ""
       })
   })

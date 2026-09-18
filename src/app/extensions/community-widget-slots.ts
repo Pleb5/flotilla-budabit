@@ -526,21 +526,27 @@ export const getEnabledCommunitySlotWidgets = ({
 
   for (const widget of curatedWidgets) {
     const id = getWidgetLineId(widget)
-    if (widget.slot?.type !== slotType) {
-      logCommunityWidgetDebug("rejecting curated widget for slot mismatch", {
-        requestedSlotType: slotType,
-        widgetId: id,
-        widgetSlot: widget.slot,
-      })
-      continue
-    }
-
     const installed = findInstalledWidgetMatch(widget, installedWidgets, installedIndex)
     if (!installed) {
       logCommunityWidgetDebug("rejecting curated widget missing installed match", {
         widgetId: id,
         identifier: widget.identifier,
         pubkey: widget.pubkey,
+      })
+      continue
+    }
+
+    // A focus refresh may still return an older cached manifest. Resolve placement
+    // before filtering so it cannot move a newer installed launcher back inline.
+    // Legacy installed snapshots without slot metadata still inherit curation.
+    const slot = isNewerWidget(installed.widget, widget)
+      ? installed.widget.slot || widget.slot
+      : widget.slot || installed.widget.slot
+    if (slot?.type !== slotType) {
+      logCommunityWidgetDebug("rejecting curated widget for slot mismatch", {
+        requestedSlotType: slotType,
+        widgetId: id,
+        widgetSlot: slot,
       })
       continue
     }
@@ -562,7 +568,7 @@ export const getEnabledCommunitySlotWidgets = ({
       continue
     }
 
-    selected.push({...installed.widget, slot: widget.slot || installed.widget.slot})
+    selected.push({...installed.widget, slot})
     logCommunityWidgetDebug("selected curated widget for slot", {
       slotType,
       widgetId: id,

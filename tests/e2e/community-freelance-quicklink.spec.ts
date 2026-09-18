@@ -120,7 +120,23 @@ for (const mobile of [false, true]) {
       },
       {viewer, widgetId, widget},
     )
-    const relay = new MockRelay({seedEvents: [definition, curators, widget, targeting]})
+    // Exercise an upgraded install while relay/cache curation still advertises
+    // the previous inline version. Returning to the window must not resurrect it.
+    const curatedWidget = mobile
+      ? sign(
+          30033,
+          1,
+          widget.tags.map(tag =>
+            tag[0] === "slot"
+              ? ["slot", "community-home-after-quicklinks", "Freelance"]
+              : tag[0] === "version"
+                ? ["version", "0.3.0"]
+                : tag,
+          ),
+          widget.content,
+        )
+      : widget
+    const relay = new MockRelay({seedEvents: [definition, curators, curatedWidget, targeting]})
     await relay.setup(page)
     let bundleRequests = 0
     await context.route(/^https:\/\//, route => {
@@ -141,6 +157,14 @@ for (const mobile of [false, true]) {
     await expect(launcher.locator("img")).toHaveJSProperty("naturalWidth", 38)
     await expect(page.locator('iframe[src*="freelance-widget.example"]')).toHaveCount(0)
     expect(bundleRequests).toBe(0)
+    // A browser-focus refresh must preserve the launcher node, not remove/reinsert it.
+    const initialLauncher = await launcher.elementHandle()
+    await page.evaluate(async () => {
+      window.dispatchEvent(new Event("focus"))
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    })
+    expect(await initialLauncher!.evaluate(element => element.isConnected)).toBe(true)
+    await expect(page.locator('iframe[src*="freelance-widget.example"]')).toHaveCount(0)
     await expect
       .poll(() => launcher.evaluate(element => element.getBoundingClientRect().height))
       .toBeLessThan(70)
@@ -177,6 +201,16 @@ for (const mobile of [false, true]) {
     await expect(page.getByRole("dialog")).toHaveCount(0)
     await expect(page.locator('iframe[src*="freelance-widget.example"]')).toHaveCount(0)
     await expect(launcher).toBeVisible()
+    const closedLauncher = await launcher.elementHandle()
+    await page.evaluate(async () => {
+      window.dispatchEvent(new Event("focus"))
+      document.dispatchEvent(new Event("visibilitychange"))
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()))
+    })
+    expect(await closedLauncher!.evaluate(element => element.isConnected)).toBe(true)
+    await expect(page.getByRole("dialog")).toHaveCount(0)
+    await expect(page.locator('iframe[src*="freelance-widget.example"]')).toHaveCount(0)
+    expect(bundleRequests).toBe(1)
     await launcher.click()
     await expect(frame.getByRole("button", {name: "Access options", exact: true})).toBeVisible()
     await frame.getByRole("button", {name: "Access options", exact: true}).click()

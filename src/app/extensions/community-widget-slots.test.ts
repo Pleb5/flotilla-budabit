@@ -204,6 +204,73 @@ describe("community widget slots", () => {
     expect(selected).toEqual([])
   })
 
+  it("does not restore an old inline placement over an installed quicklink", () => {
+    const curated = makeWidget(
+      "community-freelance",
+      "community-home-after-quicklinks",
+      "Freelance",
+      "a".repeat(64),
+      10,
+    )
+    const installed = makeWidget(
+      "community-freelance",
+      "community-home-quicklinks",
+      "Freelance",
+      "a".repeat(64),
+      20,
+    )
+    const widgetId = getWidgetLineId(installed)
+    const options = {
+      curatedWidgets: [curated],
+      installedWidgets: {[widgetId]: installed},
+      enabledIds: new Set([widgetId]),
+    }
+
+    expect(
+      getEnabledCommunitySlotWidgets({...options, slotType: "community-home-after-quicklinks"}),
+    ).toEqual([])
+    expect(
+      getEnabledCommunitySlotWidgets({...options, slotType: "community-home-quicklinks"}),
+    ).toEqual([installed])
+    expect(
+      getEnabledCommunitySlotWidgets({
+        ...options,
+        enabledIds: new Set(),
+        slotType: "community-home-quicklinks",
+      }),
+    ).toEqual([])
+  })
+
+  it("can move an older installed inline widget to its newer curated quicklink", () => {
+    const installed = makeWidget(
+      "community-freelance",
+      "community-home-after-quicklinks",
+      "Freelance",
+      "a".repeat(64),
+      10,
+    )
+    const curated = makeWidget(
+      "community-freelance",
+      "community-home-quicklinks",
+      "Freelance",
+      "a".repeat(64),
+      20,
+    )
+    const widgetId = getWidgetLineId(installed)
+    const options = {
+      curatedWidgets: [curated],
+      installedWidgets: {[widgetId]: installed},
+      enabledIds: new Set([widgetId]),
+    }
+
+    expect(
+      getEnabledCommunitySlotWidgets({...options, slotType: "community-home-after-quicklinks"}),
+    ).toEqual([])
+    expect(
+      getEnabledCommunitySlotWidgets({...options, slotType: "community-home-quicklinks"}),
+    ).toEqual([{...installed, slot: curated.slot}])
+  })
+
   it("does not select an installed widget without community curation", () => {
     const widget = makeWidget("featured-calendar-event", "community-home-after-quicklinks")
     const widgetId = getWidgetLineId(widget)
