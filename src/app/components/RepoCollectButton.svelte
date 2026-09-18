@@ -36,6 +36,11 @@
 </script>
 
 <script lang="ts">
+  import {getContext} from "svelte"
+  import {
+    REPO_COLLECTION_CONTEXT_KEY,
+    type RepoCollectionContext,
+  } from "@app/core/repo-collection-loader"
   import {PublishStatus} from "@welshman/net"
   import {Router} from "@welshman/router"
   import {
@@ -120,8 +125,10 @@
     iconClass = "h-4 w-4",
     disabled = false,
     showLabel = false,
-    collectionState,
+    collectionState: providedCollectionState,
   }: Props = $props()
+  const repoCollections = getContext<RepoCollectionContext | undefined>(REPO_COLLECTION_CONTEXT_KEY)
+  const collectionState = $derived(providedCollectionState ?? $repoCollections)
 
   let pending = $state(false)
   let localTargetHistoryComplete = $state(false)
@@ -333,9 +340,17 @@
       (collectionState?.communityHistoryComplete ??
         (localTargetHistoryComplete && localDeleteHistoryComplete && localOriginalHistoryComplete)),
   )
-  const collectionStatus = $derived(getRepoCollectionStatus(collected, communityHistoryComplete))
+  const personalHistoryComplete = $derived(
+    !$pubkey ||
+      !repoCollections ||
+      ($repoCollections?.viewerPubkey === $pubkey &&
+        $repoCollections.personalHistoryCompleteByAddress.has(repoAddress)),
+  )
+  const collectionStatus = $derived(
+    getRepoCollectionStatus(collected, communityHistoryComplete && personalHistoryComplete),
+  )
   const collectionLabel = $derived.by(() => {
-    if (!communityHistoryComplete) {
+    if (!communityHistoryComplete || !personalHistoryComplete) {
       return "Manage repository collections"
     }
 

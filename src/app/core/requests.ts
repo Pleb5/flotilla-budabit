@@ -104,6 +104,8 @@ export type BoundedCommunityHistoryOptions = {
   pageSize?: number
   maxPages?: number
   timeoutMs?: number
+  /** Exact identity scans may prove an inclusive timestamp boundary before advancing. */
+  verifyTimestampBoundaries?: boolean
 }
 
 export const makeSameAuthorDeleteFilters = (events: TrustedEvent[]): Filter[] => {
@@ -193,6 +195,7 @@ export const createBoundedCommunityHistoryLoader = (
     pageSize = COMMUNITY_HISTORY_PAGE_SIZE,
     maxPages = COMMUNITY_HISTORY_MAX_PAGES,
     timeoutMs = COMMUNITY_HISTORY_TIMEOUT_MS,
+    verifyTimestampBoundaries = false,
   }: BoundedCommunityHistoryOptions): Promise<BoundedCommunityHistoryResult> => {
     if (!Number.isSafeInteger(pageSize) || pageSize <= 0) {
       throw new Error("Community history page size must be a positive integer")
@@ -234,6 +237,7 @@ export const createBoundedCommunityHistoryLoader = (
       relay: string,
       filters: Filter[],
     ): Promise<CommunityHistoryPageResult> => {
+      if (signal?.aborted) return {events: [], complete: false, timedOut: false}
       const controller = new AbortController()
       const eventsById = new Map<string, TrustedEvent>()
       let sawEose = false
@@ -356,15 +360,41 @@ export const createBoundedCommunityHistoryLoader = (
           // `until` is inclusive and Nostr has no secondary cursor. A full page
           // can hide more events at its oldest timestamp, so it is never proof
           // of complete history even when older pages are still useful to scan.
-          saturated = true
-          complete = false
-          if (state.pages >= maxPages) continue
-
           const oldestTimestamp = Math.min(...rawEvents.map(event => event.created_at))
-          if (!Number.isSafeInteger(oldestTimestamp)) continue
+          if (!Number.isSafeInteger(oldestTimestamp)) {
+            saturated = true
+            complete = false
+            continue
+          }
+
+          let boundaryComplete = false
+          if (verifyTimestampBoundaries) {
+            const boundaryFilter = {
+              ...pageFilter,
+              since: oldestTimestamp,
+              until: oldestTimestamp,
+            }
+            const boundary = await requestPage(relay, [boundaryFilter])
+            timedOut ||= boundary.timedOut
+            // A transport failure is retryable; it does not establish that this
+            // identity has an unpageable timestamp bucket.
+            if (!boundary.complete) return {complete: false, timedOut, saturated}
+            boundaryComplete =
+              boundary.events.filter(event => matchFilters([boundaryFilter], event)).length <
+              pageSize
+          }
+          if (!boundaryComplete) {
+            saturated = true
+            complete = false
+          }
 
           const nextCursor = oldestTimestamp - 1
           if (state.filter.since !== undefined && nextCursor < state.filter.since) continue
+          if (state.pages >= maxPages) {
+            saturated = true
+            complete = false
+            continue
+          }
 
           state.cursor = nextCursor
           nextActive.push(state)

@@ -125,7 +125,7 @@
     type TrustedEvent,
   } from "@welshman/util"
   import {makeExactEventDelete} from "@src/app/core/commands"
-  import {setContext, onDestroy, onMount, tick} from "svelte"
+  import {getContext, setContext, onDestroy, onMount, tick} from "svelte"
   import {
     REPO_KEY,
     REPO_RELAYS_KEY,
@@ -172,7 +172,11 @@
     overlayLatestRepoStates,
     type BranchChange,
   } from "@app/util/branch-update"
-  import {activeRepoStars, hydrateRepoStars} from "@app/core/repo-stars-state"
+  import {activeRepoStars} from "@app/core/repo-stars-state"
+  import {
+    REPO_COLLECTION_CONTEXT_KEY,
+    type RepoCollectionContext,
+  } from "@app/core/repo-collection-loader"
   import {
     activeExactCommunityPointer,
     activeUserCommunityRefs,
@@ -215,6 +219,7 @@
   const {id} = $page.params
 
   const {data, children} = $props()
+  const repoCollections = getContext<RepoCollectionContext>(REPO_COLLECTION_CONTEXT_KEY)
   const layoutLoadController = new AbortController()
   const load = (options: LoadOptions) =>
     welshmanLoad({
@@ -2935,17 +2940,15 @@
   let relaysWarningKey = $state("")
   let suppressRelaysWarning = $state(false)
 
-  // Hydrate stars used by repository cleanup; collection UI owns its read model.
+  // The outer /git layout retains star reads across repository/tab navigation.
   $effect(() => {
-    void $repoAddressesStore
-    if (!repoClass?.repoEvent || !$repoActivityHydrationReady) return
-
-    hydrateRepoStars({
-      relayHints: getStore(repoRelaysStore),
-      repoAddresses: getStore(repoAddressesStore),
-    }).catch(error => {
-      console.warn("[repo layout] Failed to hydrate repo stars", error)
-    })
+    if (!$pubkey || !$repoEventStore) return
+    repoCollections.ensureRepositories(
+      $repoAddressesStore.map(address => ({
+        address,
+        relays: getRepoScopedRelays($repoEventStore),
+      })),
+    )
   })
 
   // --- GRASP servers (user profile) ---

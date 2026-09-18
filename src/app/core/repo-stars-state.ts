@@ -53,7 +53,10 @@ export const repoStarReactionEvents: Readable<TrustedEvent[]> = derived(
       return
     }
 
-    return deriveEventsAsc(deriveEventsById({repository, filters: [filter]})).subscribe(set)
+    // Network page limits must not truncate the shared, already hydrated index.
+    const localFilter = {...filter}
+    delete localFilter.limit
+    return deriveEventsAsc(deriveEventsById({repository, filters: [localFilter]})).subscribe(set)
   },
   [] as TrustedEvent[],
 )

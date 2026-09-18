@@ -673,6 +673,109 @@ describe("requests", () => {
     }
   })
 
+  it("completes an exact identity history across full pages by proving timestamp boundaries", async () => {
+    const {createBoundedCommunityHistoryLoader} = await import("./requests")
+    const {matchFilters} = await import("@welshman/util")
+    const relay = "wss://identity-history.test"
+    const author = "1".repeat(64)
+    const events = Array.from({length: 205}, (_, index) => ({
+      id: index.toString(16).padStart(64, "0"),
+      pubkey: author,
+      created_at: 1000 - index,
+      kind: 7,
+      tags: [["k", "30617"]],
+      content: "+",
+      sig: "f".repeat(128),
+    })) as TrustedEvent[]
+    const request = vi.fn(async (options: RequestOptions) => {
+      const found = events
+        .filter(event => matchFilters(options.filters, event))
+        .slice(0, options.filters[0].limit)
+      for (const event of found) options.onEvent?.(event, relay)
+      options.onEose?.(relay)
+      return found
+    })
+    const load = createBoundedCommunityHistoryLoader({request, publish: vi.fn(), track: vi.fn()})
+    const filter = {kinds: [7], authors: [author], "#k": ["30617"]}
+    const result = await load({
+      relays: [relay],
+      relayFilters: [filter],
+      localFilters: [filter],
+      verifyTimestampBoundaries: true,
+    })
+    expect(result).toMatchObject({complete: true, saturated: false, timedOut: false})
+    expect(result.events).toHaveLength(205)
+    expect(request).toHaveBeenCalledTimes(5)
+    expect(request.mock.calls[1][0].filters[0]).toMatchObject({since: 901, until: 901})
+  })
+
+  it("keeps a failed boundary request retryable rather than marking history saturated", async () => {
+    const {createBoundedCommunityHistoryLoader} = await import("./requests")
+    const relay = "wss://failed-identity-boundary.test"
+    const events = [100, 99].map((created_at, index) => ({
+      id: index.toString(16).padStart(64, "0"),
+      pubkey: "1".repeat(64),
+      created_at,
+      kind: 7,
+      tags: [],
+      content: "+",
+      sig: "f".repeat(128),
+    })) as TrustedEvent[]
+    const request = vi.fn(async (options: RequestOptions) => {
+      if (options.filters[0].since !== undefined) {
+        options.onClosed?.("error: temporary failure", relay)
+        return []
+      }
+      for (const event of events) options.onEvent?.(event, relay)
+      options.onEose?.(relay)
+      return events
+    })
+    const load = createBoundedCommunityHistoryLoader({request, publish: vi.fn(), track: vi.fn()})
+    const filter = {kinds: [7], authors: ["1".repeat(64)]}
+    const result = await load({
+      relays: [relay],
+      relayFilters: [filter],
+      localFilters: [filter],
+      pageSize: 2,
+      verifyTimestampBoundaries: true,
+    })
+    expect(result).toMatchObject({complete: false, saturated: false, events})
+    expect(request).toHaveBeenCalledTimes(2)
+  })
+
+  it("retains uncertainty if an exact identity scan cannot exhaust a timestamp boundary", async () => {
+    const {createBoundedCommunityHistoryLoader} = await import("./requests")
+    const {matchFilters} = await import("@welshman/util")
+    const relay = "wss://identity-boundary.test"
+    const events = Array.from({length: 101}, (_, index) => ({
+      id: index.toString(16).padStart(64, "0"),
+      pubkey: "1".repeat(64),
+      created_at: 100,
+      kind: 7,
+      tags: [],
+      content: "+",
+      sig: "f".repeat(128),
+    })) as TrustedEvent[]
+    const request = vi.fn(async (options: RequestOptions) => {
+      const found = events
+        .filter(event => matchFilters(options.filters, event))
+        .slice(0, options.filters[0].limit)
+      for (const event of found) options.onEvent?.(event, relay)
+      options.onEose?.(relay)
+      return found
+    })
+    const load = createBoundedCommunityHistoryLoader({request, publish: vi.fn(), track: vi.fn()})
+    const filter = {kinds: [7], authors: ["1".repeat(64)]}
+    const result = await load({
+      relays: [relay],
+      relayFilters: [filter],
+      localFilters: [filter],
+      verifyTimestampBoundaries: true,
+    })
+    expect(result).toMatchObject({complete: false, saturated: true})
+    expect(result.events).toHaveLength(100)
+  })
+
   it("does not report complete history when a relay disconnects", async () => {
     const {createBoundedCommunityHistoryLoader} = await import("./requests")
     const relay = "wss://disconnected-bounded-history.test"

@@ -199,6 +199,33 @@ Community history scans maintain a cursor independently for each relay and each 
 
 Nostr's `until` cursor is inclusive and has no event-ID tiebreaker. When a raw page reaches its limit, more events may share the oldest timestamp; Budabit marks the scan saturated and incomplete even if it continues with `until = oldestTimestamp - 1`. Exhausting the page budget, reaching the time budget, disconnecting, or receiving `CLOSED` is likewise incomplete. Partial admitted events remain usable, but an incomplete zero-admission result is not authoritative emptiness.
 
+### Shared repository collection reads
+
+The outer `/git` layout owns `repo-collection-context.ts` and its core reader.
+List pages contribute visible-address batches; repository sessions contribute
+their addresses and declared activity relays. Completed and in-flight reads are
+retained across pagination, sorting and repository navigation. Account changes
+cancel the previous reader generation; layout teardown releases its subscriptions
+and retries. Repository-list cache readiness is independent of collection-history
+completion.
+
+The reader builds an author-scoped personal-star index once per relay, adding new
+relay coverage as needed. Saturated personal history can fall back to batches of
+visible addresses. Viewer collection wrappers use the exact viewer author on each
+community's declared relays, followed by same-author deletes and referenced
+originals. This identity lookup is separate from the broad community Starred view
+and its stargazer acquisition. Explicit originals retain their own authors and
+source-relay hints; finding the exact original does not require every fallback
+relay to respond.
+
+These exact identity scans opt into timestamp-boundary verification: before
+advancing past a full page, fetch its oldest timestamp with equal `since` and
+`until`. Only an exhausted boundary permits a complete result. A full boundary
+or exhausted page budget remains saturated; a failed boundary request remains
+retryable. Failed reads back off without restarting completed scopes. Known stars
+remain usable during partial history, while absent stars require completed
+personal and community coverage before displaying an uncollected state.
+
 ## Live Subscription Scope
 
 The community relay keeps only core community state live:

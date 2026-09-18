@@ -9,10 +9,6 @@ const modalSource = readFileSync(
   new URL("../components/RepoCollectModal.svelte", import.meta.url),
   "utf8",
 )
-const globalGitSource = readFileSync(
-  new URL("../../routes/git/+page.svelte", import.meta.url),
-  "utf8",
-)
 
 describe("repository collection button reads", () => {
   it("uses split targeted-original filters and external relay hints", () => {
@@ -41,39 +37,11 @@ describe("repository collection button reads", () => {
   })
 
   it("represents incomplete empty reads as indeterminate and preserves known collections", () => {
-    expect(source).toContain("getRepoCollectionStatus(collected, communityHistoryComplete)")
+    expect(source).toContain("communityHistoryComplete && personalHistoryComplete")
     expect(source).toContain("data-collection-status={collectionStatus}")
     expect(source).toContain("Manage repository collections")
     expect(source).not.toContain("history is incomplete")
     expect(source).toContain("lockedCommunityAddresses: communityHistoryCompleteAtOpen")
     expect(modalSource).toContain("lockedCommunities.has(option.address)")
-  })
-
-  it("passes global target and original completion through the shared read state", () => {
-    expect(globalGitSource).toContain("repoCollectionTargetHistoryComplete = result.complete")
-    expect(globalGitSource).toContain("repoCollectionDeleteHistoryComplete = result.complete")
-    expect(globalGitSource).toContain(
-      "repoCollectionOriginalHistoryComplete = results.every(result => result.complete)",
-    )
-    expect(globalGitSource).toContain("communityHistoryComplete:")
-    expect(globalGitSource).toContain("repoCollectionRenderedScopeKey")
-    expect(globalGitSource).toContain("renderedScope: repoCollectionRenderedScopeKey")
-    expect(globalGitSource).toContain("scheduleRepoCollectionRetry()")
-    expect(globalGitSource).toContain('repoCollectionTargetLoadKey = ""')
-    expect(globalGitSource).toContain('repoCollectionDeleteLoadKey = ""')
-    expect(globalGitSource).toContain('repoCollectionFollowupLoadKey = ""')
-  })
-
-  it("does not truncate authoritative global collection relay coverage", () => {
-    const collectionRelaySource = globalGitSource.slice(
-      globalGitSource.indexOf("const repoCollectionRelays"),
-      globalGitSource.indexOf("const repoCollectionTargetFilters"),
-    )
-
-    expect(collectionRelaySource).toContain("...repoCollectionCommunityOptions.flatMap")
-    expect(collectionRelaySource).toContain("...bookmarkRelays")
-    expect(collectionRelaySource).not.toContain("bookmarkListRelays")
-    expect(collectionRelaySource).not.toContain("REPO_LIST_MAX_RELAYS")
-    expect(collectionRelaySource).not.toContain(".slice(")
   })
 })

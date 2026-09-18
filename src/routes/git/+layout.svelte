@@ -1,12 +1,14 @@
 <script lang="ts">
   import {page} from "$app/stores"
   import type {Snippet} from "svelte"
-  import {onDestroy, setContext} from "svelte"
+  import {onDestroy, onMount, setContext} from "svelte"
   import {writable} from "svelte/store"
   import CommunityMenu from "@app/components/CommunityMenu.svelte"
   import {activeExactCommunityPointer} from "@app/core/community-state"
   import {REPO_LIST_HYDRATION_READY_KEY} from "@app/core/git-state"
   import {preloadRepositoryList} from "@app/core/repo-list-preload"
+  import {createGitRepoCollections} from "@app/core/repo-collection-context"
+  import {REPO_COLLECTION_CONTEXT_KEY} from "@app/core/repo-collection-loader"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
 
   type Props = {
@@ -15,6 +17,9 @@
 
   const {children}: Props = $props()
   const repoListHydrationReady = writable(false)
+  const repoCollections = createGitRepoCollections()
+  setContext(REPO_COLLECTION_CONTEXT_KEY, repoCollections)
+  onMount(() => repoCollections.start())
   let repoListPreloadController: AbortController | null = null
   let repoListPreloadStarted = false
 
@@ -49,6 +54,7 @@
   })
 
   onDestroy(() => {
+    repoCollections.dispose()
     stopRepoListPreload()
     repoListHydrationReady.set(false)
   })

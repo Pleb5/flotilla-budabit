@@ -76,16 +76,10 @@ describe("community room and thread route transport", () => {
     )
     expect(globalGit).toContain("communityStarTargetFilterPlan.localFilters")
     expect(globalGit).toContain("communitySnippetTargetFilterPlan.localFilters")
-    expect(globalGit).toContain("repoCollectionTargetFilterPlan.localFilters")
     expect(globalGit).toContain("isAuthorizedDirectCommunityRepo({")
     expect(globalGit).not.toContain("authorizedCommunityRepoTargetEvents")
     expect(globalGit).toContain("authorizedCommunityStarTargetEvents")
     expect(globalGit).toContain("authorizedCommunitySnippetTargetEvents")
-    expect(globalGit).toContain("authorizedRepoCollectionTargetEvents")
-    expect(globalGit).toContain("repoCollectionTargetHistoryComplete = result.complete")
-    expect(globalGit).toContain(
-      "repoCollectionOriginalHistoryComplete = results.every(result => result.complete)",
-    )
     expect(globalGit).toContain("makeTargetedPublicationOriginalFilterPlan(")
     expect(globalGit).toContain("makeTargetedPublicationOriginalRelayHintPlans(")
     expect(globalGit).not.toContain("makeTargetedPublicationOriginalFilters")
