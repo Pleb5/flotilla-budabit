@@ -56,6 +56,7 @@
   import {
     getGrantCapability,
     getGrantCapableSectionModeratorPubkeys,
+    getCommunityWriteTargetSections,
     userHasSectionProfileListAccess,
   } from "@app/core/community-permissions"
   import {
@@ -115,7 +116,7 @@
   const communityBootstrapReady = $derived(
     Boolean(
       communityPubkey &&
-      $activeExactCommunityDefinition?.ownerPubkey === communityPubkey &&
+      $activeExactCommunityDefinition?.pointer.address === communityAddress &&
       $activeCommunityBootstrapStatus.loaded &&
       !$activeCommunityBootstrapStatus.loading,
     ),
@@ -149,7 +150,7 @@
   let publishingAccessOpen = $state(true)
   let moderatorRequestsOpen = $state(false)
   let moderatorRequestPublishStates = $state<Record<string, ModeratorRequestPublishState>>({})
-  let lastScrolledSectionName = $state("")
+  let lastFocusedRequest = $state("")
   let activeTab = $state<AccessPageTab>("requests")
   let memberSearch = $state("")
   let openMemberPopover = $state<string | null>(null)
@@ -225,7 +226,24 @@
     currentCommunityRenounced ? "Rejoin group" : "Leave group",
   )
 
-  const requestedSectionName = $derived($page.url.searchParams.get("section") || "")
+  // Widget action links carry the descriptor. Resolve it against the current exact
+  // definition, since the section hint may have been renamed or reassigned.
+  const requestByKind = $derived($page.url.searchParams.has("kind"))
+  const requestedSectionName = $derived.by(() => {
+    if (!requestByKind) return $page.url.searchParams.get("section") || ""
+    const kind = $page.url.searchParams.get("kind") || ""
+    const definition = $activeExactCommunityDefinition
+    if (!communityBootstrapReady || !definition || !/^(0|[1-9][0-9]*)$/.test(kind)) return ""
+    if (Number(kind) > 65535) return ""
+
+    return (
+      getCommunityWriteTargetSections(definition, {
+        sectionName: "",
+        kind: Number(kind),
+        subtype: $page.url.searchParams.get("subtype") || undefined,
+      })[0]?.name || ""
+    )
+  })
   const forms = $derived(communityBootstrapReady ? $activeCommunityAdmissionForms : {})
   const formAddresses = $derived(Object.values(forms).map(form => form.address))
   const responseFilters = $derived(
@@ -319,6 +337,13 @@
   const moderatorRequestStates = $derived(
     communityBootstrapReady ? $activeCommunityUserModeratorRequestStates : [],
   )
+  const requestedSectionItem = $derived(
+    sectionItems.find(item => item.section.name === requestedSectionName),
+  )
+  const visibleSectionItems = $derived(
+    requestByKind ? (requestedSectionItem ? [requestedSectionItem] : []) : sectionItems,
+  )
+  const showAllPublishingRequests = () => goto(accessPath)
   const accessCheckedAt = $derived.by(() =>
     getNotificationCheckedAt({
       checked: $checked,
@@ -1056,22 +1081,45 @@
 
   $effect(() => {
     const sectionName = requestedSectionName
-
-    if (!sectionName) {
-      lastScrolledSectionName = ""
+    const item = requestedSectionItem
+    const key = JSON.stringify([
+      communityAddress,
+      $pubkey,
+      $page.url.search,
+      sectionName,
+      item?.form?.address,
+      item?.state.status,
+      communityAdmissionFormReadiness,
+    ])
+    if (
+      !sectionName ||
+      !item ||
+      communityAccessLoading ||
+      communityAccessUnavailable ||
+      !$pubkey ||
+      currentUserAdmin ||
+      currentUserModerator ||
+      currentUserBanned
+    ) {
+      lastFocusedRequest = ""
       return
     }
-    if (sectionName === lastScrolledSectionName) return
-    if (!sectionItems.some(item => item.section.name === sectionName)) return
+    if (key === lastFocusedRequest) return
 
     activeTab = "requests"
     publishingAccessOpen = true
-    lastScrolledSectionName = sectionName
+    let cancelled = false
     void tick().then(() => {
-      document
-        .getElementById(getPublishingAccessRequestId(sectionName))
-        ?.scrollIntoView({behavior: "smooth", block: "start"})
+      if (cancelled) return
+      const element = document.getElementById(getPublishingAccessRequestId(sectionName))
+      if (!element) return
+      lastFocusedRequest = key
+      element.scrollIntoView({behavior: requestByKind ? "instant" : "smooth", block: "start"})
+      if (requestByKind) element.focus({preventScroll: true})
     })
+    return () => {
+      cancelled = true
+    }
   })
 
   $effect(() => {
@@ -1464,16 +1512,34 @@
                   Request normal section-level publishing access with moderator-curated forms.
                 </p>
               </div>
-              <span class="badge badge-neutral">{sectionItems.length} sections</span>
+              <span class="badge badge-neutral"
+                >{visibleSectionItems.length}
+                {visibleSectionItems.length === 1 ? "section" : "sections"}</span>
             </div>
           </summary>
 
           <div class="border-t border-base-300 p-4">
-            <div class="grid gap-3 lg:grid-cols-2">
-              {#each sectionItems as item (item.section.name)}
+            {#if requestByKind}
+              <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <p class="text-sm opacity-70" role="status">
+                  {#if requestedSectionItem}
+                    Publishing access for {requestedSectionItem.displayName}.
+                  {:else}
+                    This publishing action is not enabled in this community. Ask its owner to
+                    configure the section.
+                  {/if}
+                </p>
+                <Button class="btn btn-neutral btn-sm" onclick={showAllPublishingRequests}
+                  >View all publishing requests</Button>
+              </div>
+            {/if}
+            <div class={`grid gap-3 ${requestByKind ? "" : "lg:grid-cols-2"}`}>
+              {#each visibleSectionItems as item (item.section.name)}
                 <section
                   id={getPublishingAccessRequestId(item.section.name)}
-                  class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md"
+                  aria-label={`${item.displayName} publishing access`}
+                  tabindex="-1"
+                  class="card2 bg-alt flex scroll-mt-20 flex-col gap-4 p-4 shadow-md"
                   class:border-success={item.state.status === "granted"}
                   class:border-error={item.state.status === "rejected"}
                   class:border-warning={item.state.status === "pending"}>

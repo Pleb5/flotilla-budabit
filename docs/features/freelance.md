@@ -34,6 +34,16 @@ Updating the app does not rewrite already published community definitions. **Res
 
 ## Scope and host integration
 
+### Publishing access requests
+
+The widget's per-action publish gate offers **Access options** when the signing account lacks a scoped grant. It uses the existing `ui:navigate` action to open `/c/<exact-definition-naddr>/access?section=<section-hint>&kind=<action-kind>`. Membership resolves the kind against the current exact definition; the hint can be stale after a section is renamed or reorganized.
+
+This action link focuses the matching section's current authorized application form or existing pending/rejected/granted request state. A section without a form shows its no-form message. An unsupported or invalid descriptor shows setup guidance rather than another section's application. **View all publishing requests** restores the complete list. Existing section-only links continue to scroll the full Membership list; optional `subtype` accompanies `kind` for descriptors that use one.
+
+The widget saves open drafts before navigation. Application selection and submission status come from Membership's existing community-scoped state. The widget and updated Membership route must both be deployed to enable this focused behavior.
+
+### Relay and bridge scope
+
 The Community Freelance widget receives Budabit's exact community context, resolves its kind-32222 definition, checks descriptor write capabilities, and uses `nostr:sign`. It owns its relay connection pool and sends freelance reads and writes only to that definition's `r` relays. Its freelance records carry `h=<communityId>` and a marked exact-definition `a` tag; SatShoot workflow references are separate. The widget manifest is targeted through kind 30222, while the freelance records themselves are directly community-bound.
 
 Signing kinds include the five workflow kinds, author deletion **5**, relay authentication **22242**, and Blossom HTTP authorization **24242**. The latter is sent to the upload server, not published as relay content. These signing declarations are separate from the section's five content kinds.
