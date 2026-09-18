@@ -69,7 +69,7 @@ Runtime parsing extracts the widget `identifier`, `widgetType`, `buttons`, `appU
 
 Budabit's default **Freelance** section declares services `32765`, orders `32766`, jobs `32767`, proposals `32768`, and reviews `1986`. Its workflow grants are separate from **Widget-curator** access for publishing/targeting the widget. Existing communities can add the section with **Add Freelance** in the definition editor.
 
-The separately published Community Freelance widget uses `community:checkWriteCapabilities`, `nostr:sign`, `storage:get`, `storage:set`, and `ui:resize`, with a `community-home-after-quicklinks` slot. It owns community-relay reads/publication and Blossom uploads; its signing declaration also includes `5`, `22242`, and `24242`. The host's bridge checks do not automatically govern a widget's direct network requests. See [Community Freelance](../features/freelance.md) for configuration and implementation boundaries.
+The separately published Community Freelance widget uses `community:checkWriteCapabilities`, `nostr:sign`, `storage:get`, `storage:set`, `ui:resize`, and `ui:navigate`, with a `community-home-quicklinks` slot. It owns community-relay reads/publication and Blossom uploads; its signing declaration also includes `5`, `22242`, and `24242`. The host's bridge checks do not automatically govern a widget's direct network requests. See [Community Freelance](../features/freelance.md) for configuration and implementation boundaries.
 
 ---
 
@@ -103,6 +103,7 @@ Smart Widgets declare one supported slot with a `slot` tag in the `kind:30033` e
 | `repo-tab`                         | `["slot", "repo-tab", label, path]`                   | Full repository tab iframe                              |
 | `community-home-before-quicklinks` | `["slot", "community-home-before-quicklinks", label]` | Community home card/launcher                            |
 | `community-home-after-quicklinks`  | `["slot", "community-home-after-quicklinks", label]`  | Community home card/launcher                            |
+| `community-home-quicklinks`        | `["slot", "community-home-quicklinks", label]`        | Home quicklink button; opens a wide modal on demand      |
 | `chat-message-actions`             | `["slot", "chat-message-actions", label]`             | Compact message action launcher that opens a modal      |
 | `global-menu`                      | `["slot", "global-menu", label]`                      | Community-route top control launcher that opens a modal |
 
@@ -113,6 +114,8 @@ Example `chat-message-actions` tag:
 ```
 
 `global-menu` is scoped to the targeted community route where the widget is installed, not to every route in the app.
+
+`community-home-quicklinks` uses the same exact-community curation and installed/enabled selection as the other community slots. Its icon and label join the home quicklink grid. No widget iframe is mounted or preloaded until the button is clicked; the dialog receives the selected community's runtime context and tears down the iframe on close.
 
 ---
 
