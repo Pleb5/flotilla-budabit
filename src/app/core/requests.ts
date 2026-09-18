@@ -790,7 +790,10 @@ export const makeCalendarFeed = ({
       ).values(),
     )
 
-  const initialEvents = sortBy(getStart, getEventsForRelays().filter(isValidCalendarEvent))
+  const initialEvents = sortBy(
+    event => -getStart(event),
+    getEventsForRelays().filter(isValidCalendarEvent),
+  )
   const events = writable(initialEvents)
 
   const removeEvents = (predicate: (event: TrustedEvent) => boolean) => {
@@ -810,7 +813,7 @@ export const makeCalendarFeed = ({
       )
 
       for (let i = 0; i < nextEvents.length; i++) {
-        if (getStart(nextEvents[i]) > range.start) return insertAt(i, event, nextEvents)
+        if (getStart(nextEvents[i]) < range.start) return insertAt(i, event, nextEvents)
       }
 
       return [...nextEvents, event]
@@ -915,7 +918,6 @@ export const makeCalendarFeed = ({
 
   const backwardScroller = createScroller({
     element,
-    reverse: true,
     onScroll: async () => {
       const [since, until] = backwardWindow
 
@@ -933,6 +935,7 @@ export const makeCalendarFeed = ({
 
   const forwardScroller = createScroller({
     element,
+    reverse: true,
     onScroll: async () => {
       const [since, until] = forwardWindow
 

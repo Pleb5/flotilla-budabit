@@ -4,7 +4,7 @@
   import {page} from "$app/stores"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {formatTimestampAsDate, last, now} from "@welshman/lib"
+  import {formatTimestampAsDate, now} from "@welshman/lib"
   import {matchFilters, type Filter, type TrustedEvent} from "@welshman/util"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
   import CalendarAdd from "@assets/icons/calendar-add.svg?dataurl"
@@ -72,7 +72,7 @@
   type CalendarItem = {
     event: TrustedEvent
     dateDisplay?: string
-    isFirstFutureEvent?: boolean
+    isFirstPastEvent?: boolean
   }
 
   let element: HTMLElement | undefined = $state()
@@ -89,9 +89,6 @@
   let feedInitialized = $state(false)
   let emptyStateSettleTimer: ReturnType<typeof setTimeout> | undefined
   let lastFeedKey = ""
-  let previousScrollHeight = 0
-  let previousFirstEventId = ""
-  let initialScrollDone = false
   let historicalLoadRetryVersion = $state(0)
   let retryingCommunityAccess = $state(false)
 
@@ -358,12 +355,12 @@
   const projectedCalendarEvents = $derived.by(() =>
     calendarProjection.events.toSorted(
       (a, b) =>
-        (getCalendarEventRange(a)?.start ?? Number.POSITIVE_INFINITY) -
-        (getCalendarEventRange(b)?.start ?? Number.POSITIVE_INFINITY),
+        (getCalendarEventRange(b)?.start ?? Number.NEGATIVE_INFINITY) -
+        (getCalendarEventRange(a)?.start ?? Number.NEGATIVE_INFINITY),
     ),
   )
   const items = $derived.by(() => {
-    let haveSeenFutureEvent = false
+    let haveSeenPastEvent = false
     let previousDateDisplay: string | undefined
 
     return projectedCalendarEvents
@@ -373,13 +370,13 @@
         const range = getRange(event)!
         const dateDisplayValue = formatTimestampAsDate(range.start)
         const dateDisplay = previousDateDisplay === dateDisplayValue ? undefined : dateDisplayValue
-        const isFutureEvent = isActiveOrFutureEvent(event)
-        const isFirstFutureEvent = !haveSeenFutureEvent && isFutureEvent
+        const isPastEvent = !isActiveOrFutureEvent(event)
+        const isFirstPastEvent = !haveSeenPastEvent && isPastEvent
 
         previousDateDisplay = dateDisplayValue
-        if (isFutureEvent) haveSeenFutureEvent = true
+        if (isPastEvent) haveSeenPastEvent = true
 
-        return {event, dateDisplay, isFirstFutureEvent}
+        return {event, dateDisplay, isFirstPastEvent}
       })
   })
 
@@ -409,9 +406,6 @@
     exhaustedEvents = false
     feedInitialized = false
     lastFeedKey = ""
-    previousScrollHeight = 0
-    previousFirstEventId = ""
-    initialScrollDone = false
   }
 
   const startFeed = (key: string) => {
@@ -604,34 +598,7 @@
   })
 
   $effect(() => {
-    if (!element || items.length === 0) return
-
-    requestAnimationFrame(() => {
-      if (!element || items.length === 0) return
-
-      if (initialScrollDone) {
-        if (previousFirstEventId && items[0].event.id !== previousFirstEventId) {
-          const delta = element.scrollHeight - previousScrollHeight
-
-          if (delta > 0) element.scrollTop += delta
-        }
-      } else {
-        const firstFutureItem = items.find(({event}) => isActiveOrFutureEvent(event)) || last(items)
-        const eventElement = firstFutureItem
-          ? (document.querySelector(`.calendar-event-${firstFutureItem.event.id}`) as HTMLElement)
-          : undefined
-
-        if (eventElement) {
-          element.scrollTop =
-            eventElement.offsetTop - element.clientHeight / 2 + eventElement.clientHeight / 2
-        }
-
-        initialScrollDone = true
-      }
-
-      previousScrollHeight = element.scrollHeight
-      previousFirstEventId = items[0].event.id
-    })
+    if (element && communityAddress) element.scrollTop = 0
   })
 
   onDestroy(() => {
@@ -667,9 +634,9 @@
 </PageBar>
 
 <PageContent bind:element class="flex flex-col gap-2 p-2 pt-4">
-  {#each items as { event, dateDisplay, isFirstFutureEvent } (event.id)}
+  {#each items as { event, dateDisplay, isFirstPastEvent } (event.id)}
     <div class={"calendar-event-" + event.id}>
-      {#if isFirstFutureEvent}
+      {#if isFirstPastEvent}
         <div class="flex items-center gap-2 p-2">
           <div class="h-px flex-grow bg-primary"></div>
           <p class="text-xs uppercase text-primary">Today</p>
