@@ -1,0 +1,45 @@
+diff --git a/dist/index-CvKNFBXJ.d.ts b/dist/index-CvKNFBXJ.d.ts
+index a32709943f7e5c50555c6f85ce01d7d6d95f8686..5f545e8d7b08a65ab442e7eba7dc9b85f24c5cbc 100644
+--- a/dist/index-CvKNFBXJ.d.ts
++++ b/dist/index-CvKNFBXJ.d.ts
+@@ -202,6 +202,8 @@ interface Keyset {
+   keypairs: KeysetKeypairs;
+   active: boolean;
+   feePpk: number;
++  /** NUT-02 metadata committed by v2 keyset IDs. */
++  finalExpiry?: number;
+   updatedAt: number;
+ }
+ //#endregion
+diff --git a/dist/index.js b/dist/index.js
+index 680223d0a4201f4b29fbce8458cda9fcbf2d78e0..221eda917237029e3f68e8297d917332bb408d7a 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -1117,7 +1117,8 @@ var MintService = class {
+ 					id: ks.id,
+ 					unit: ks.unit,
+ 					active: ks.active,
+-					feePpk: ks.input_fee_ppk || 0
++					feePpk: ks.input_fee_ppk || 0,
++					finalExpiry: ks.final_expiry
+ 				};
+ 				return this.keysetRepo.updateKeyset(keysetModel);
+ 			} else try {
+@@ -1128,7 +1129,8 @@ var MintService = class {
+ 					unit: ks.unit,
+ 					keypairs: keysRes,
+ 					active: ks.active,
+-					feePpk: ks.input_fee_ppk || 0
++					feePpk: ks.input_fee_ppk || 0,
++					finalExpiry: ks.final_expiry
+ 				});
+ 			} catch (err) {
+ 				this.logger?.error("Failed to sync keyset", {
+@@ -2354,6 +2356,7 @@ var WalletService = class {
+ 			unit: this.normalizeKeysetUnit(keyset.unit),
+ 			active: keyset.active,
+ 			input_fee_ppk: keyset.feePpk,
++			final_expiry: keyset.finalExpiry,
+ 			keys: keyset.keypairs
+ 		}));
+ 		const cache = {

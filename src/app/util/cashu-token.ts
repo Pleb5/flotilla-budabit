@@ -1,4 +1,5 @@
-import {getDecodedToken, getTokenMetadata} from "@cashu/cashu-ts"
+import {getTokenMetadata} from "@cashu/cashu-ts"
+import {cashuSatsNumber} from "./cashu-amount"
 import {ParsedType, type Parsed, type ParsedCashu, type ParsedText} from "@welshman/content"
 
 export type CashuTokenInfo = {
@@ -67,25 +68,12 @@ export const getCashuTokenInfo = (raw: string): CashuTokenInfo | undefined => {
     return {
       token,
       mintUrl: metadata.mint,
-      amount: metadata.amount || 0,
+      amount: cashuSatsNumber(metadata.amount),
       unit: metadata.unit || "sat",
       memo: metadata.memo,
     }
   } catch {
-    try {
-      const decoded = getDecodedToken(token)
-      if (!decoded.mint) return undefined
-
-      return {
-        token,
-        mintUrl: decoded.mint,
-        amount: decoded.proofs.reduce((sum, proof) => sum + (proof.amount || 0), 0),
-        unit: decoded.unit || "sat",
-        memo: decoded.memo,
-      }
-    } catch {
-      return undefined
-    }
+    return undefined
   }
 }
 

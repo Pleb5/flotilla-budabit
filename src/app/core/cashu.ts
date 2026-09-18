@@ -5,9 +5,9 @@ import {
   initializeCoco,
   ConsoleLogger,
   getEncodedToken,
-  getDecodedToken,
+  getTokenMetadata,
 } from "@cashu/coco-core"
-import type {HistoryEntry} from "@cashu/coco-core"
+import type {HistoryEntry, MintQuote, MintOperation} from "@cashu/coco-core"
 import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import * as bip39 from "@scure/bip39"
 import {wordlist} from "@scure/bip39/wordlists/english"
@@ -19,6 +19,9 @@ import {
   validateCashuMnemonic,
 } from "@app/util/cashu-backup"
 import type {CashuBackupData, CashuEncryptedPayload} from "@app/util/cashu-backup"
+import {cashuPositiveSats, cashuSatsNumber} from "@app/util/cashu-amount"
+import {cashuSnapshotDatabaseName, prepareCashuStorageUpgrade} from "./cashu-storage-migration"
+import {enforceCashuKeysetPolicy} from "./cashu-keyset-policy"
 
 const KEY_MNEMONIC = "budabit_cashu_mnemonic"
 const KEY_MNEMONIC_ENCRYPTED = "budabit_cashu_mnemonic_encrypted"
@@ -49,6 +52,19 @@ export const cashuSetupRequired: Writable<boolean> = writable(false)
 export const cashuSeedEncrypted: Writable<boolean> = writable(false)
 export const cashuSeedLocked: Writable<boolean> = writable(false)
 export const cashuRecoveryInProgress: Writable<boolean> = writable(false)
+export const cashuWalletError: Writable<string> = writable("")
+
+export interface CashuTopUpQuote {
+  mintUrl: string
+  quote: string
+  request: string
+  amount: number
+  expiry: number | null
+  operationId?: string
+  state: "unpaid" | "pending" | "complete" | "expired" | "failed"
+  error?: string
+}
+export const cashuTopUps: Writable<CashuTopUpQuote[]> = writable([])
 
 // Internal manager reference
 let manager: Manager | null = null
@@ -65,6 +81,8 @@ let _initPromise: Promise<void> | null = null
 // for store-warmup purposes.
 let _managerReadyPromise: Promise<void> | null = null
 let _resolveManagerReady: (() => void) | null = null
+let runtimeGeneration = 0
+let initializationError: Error | null = null
 
 const canUseBrowserSessionStorage = () => typeof sessionStorage !== "undefined"
 
@@ -83,13 +101,12 @@ const clearUnlockedCashuMnemonic = () => {
   sessionStorage.removeItem(KEY_UNLOCKED_MNEMONIC)
 }
 
-const resetManagerRuntime = () => {
-  try {
-    repo?.db.close()
-  } catch {
-    // pass
-  }
-
+const resetManagerRuntime = async () => {
+  runtimeGeneration++
+  const previousManager = manager
+  const previousRepo = repo
+  const previousInit = _initPromise
+  _resolveManagerReady?.()
   manager = null
   repo = null
   cashuInitialized.set(false)
@@ -97,14 +114,20 @@ const resetManagerRuntime = () => {
   cashuBalancesByMint.set(new Map())
   cashuMints.set([])
   cashuTokenHistory.set([])
+  cashuTopUps.set([])
+  cashuWalletError.set("")
+  initializationError = null
   cashuSetupResolved.set(false)
   _initPromise = null
   _managerReadyPromise = null
   _resolveManagerReady = null
+  await previousManager?.dispose()
+  await previousInit
+  previousRepo?.db.close()
 }
 
 export const clearCashuWalletStorage = async (): Promise<void> => {
-  resetManagerRuntime()
+  await resetManagerRuntime()
   _mnemonic = null
   _encryptedMnemonic = null
   clearUnlockedCashuMnemonic()
@@ -121,9 +144,11 @@ export const clearCashuWalletStorage = async (): Promise<void> => {
     storageRemove(KEY_AUTOPAY_WHITELIST),
   ])
   await deleteIndexedDB(DB_NAME)
+  await deleteIndexedDB(cashuSnapshotDatabaseName(DB_NAME))
 }
 
 const ensureManagerReady = async (): Promise<void> => {
+  const generation = runtimeGeneration
   if (!_managerReadyPromise) {
     _managerReadyPromise = new Promise<void>(resolve => {
       _resolveManagerReady = resolve
@@ -133,25 +158,37 @@ const ensureManagerReady = async (): Promise<void> => {
   // promise here, only the manager-ready half.
   if (!_initPromise) initializeCashuWallet()
   await _managerReadyPromise
+  if (generation !== runtimeGeneration) throw new Error("Wallet session changed")
+  if (initializationError) throw initializationError
 }
 
 export const initializeCashuWallet = (): Promise<void> => {
   if (_initPromise) return _initPromise
+  if (initializationError) {
+    _managerReadyPromise = null
+    _resolveManagerReady = null
+  }
   if (!_managerReadyPromise) {
     _managerReadyPromise = new Promise<void>(resolve => {
       _resolveManagerReady = resolve
     })
   }
-  _initPromise = _doInitialize()
+  initializationError = null
+  cashuWalletError.set("")
+  _initPromise = _doInitialize(runtimeGeneration)
   return _initPromise
 }
 
-const _doInitialize = async (): Promise<void> => {
+const _doInitialize = async (generation: number): Promise<void> => {
+  let openingRepo: IndexedDbRepositories | null = null
+  let openingManager: Manager | null = null
   try {
     const backupFlag = await storageGet(KEY_BACKUP_CONFIRMED)
+    if (generation !== runtimeGeneration) return
     cashuBackupConfirmed.set(backupFlag === "true")
 
     const encryptedRaw = await storageGet(KEY_MNEMONIC_ENCRYPTED)
+    if (generation !== runtimeGeneration) return
     if (encryptedRaw) {
       cashuSeedEncrypted.set(true)
       _encryptedMnemonic = JSON.parse(encryptedRaw)
@@ -181,6 +218,7 @@ const _doInitialize = async (): Promise<void> => {
       cashuSeedLocked.set(false)
 
       const existing = await storageGet(KEY_MNEMONIC)
+      if (generation !== runtimeGeneration) return
       if (existing) {
         _mnemonic = validateCashuMnemonic(existing)
         cashuSetupResolved.set(true)
@@ -199,23 +237,36 @@ const _doInitialize = async (): Promise<void> => {
     const whitelist: string[] = whitelistRaw ? JSON.parse(whitelistRaw) : []
     cashuAutoPayWhitelist.set(whitelist)
 
-    repo = new IndexedDbRepositories({name: DB_NAME})
-    await repo.init()
+    await prepareCashuStorageUpgrade(DB_NAME)
+    if (generation !== runtimeGeneration) return
+    openingRepo = new IndexedDbRepositories({name: DB_NAME})
+    await openingRepo.init()
+    await openingRepo.db.open()
+    enforceCashuKeysetPolicy(openingRepo)
+    if (generation !== runtimeGeneration) {
+      openingRepo.db.close()
+      return
+    }
 
-    const seedGetter = async () => bip39.mnemonicToSeedSync(_mnemonic!)
-    manager = await initializeCoco({
-      repo,
+    const seed = bip39.mnemonicToSeedSync(_mnemonic!)
+    const seedGetter = async () => seed
+    openingManager = await initializeCoco({
+      repo: openingRepo,
       seedGetter,
-      logger: new ConsoleLogger("coco", {level: "warn" as any}),
+      logger: new ConsoleLogger("coco", {level: "warn"}),
       watchers: {
-        // proofStateWatcher polls mints to detect remotely-spent proofs;
-        // we don't need that telemetry, so leave it off. The
-        // mintOperationWatcher and mintOperationProcessor are required
-        // in coco v1 for receive/send promises to resolve, so leave
-        // them at their defaults (enabled).
+        // Keep mint issuance and melt settlement/recovery enabled. Only the
+        // optional polling of externally spent send proofs remains disabled.
         proofStateWatcher: {disabled: true},
       },
     })
+    if (generation !== runtimeGeneration) {
+      await openingManager.dispose()
+      openingRepo.db.close()
+      return
+    }
+    repo = openingRepo
+    manager = openingManager
 
     manager.on("mint:added", refreshCashuMints)
     manager.on("mint:trusted", refreshCashuMints)
@@ -228,15 +279,32 @@ const _doInitialize = async (): Promise<void> => {
     manager.on("proofs:released", refreshCashuBalances)
     manager.on("proofs:deleted", refreshCashuBalances)
     manager.on("proofs:wiped", refreshCashuBalances)
+    manager.on("mint-quote:updated", refreshCashuTopUps)
+    manager.on("mint-op:pending", refreshCashuTopUps)
+    manager.on("mint-op:finalized", refreshCashuTopUps)
+    manager.on("mint-op:failed", refreshCashuTopUps)
 
     cashuInitialized.set(true)
     // Manager is fully wired — unblock any handler-facing callers waiting on
     // ensureManagerReady() before we run the (potentially slow) warmup
     // refresh batch.
     _resolveManagerReady?.()
-    await Promise.all([refreshCashuMints(), refreshCashuHistory(), refreshCashuBalances()])
+    await Promise.all([
+      refreshCashuMints(),
+      refreshCashuHistory(),
+      refreshCashuBalances(),
+      refreshCashuTopUps(),
+    ])
   } catch (e) {
-    console.error("[cashu] Failed to initialize wallet:", e)
+    await openingManager?.dispose()
+    openingRepo?.db.close()
+    if (generation !== runtimeGeneration) return
+    manager = null
+    repo = null
+    initializationError = e instanceof Error ? e : new Error(String(e))
+    cashuWalletError.set(initializationError.message)
+    cashuInitialized.set(false)
+    _initPromise = null
     // Unblock waiters even on failure so they hit the !manager throw rather
     // than hanging forever.
     cashuSetupResolved.set(true)
@@ -250,6 +318,11 @@ export const getCashuMnemonic = (): string => {
   if (get(cashuSeedLocked)) throw new Error("Cashu wallet is locked")
   if (!_mnemonic) throw new Error("Wallet not initialized")
   return _mnemonic
+}
+
+export const reloadCashuWallet = async (): Promise<void> => {
+  await resetManagerRuntime()
+  await initializeCashuWallet()
 }
 
 export const confirmCashuBackup = async (): Promise<void> => {
@@ -290,11 +363,12 @@ const persistCashuMnemonic = async (
 export const createCashuWallet = async (): Promise<void> => {
   const mnemonic = bip39.generateMnemonic(wordlist)
 
-  resetManagerRuntime()
+  await resetManagerRuntime()
   await persistCashuMnemonic({mnemonic, mints: []})
   await storageRemove(KEY_BACKUP_CONFIRMED)
   cashuBackupConfirmed.set(false)
   await deleteIndexedDB(DB_NAME)
+  await deleteIndexedDB(cashuSnapshotDatabaseName(DB_NAME))
   await initializeCashuWallet()
 }
 
@@ -318,7 +392,7 @@ export const unlockEncryptedCashuSeed = async (passphrase: string): Promise<void
   cacheUnlockedCashuMnemonic(data.mnemonic)
   cashuSeedEncrypted.set(true)
   cashuSeedLocked.set(false)
-  resetManagerRuntime()
+  await resetManagerRuntime()
   await initializeCashuWallet()
 
   for (const mintUrl of data.mints) {
@@ -339,11 +413,12 @@ export const restoreCashuSeedBackup = async (
 
   cashuRecoveryInProgress.set(true)
   try {
-    resetManagerRuntime()
+    await resetManagerRuntime()
     await persistCashuMnemonic({mnemonic, mints}, options.encryptPassphrase)
     await storageRemove(KEY_BACKUP_CONFIRMED)
     cashuBackupConfirmed.set(false)
     await deleteIndexedDB(DB_NAME)
+    await deleteIndexedDB(cashuSnapshotDatabaseName(DB_NAME))
     await initializeCashuWallet()
 
     const failed: {mintUrl: string; error: string}[] = []
@@ -368,9 +443,10 @@ export const restoreCashuSeedBackup = async (
 
 const refreshCashuMints = async (): Promise<void> => {
   if (!manager) return
+  const active = manager
   try {
-    const mints = await manager.mint.getAllTrustedMints()
-    cashuMints.set(mints.map(m => m.mintUrl))
+    const mints = await active.mint.getAllTrustedMints()
+    if (manager === active) cashuMints.set(mints.map(m => m.mintUrl))
   } catch (e) {
     console.error("[cashu] Failed to refresh mints:", e)
   }
@@ -393,25 +469,20 @@ export class UntrustedMintError extends Error {
 }
 
 /**
- * Cancels any in-flight receive operations for the mint and runs a deterministic
- * restore. Use after the mint returns "outputs already signed" — the wallet's
- * counter has drifted past proofs the mint signed, and restore reclaims them.
+ * Reconciles in-flight receives using their saved outputs, then runs a
+ * deterministic restore for the mint's sat keysets.
  */
 export const recoverCashuMint = async (mintUrl: string): Promise<void> => {
   await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
 
-  const inFlight = await manager.ops.receive.listInFlight()
-  for (const op of inFlight) {
-    if (op.mintUrl === mintUrl) {
-      try {
-        await manager.ops.receive.cancel(op.id)
-      } catch (e) {
-        console.warn("[cashu] Failed to cancel stuck receive op:", e)
-      }
-    }
+  const active = manager
+  // Executing receives own persisted output data. Recover them rather than
+  // discarding it or treating a failed cancellation as successful recovery.
+  for (const op of await active.ops.receive.listInFlight()) {
+    if (op.mintUrl === mintUrl) await active.ops.receive.refresh(op.id)
   }
-  await manager.wallet.restore(mintUrl)
+  await active.wallet.restore(mintUrl, {units: ["sat"]})
   await refreshCashuBalances()
 }
 
@@ -461,22 +532,28 @@ export const removeCashuMint = async (url: string): Promise<void> => {
 
 export const refreshCashuBalances = async (): Promise<void> => {
   if (!manager) return
+  const active = manager
   try {
     await refreshCashuBalancesStrict()
   } catch (e) {
-    console.error("[cashu] Failed to refresh balances:", e)
+    if (manager === active) cashuWalletError.set(e instanceof Error ? e.message : String(e))
   }
 }
 
 const refreshCashuBalancesStrict = async (): Promise<number> => {
   if (!manager) throw new Error("Wallet not initialized")
 
-  const byMint = await manager.wallet.balances.byMint()
-  const map = new Map(Object.entries(byMint).map(([url, snap]) => [url, snap.total]))
+  const active = manager
+  const byMint = await active.wallet.balances.byMint()
+  const map = new Map(
+    Object.entries(byMint).map(([url, snap]) => [url, cashuSatsNumber(snap.total)]),
+  )
+  const {total} = await active.wallet.balances.total()
+  const sats = cashuSatsNumber(total)
+  if (manager !== active) throw new Error("Wallet session changed")
   cashuBalancesByMint.set(map)
-  const {total} = await manager.wallet.balances.total()
-  cashuTotalBalance.set(total)
-  return total
+  cashuTotalBalance.set(sats)
+  return sats
 }
 
 // ─── Token Operations ─────────────────────────────────────────────────────────
@@ -484,34 +561,43 @@ const refreshCashuBalancesStrict = async (): Promise<number> => {
 export const receiveCashuToken = async (token: string): Promise<number> => {
   await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
+  const active = manager
 
-  let mintUrl = ""
-  try {
-    mintUrl = (getDecodedToken(token) as any).mint || ""
-  } catch {
-    // pass — let manager.wallet.receive surface the decode error
-  }
+  const metadata = getTokenMetadata(token)
+  const mintUrl = metadata.mint
+  if (metadata.unit !== "sat") throw new Error("Only sat-denominated Cashu tokens are supported")
+  cashuSatsNumber(metadata.amount)
 
-  if (mintUrl && !(await manager.mint.isTrustedMint(mintUrl))) {
+  if (mintUrl && !(await active.mint.isTrustedMint(mintUrl))) {
     throw new UntrustedMintError(mintUrl)
   }
+  const decoded = await active.wallet.decodeToken(token, mintUrl)
+  if (decoded.proofs.some(proof => !/^(00|01)[0-9a-f]+$/i.test(proof.id))) {
+    throw new Error("Unsupported Cashu keyset: BLS tokens are not enabled")
+  }
 
-  const before = await refreshCashuBalancesStrict()
-  await manager.wallet.receive(token)
-  const after = await refreshCashuBalancesStrict()
+  if (manager !== active) throw new Error("Wallet session changed")
+  const prepared = await active.ops.receive.prepare({token: decoded})
+  const received = await active.ops.receive.execute(prepared)
+  if (manager !== active) throw new Error("Wallet session changed")
+  const amount = cashuSatsNumber(received.amount.subtract(received.fee))
+  await refreshCashuBalancesStrict()
   await refreshCashuHistoryStrict()
-  return after - before
+  return amount
 }
 
 export const createCashuToken = async (amount: number, mintUrl: string): Promise<string> => {
+  const sats = cashuPositiveSats(amount)
   await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
 
   if (!get(cashuBackupConfirmed)) {
     throw new Error("backup_required")
   }
-  const prepared = await manager.ops.send.prepare({mintUrl, amount})
-  const {token: tokenData} = await manager.ops.send.execute(prepared)
+  const active = manager
+  const prepared = await active.ops.send.prepare({mintUrl, amount: {amount: sats, unit: "sat"}})
+  const {token: tokenData} = await active.ops.send.execute(prepared)
+  if (manager !== active) throw new Error("Wallet session changed")
   await refreshCashuBalancesStrict()
   await refreshCashuHistoryStrict()
   return getEncodedToken(tokenData)
@@ -522,22 +608,39 @@ export const createCashuToken = async (amount: number, mintUrl: string): Promise
 export const requestMintQuote = async (
   mintUrl: string,
   amount: number,
-): Promise<{quote: string; request: string}> => {
-  const {Wallet} = await import("@cashu/cashu-ts")
-  const wallet = new Wallet(mintUrl)
-  await wallet.loadMint()
-  const quoteResponse = await wallet.createMintQuote(amount)
-  return {quote: quoteResponse.quote, request: quoteResponse.request}
+): Promise<CashuTopUpQuote> => {
+  const sats = cashuPositiveSats(amount)
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  if (!get(cashuBackupConfirmed)) throw new Error("backup_required")
+  const active = manager
+  if (!(await active.mint.isTrustedMint(mintUrl))) throw new UntrustedMintError(mintUrl)
+  const quote = await active.quotes.mint.create({
+    mintUrl,
+    method: "bolt11",
+    amount: sats,
+    unit: "sat",
+    locked: true,
+  })
+  if (quote.method !== "bolt11" || quote.unit !== "sat" || !quote.amount.equals(sats)) {
+    throw new Error("Mint returned an unexpected quote amount or unit")
+  }
+  const operation = await active.ops.mint.prepare({quote, amount: sats})
+  if (manager !== active) throw new Error("Wallet session changed")
+  await refreshCashuTopUps()
+  return topUpFromQuote(quote, operation)
 }
 
 export const checkMintQuote = async (
   mintUrl: string,
   quote: string,
 ): Promise<"paid" | "unpaid" | "expired"> => {
-  const {Wallet} = await import("@cashu/cashu-ts")
-  const wallet = new Wallet(mintUrl)
-  const status = await wallet.checkMintQuote(quote)
-  if (status.state === "PAID" || status.state === "ISSUED") return "paid"
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  const status = await manager.quotes.mint.refresh({mintUrl, quoteId: quote})
+  if (status.state === "PAID" || status.state === "ISSUED" || status.amountPaid.greaterThan(0))
+    return "paid"
+  if (status.expiry !== null && status.expiry <= Date.now() / 1000) return "expired"
   return "unpaid"
 }
 
@@ -552,13 +655,90 @@ export const mintTokensFromQuote = async (
   if (!get(cashuBackupConfirmed)) {
     throw new Error("backup_required")
   }
-  const {Wallet, getEncodedToken: encodeToken} = await import("@cashu/cashu-ts")
-  const wallet = new Wallet(mintUrl)
-  await wallet.loadMint()
-  const proofs = await wallet.mintProofs(amount, quote)
-  const token = encodeToken({mint: mintUrl, proofs})
-  await manager.wallet.receive(token)
-  await refreshCashuBalances()
+  const active = manager
+  const stored = await active.quotes.mint.get({mintUrl, quoteId: quote})
+  if (!stored || stored.method !== "bolt11" || stored.unit !== "sat")
+    throw new Error("Top-up quote not found")
+  if (!stored.amount.equals(cashuPositiveSats(amount)))
+    throw new Error("Top-up amount does not match its stored quote")
+  const operations = await active.ops.mint.listByQuote({mintUrl, quoteId: quote})
+  // Reuse original outputs even if the mint already issued them before a reload.
+  const operation =
+    operations[0] ?? (await active.ops.mint.prepare({quote: stored, amount: stored.amount}))
+  await active.quotes.mint.refresh(stored)
+  const result = await active.ops.mint.execute(operation.id)
+  if (result.state === "failed" || result.error)
+    throw new Error(result.terminalFailure?.reason || result.error || "Minting failed")
+  if (result.state !== "finalized")
+    throw new Error("Top-up is still pending; its recovery data is saved")
+  if (manager !== active) throw new Error("Wallet session changed")
+  await Promise.all([refreshCashuBalances(), refreshCashuHistory(), refreshCashuTopUps()])
+}
+
+const topUpFromQuote = (quote: MintQuote, operation?: MintOperation): CashuTopUpQuote => {
+  if (quote.method !== "bolt11" || quote.unit !== "sat") throw new Error("Unsupported top-up quote")
+  const paid = quote.amountPaid.greaterThan(0) || quote.state === "PAID" || quote.state === "ISSUED"
+  return {
+    mintUrl: quote.mintUrl,
+    quote: quote.quoteId,
+    request: quote.request,
+    amount: cashuSatsNumber(quote.amount),
+    expiry: quote.expiry,
+    operationId: operation?.id,
+    state:
+      operation?.state === "finalized"
+        ? operation.error
+          ? "failed"
+          : "complete"
+        : operation?.state === "failed"
+          ? "failed"
+          : paid || operation?.state === "executing"
+            ? "pending"
+            : quote.expiry !== null && quote.expiry <= Date.now() / 1000
+              ? "expired"
+              : "unpaid",
+    error: operation?.terminalFailure?.reason || operation?.error,
+  }
+}
+
+export const getCashuTopUp = async (mintUrl: string, quoteId: string): Promise<CashuTopUpQuote> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  const active = manager
+  const quote = await active.quotes.mint.get({mintUrl, quoteId})
+  if (!quote) throw new Error("Top-up quote not found")
+  const operations = await active.ops.mint.listByQuote({mintUrl, quoteId})
+  return topUpFromQuote(quote, operations[0])
+}
+
+export const refreshCashuTopUps = async (): Promise<void> => {
+  if (!manager) return
+  const active = manager
+  try {
+    const quotes = await active.quotes.mint.listPending({method: "bolt11"})
+    // An ISSUED quote can still have local outputs awaiting NUT-09 recovery.
+    for (const operation of await active.ops.mint.listInFlight()) {
+      if (!quotes.some(q => q.mintUrl === operation.mintUrl && q.quoteId === operation.quoteId)) {
+        const quote = await active.quotes.mint.get(operation)
+        if (quote) quotes.push(quote)
+      }
+    }
+    const topUps = await Promise.all(
+      quotes
+        .filter(q => q.method === "bolt11" && q.unit === "sat")
+        .map(async quote => {
+          const operations = await active.ops.mint.listByQuote({
+            mintUrl: quote.mintUrl,
+            quoteId: quote.quoteId,
+          })
+          return topUpFromQuote(quote, operations[0])
+        }),
+    )
+    if (manager === active)
+      cashuTopUps.set(topUps.filter(q => q.state !== "complete" && q.state !== "expired"))
+  } catch (error) {
+    console.warn("[cashu] Could not refresh saved top-ups:", error)
+  }
 }
 
 // ─── Auto-pay Whitelist ───────────────────────────────────────────────────────
@@ -581,11 +761,12 @@ export const removeAutoPayWhitelist = (extensionId: string): void => {
 // ─── History ──────────────────────────────────────────────────────────────────
 
 const mapHistoryEntry = (entry: HistoryEntry): TokenHistoryEntry | null => {
+  if (entry.unit !== "sat") return null
   const stableId = getHistoryEntryKey(entry)
   const base = {
     id: stableId,
     mintUrl: entry.mintUrl,
-    amount: (entry as any).amount ?? 0,
+    amount: cashuSatsNumber(entry.amount ?? 0),
     createdAt: entry.createdAt,
   }
   switch (entry.type) {
@@ -671,7 +852,9 @@ const refreshCashuHistory = async (): Promise<void> => {
 const refreshCashuHistoryStrict = async (): Promise<void> => {
   if (!manager) throw new Error("Wallet not initialized")
 
-  const entries = await manager.history.getPaginatedHistory(0, HISTORY_PAGE_SIZE)
+  const active = manager
+  const entries = await active.history.getPaginatedHistory(0, HISTORY_PAGE_SIZE)
+  if (manager !== active) return
   cashuTokenHistory.set(
     dedupeHistoryEntries(entries)
       .map(mapHistoryEntry)

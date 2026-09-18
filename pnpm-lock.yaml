@@ -8,19 +8,27 @@ overrides:
   '@tiptap/core': 2.27.1
   '@tiptap/pm': 2.27.1
 
+patchedDependencies:
+  '@cashu/coco-core@2.0.0':
+    hash: 18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361
+    path: patches/@cashu__coco-core@2.0.0.patch
+  '@cashu/coco-indexeddb@2.0.0':
+    hash: 099147d0d4639062c21c5bf60a8913e8406456b267de02938270e72ccaad201f
+    path: patches/@cashu__coco-indexeddb@2.0.0.patch
+
 importers:
 
   .:
     dependencies:
       '@cashu/cashu-ts':
-        specifier: 3.3.0
-        version: 3.3.0
+        specifier: 5.0.0-rc.4
+        version: 5.0.0-rc.4
       '@cashu/coco-core':
-        specifier: 1.0.0
-        version: 1.0.0(typescript@5.9.3)
+        specifier: 2.0.0
+        version: 2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3)
       '@cashu/coco-indexeddb':
-        specifier: 1.0.0
-        version: 1.0.0(@cashu/coco-core@1.0.0(typescript@5.9.3))(typescript@5.9.3)
+        specifier: 2.0.0
+        version: 2.0.0(patch_hash=099147d0d4639062c21c5bf60a8913e8406456b267de02938270e72ccaad201f)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3))(typescript@5.9.3)
       '@codemirror/lang-cpp':
         specifier: ^6.0.2
         version: 6.0.3
@@ -738,7 +746,7 @@ importers:
     devDependencies:
       '@pomade/core':
         specifier: ^0.2.1
-        version: 0.2.6(@frostr/bifrost@1.0.7(typescript@5.8.3))(@noble/hashes@2.0.1)(@welshman/lib@packages+welshman+packages+lib)(@welshman/net@packages+welshman+packages+net)(@welshman/signer@packages+welshman+packages+signer)(@welshman/util@packages+welshman+packages+util)(nostr-tools@2.23.3(typescript@5.8.3))
+        version: 0.2.6(@frostr/bifrost@1.0.7(typescript@5.8.3))(@noble/hashes@2.4.0)(@welshman/lib@packages+welshman+packages+lib)(@welshman/net@packages+welshman+packages+net)(@welshman/signer@packages+welshman+packages+signer)(@welshman/util@packages+welshman+packages+util)(nostr-tools@2.23.3(typescript@5.8.3))
       '@types/throttle-debounce':
         specifier: ^5.0.2
         version: 5.0.2
@@ -1074,23 +1082,21 @@ packages:
   '@capacitor/core@7.5.0':
     resolution: {integrity: sha512-4Y4trISe2Bp3lwsoGFoQIvgX4hiZO8S1Slmbz6oFaMxAuEc4noipQGCQx974PF4glwVVe/8+H3P9iEmCXtrUgA==}
 
-  '@cashu/cashu-ts@3.3.0':
-    resolution: {integrity: sha512-hHUOhjPLK77axDdj/4qO5mJ14rkh+rZGe1Gz2RbkW2j+SIglNbc2NsKSvjvoQcshupm02FudKi9Y3s3M8ZSYzg==}
+  '@cashu/cashu-ts@5.0.0-rc.4':
+    resolution: {integrity: sha512-6ck7cHdGnvg+ZNGQduaJ5YyNMrLh9Qf1534GR6IxEXX1OuF0SS7I2qXo8p6zD3kRaemynnjJPqjaHgs1EJhAWg==}
     engines: {node: '>=22.4.0'}
+    deprecated: 'Superseded by a newer release candidate: upgrade with: npm i @cashu/cashu-ts@next'
 
-  '@cashu/cashu-ts@3.6.4':
-    resolution: {integrity: sha512-a6Asqk+wPEk9a6BQmdLMeegngj0KHKicABUEtr1cUMLTAUYHVHfdfEuHDlU+bNUqXXyaTssG7yo/ZhfHrgbSkQ==}
-    engines: {node: '>=22.4.0'}
-
-  '@cashu/coco-core@1.0.0':
-    resolution: {integrity: sha512-FBBwJUAubyKdo15vVjkdVQVXy8Sg6y0hBGW7JD4PuhEuzJDMD3RMoCScZlki5bUJmT89yKuaGJBvzOAZuB/4+A==}
+  '@cashu/coco-core@2.0.0':
+    resolution: {integrity: sha512-pUdY+kygjD0biXz+JsezRt7Hej0JcJteFaX9mBt7mPyhLjRZvwV5XSYkDrzOi4IY22286T44yEiml3wjKTC1Mw==}
     peerDependencies:
       typescript: ^5
 
-  '@cashu/coco-indexeddb@1.0.0':
-    resolution: {integrity: sha512-3c8nVW5YAjyLY2fR1Phi3F6BofuYBXAHjP1dQg5HHRR5iIZmaUoCtWNipdrWqmk/J1IEXkymUjHClrbctho24g==}
+  '@cashu/coco-indexeddb@2.0.0':
+    resolution: {integrity: sha512-yJnV7OT0AjP2Q51Cn/NEx+SNlnbiWXKc1kLx92AMh6uqQYGVbcF3kfdu42t36rCNMPVROirEr9njr3WSrHqeuw==}
     peerDependencies:
-      '@cashu/coco-core': 1.0.0
+      '@cashu/cashu-ts': 5.0.0-rc.4
+      '@cashu/coco-core': 2.0.0
       typescript: ^5
 
   '@cbor-extract/cbor-extract-darwin-arm64@2.2.2':
@@ -1872,6 +1878,10 @@ packages:
     resolution: {integrity: sha512-vs1Az2OOTBiP4q0pwjW5aF0xp9n4MxVrmkFBxc6EKZc6ddYx5gaZiAsZoq0uRRXWbi3AT/sBqn05eRPtn1JCPw==}
     engines: {node: '>= 20.19.0'}
 
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+
   '@noble/hashes@1.3.1':
     resolution: {integrity: sha512-EbqwksQwz9xDRGfDST86whPBgM65E0OH/pCgqW0GBVzO22bNE+NuIbeTb714+IfSjU3aRk47EUvXIb5bTsenKA==}
     engines: {node: '>= 16'}
@@ -1886,6 +1896,10 @@ packages:
 
   '@noble/hashes@2.0.1':
     resolution: {integrity: sha512-XlOlEbQcE9fmuXxrVTXCTlG2nlRXa9Rj3rr5Ue/+tX+nmkgbX720YHh0VR3hBF9xDvwnb8D2shVGOwNx+ulArw==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
     engines: {node: '>= 20.19.0'}
 
   '@nodelib/fs.scandir@2.1.5':
@@ -2172,11 +2186,17 @@ packages:
   '@scure/base@2.0.0':
     resolution: {integrity: sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w==}
 
+  '@scure/base@2.4.0':
+    resolution: {integrity: sha512-thZ1TuJwFwBblOhgsjDKvvGirBxNp+wSvY/DR6tJBJOTDhdAAcHJ8Vbr2eFnqaxeca4+t0i9KBf+uHYGWwZORg==}
+
   '@scure/bip32@1.3.1':
     resolution: {integrity: sha512-osvveYtyzdEVbt3OfwwXFr4P2iVBL5u1Q3q4ONBfDY/UpOuXmOlbgwc1xECEboY8wIays8Yt6onaWMUdUbfl0A==}
 
   '@scure/bip32@2.0.1':
     resolution: {integrity: sha512-4Md1NI5BzoVP+bhyJaY3K6yMesEFzNS1sE/cP+9nuvE7p/b0kx9XbpDHHFl8dHtufcbdHRUUQdRqLIPHN/s7yA==}
+
+  '@scure/bip32@2.4.0':
+    resolution: {integrity: sha512-i3DS0CptAocyvqE4n3SUkpzeQK4vJMFwWLofTwRiiKo2aWojBOfyMCgfKw9HVpO6fSY5AK86sHS/Uzn8kK9Few==}
 
   '@scure/bip39@1.2.1':
     resolution: {integrity: sha512-Z3/Fsz1yr904dduJD0NpiyRHhRYHdcnyh73FZWiV+/qhWi83wNJ3NWolYqCEN+ZWsUz2TWwajJggcRE9r1zUYg==}
@@ -5222,31 +5242,25 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
-  '@cashu/cashu-ts@3.3.0':
+  '@cashu/cashu-ts@5.0.0-rc.4':
     dependencies:
-      '@noble/curves': 2.0.1
-      '@noble/hashes': 2.0.1
-      '@scure/base': 2.0.0
-      '@scure/bip32': 2.0.1
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/base': 2.4.0
+      '@scure/bip32': 2.4.0
 
-  '@cashu/cashu-ts@3.6.4':
+  '@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3)':
     dependencies:
-      '@noble/curves': 2.0.1
-      '@noble/hashes': 2.0.1
-      '@scure/base': 2.0.0
-      '@scure/bip32': 2.0.1
-
-  '@cashu/coco-core@1.0.0(typescript@5.9.3)':
-    dependencies:
-      '@cashu/cashu-ts': 3.6.4
+      '@cashu/cashu-ts': 5.0.0-rc.4
       '@noble/curves': 2.0.1
       '@noble/hashes': 2.0.1
       '@scure/bip32': 2.0.1
       typescript: 5.9.3
 
-  '@cashu/coco-indexeddb@1.0.0(@cashu/coco-core@1.0.0(typescript@5.9.3))(typescript@5.9.3)':
+  '@cashu/coco-indexeddb@2.0.0(patch_hash=099147d0d4639062c21c5bf60a8913e8406456b267de02938270e72ccaad201f)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3))(typescript@5.9.3)':
     dependencies:
-      '@cashu/coco-core': 1.0.0(typescript@5.9.3)
+      '@cashu/cashu-ts': 5.0.0-rc.4
+      '@cashu/coco-core': 2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3)
       dexie: 4.3.0
       typescript: 5.9.3
 
@@ -5275,7 +5289,7 @@ snapshots:
 
   '@cmdcode/frost@1.1.4':
     dependencies:
-      '@noble/curves': 2.0.1
+      '@noble/curves': 2.4.0
       '@noble/hashes': 2.0.1
       '@vbyte/buff': 1.1.0
 
@@ -6024,6 +6038,10 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.0.1
 
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+
   '@noble/hashes@1.3.1': {}
 
   '@noble/hashes@1.3.2': {}
@@ -6031,6 +6049,8 @@ snapshots:
   '@noble/hashes@1.8.0': {}
 
   '@noble/hashes@2.0.1': {}
+
+  '@noble/hashes@2.4.0': {}
 
   '@nodelib/fs.scandir@2.1.5':
     dependencies:
@@ -6193,10 +6213,10 @@ snapshots:
 
   '@polka/url@1.0.0-next.29': {}
 
-  '@pomade/core@0.2.6(@frostr/bifrost@1.0.7(typescript@5.8.3))(@noble/hashes@2.0.1)(@welshman/lib@packages+welshman+packages+lib)(@welshman/net@packages+welshman+packages+net)(@welshman/signer@packages+welshman+packages+signer)(@welshman/util@packages+welshman+packages+util)(nostr-tools@2.23.3(typescript@5.8.3))':
+  '@pomade/core@0.2.6(@frostr/bifrost@1.0.7(typescript@5.8.3))(@noble/hashes@2.4.0)(@welshman/lib@packages+welshman+packages+lib)(@welshman/net@packages+welshman+packages+net)(@welshman/signer@packages+welshman+packages+signer)(@welshman/util@packages+welshman+packages+util)(nostr-tools@2.23.3(typescript@5.8.3))':
     dependencies:
       '@frostr/bifrost': 1.0.7(typescript@5.8.3)
-      '@noble/hashes': 2.0.1
+      '@noble/hashes': 2.4.0
       '@peculiar/x509': 1.14.3
       '@welshman/lib': link:packages/welshman/packages/lib
       '@welshman/net': link:packages/welshman/packages/net
@@ -6339,6 +6359,8 @@ snapshots:
 
   '@scure/base@2.0.0': {}
 
+  '@scure/base@2.4.0': {}
+
   '@scure/bip32@1.3.1':
     dependencies:
       '@noble/curves': 1.1.0
@@ -6350,6 +6372,12 @@ snapshots:
       '@noble/curves': 2.0.1
       '@noble/hashes': 2.0.1
       '@scure/base': 2.0.0
+
+  '@scure/bip32@2.4.0':
+    dependencies:
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+      '@scure/base': 2.4.0
 
   '@scure/bip39@1.2.1':
     dependencies:

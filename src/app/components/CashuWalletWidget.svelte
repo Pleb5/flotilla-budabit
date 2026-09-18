@@ -7,6 +7,8 @@
     cashuSeedLocked,
     cashuSetupRequired,
     cashuSetupResolved,
+    cashuInitialized,
+    cashuWalletError,
   } from "@app/core/cashu"
   import {pushModal} from "@app/util/modal"
   import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
@@ -15,7 +17,12 @@
   const isLoggedIn = $derived(!!$pubkey)
   const balance = $derived($cashuTotalBalance)
   const cashuReady = $derived(
-    $cashuSetupResolved && $cashuBackupConfirmed && !$cashuSetupRequired && !$cashuSeedLocked,
+    $cashuInitialized &&
+      !$cashuWalletError &&
+      $cashuSetupResolved &&
+      $cashuBackupConfirmed &&
+      !$cashuSetupRequired &&
+      !$cashuSeedLocked,
   )
 
   const openWallet = () => pushModal(CashuWalletModal)

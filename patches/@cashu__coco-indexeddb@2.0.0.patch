@@ -1,0 +1,107 @@
+diff --git a/dist/index.js b/dist/index.js
+index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..ac92171259b2df8ba37b725ba2b6196c497af93c 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -655,6 +655,15 @@ async function ensureSchema(db) {
+ 			});
+ 		}
+ 	});
++	// Dexie cannot change an existing store's primary key. Stage the old rows,
++	// then recreate the store within the same atomic IndexedDB upgrade transaction.
++	db.version(27.1).stores({
++		coco_cashu_melt_quotes_v1_staging: "&[mintUrl+quote]"
++	}).upgrade(async (tx) => {
++		const rows = await tx.table("coco_cashu_melt_quotes").toArray();
++		await tx.table("coco_cashu_melt_quotes_v1_staging").bulkPut(rows);
++	});
++	db.version(27.2).stores({ coco_cashu_melt_quotes: null });
+ 	db.version(28).stores({
+ 		coco_cashu_mints: "&mintUrl, name, updatedAt, trusted",
+ 		coco_cashu_keysets: "&[mintUrl+id], mintUrl, id, updatedAt, unit",
+@@ -674,14 +683,16 @@ async function ensureSchema(db) {
+ 		coco_cashu_payment_request_receive_attempts: "&id, requestOperationId, requestId, state, &[requestOperationId+payloadHash], [requestId+payloadHash], &transportMessageId, &receiveOperationId"
+ 	}).upgrade(async (tx) => {
+ 		const now = Date.now();
+-		await tx.table("coco_cashu_melt_quotes").toCollection().modify((row) => {
++		const legacyRows = await tx.table("coco_cashu_melt_quotes_v1_staging").toArray();
++		for (const row of legacyRows) {
+ 			row.method = row.method ?? "bolt11";
+ 			row.quoteId = row.quoteId ?? row.quote ?? "";
+ 			row.lastObservedRemoteState = row.lastObservedRemoteState ?? row.state;
+ 			row.lastObservedRemoteStateAt = row.lastObservedRemoteStateAt ?? now;
+ 			row.createdAt = row.createdAt ?? now;
+ 			row.updatedAt = row.updatedAt ?? now;
+-		});
++		}
++		await tx.table("coco_cashu_melt_quotes").bulkPut(legacyRows);
+ 		const operations = await tx.table("coco_cashu_melt_operations").toArray();
+ 		for (const op of operations) {
+ 			if (!op.mintUrl || !op.method || !op.quoteId || op.amount == null || op.fee_reserve == null) continue;
+@@ -702,7 +713,7 @@ async function ensureSchema(db) {
+ 				quoteId: op.quoteId,
+ 				quote: op.quoteId,
+ 				state: observedState,
+-				request: methodData.invoice ?? op.quoteId,
++				request: existing?.request ?? methodData.invoice ?? op.quoteId,
+ 				amount: normalizeStoredAmount(op.amount) ?? "0",
+ 				unit: normalizeStoredUnit(op.unit),
+ 				fee_reserve: normalizeStoredAmount(op.fee_reserve) ?? "0",
+@@ -715,6 +726,7 @@ async function ensureSchema(db) {
+ 			});
+ 		}
+ 	});
++	db.version(28.1).stores({ coco_cashu_melt_quotes_v1_staging: null });
+ 	db.version(29).stores({
+ 		coco_cashu_mints: "&mintUrl, name, updatedAt, trusted",
+ 		coco_cashu_keysets: "&[mintUrl+id], mintUrl, id, updatedAt, unit",
+@@ -805,6 +817,10 @@ async function ensureSchema(db) {
+ 			row.remoteUpdatedAt = null;
+ 		});
+ 	});
++	// Old caches omitted final_expiry. Re-fetch metadata before verifying v2 IDs.
++	db.version(32.1).stores({}).upgrade(async (tx) => {
++		await tx.table("coco_cashu_mints").toCollection().modify({ updatedAt: 0 });
++	});
+ }
+ 
+ //#endregion
+@@ -898,6 +914,7 @@ var IdbKeysetRepository = class {
+ 			keypairs: JSON.parse(r.keypairs),
+ 			active: !!r.active,
+ 			feePpk: r.feePpk,
++			finalExpiry: r.finalExpiry,
+ 			updatedAt: r.updatedAt
+ 		}));
+ 	}
+@@ -911,6 +928,7 @@ var IdbKeysetRepository = class {
+ 			keypairs: JSON.parse(row.keypairs),
+ 			active: !!row.active,
+ 			feePpk: row.feePpk,
++			finalExpiry: row.finalExpiry,
+ 			updatedAt: row.updatedAt
+ 		};
+ 	}
+@@ -925,6 +943,7 @@ var IdbKeysetRepository = class {
+ 				keypairs: JSON.stringify({}),
+ 				active: keyset.active ? 1 : 0,
+ 				feePpk: keyset.feePpk,
++				finalExpiry: keyset.finalExpiry,
+ 				updatedAt: now
+ 			});
+ 			return;
+@@ -934,6 +953,7 @@ var IdbKeysetRepository = class {
+ 			unit: keyset.unit,
+ 			active: keyset.active ? 1 : 0,
+ 			feePpk: keyset.feePpk,
++			finalExpiry: keyset.finalExpiry,
+ 			updatedAt: now
+ 		});
+ 	}
+@@ -946,6 +966,7 @@ var IdbKeysetRepository = class {
+ 			keypairs: JSON.stringify(keyset.keypairs ?? {}),
+ 			active: keyset.active ? 1 : 0,
+ 			feePpk: keyset.feePpk,
++			finalExpiry: keyset.finalExpiry,
+ 			updatedAt: now
+ 		};
+ 		await this.db.table("coco_cashu_keysets").put(row);

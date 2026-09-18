@@ -54,7 +54,9 @@ export const registerCashuBridgeHandlers = (CashuPayConfirm: Component<any>) => 
     if (ext) console.log(`[bridge] cashu:createToken from ${ext.id}`)
     try {
       const {amount, mintUrl, label} = payload || {}
-      if (typeof amount !== "number" || amount <= 0) throw new Error("Invalid amount")
+      if (typeof amount !== "number" || !Number.isSafeInteger(amount) || amount <= 0) {
+        throw new Error("Invalid amount")
+      }
       if (typeof mintUrl !== "string" || !mintUrl) throw new Error("Invalid mintUrl")
 
       const extensionId = ext?.id || "unknown"

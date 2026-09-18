@@ -8,6 +8,8 @@
     cashuSetupResolved,
     cashuSetupRequired,
     cashuSeedLocked,
+    cashuWalletError,
+    cashuInitialized,
   } from "@app/core/cashu"
   import CashuReceive from "@app/components/CashuReceive.svelte"
   import CashuTopUp from "@app/components/CashuTopUp.svelte"
@@ -17,6 +19,7 @@
   import CashuRecoveryLoader from "@app/components/CashuRecoveryLoader.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
   import CashuMintCard from "@app/components/CashuMintCard.svelte"
+  import CashuWalletError from "@app/components/CashuWalletError.svelte"
   import {formatCashuSats} from "@app/util/cashu-format"
 
   type Props = {
@@ -46,7 +49,9 @@
 </script>
 
 <div class="flex min-h-[400px] w-full min-w-0 flex-col gap-3 p-2 sm:gap-4 sm:p-4">
-  {#if recoveryInProgress}
+  {#if $cashuWalletError}
+    <CashuWalletError />
+  {:else if recoveryInProgress}
     <CashuRecoveryLoader />
   {:else if !setupResolved}
     <div class="flex min-h-[320px] items-center justify-center text-sm opacity-70">
@@ -54,6 +59,8 @@
     </div>
   {:else if needsSetup}
     <CashuSeedBackup />
+  {:else if !$cashuInitialized}
+    <p class="py-8 text-center text-sm opacity-70">Loading Cashu wallet…</p>
   {:else}
     {#if showHeader}
       <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">

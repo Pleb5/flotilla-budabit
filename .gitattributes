@@ -1,4 +1,7 @@
 pnpm-lock.yaml -diff
 
+# Unified patches retain upstream indentation and blank context lines.
+patches/*.patch -whitespace
+
 # Use bd merge for beads JSONL files
 .beads/issues.jsonl merge=beads

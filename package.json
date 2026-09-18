@@ -85,7 +85,9 @@
   },
   "type": "module",
   "dependencies": {
-    "@cashu/cashu-ts": "3.3.0",
+    "@cashu/cashu-ts": "5.0.0-rc.4",
+    "@cashu/coco-core": "2.0.0",
+    "@cashu/coco-indexeddb": "2.0.0",
     "@codemirror/lang-cpp": "^6.0.2",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-go": "^6.0.1",
@@ -128,8 +130,6 @@
     "@welshman/signer": "workspace:*",
     "@welshman/store": "workspace:*",
     "@welshman/util": "workspace:*",
-    "@cashu/coco-core": "1.0.0",
-    "@cashu/coco-indexeddb": "1.0.0",
     "comlink": "^4.4.2",
     "compressorjs": "^1.2.1",
     "daisyui": "^4.12.24",
@@ -164,6 +164,10 @@
     ],
     "onlyBuiltDependencies": [
       "sharp"
-    ]
+    ],
+    "patchedDependencies": {
+      "@cashu/coco-indexeddb@2.0.0": "patches/@cashu__coco-indexeddb@2.0.0.patch",
+      "@cashu/coco-core@2.0.0": "patches/@cashu__coco-core@2.0.0.patch"
+    }
   }
 }

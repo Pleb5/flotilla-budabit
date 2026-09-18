@@ -3,7 +3,7 @@ import {createRenderers} from "./markdownRenderers"
 import {nip19} from "nostr-tools"
 import {naddrEncode} from "nostr-tools/nip19"
 import {Marked} from "marked"
-import {getEncodedToken} from "@cashu/cashu-ts"
+import {Amount, getEncodedToken} from "@cashu/cashu-ts"
 
 vi.mock("nostr-tools", () => ({
   nip19: {
@@ -23,7 +23,7 @@ describe("markdownRenderers", () => {
       proofs: [
         {
           id: "009a1f293253e41e",
-          amount: 2,
+          amount: Amount.from(2),
           secret: "test-secret",
           C: `02${"a".repeat(64)}`,
         },

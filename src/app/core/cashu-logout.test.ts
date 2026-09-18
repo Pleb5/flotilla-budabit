@@ -39,5 +39,6 @@ describe("Cashu logout cleanup", () => {
       "budabit_cashu_autopay_whitelist",
     ])
     expect(mocks.deleteIndexedDB).toHaveBeenCalledWith("budabit-coco-wallet")
+    expect(mocks.deleteIndexedDB).toHaveBeenCalledWith("budabit-coco-wallet-pre-coco-v2")
   })
 })

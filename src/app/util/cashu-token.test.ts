@@ -1,6 +1,7 @@
 import {describe, expect, it} from "vitest"
-import {getEncodedToken} from "@cashu/cashu-ts"
+import {Amount, getEncodedToken} from "@cashu/cashu-ts"
 import {ParsedType, type ParsedText} from "@welshman/content"
+import {parseCashuTokenAmount} from "../../../packages/budabit-pipelines-extension/packages/iframe-app/src/lib/payment"
 import {
   findCashuTokenStart,
   getCashuTokenAtStart,
@@ -17,7 +18,7 @@ const makeToken = () =>
     proofs: [
       {
         id: "009a1f293253e41e",
-        amount: 2,
+        amount: Amount.from(2),
         secret: "test-secret",
         C: `02${"a".repeat(64)}`,
       },
@@ -25,6 +26,38 @@ const makeToken = () =>
   })
 
 describe("cashu-token utilities", () => {
+  it("reads compact 01 tokens without guessing full keyset IDs in app and extension metadata", async () => {
+    const token = getEncodedToken({
+      mint: MINT,
+      proofs: [
+        {
+          id: `01${"ab".repeat(31)}`,
+          amount: Amount.from(4),
+          secret: "public",
+          C: `02${"a".repeat(64)}`,
+        },
+      ],
+    })
+    expect(getCashuTokenInfo(token)?.amount).toBe(4)
+    expect(await parseCashuTokenAmount(token)).toBe(4)
+  })
+
+  it("rejects totals too large for the numeric UI/extension boundary", async () => {
+    const token = getEncodedToken({
+      mint: MINT,
+      proofs: [
+        {
+          id: "009a1f293253e41e",
+          amount: Amount.from(2n ** 54n),
+          secret: "public",
+          C: `02${"a".repeat(64)}`,
+        },
+      ],
+    })
+    expect(getCashuTokenInfo(token)).toBeUndefined()
+    await expect(parseCashuTokenAmount(token)).rejects.toThrow()
+  })
+
   it("reads metadata from generated bare Cashu tokens", () => {
     const token = makeToken()
     const info = getCashuTokenInfo(token)

@@ -26,6 +26,7 @@
     cashuSeedLocked,
     cashuSetupRequired,
     cashuSetupResolved,
+    cashuWalletError,
     cashuAutoPayWhitelist,
     removeAutoPayWhitelist,
     recoverAllTrustedMints,
@@ -35,6 +36,7 @@
   import CashuRecoveryLoader from "@app/components/CashuRecoveryLoader.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
   import CashuWalletModal from "@app/components/CashuWalletModal.svelte"
+  import CashuWalletError from "@app/components/CashuWalletError.svelte"
 
   type WalletTab = "cashu" | "lightning"
   type CashuTab = "wallet" | "settings"
@@ -72,7 +74,12 @@
   const setupRequired = $derived($cashuSetupRequired)
   const setupResolved = $derived($cashuSetupResolved)
   const cashuReady = $derived(
-    setupResolved && backupConfirmed && !setupRequired && !seedLocked && !recoveryInProgress,
+    setupResolved &&
+      backupConfirmed &&
+      !setupRequired &&
+      !seedLocked &&
+      !recoveryInProgress &&
+      !$cashuWalletError,
   )
   const autoPayWhitelist = $derived($cashuAutoPayWhitelist)
 
@@ -132,7 +139,9 @@
             Warning! Experimental, use at own risk!
           </span>
         </strong>
-        {#if recoveryInProgress}
+        {#if $cashuWalletError}
+          <span class="text-base font-semibold text-error">Wallet unavailable</span>
+        {:else if recoveryInProgress}
           <span class="inline-flex items-center gap-2 text-base font-semibold text-warning">
             <span class="loading loading-spinner loading-sm"></span>
             Recovering wallet...
@@ -160,7 +169,9 @@
         {/each}
       </div>
 
-      {#if activeCashuTab === "wallet"}
+      {#if $cashuWalletError}
+        <CashuWalletError />
+      {:else if activeCashuTab === "wallet"}
         {#if showCashuSetup}
           <CashuSeedBackup mode="setup" onconfirmed={finishCashuSetup} />
         {:else if recoveryInProgress}
