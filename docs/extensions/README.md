@@ -65,6 +65,12 @@ Budabit installs Smart Widgets through these paths:
 
 Runtime parsing extracts the widget `identifier`, `widgetType`, `buttons`, `appUrl`, fallback `app-url` values, permissions, version metadata, and supported slot from event tags.
 
+### Freelance workflow example
+
+Budabit's default **Freelance** section declares services `32765`, orders `32766`, jobs `32767`, proposals `32768`, and reviews `1986`. Its workflow grants are separate from **Widget-curator** access for publishing/targeting the widget. Existing communities can add the section with **Add Freelance** in the definition editor.
+
+The separately published Community Freelance widget uses `community:checkWriteCapabilities`, `nostr:sign`, `storage:get`, `storage:set`, and `ui:resize`, with a `community-home-after-quicklinks` slot. It owns community-relay reads/publication and Blossom uploads; its signing declaration also includes `5`, `22242`, and `24242`. The host's bridge checks do not automatically govern a widget's direct network requests. See [Community Freelance](../features/freelance.md) for configuration and implementation boundaries.
+
 ---
 
 ## Permissions And Security Model

@@ -89,6 +89,7 @@ Budabit combines Communikey communities with decentralized Git functionality thr
 - **Issue And Pull Request Tracking**: Create, manage, and discuss issues and PRs with Nostr-native status updates
 - **Community Catalogs**: Target repositories, calendar events, goals, permalinks, and widgets to `/c/<community>` pages
 - **Extensions And Smart Widgets**: Install Smart Widget extensions from Nostr `kind:30033` events; built-in extensions are not bundled by default
+- **[Community Freelance](docs/features/freelance.md)**: Default community sections include SatShoot-compatible jobs, services, proposals, orders, and reviews; a community-targeted Smart Widget provides the workspace
 - **Collaborative Development**: Work with teams using Nostr-based communication, moderation, and membership requests
 - **Notifications**: In-app badges and sounds plus an account-wide Git email digest from a provider endorsed by one of the user's communities
 

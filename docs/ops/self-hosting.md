@@ -91,6 +91,12 @@ Community declarations do not automatically create or update user `kind:10063` B
 
 Relays are infrastructure, not identity. Do not configure a deployment as if one relay URL is the community. The app routes community state through `/c/<community-definition-naddr>`. Community-native events use stable `h=<communityId>`; authority-sensitive workflows also carry `a=<32222:owner:communityId>` with marker `community`. Never encode community association as `p=<communityId>`.
 
+### Freelance section and widget
+
+New-community defaults include **Freelance** with services `32765`, orders `32766`, jobs `32767`, proposals `32768`, and reviews `1986`. For an existing branch, its owner can choose **Add Freelance** in the community editor, configure its profile-list grants, and publish the updated definition. Deploying a newer app does not update that signed definition automatically.
+
+The workspace is a separately published Smart Widget: target its kind-30033 manifest to the exact branch using kind 30222 under Widget-curator access. The current Community Freelance widget signs through the host and directly reads/writes the definition's relays. Its thumbnails use community Blossom first, then personal/widget-build fallback. Configure the widget's own `VITE_DEFAULT_BLOSSOM_SERVERS` when building it if you want it to match the host deployment's fallback; the bridge does not pass the host's personal/default upload settings. See [Community Freelance](../features/freelance.md) for setup and the full kind list.
+
 ## Email Digests
 
 In-app badges and notification sounds are always available. Git email digest providers are not configured through deployment variables. A branch owner advertises a provider in the signed `kind:32222` definition, and each user explicitly selects one endorsed provider in Settings > Notifications.

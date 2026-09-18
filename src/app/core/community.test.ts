@@ -14,6 +14,7 @@ import {
   buildCommunityDefinition,
   parseCommunityDefinition,
   getDefaultCommunitySectionKinds,
+  getDuplicateCommunitySectionKindAssignments,
   getProfileListPubkeys,
   makeCommunityBadgeDefinition,
   normalizeGeohash,
@@ -90,26 +91,25 @@ describe("community shared helpers", () => {
     expect(canWriteFromProfileList(profileList, pubkeyA)).toBe(true)
   })
 
-  it("round-trips the optional Freelance section with all workflow kinds and its grants", () => {
-    expect([...DEFAULT_COMMUNITY_SECTION_NAMES]).not.toContain(COMMUNITY_SECTION_FREELANCE)
+  it("round-trips the default sections with Freelance workflow kinds and its grants", () => {
     const grant = `30000:${pubkeyA}:${"a".repeat(64)}-freelance`
     const template = buildCommunityDefinition({
       communityId: "a".repeat(64),
       name: "Freelance test",
       relays: ["wss://relay.example"],
-      sections: [
-        {
-          name: COMMUNITY_SECTION_FREELANCE,
-          kinds: getDefaultCommunitySectionKinds(COMMUNITY_SECTION_FREELANCE),
-          profileLists: [{address: grant}],
-        },
-      ],
+      sections: DEFAULT_COMMUNITY_SECTION_NAMES.map(name => ({
+        name,
+        kinds: getDefaultCommunitySectionKinds(name),
+        profileLists: name === COMMUNITY_SECTION_FREELANCE ? [{address: grant}] : [],
+      })),
     })
     const definition = parseCommunityDefinition(makeEvent(template))!
-    expect(definition.sections[0].kinds.map(item => item.kind)).toEqual([
-      32765, 32766, 32767, 32768, 1986,
-    ])
-    expect(definition.sections[0].profileLists[0].address).toBe(grant)
+    const freelance = definition.sections.find(
+      section => section.name === COMMUNITY_SECTION_FREELANCE,
+    )!
+    expect(freelance.kinds.map(item => item.kind)).toEqual([32765, 32766, 32767, 32768, 1986])
+    expect(freelance.profileLists[0].address).toBe(grant)
+    expect(getDuplicateCommunitySectionKindAssignments(definition.sections)).toEqual([])
   })
 
   it("builds badge definitions independently of community definitions", () => {

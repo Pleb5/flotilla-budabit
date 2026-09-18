@@ -2724,6 +2724,11 @@
   let geohash = $state("")
   let pictureUploadStage = $state<BlossomUploadStage>("idle")
   let sectionDrafts = $state<SectionDraft[]>(makeDefaultSectionDrafts())
+  const hasFreelanceSection = $derived(
+    sectionDrafts.some(
+      section => getSectionNameKey(section.name) === getSectionNameKey(COMMUNITY_SECTION_FREELANCE),
+    ),
+  )
   let bootstrapGrantDrafts = $state<CommunityBootstrapGrantDraft[]>([])
   let expandedSectionIndex = $state(0)
   let initializedKey = $state("")
@@ -3080,6 +3085,10 @@
               <p class="mt-1 text-sm opacity-65">
                 Section names may use only A-Z letters and must be 50 characters or fewer.
               </p>
+              <p class="mt-1 text-sm opacity-65">
+                Defaults include Freelance jobs, services, proposals, orders, and reviews for a
+                community-targeted Smart Widget.
+              </p>
             </div>
             <div
               class="flex w-full flex-col gap-2 sm:w-auto sm:shrink-0 sm:flex-row sm:flex-wrap sm:justify-end">
@@ -3103,12 +3112,14 @@
                 {disabled}>
                 Add section
               </Button>
-              <Button
-                class="btn btn-outline btn-sm w-full sm:w-auto"
-                onclick={addFreelanceSection}
-                {disabled}>
-                Add Freelance
-              </Button>
+              {#if !hasFreelanceSection}
+                <Button
+                  class="btn btn-outline btn-sm w-full sm:w-auto"
+                  onclick={addFreelanceSection}
+                  {disabled}>
+                  Add Freelance
+                </Button>
+              {/if}
             </div>
           </div>
           {#if errors.sections}

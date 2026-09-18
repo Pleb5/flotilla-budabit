@@ -367,6 +367,7 @@ export const DEFAULT_COMMUNITY_SECTION_NAMES = [
   COMMUNITY_SECTION_GOALS,
   COMMUNITY_SECTION_REPO_CURATOR,
   COMMUNITY_SECTION_WIDGETS,
+  COMMUNITY_SECTION_FREELANCE,
 ] as const
 
 export const makeAddress = (kind: number, pubkey: string, identifier: string) =>

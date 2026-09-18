@@ -24,6 +24,12 @@ Budabit's current community architecture is Communikey-based:
 
 NIP-34 pull request support is always part of Budabit. Terminal UI has been removed for now. Strict NIP-29 validation is not part of the current community access-control model; current write permissions come from community definition sections and their referenced `kind:30000` profile lists.
 
+## Default Community Sections
+
+New communities and **Restore defaults** include General, Room-creator, Thread-creator, Calendar-event-creator, Fundraiser-goals-creator, Code-curator, Widget-curator, and **Freelance**. The Freelance section declares services `32765`, orders `32766`, jobs `32767`, proposals `32768`, and QTS reviews `1986`.
+
+This is section configuration, not a build-time feature flag or bundled widget. Existing communities need an owner-published definition update; **Add Freelance** adds the preset without resetting other sections. See [Community Freelance](freelance.md) for grants, widget targeting, workflows, and media setup.
+
 ## Default Community Extensions
 
 Budabit does not bundle extension code, but it does load default extensions curated by the configured default community.
@@ -45,5 +51,6 @@ Run or publish those packages according to their package-level docs when you wan
 - `.env.example` for recommended environment defaults
 - `vite.config.ts` for compile-time flag definitions
 - `src/feature-flags.d.ts` for TypeScript declarations
+- `src/app/core/community.ts` for default community sections and event kinds
 - `src/app/extensions/builtin.ts` for default community extension loading
 - `src/app/extensions/community-curation.ts` for community-curated extension discovery

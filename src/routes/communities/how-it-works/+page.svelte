@@ -3,6 +3,7 @@
     ArrowRight,
     BadgeCheck,
     Blocks,
+    BriefcaseBusiness,
     CalendarDays,
     Check,
     ClipboardList,
@@ -25,6 +26,7 @@
   } from "@lucide/svelte"
   import {
     COMMUNITY_SECTION_CALENDAR,
+    COMMUNITY_SECTION_FREELANCE,
     COMMUNITY_SECTION_GENERAL,
     COMMUNITY_SECTION_GOALS,
     COMMUNITY_SECTION_REPO_CURATOR,
@@ -52,6 +54,7 @@
     {label: COMMUNITY_SECTION_GOALS, detail: "Who can publish fundraiser goals"},
     {label: COMMUNITY_SECTION_REPO_CURATOR, detail: "Repos and permalink curation"},
     {label: COMMUNITY_SECTION_WIDGETS, detail: "Smart widget curation"},
+    {label: COMMUNITY_SECTION_FREELANCE, detail: "Jobs, services, proposals, orders, and reviews"},
   ]
 
   const alternativeSections = [
@@ -59,6 +62,7 @@
     {label: "Conversation-creator", detail: "Room creators and thread creators together"},
     {label: "Events-and-goals", detail: "Calendar events and fundraiser goals together"},
     {label: "Code-and-widget-curator", detail: "Repo, permalink, and widget curation together"},
+    {label: "Work", detail: "Freelance listings, agreements, and reviews together"},
   ]
 
   const {showStartCommunityCta = false}: {showStartCommunityCta?: boolean} = $props()
@@ -263,6 +267,41 @@
           </p>
         </div>
       </div>
+    </section>
+
+    <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
+      <div class="flex items-center gap-3 text-success">
+        <BriefcaseBusiness size={28} />
+        <h2 class="text-2xl font-bold">Freelance work in your community</h2>
+      </div>
+      <p class="mt-3 max-w-4xl text-sm leading-relaxed opacity-75 sm:text-base">
+        The default Freelance section lets members post jobs, offer services, agree on work, and
+        review concluded engagements through a community-targeted SatShoot-compatible Smart Widget.
+        Section grants control who can publish each of these event types.
+      </p>
+      <div class="mt-5 grid gap-3 sm:grid-cols-2">
+        <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
+          <strong>Find help with a job</strong>
+          <p class="mt-2 text-sm opacity-75">
+            Post a job → receive proposals → accept one → record the outcome → exchange reviews.
+          </p>
+          <p class="mt-3 text-xs opacity-65">Jobs: 32767 · Proposals: 32768 · Reviews: 1986</p>
+        </div>
+        <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
+          <strong>Offer your services</strong>
+          <p class="mt-2 text-sm opacity-75">
+            List a service → receive an order → accept it → the client records the outcome →
+            exchange reviews.
+          </p>
+          <p class="mt-3 text-xs opacity-65">Services: 32765 · Orders: 32766 · Reviews: 1986</p>
+        </div>
+      </div>
+      <p class="mt-4 text-sm leading-relaxed opacity-75">
+        New communities include the section automatically. For an existing community, the owner can
+        choose <strong>Add Freelance</strong> in the community editor, configure publishing access, and
+        publish the definition. A widget curator targets the Freelance widget to that exact community.
+        Payments and private messaging are handled separately from the widget.
+      </p>
     </section>
 
     <section class="grid gap-4 lg:grid-cols-2">
