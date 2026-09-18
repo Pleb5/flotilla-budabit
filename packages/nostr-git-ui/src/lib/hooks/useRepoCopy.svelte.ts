@@ -12,7 +12,11 @@ import {
 } from "@nostr-git/core/events";
 import { isGitRemoteUrlEnabled, isGitVendorEnabled } from "@nostr-git/core/git";
 import type { PublicRepoSource } from "@nostr-git/core/git";
-import { readPublicCopyRefs, verifyPublicCopyRefs } from "../utils/public-repo-copy.js";
+import {
+  readPublicCopyRefs,
+  verifyPublicCopyRefs,
+  publicRepoCopyAdmissionError,
+} from "../utils/public-repo-copy.js";
 import {
   hasMatchingGraspRepoCloneUrl,
   parseGraspRepoHttpUrl,
@@ -724,14 +728,8 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
         throw new Error(
           "Public copies cannot adopt a Nostr source identity or omit source branches"
         );
-      if (publicSource?.empty)
-        throw new Error(
-          "This source is empty. Choose Announce only; no initial commit will be generated"
-        );
-      if (publicSource?.sizeKiB && publicSource.sizeKiB > 50 * 1024)
-        throw new Error(
-          "Source exceeds the 50 MiB browser copy estimate. Choose Announce only or copy with a local Git client"
-        );
+      const admissionError = publicSource && publicRepoCopyAdmissionError(publicSource);
+      if (admissionError) throw new Error(admissionError);
       const sameLogicalRepo =
         !publicSource &&
         isSameLogicalRepoAugmentation({

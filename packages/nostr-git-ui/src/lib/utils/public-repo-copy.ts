@@ -2,6 +2,15 @@ import type { PublicRepoSource } from "@nostr-git/core/git";
 import type { PreparedSourceRefs } from "../hooks/useRepoCopy.svelte.js";
 
 export const PUBLIC_COPY_MAX_REFS = 100;
+export const PUBLIC_COPY_MAX_SIZE_KIB = 50 * 1024;
+
+export function publicRepoCopyAdmissionError(source: PublicRepoSource): string | undefined {
+  if (source.empty)
+    return "This source has no Git history to copy. Add a commit on the source host, or choose Brand new Repo to start a repository.";
+  if (source.sizeKiB !== undefined && source.sizeKiB > PUBLIC_COPY_MAX_SIZE_KIB)
+    return "Source exceeds the 50 MiB browser copy estimate. Copy it with a local Git client, or choose a smaller source.";
+  return undefined;
+}
 
 export async function readPublicCopyRefs(
   worker: any,
@@ -31,11 +40,11 @@ export async function readPublicCopyRefs(
   }
   if (refs.length > PUBLIC_COPY_MAX_REFS)
     throw new Error(
-      `Source exceeds the browser limit of ${PUBLIC_COPY_MAX_REFS} branches and tags. Choose Announce only or use a local Git client`
+      `Source exceeds the browser limit of ${PUBLIC_COPY_MAX_REFS} branches and tags. Copy it with a local Git client, or choose a smaller source`
     );
   if (!refs.some((ref) => ref.ref === `refs/heads/${source.defaultBranch}`))
     throw new Error(
-      "Source default branch is missing or changed. Inspect the source again, or choose Announce only for an empty repository"
+      "Source default branch is missing or changed. Inspect the source again after adding or restoring its default branch"
     );
   return {
     defaultBranch: source.defaultBranch,

@@ -9,6 +9,28 @@ export interface ExistingSourceAnnouncement {
   name: string;
 }
 
+/** A relay is fully checked only when none of the required reads there failed. */
+export function mergeRepoRelayChecks(
+  reports: Array<RepoRelayCheckReport | null>
+): RepoRelayCheckReport {
+  const checked = new Set<string>();
+  const failures = new Map<string, Set<string>>();
+  for (const report of reports) {
+    report?.checkedRelays.forEach((relay) => checked.add(relay));
+    for (const { relay, error } of report?.failedRelays || []) {
+      if (!failures.has(relay)) failures.set(relay, new Set());
+      failures.get(relay)!.add(error);
+    }
+  }
+  return {
+    checkedRelays: [...checked].filter((relay) => !failures.has(relay)),
+    failedRelays: [...failures].map(([relay, errors]) => ({
+      relay,
+      error: [...errors].join("; "),
+    })),
+  };
+}
+
 /** Use only the latest owner-authored announcement for each opaque identifier. */
 export function latestOwnerAnnouncements(owner: string, events: NostrEvent[]): NostrEvent[] {
   const latest = new Map<string, NostrEvent>();

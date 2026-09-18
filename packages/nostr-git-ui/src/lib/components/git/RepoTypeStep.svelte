@@ -6,33 +6,16 @@
     type PublicRepoSource,
     type PublicRepoProvider,
   } from "@nostr-git/core/git";
-  import type { ExistingSourceAnnouncement } from "../../utils/repo-import-checks.js";
-  import type { RepoRelayCheckReport } from "../../utils/repo-creation-preflight.js";
-  import RepoRelayCheckStatus from "./RepoRelayCheckStatus.svelte";
+  import { publicRepoCopyAdmissionError } from "../../utils/public-repo-copy.js";
   interface Props {
     mode: "new" | "import" | null;
     sourceUrl: string;
     source: PublicRepoSource | null;
     onModeChange: (mode: "new" | "import") => void;
     onUrlChange: (value: string) => void;
-    onSource: (source: PublicRepoSource, signal: AbortSignal) => Promise<void>;
-    duplicates: ExistingSourceAnnouncement[];
-    relayChecks: RepoRelayCheckReport | null;
-    importAnyway: boolean;
-    onImportAnyway: (value: boolean) => void;
+    onSource: (source: PublicRepoSource, signal: AbortSignal) => void | Promise<void>;
   }
-  const {
-    mode,
-    sourceUrl,
-    source,
-    onModeChange,
-    onUrlChange,
-    onSource,
-    duplicates,
-    relayChecks,
-    importAnyway,
-    onImportAnyway,
-  }: Props = $props();
+  const { mode, sourceUrl, source, onModeChange, onUrlChange, onSource }: Props = $props();
   let inspecting = $state(false);
   let waiting = $state(false);
   let error = $state("");
@@ -76,6 +59,8 @@
       const result = await inspectPublicRepoSource(url, current.signal, {
         provider: hint || undefined,
       });
+      const admissionError = publicRepoCopyAdmissionError(result);
+      if (admissionError) throw new Error(admissionError);
       if (controller === current && !current.signal.aborted) await onSource(result, current.signal);
     } catch (cause) {
       if (controller === current && !current.signal.aborted)
@@ -118,7 +103,8 @@
       /> Import an existing Repo
     </label>
     <p class="text-sm text-muted-foreground">
-      Announce a public repository on Nostr, with optional independent Git copies.
+      Create independent copies of a public repository at destinations you control, and announce
+      them on Nostr.
     </p>
     {#if mode === "import"}
       <label for="public-repo-url" class="block text-sm font-medium">Repository URL</label>
@@ -172,9 +158,7 @@
       {/if}
       {#if waiting || inspecting}
         <p role="status" class="text-sm font-medium">
-          {waiting
-            ? "Waiting to check repository…"
-            : "Checking public repository and your announcements…"}
+          {waiting ? "Waiting to check repository…" : "Checking public repository…"}
         </p>
       {/if}
       {#if error || source}
@@ -200,48 +184,13 @@
             ><circle cx="12" cy="12" r="10"></circle><path d="m7 12 3 3 7-7"></path></svg
           >
           <div class="space-y-1">
-            <p class="font-semibold">Repository available</p>
+            <p class="font-semibold">Public repository available</p>
             <p class="text-sm font-medium">
-              Public repository found: <strong>{source.owner}/{source.name}</strong>. {source.empty
-                ? "Empty repository — announcement-only is available."
-                : `Default branch: ${source.defaultBranch}`}
+              Public repository found: <strong>{source.owner}/{source.name}</strong>. Default
+              branch: {source.defaultBranch}
             </p>
           </div>
         </div>
-        {#if relayChecks}
-          <RepoRelayCheckStatus report={relayChecks} />
-          {#if !duplicates.length}<p class="text-sm font-medium">
-              No matching clone URL found in your cached announcements or the relay results
-              received.
-            </p>{/if}
-        {/if}
-        {#if duplicates.length || relayChecks?.failedRelays.length}
-          <div class="space-y-3 rounded-lg border border-amber-600 bg-amber-500/10 p-4">
-            {#if duplicates.length}
-              <p role="alert" class="font-semibold">You already announced this repository.</p>
-              <ul class="space-y-1 text-sm">
-                {#each duplicates as duplicate}<li>
-                    {duplicate.name} <span class="font-mono">({duplicate.identifier})</span>
-                  </li>{/each}
-              </ul>
-              <p class="text-sm">
-                This clone URL is already in your Nostr repositories. Importing again requires a
-                different repository identifier.
-              </p>
-            {:else}<p class="text-sm">
-                Continue with incomplete announcement checks. A confirmed identifier clash still
-                requires a different identifier.
-              </p>{/if}
-            <label class="flex cursor-pointer items-center gap-3 font-semibold"
-              ><input
-                type="checkbox"
-                class="h-4 w-4 rounded-sm"
-                checked={importAnyway}
-                onchange={(event) => onImportAnyway(event.currentTarget.checked)}
-              /> Import anyway</label
-            >
-          </div>
-        {/if}
       {/if}
     {/if}
   </div>

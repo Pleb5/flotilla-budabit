@@ -1,6 +1,10 @@
 <script lang="ts">
   import RepoRelayCheckStatus from "./RepoRelayCheckStatus.svelte";
   import type { RepoRelayCheckReport } from "../../utils/repo-creation-preflight.js";
+  import {
+    mergeRepoRelayChecks,
+    type ExistingSourceAnnouncement,
+  } from "../../utils/repo-import-checks.js";
   interface Props {
     importing?: boolean;
     repoName: string;
@@ -30,6 +34,8 @@
         available: boolean;
         reason?: string;
         username?: string;
+        cloneUrl?: string;
+        existsAlready?: boolean;
         error?: string;
       }>;
       hasConflicts: boolean;
@@ -40,6 +46,8 @@
     coordinateAvailability?: { name: string; available: boolean; error?: string } | null;
     onCheckAvailability?: () => void;
     coordinateChecks?: RepoRelayCheckReport | null;
+    sourceRelayChecks?: RepoRelayCheckReport | null;
+    sourceDuplicates?: ExistingSourceAnnouncement[];
     importAnyway?: boolean;
     onImportAnyway?: (value: boolean) => void;
   }
@@ -67,9 +75,12 @@
     coordinateAvailability = null,
     onCheckAvailability,
     coordinateChecks = null,
+    sourceRelayChecks = null,
+    sourceDuplicates = [],
     importAnyway = false,
     onImportAnyway,
   }: Props = $props();
+  const relayChecks = $derived(mergeRepoRelayChecks([coordinateChecks, sourceRelayChecks]));
 
   const gitignoreOptions = [
     { value: "", label: "None" },
@@ -147,7 +158,7 @@
     <h2 class="text-xl font-semibold text-foreground">Repository Details</h2>
     <p class="text-sm text-muted-foreground">
       {importing
-        ? "Review the public source metadata and choose your Nostr repository identity. No source ownership is implied."
+        ? "Review the source metadata and choose the identifier for your new copies and Nostr announcement."
         : "Set up the basic information for your new repository."}
     </p>
   </div>
@@ -244,25 +255,45 @@
             >{/if}
         {/if}
       {/if}
-      {#if coordinateChecks}
+      {#if coordinateChecks || sourceRelayChecks}
         <div class="mt-3 space-y-3 rounded border border-border p-3">
-          <RepoRelayCheckStatus report={coordinateChecks} />
-          {#if coordinateChecks.failedRelays.length}
+          <h4 class="text-sm font-semibold">Nostr announcement and identifier checks</h4>
+          <RepoRelayCheckStatus report={relayChecks} />
+          {#if importing && sourceRelayChecks}
+            {#if sourceDuplicates.length}
+              <p role="alert" class="font-semibold">
+                You already announced this source repository.
+              </p>
+              <ul class="space-y-1 text-sm">
+                {#each sourceDuplicates as duplicate}<li>
+                    {duplicate.name} <span class="font-mono">({duplicate.identifier})</span>
+                  </li>{/each}
+              </ul>
+            {:else}<p class="text-sm">
+                No matching source clone URL found in your cached announcements or the relay results
+                received.
+              </p>{/if}
+          {/if}
+          {#if relayChecks.failedRelays.length}
             <button
               type="button"
               class="rounded border border-input px-3 py-2 text-sm"
-              onclick={onCheckAvailability}>Check identifier again</button
+              onclick={onCheckAvailability}>Retry relay checks</button
             >
-            {#if importing && coordinateAvailability?.available}
-              <label class="flex cursor-pointer items-center gap-3 font-semibold"
-                ><input
-                  type="checkbox"
-                  class="h-4 w-4 rounded-sm"
-                  checked={importAnyway}
-                  onchange={(event) => onImportAnyway?.(event.currentTarget.checked)}
-                /> Import anyway</label
-              >
-            {/if}
+          {/if}
+          {#if importing && (sourceDuplicates.length || relayChecks.failedRelays.length)}
+            <p class="text-sm">
+              Import an independent copy despite these announcement checks. Confirmed identifier
+              clashes and occupied destinations still require a different name.
+            </p>
+            <label class="flex cursor-pointer items-center gap-3 font-semibold"
+              ><input
+                type="checkbox"
+                class="h-4 w-4 rounded-sm"
+                checked={importAnyway}
+                onchange={(event) => onImportAnyway?.(event.currentTarget.checked)}
+              /> Import anyway</label
+            >
           {/if}
         </div>
       {/if}
@@ -279,31 +310,43 @@
               <div
                 class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"
               ></div>
-              <span>Checking your Nostr identifier and selected destinations…</span>
+              <span>Checking selected destinations and your Nostr announcements…</span>
             </div>
           {:else if nameAvailabilityResults}
             <div class="space-y-2">
               {#each nameAvailabilityResults.results as result}
-                <div class="flex items-center justify-between text-sm">
-                  <div class="flex items-center space-x-2 min-w-0">
-                    <span class="font-medium capitalize shrink-0">{result.provider}</span>
-                    {#if result.username}
-                      <span class="min-w-0 truncate text-muted-foreground" title={result.username}
-                        >({formatAvailabilityUsername(result.username)})</span
-                      >
-                    {/if}
+                <div class="space-y-1 border-b border-border pb-2 text-sm last:border-0">
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div class="flex items-center space-x-2 min-w-0">
+                      <span class="font-medium capitalize shrink-0">{result.provider}</span>
+                      {#if result.username}
+                        <span class="min-w-0 truncate text-muted-foreground" title={result.username}
+                          >({formatAvailabilityUsername(result.username)})</span
+                        >
+                      {/if}
+                    </div>
+                    <div class="flex items-center space-x-1 shrink-0">
+                      {#if result.existsAlready}
+                        <span class="text-red-600 dark:text-red-400">✗ Taken</span>
+                      {:else if result.error}
+                        <span class="text-yellow-600 dark:text-yellow-400" title={result.error}
+                          >⚠ Could not verify</span
+                        >
+                      {:else if result.available}
+                        <span class="text-green-600 dark:text-green-400">✓ Available</span>
+                      {:else}
+                        <span class="text-red-600 dark:text-red-400">✗ Taken</span>
+                      {/if}
+                    </div>
                   </div>
-                  <div class="flex items-center space-x-1 shrink-0">
-                    {#if result.error}
-                      <span class="text-yellow-600 dark:text-yellow-400" title={result.error}
-                        >⚠ Could not verify</span
-                      >
-                    {:else if result.available}
-                      <span class="text-green-600 dark:text-green-400">✓ Available</span>
-                    {:else}
-                      <span class="text-red-600 dark:text-red-400">✗ Taken</span>
-                    {/if}
-                  </div>
+                  <p class="break-all font-medium">
+                    {result.host}{#if result.username}
+                      — account: {result.username}{/if}
+                  </p>
+                  {#if result.cloneUrl}<p class="break-all font-mono text-xs">
+                      {result.cloneUrl}
+                    </p>{/if}
+                  {#if result.reason}<p class="break-words text-xs">{result.reason}</p>{/if}
                 </div>
               {/each}
 

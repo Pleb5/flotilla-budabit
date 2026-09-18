@@ -14,7 +14,13 @@ import { matchesHost } from "./tokenMatcher.js";
 import { AllTokensFailedError, TokenNotFoundError } from "./tokenErrors.js";
 import { tryTokensForHost } from "./tokenHelpers.js";
 
-export type RemoteTargetProvider = "github" | "gitlab" | "gitea" | "forgejo" | "bitbucket" | "grasp";
+export type RemoteTargetProvider =
+  | "github"
+  | "gitlab"
+  | "gitea"
+  | "forgejo"
+  | "bitbucket"
+  | "grasp";
 export type RemoteTargetStatus = "checking" | "ready" | "failed" | "unsupported" | "no-token";
 
 export interface RemoteTargetOption {
@@ -26,6 +32,8 @@ export interface RemoteTargetOption {
   status: RemoteTargetStatus;
   detail?: string;
   username?: string;
+  /** An explicitly confirmed account; ordinary unpinned token fallback remains available. */
+  expectedUsername?: string;
   validatedToken?: string;
   candidateTokens?: string[];
   existsAlready?: boolean;
@@ -38,6 +46,8 @@ export interface RemoteTargetSelection {
   label: string;
   provider: RemoteTargetProvider;
   host?: string;
+  /** Pinned destination account confirmed by the user during preflight. */
+  username?: string;
   token?: string;
   tokens?: string[];
   relayUrl?: string;
@@ -47,6 +57,8 @@ export interface RemoteTargetSelection {
 }
 
 export interface PreflightRemoteTargetsOptions {
+  /** Authenticate the account before the user chooses a destination repository name. */
+  accountOnly?: boolean;
   allowExistingRepoReuse?: boolean;
   existingRepoMessage?: string;
 }
@@ -168,7 +180,10 @@ export function buildRemoteTargetOptions(params: {
 
     targetMap.set(`git:${host}`, {
       id: `git:${host}`,
-      label: host === "codeberg.org" ? "Codeberg" : `${getRemoteTargetProviderLabel(provider)} (${host})`,
+      label:
+        host === "codeberg.org"
+          ? "Codeberg"
+          : `${getRemoteTargetProviderLabel(provider)} (${host})`,
       provider,
       host,
       status: "checking",
@@ -250,7 +265,7 @@ export async function preflightRemoteTargets(params: {
   const allowExistingRepoReuse = options?.allowExistingRepoReuse ?? true;
   const existingRepoMessage =
     options?.existingRepoMessage ||
-    "Destination already exists. Fork only creates new destinations; use import or manually attach an existing remote instead.";
+    "Destination already exists. Choose another identifier or destination account to create an independent copy.";
 
   return await Promise.all(
     targets.map(async (target) => {
@@ -267,6 +282,12 @@ export async function preflightRemoteTargets(params: {
         if (!target.relayUrl) {
           return { ...target, status: "failed" as const, detail: "Missing relay URL" };
         }
+        if (options?.accountOnly)
+          return {
+            ...target,
+            status: userPubkey ? ("ready" as const) : ("failed" as const),
+            detail: userPubkey ? "Uses your Nostr account" : "Connect your Nostr account",
+          };
 
         try {
           const probe = await checkGraspRepoExists({
@@ -341,7 +362,11 @@ export async function preflightRemoteTargets(params: {
       }
 
       const normalizedTargetHost = normalizeTokenHostForTarget(target.host);
-      const matchingTargetTokens = tokenList
+      const eligibleTokens =
+        target.expectedUsername && target.validatedToken
+          ? [{ host: target.host, token: target.validatedToken }]
+          : tokenList;
+      const matchingTargetTokens = eligibleTokens
         .filter((tokenEntry) => {
           const normalizedTokenHost = normalizeTokenHostForTarget(tokenEntry.host);
           return (
@@ -353,7 +378,7 @@ export async function preflightRemoteTargets(params: {
 
       try {
         const result = await tryTokensForHost(
-          tokenList,
+          eligibleTokens,
           (tokenHost: string) => {
             const normalizedTokenHost = normalizeTokenHostForTarget(tokenHost);
             return (
@@ -373,6 +398,14 @@ export async function preflightRemoteTargets(params: {
             if (!username) {
               throw new Error("Unable to determine token user");
             }
+            if (target.expectedUsername && username !== target.expectedUsername)
+              throw new Error("Destination account changed. Select and verify its token again.");
+            if (options?.accountOnly)
+              return {
+                token: candidateToken,
+                username,
+                detail: `Destination account: ${username}`,
+              };
 
             try {
               const existingRepo = await api.getRepo(username, repoName);
@@ -386,6 +419,7 @@ export async function preflightRemoteTargets(params: {
               if (repoConflict) {
                 return {
                   token: candidateToken,
+                  username,
                   detail: repoConflict.message,
                   blocked: true,
                 };
@@ -394,6 +428,7 @@ export async function preflightRemoteTargets(params: {
               if (!allowExistingRepoReuse) {
                 return {
                   token: candidateToken,
+                  username,
                   detail: existingRepoMessage,
                   blocked: true,
                   existsAlready: true,
@@ -404,6 +439,7 @@ export async function preflightRemoteTargets(params: {
 
               return {
                 token: candidateToken,
+                username,
                 detail: "Repository exists, will push to existing destination",
                 existsAlready: true,
                 existingRemoteUrl: existingRepo.cloneUrl,
@@ -430,6 +466,7 @@ export async function preflightRemoteTargets(params: {
             status: "failed" as const,
             detail: result.detail,
             validatedToken: result.token,
+            username: result.username,
             candidateTokens: matchingTargetTokens,
             existsAlready: Boolean(result?.existsAlready),
             existingRemoteUrl: result?.existingRemoteUrl,
@@ -477,6 +514,7 @@ export async function preflightNewRemoteTargets(params: {
       relayUrl: target.relayUrl,
       status: "checking" as const,
       validatedToken: target.token,
+      expectedUsername: target.username,
       candidateTokens: target.tokens,
     })),
     tokenList: params.tokenList,
@@ -486,7 +524,7 @@ export async function preflightNewRemoteTargets(params: {
       allowExistingRepoReuse: params.allowExistingRepoReuse ?? false,
       existingRepoMessage:
         params.existingRepoMessage ||
-        "Destination already exists. Create and fork require a new destination; use import to reuse an existing repository.",
+        "Destination already exists. Choose another identifier or destination account to create a new repository.",
     },
   });
   const blocked = checked.filter((target) => target.status !== "ready");
@@ -576,9 +614,13 @@ export function toRemoteTargetSelection(target: RemoteTargetOption): RemoteTarge
     label: target.label,
     provider: target.provider,
     host: target.host,
+    username: target.expectedUsername,
     relayUrl: target.relayUrl,
     token: target.validatedToken,
-    tokens: target.candidateTokens,
+    tokens:
+      target.expectedUsername && target.validatedToken
+        ? [target.validatedToken]
+        : target.candidateTokens,
     existsAlready: target.existsAlready,
     existingRemoteUrl: target.existingRemoteUrl,
     existingWebUrl: target.existingWebUrl,

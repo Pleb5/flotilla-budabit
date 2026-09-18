@@ -1,9 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { usePublicRepo } from "./usePublicRepo.svelte";
-import {
-  getPendingRepoCreationTransactions,
-  retryPendingRepoCreationMetadata,
-} from "../utils/repo-creation-transaction";
+import { getPendingRepoCreationTransactions } from "../utils/repo-creation-transaction";
 import { publishRepoSyncAnnouncement, syncLocalRepoToTargets } from "../utils/remote-sync";
 import { tokens } from "$lib/stores/tokens";
 import { recoverRepoCreationRecord } from "../utils/repo-creation-recovery";
@@ -143,89 +140,77 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("public repository execution", () => {
-  it.each(["announce", "copy"] as const)(
-    "allows explicitly acknowledged relay outages through execution (%s)",
-    async (mode) => {
-      const { hook, worker, publish, fetchEvents } = setup();
-      fetchEvents.mockImplementation(async ({ relays }) => {
-        if (relays[0].includes("offline")) throw new Error("Relay timed out");
-        return [];
-      });
-      const config = {
-        mode,
-        source,
-        forkName: "partial-relay-check",
-        relays: [relay, "wss://offline.test/"],
-        targets:
-          mode === "copy"
-            ? [
-                {
-                  id: "destination",
-                  label: "Codeberg",
-                  provider: "forgejo" as const,
-                  host: "codeberg.org",
-                },
-              ]
-            : [],
-      };
-      expect(await hook.createRepository(config)).toBeNull();
-      expect(hook.error).toContain("Import anyway");
-      expect(publish).not.toHaveBeenCalled();
-      expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
-      expect(await hook.createRepository({ ...config, importAnyway: true })).not.toBeNull();
-      if (mode === "copy") expect(worker.cloneRemoteRepo).toHaveBeenCalledOnce();
-    }
-  );
-  it.each(["announce", "copy"] as const)(
-    "requires duplicate consent but never permits an occupied d-tag (%s)",
-    async (mode) => {
-      const existing = {
-        kind: 30617,
-        pubkey: owner,
-        id: "existing",
-        sig: "fixture",
-        created_at: 1,
-        content: "",
-        tags: [
-          ["d", "already-announced"],
-          ["clone", "git@codeberg.org:o/r.git"],
-        ],
-      };
-      const { hook, worker, publish } = setup([existing]);
-      const config = {
-        mode,
-        source,
-        forkName: "different-identifier",
-        relays: [relay],
-        targets:
-          mode === "copy"
-            ? [
-                {
-                  id: "destination",
-                  label: "Codeberg",
-                  provider: "forgejo" as const,
-                  host: "codeberg.org",
-                },
-              ]
-            : [],
-      };
-      expect(await hook.createRepository(config)).toBeNull();
-      expect(hook.error).toContain("Import anyway");
-      expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
-      expect(publish).not.toHaveBeenCalled();
-      expect(
-        await hook.createRepository({
-          ...config,
-          importAnyway: true,
-          forkName: "already-announced",
-        })
-      ).toBeNull();
-      expect(hook.error).toContain('identifier "already-announced"');
-      expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
-      expect(publish).not.toHaveBeenCalled();
-      expect(await hook.createRepository({ ...config, importAnyway: true })).not.toBeNull();
-    }
-  );
+  it("allows explicitly acknowledged relay outages through execution", async () => {
+    const { hook, worker, publish, fetchEvents } = setup();
+    fetchEvents.mockImplementation(async ({ relays }) => {
+      if (relays[0].includes("offline")) throw new Error("Relay timed out");
+      return [];
+    });
+    const config = {
+      mode: "copy" as const,
+      source,
+      forkName: "partial-relay-check",
+      relays: [relay, "wss://offline.test/"],
+      targets: [
+        {
+          id: "destination",
+          label: "Codeberg",
+          provider: "forgejo" as const,
+          host: "codeberg.org",
+        },
+      ],
+    };
+    expect(await hook.createRepository(config)).toBeNull();
+    expect(hook.error).toContain("Import anyway");
+    expect(publish).not.toHaveBeenCalled();
+    expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+    expect(await hook.createRepository({ ...config, importAnyway: true })).not.toBeNull();
+    expect(worker.cloneRemoteRepo).toHaveBeenCalledOnce();
+  });
+  it("requires duplicate consent but never permits an occupied d-tag", async () => {
+    const existing = {
+      kind: 30617,
+      pubkey: owner,
+      id: "existing",
+      sig: "fixture",
+      created_at: 1,
+      content: "",
+      tags: [
+        ["d", "already-announced"],
+        ["clone", "git@codeberg.org:o/r.git"],
+      ],
+    };
+    const { hook, worker, publish } = setup([existing]);
+    const config = {
+      mode: "copy" as const,
+      source,
+      forkName: "different-identifier",
+      relays: [relay],
+      targets: [
+        {
+          id: "destination",
+          label: "Codeberg",
+          provider: "forgejo" as const,
+          host: "codeberg.org",
+        },
+      ],
+    };
+    expect(await hook.createRepository(config)).toBeNull();
+    expect(hook.error).toContain("Import anyway");
+    expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(
+      await hook.createRepository({
+        ...config,
+        importAnyway: true,
+        forkName: "already-announced",
+      })
+    ).toBeNull();
+    expect(hook.error).toContain('identifier "already-announced"');
+    expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
+    expect(await hook.createRepository({ ...config, importAnyway: true })).not.toBeNull();
+  });
   it("keeps zero-ACK copy announcements until exact cleanup succeeds", async () => {
     const { hook, worker, publish, fetchEvents, deleteEvent } = setup();
     const actual =
@@ -327,11 +312,23 @@ describe("public repository execution", () => {
   });
   it("releases a rejected signing attempt and permits retrying the same identifier", async () => {
     const { hook, publish } = setup();
+    const actual =
+      await vi.importActual<typeof import("../utils/remote-sync")>("../utils/remote-sync");
+    vi.mocked(publishRepoSyncAnnouncement).mockImplementationOnce((params) =>
+      actual.publishRepoSyncAnnouncement({ ...params, maxAnnouncementPublishAttempts: 1 })
+    );
     const config = {
-      mode: "announce" as const,
+      mode: "copy" as const,
       source,
       forkName: "sign-retry",
-      targets: [],
+      targets: [
+        {
+          id: "destination",
+          label: "Codeberg",
+          provider: "forgejo" as const,
+          host: "codeberg.org",
+        },
+      ],
       relays: [relay],
     };
     publish.mockImplementationOnce(async (_event, context) => {
@@ -344,96 +341,49 @@ describe("public repository execution", () => {
     expect(await hook.createRepository(config)).not.toBeNull();
   });
 
-  it("retains the exact signed receipt when delivery throws before returning ACKs", async () => {
-    const { hook, publish } = setup();
-    publish.mockImplementationOnce(async (event, context) => {
-      context.onPrepare();
-      context.onBeforePublish({ ...event, pubkey: owner, id: "d".repeat(64), sig: "signature" });
-      throw new Error("Transport disconnected after delivery started");
-    });
-    expect(
-      await hook.createRepository({
-        mode: "announce",
-        source,
-        forkName: "lost-ack",
-        targets: [],
-        relays: [relay],
-      })
-    ).toBeNull();
-    expect(getPendingRepoCreationTransactions()[0]).toMatchObject({
-      phase: "metadata-pending",
-      publicationNotStarted: false,
-      publishedEvents: [{ event: { id: "d".repeat(64) } }],
-    });
-  });
-
-  it("does not discard an uncheckpointed publisher's unknown outcome", async () => {
-    const { hook, publish } = setup();
-    publish.mockRejectedValueOnce(new Error("Unknown publication outcome"));
-    expect(
-      await hook.createRepository({
-        mode: "announce",
-        source,
-        forkName: "unknown-announcement",
-        targets: [],
-        relays: [relay],
-      })
-    ).toBeNull();
-    expect(getPendingRepoCreationTransactions()[0]).toMatchObject({
-      publicationNotStarted: false,
-      publishedEvents: [],
-    });
-  });
-
-  it("announces an existing public URL with no clone, state, target credentials or fork relationship", async () => {
-    const { hook, worker, publish } = setup();
-    const result = await hook.createRepository({
+  it.each([
+    { mode: "copy", targets: [] },
+    { mode: "announce", targets: [] },
+    {
       mode: "announce",
-      source,
-      forkName: "announcement",
-      targets: [],
-      relays: [relay],
-    });
-    expect(hook.error).toBeNull();
-    expect(result?.stateEvent).toBeUndefined();
-    expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish.mock.calls[0][0].kind).toBe(30617);
-    expect(result?.announcementEvent.tags).toContainEqual(["clone", source.cloneUrl]);
-    expect(result?.announcementEvent.tags.some((tag) => tag[0] === "upstream")).toBe(false);
+      targets: [{ id: "destination", provider: "forgejo", host: "codeberg.org" }],
+    },
+  ])("rejects unsupported imports before reads or writes: %j", async (config) => {
+    const { hook, worker, publish } = setup();
+    expect(
+      await hook.createRepository({
+        ...config,
+        source,
+        forkName: "invalid",
+        relays: [relay],
+        importAnyway: true,
+      } as any)
+    ).toBeNull();
+    expect(hook.error).toContain("at least one writable destination");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
     for (const method of Object.values(worker)) expect(method).not.toHaveBeenCalled();
     expect(tokens.waitForInitialization).not.toHaveBeenCalled();
-    expect(getPendingRepoCreationTransactions()).toHaveLength(0);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(fetch).mock.calls[0][1]).toMatchObject({ credentials: "omit" });
+    expect(getPendingRepoCreationTransactions()).toEqual([]);
   });
-
-  it("retains exact announcement-only delivery evidence and can recover without a state event", async () => {
-    const { hook, publish } = setup();
-    publish.mockImplementationOnce(async (event) => ({
-      event: { ...event, pubkey: owner, id: "d".repeat(64), sig: "signature" },
-      ackedRelays: [],
-      failedRelays: [relay],
-      hasRelayOutcomes: true,
-    }));
+  it("rejects a source that became empty before execution without publishing or cloning", async () => {
+    const { hook, worker, publish } = setup();
+    vi.mocked(fetch).mockImplementation(async () =>
+      Response.json({ ...(await metadata().json()), empty: true })
+    );
     expect(
       await hook.createRepository({
-        mode: "announce",
         source,
-        forkName: "recover",
-        targets: [],
+        forkName: "empty",
         relays: [relay],
+        targets: [
+          { id: "destination", label: "Codeberg", provider: "forgejo", host: "codeberg.org" },
+        ],
       })
     ).toBeNull();
-    const [record] = getPendingRepoCreationTransactions();
-    expect(record).toMatchObject({
-      announcementOnly: true,
-      phase: "metadata-pending",
-      targets: [],
-    });
-    const exact = record.publishedEvents[0].event;
-    await retryPendingRepoCreationMetadata(record, publish, async () => [exact]);
-    expect(publish.mock.calls[1][0]).toEqual(exact);
-    expect(getPendingRepoCreationTransactions()).toHaveLength(0);
+    expect(hook.error).toContain("no Git history to copy");
+    expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
 
   it("uses the shared copy path with anonymous source reads despite a same-host target token", async () => {
@@ -586,7 +536,7 @@ describe("public repository execution", () => {
     });
     expect(
       await hook.createRepository({
-        mode: "announce",
+        mode: "copy",
         source,
         forkName: "changed",
         targets: [],

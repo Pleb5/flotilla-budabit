@@ -1,7 +1,7 @@
 <script lang="ts">
   import RepoDetailsStep from "./RepoDetailsStep.svelte";
   import RepoTypeStep from "./RepoTypeStep.svelte";
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import type { PublicRepoSource } from "@nostr-git/core/git";
   import { usePublicRepo, type PublicRepoResult } from "../../hooks/usePublicRepo.svelte.js";
   import {
@@ -9,9 +9,11 @@
     newRepoTargetHost,
     validGraspSelection,
   } from "../../utils/new-repo-targets.js";
-  import { preflightRemoteTargets } from "../../utils/remote-targets.js";
+  import { preflightRemoteTargets, type RemoteTargetOption } from "../../utils/remote-targets.js";
+  import { publicRepoCopyAdmissionError } from "../../utils/public-repo-copy.js";
   import {
     checkRepoCoordinateAvailability,
+    assertRepoCoordinateNotKnown,
     reserveRepoCreation,
     type RepoRelayCheckReport,
   } from "../../utils/repo-creation-preflight.js";
@@ -180,19 +182,14 @@
   let createdResult = $state<NewRepoResult | PublicRepoResult | null>(null);
   let closed = false;
   let repoType = $state<"new" | "import" | null>(null);
-  let importAction = $state<"announce" | "copy">("announce");
   let sourceUrl = $state("");
   let source = $state<PublicRepoSource | null>(null);
   let ownerAnnouncements = $state<NostrEvent[]>([]);
   let sourceDuplicates = $state<ExistingSourceAnnouncement[]>([]);
   let sourceRelayChecks = $state<RepoRelayCheckReport | null>(null);
   let importAnyway = $state(false);
-  const sourceAccepted = $derived(
-    Boolean(source) &&
-      ((!sourceDuplicates.length && !sourceRelayChecks?.failedRelays.length) || importAnyway)
-  );
+  const sourceAccepted = $derived(Boolean(source) && !publicRepoCopyAdmissionError(source!));
   const importing = $derived(repoType === "import");
-  const needsTargets = $derived(!importing || importAction === "copy");
   const edited = new Set<string>();
   const publicRepo = usePublicRepo({
     workerApi,
@@ -243,14 +240,8 @@
     sourceDuplicates = findSourceAnnouncements(value, userPubkey || "", inventory.events);
   }
 
-  async function acceptSource(value: PublicRepoSource, signal: AbortSignal) {
-    await checkSourceAnnouncements(value, signal);
-    prefillSource(value);
-  }
-
   function prefillSource(value: PublicRepoSource) {
     source = value;
-    if (value.empty) importAction = "announce";
     if (!edited.has("displayName")) repoDetails.displayName = value.displayName;
     if (!identifierEdited) repoDetails.name = suggestRepoIdentifier(value.name);
     if (!edited.has("description")) repoDetails.description = value.description;
@@ -259,7 +250,6 @@
     if (!userEditedWebUrl) advancedSettings.webUrls = [value.url];
     if (!userEditedCloneUrl) advancedSettings.cloneUrls = [value.cloneUrl];
     updateValidationErrors();
-    debouncedNameCheck(repoDetails.name);
   }
 
   // Initialize the useNewRepo hook
@@ -296,10 +286,52 @@
   let tokens = $state<Token[]>([]);
   let selectedProviders = $state<string[]>([]);
   let graspRelayUrls = $state<string[]>([]);
+  const targetSeeds = $derived(newRepoTargets(selectedProviders, graspRelayUrls, tokens));
+  let accountChecks = $state<RemoteTargetOption[]>([]);
+  let checkingAccounts = $state(false);
+  let accountCheckRun = 0;
   const selectedTargets = $derived(
-    needsTargets ? newRepoTargets(selectedProviders, graspRelayUrls, tokens) : []
+    targetSeeds.map((target) => {
+      const account = accountChecks.find((item) => item.id === target.id);
+      return {
+        ...target,
+        username: account?.username,
+        token: account?.validatedToken,
+        tokens: account?.validatedToken ? [account.validatedToken] : undefined,
+      };
+    })
   );
-  const graspSelected = $derived(needsTargets && selectedProviders.includes("grasp"));
+  const graspSelected = $derived(selectedProviders.includes("grasp"));
+  const targetsReady = $derived(
+    !checkingAccounts &&
+      targetSeeds.length > 0 &&
+      isValidGraspConfig() &&
+      accountChecks.length === targetSeeds.length &&
+      accountChecks.every((target) => target.status === "ready")
+  );
+  $effect(() => {
+    const seeds = targetSeeds;
+    const tokenList = tokens;
+    const run = ++accountCheckRun;
+    checkingAccounts = seeds.length > 0;
+    accountChecks = [];
+    untrack(() => invalidateDetailsChecks());
+    void preflightRemoteTargets({
+      targets: seeds.map((target) => ({ ...target, status: "checking" as const })),
+      tokenList,
+      userPubkey: userPubkey || "",
+      repoName: "",
+      options: { accountOnly: true },
+    }).then((checked) => {
+      if (closed || run !== accountCheckRun) return;
+      accountChecks = checked;
+      checkingAccounts = false;
+      if (currentStep >= 2 && currentStep < 4) debouncedNameCheck(repoDetails.name);
+    });
+    return () => {
+      accountCheckRun++;
+    };
+  });
   let userEditedWebUrl = $state(false);
   let userEditedCloneUrl = $state(false);
   let userEditedRelays = $state(false);
@@ -322,6 +354,8 @@
       available: boolean;
       reason?: string;
       username?: string;
+      cloneUrl?: string;
+      existsAlready?: boolean;
       error?: string;
     }>;
     hasConflicts: boolean;
@@ -421,13 +455,11 @@
     })
   );
   const relayCouplingError = $derived.by(() =>
-    importing && importAction === "announce"
-      ? ""
-      : resolvingGraspServices
-        ? "Checking repository relay capabilities..."
-        : unbackedGraspRelays.length > 0
-          ? formatUnbackedGraspRelayError(unbackedGraspRelays)
-          : ""
+    resolvingGraspServices
+      ? "Checking repository relay capabilities..."
+      : unbackedGraspRelays.length > 0
+        ? formatUnbackedGraspRelayError(unbackedGraspRelays)
+        : ""
   );
   const relaySelectionError = $derived.by(() =>
     getEffectiveRepoRelays().length === 0
@@ -439,11 +471,6 @@
     const relayUrls = getEffectiveRepoRelays();
     const knownServices = [...declaredGraspServices];
     const runId = ++graspServiceResolutionRunId;
-    if (importing && importAction === "announce") {
-      resolvingGraspServices = false;
-      resolvedGraspServices = knownServices;
-      return;
-    }
     resolvingGraspServices = true;
     void resolveKnownGraspServices({ relayUrls, knownServices })
       .then((services) => {
@@ -498,8 +525,8 @@
 
   function getProviderResult(provider: string) {
     return (
-      nameAvailabilityResults?.results?.find((r) => r.provider === provider) ||
-      nameAvailabilityResults?.results?.find((r) => r.host === providerHost(provider))
+      nameAvailabilityResults?.results?.find((r) => r.host === providerHost(provider)) ||
+      accountChecks.find((r) => r.host === providerHost(provider))
     );
   }
 
@@ -641,14 +668,17 @@
   // Check repository name availability across all providers
   let nameCheckRun = 0;
   let nameCheckController: AbortController | undefined;
-  async function checkNameAvailability(name: string): Promise<typeof nameAvailabilityResults> {
+  async function checkNameAvailability(
+    name: string,
+    refreshSource = false
+  ): Promise<typeof nameAvailabilityResults> {
     if (nameCheckTimeout) clearTimeout(nameCheckTimeout);
     const run = ++nameCheckRun;
     nameCheckController?.abort();
     const controller = new AbortController();
     nameCheckController = controller;
     coordinateChecks = null;
-    if (validateRepoIdentifier(name)) {
+    if (validateRepoIdentifier(name) || !targetsReady) {
       nameAvailabilityResults = null;
       coordinateAvailability = null;
       isCheckingAvailability = false;
@@ -667,48 +697,68 @@
         );
         release();
         if (!onFetchRelayEvents) throw new Error("Repository identifier checks are unavailable");
-        const report = await checkRepoCoordinateAvailability({
+      } catch (cause) {
+        coordinateAvailability = {
+          name,
+          available: false,
+          error: cause instanceof Error ? cause.message : String(cause),
+        };
+        return null;
+      }
+      const [, report, checked] = await Promise.all([
+        importing && source && (refreshSource || !sourceRelayChecks)
+          ? checkSourceAnnouncements(source, controller.signal)
+          : Promise.resolve(),
+        checkRepoCoordinateAvailability({
           ownerPubkey: userPubkey || "",
           repoName: name,
           relayUrls: getRepositoryCheckRelays(),
-          onFetchRelayEvents,
+          onFetchRelayEvents: onFetchRelayEvents!,
           signal: controller.signal,
           knownEvents: [
             ...(getKnownRepoEvents?.(userPubkey || "", name) || []),
             ...(getKnownOwnerRepoEvents?.(userPubkey || "") || []),
             ...ownerAnnouncements,
           ],
-        });
-        assertActor?.();
-        if (closed || run !== nameCheckRun || name !== repoDetails.name) return null;
-        coordinateChecks = report;
-        coordinateAvailability = { name, available: !report.conflict, error: report.conflict };
-        if (report.conflict) return null;
+        }),
+        preflightRemoteTargets({
+          targets: selectedTargets.map((target) => ({
+            ...target,
+            validatedToken: target.token,
+            expectedUsername: target.username,
+            status: "checking" as const,
+          })),
+          tokenList: tokens,
+          userPubkey: userPubkey || "",
+          repoName: name,
+          options: { allowExistingRepoReuse: false },
+        }),
+      ]);
+      assertActor?.();
+      if (closed || run !== nameCheckRun || name !== repoDetails.name) return null;
+      try {
+        assertRepoCoordinateNotKnown(userPubkey || "", name, ownerAnnouncements);
       } catch (cause) {
-        if (!closed && run === nameCheckRun && name === repoDetails.name)
-          coordinateAvailability = {
-            name,
-            available: false,
-            error: cause instanceof Error ? cause.message : String(cause),
-          };
-        return null;
+        report.conflict = cause instanceof Error ? cause.message : String(cause);
       }
-      if (!needsTargets || selectedProviders.length === 0) {
-        nameAvailabilityResults = null;
-        return null;
-      }
-      const checked = await preflightRemoteTargets({
-        targets: selectedTargets.map((target) => ({ ...target, status: "checking" as const })),
-        tokenList: tokens,
-        userPubkey: userPubkey || "",
-        repoName: name,
-        options: { allowExistingRepoReuse: false },
-      });
+      coordinateChecks = report;
+      coordinateAvailability = { name, available: !report.conflict, error: report.conflict };
       const merged = {
         results: checked.map((target) => ({
           provider: target.provider,
           host: target.host || target.relayUrl || "",
           username: target.username,
+          cloneUrl:
+            target.provider === "grasp"
+              ? buildGraspRepoUrls({
+                  relayUrls: [target.relayUrl!],
+                  ownerPubkey: userPubkey || "",
+                  repoName: name,
+                }).cloneUrls[0]
+              : target.username
+                ? `https://${target.host}/${target.username}/${name}.git`
+                : undefined,
+          existsAlready: target.existsAlready,
           available: target.status === "ready",
           reason: target.detail,
           error: target.status === "ready" ? undefined : target.detail,
@@ -748,6 +798,18 @@
 
   // Debounced name availability check
   let nameCheckTimeout: number | null = null;
+  function invalidateDetailsChecks() {
+    nameCheckRun++;
+    nameCheckController?.abort();
+    if (nameCheckTimeout) clearTimeout(nameCheckTimeout);
+    nameAvailabilityResults = null;
+    coordinateAvailability = null;
+    coordinateChecks = null;
+    sourceRelayChecks = null;
+    sourceDuplicates = [];
+    importAnyway = false;
+    isCheckingAvailability = false;
+  }
   function debouncedNameCheck(name: string) {
     nameCheckRun++;
     nameCheckController?.abort();
@@ -757,6 +819,10 @@
     isCheckingAvailability = !validateRepoIdentifier(name);
     if (nameCheckTimeout) {
       clearTimeout(nameCheckTimeout);
+    }
+    if (currentStep < 2) {
+      isCheckingAvailability = false;
+      return;
     }
     nameCheckTimeout = setTimeout(() => {
       checkNameAvailability(name);
@@ -804,15 +870,18 @@
   }
 
   // Navigation
-  function changeImportAction(value: "announce" | "copy") {
-    importAction = value;
-    debouncedNameCheck(repoDetails.name);
-  }
   function availabilityBlocksCreation(result: typeof nameAvailabilityResults): boolean {
+    if (!targetsReady) return true;
     if (coordinateAvailability?.name !== repoDetails.name || !coordinateAvailability.available)
       return true;
     if (coordinateChecks?.failedRelays.length && !(importing && importAnyway)) return true;
-    if (!needsTargets) return false;
+    if (
+      importing &&
+      (!sourceRelayChecks ||
+        ((sourceDuplicates.length > 0 || sourceRelayChecks.failedRelays.length > 0) &&
+          !importAnyway))
+    )
+      return true;
     return (
       !result ||
       result.hasConflicts ||
@@ -830,7 +899,7 @@
       }
     } else if (currentStep === 1) {
       // Require provider selection (and valid GRASP relay when applicable)
-      if (!needsTargets || (selectedProviders.length > 0 && isValidGraspConfig())) {
+      if (targetsReady) {
         currentStep = 2;
         if (repoDetails.name) debouncedNameCheck(repoDetails.name);
       }
@@ -924,21 +993,16 @@
       assertActor?.();
       if (importing) {
         editStep = 0;
-        if (!source) throw new Error("Check the public repository before continuing");
-        await checkSourceAnnouncements(source);
         if (!sourceAccepted)
-          throw new Error(
-            "Review the existing announcements and relay check results, then select Import anyway to continue."
-          );
+          throw new Error("Check a public source that can be copied before continuing");
       }
       editStep = 2;
       if (!validateStep1()) throw new Error("Review the repository details before continuing");
 
       editStep = 1;
-      if (needsTargets && (selectedProviders.length === 0 || !isValidGraspConfig()))
-        throw new Error("Select valid target remotes before continuing");
+      if (!targetsReady) throw new Error("Select valid target remotes before continuing");
 
-      const availability = await checkNameAvailability(repoDetails.name);
+      const availability = await checkNameAvailability(repoDetails.name, true);
       if (closed) return;
       editStep = 3;
       assertActor?.();
@@ -946,6 +1010,11 @@
       if (availabilityBlocksCreation(availability))
         throw new Error(
           coordinateAvailability?.error ||
+            (importing &&
+            (sourceDuplicates.length || sourceRelayChecks?.failedRelays.length) &&
+            !importAnyway
+              ? "Review the source announcement matches and relay results, then select Import anyway to continue."
+              : "") ||
             (coordinateChecks?.failedRelays.length
               ? "Some relays could not be checked. Review the results and select Import anyway to continue."
               : "") ||
@@ -973,7 +1042,7 @@
         const result = await publicRepo.createRepository({
           source,
           importAnyway,
-          mode: importAction,
+          mode: "copy",
           forkName: repoDetails.name,
           displayName: repoDetails.displayName,
           description: repoDetails.description,
@@ -990,10 +1059,7 @@
           progressSteps = [
             {
               step: "complete",
-              message:
-                importAction === "announce"
-                  ? "Repository announced on Nostr. No Git copies were made."
-                  : publicRepo.warning || "Independent copies and Nostr metadata verified.",
+              message: publicRepo.warning || "Independent copies and Nostr metadata verified.",
               completed: true,
             },
           ];
@@ -1143,6 +1209,7 @@
       selectedProviders.includes("grasp") ? graspRelayUrls || [] : []
     );
     userEditedRelays = true;
+    sourceRelayChecks = null;
     if (repoDetails.name) debouncedNameCheck(repoDetails.name);
   }
 
@@ -1219,7 +1286,6 @@
       createdRepoResult={createdRepoResult}
       onNavigateToRepo={onNavigateToRepo}
       operationActivity={importing ? publicRepo.operationActivity : operationActivity()}
-      announcementOnly={importing && importAction === "announce"}
       modalLayout={true}
     />
   {:else}
@@ -1241,67 +1307,32 @@
             source={source}
             onModeChange={(mode) => {
               repoType = mode;
-              nameAvailabilityResults = null;
+              invalidateDetailsChecks();
               if (mode === "import" && source) prefillSource(source);
             }}
             onUrlChange={(value) => {
               sourceUrl = value;
               source = null;
-              sourceDuplicates = [];
-              sourceRelayChecks = null;
-              importAnyway = false;
+              invalidateDetailsChecks();
             }}
-            onSource={acceptSource}
-            duplicates={sourceDuplicates}
-            relayChecks={sourceRelayChecks}
-            importAnyway={importAnyway}
-            onImportAnyway={(value) => (importAnyway = value)}
+            onSource={prefillSource}
           />
         {:else if currentStep === 1}
           {#if importing}
-            <fieldset class="mb-5 space-y-3 rounded border border-border p-4">
-              <legend class="px-1 font-semibold">Choose target remotes</legend>
-              <label class="flex items-center gap-3"
-                ><input
-                  type="radio"
-                  name="import-action"
-                  checked={importAction === "announce"}
-                  onchange={() => changeImportAction("announce")}
-                /> Announce only</label
-              >
-              <p class="text-sm text-muted-foreground">
-                Publish the existing public source URLs on Nostr. No Git copy, destination token or
-                source ownership claim.
-              </p>
-              <label class="flex items-center gap-3"
-                ><input
-                  type="radio"
-                  name="import-action"
-                  checked={importAction === "copy"}
-                  onchange={() => changeImportAction("copy")}
-                  disabled={source?.empty}
-                /> Copy to target remotes</label
-              >
-              <p class="text-sm text-muted-foreground">
-                Copy all branches and tags once. Synchronization remains manual; no native forge
-                fork is created.
-              </p>
-              {#if source?.empty}<p class="text-sm text-muted-foreground">
-                  This source is empty; use Announce only.
-                </p>{/if}
-            </fieldset>
+            <h2 class="mb-3 text-xl font-semibold">Choose target remotes</h2>
+            <p class="mb-4 break-all text-sm">Source: {source?.url}</p>
           {/if}
-          {#if needsTargets}
-            <StepChooseService
-              importing={importing}
-              selectedProviders={selectedProviders}
-              onProvidersChange={handleProvidersChange as any}
-              disabledProviders={nameAvailabilityResults?.conflictProviders || []}
-              relayUrls={graspRelayUrls}
-              onRelayUrlsChange={handleRelayUrlsChange}
-              graspServerOptions={recommendedGraspServerOptions}
-            />
-          {/if}
+          <StepChooseService
+            importing={importing}
+            selectedProviders={selectedProviders}
+            onProvidersChange={handleProvidersChange as any}
+            disabledProviders={nameAvailabilityResults?.conflictProviders || []}
+            relayUrls={graspRelayUrls}
+            onRelayUrlsChange={handleRelayUrlsChange}
+            graspServerOptions={recommendedGraspServerOptions}
+            accountChecks={accountChecks}
+            checkingAccounts={checkingAccounts}
+          />
         {:else if currentStep === 2}
           <RepoDetailsStep
             importing={importing}
@@ -1325,9 +1356,11 @@
             isCheckingAvailability={isCheckingAvailability}
             coordinateAvailability={coordinateAvailability}
             coordinateChecks={coordinateChecks}
+            sourceRelayChecks={sourceRelayChecks}
+            sourceDuplicates={sourceDuplicates}
             importAnyway={importAnyway}
             onImportAnyway={(value) => (importAnyway = value)}
-            onCheckAvailability={() => checkNameAvailability(repoDetails.name)}
+            onCheckAvailability={() => checkNameAvailability(repoDetails.name, true)}
           />
         {:else if currentStep === 3}
           <AdvancedSettingsStep
@@ -1362,19 +1395,31 @@
           />
           {#if importing && source}
             <section class="mt-6 space-y-2 rounded border border-border p-4">
-              <h3 class="font-semibold">
-                Review {importAction === "announce" ? "announcement" : "independent copies"}
-              </h3>
+              <h3 class="font-semibold">Review import and announcement</h3>
               <p class="break-all text-sm">Source: {source.url}</p>
               <p class="text-sm">
-                {importAction === "announce"
-                  ? "Announce the existing public source URLs; no Git writes."
-                  : `Create independent copies on: ${selectedTargets.map((target) => target.label).join(", ")}. Only verified destinations will be announced.`}
+                Creates independent copies and announces them on Nostr. Future synchronization is
+                manual.
+              </p>
+              <ul class="space-y-2 text-sm">
+                {#each nameAvailabilityResults?.results || [] as target}
+                  <li>
+                    <strong>{target.host}</strong>{#if target.username}
+                      — account: {target.username}{/if}<br /><span class="break-all font-mono"
+                      >{target.cloneUrl}</span
+                    >
+                  </li>
+                {/each}
+              </ul>
+              <p class="break-all text-sm">
+                Nostr repository: <span class="font-mono"
+                  >30617:{userPubkey}:{repoDetails.name}</span
+                >
               </p>
               <p class="text-sm text-muted-foreground">
                 Issues, pull requests and comments are not imported. Existing authorship and files
                 are preserved. Copies are limited to 100 branches/tags, a 50 MiB reported source
-                estimate and 64 MiB per Git HTTP body. Larger repositories can still be announced.
+                estimate and 64 MiB per Git HTTP body. Use a local Git client for larger sources.
               </p>
               <p class="text-sm text-muted-foreground">
                 Publication is public and may remain after cancellation. If interrupted, use saved
@@ -1417,10 +1462,7 @@
           <Button
             onclick={nextStep}
             disabled={(currentStep === 0 && (!repoType || (importing && !sourceAccepted))) ||
-              (currentStep === 1 &&
-                needsTargets &&
-                (selectedProviders.length === 0 ||
-                  (selectedProviders.includes("grasp") && !isValidGraspConfig()))) ||
+              (currentStep === 1 && !targetsReady) ||
               (currentStep === 2 &&
                 (!validateStep1() ||
                   isCheckingAvailability ||
@@ -1435,13 +1477,7 @@
             variant="git"
             class="w-full sm:w-auto"
           >
-            {currentStep === 3
-              ? importing
-                ? importAction === "announce"
-                  ? "Announce Repository"
-                  : "Copy and Announce Repository"
-                : "Create Repository"
-              : "Next"}
+            {currentStep === 3 ? (importing ? "Import and announce" : "Create Repository") : "Next"}
           </Button>
         </div>
       </div>

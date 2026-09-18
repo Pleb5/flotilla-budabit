@@ -1,5 +1,6 @@
 <script lang="ts">
   import ProviderSelectionStep from "../ProviderSelectionStep.svelte";
+  import type { RemoteTargetOption } from "../../../utils/remote-targets.js";
 
   interface Props {
     selectedProviders: string[];
@@ -9,6 +10,8 @@
     onRelayUrlsChange?: (urls: string[]) => void;
     graspServerOptions?: string[];
     importing?: boolean;
+    accountChecks?: RemoteTargetOption[];
+    checkingAccounts?: boolean;
   }
 
   const __props = $props();
@@ -29,5 +32,7 @@
     relayUrls={relayUrls || []}
     onRelayUrlsChange={onRelayUrlsChange as any}
     graspServerOptions={graspServerOptions}
+    accountChecks={__props.accountChecks}
+    checkingAccounts={__props.checkingAccounts}
   />
 </div>

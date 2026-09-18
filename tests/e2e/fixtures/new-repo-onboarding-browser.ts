@@ -8,6 +8,7 @@ export const evidence = {
   requests: [] as string[],
   mutations: [] as string[],
   events: [] as any[],
+  relayReads: 0,
   result: null as any,
 }
 export const preflight = {
@@ -56,6 +57,7 @@ export function openOnboardingFixture(withTargetToken = false) {
   evidence.requests = []
   evidence.mutations = []
   evidence.events = []
+  evidence.relayReads = 0
   evidence.result = null
   preflight.occupied = false
   preflight.actorChanged = false
@@ -73,6 +75,20 @@ export function openOnboardingFixture(withTargetToken = false) {
     const url = new URL(String(input), location.href)
     if (url.origin === location.origin) return originalFetch!(input, init)
     evidence.requests.push(`${init?.method || "GET"} ${url.origin}${url.pathname}`)
+    if (url.hostname === "api.github.com" && url.pathname === "/repos/fixture/large") {
+      if (new Headers(init?.headers).has("authorization") || init?.credentials !== "omit")
+        throw new Error("Source read must be anonymous")
+      return Response.json({
+        id: 789,
+        name: "large",
+        full_name: "fixture/large",
+        private: false,
+        size: 51 * 1024,
+        default_branch: "main",
+        html_url: "https://github.com/fixture/large",
+        clone_url: "https://github.com/fixture/large.git",
+      })
+    }
     if (url.hostname !== "codeberg.org")
       return new Response("Fixture: external HTTP blocked", {status: 503})
     if (
@@ -186,9 +202,12 @@ export function openOnboardingFixture(withTargetToken = false) {
         }
       },
       onFetchRelayEvents: async ({relays, filters, requireComplete}: any) => {
+        evidence.relayReads++
         if (
           relays[0].includes("owner.fixture") &&
-          ((requireComplete && preflight.inventoryUnavailable) ||
+          ((requireComplete &&
+            preflight.inventoryUnavailable &&
+            !filters.some((filter: any) => filter["#d"])) ||
             (preflight.coordinateUnavailable && filters.some((filter: any) => filter["#d"])))
         )
           throw new Error("Fixture relay timed out")

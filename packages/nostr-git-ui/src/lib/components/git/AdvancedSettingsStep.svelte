@@ -461,7 +461,7 @@
           </div>
           <p class="mt-1 text-sm text-muted-foreground">
             {importing
-              ? "Announce only retains this source URL. Copy mode announces only successfully verified destination clone URLs, not this source as a writable remote."
+              ? "Git history is read from this source. The Nostr announcement will list the successfully verified destination copies."
               : "Reorder to choose priority. The first URL is the primary clone URL."}
           </p>
         </fieldset>

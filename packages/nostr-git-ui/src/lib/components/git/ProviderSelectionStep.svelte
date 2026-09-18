@@ -6,6 +6,7 @@
   import { sanitizeRelays } from "@nostr-git/core/utils";
   import { registerGitHost, type GitVendor } from "@nostr-git/core/git";
   import { newRepoTargetCards, validGraspSelection } from "../../utils/new-repo-targets.js";
+  import type { RemoteTargetOption } from "../../utils/remote-targets.js";
 
   interface Props {
     selectedProviders: string[];
@@ -15,6 +16,8 @@
     onRelayUrlsChange?: (urls: string[]) => void;
     graspServerOptions: string[];
     importing?: boolean;
+    accountChecks?: RemoteTargetOption[];
+    checkingAccounts?: boolean;
   }
   const {
     selectedProviders,
@@ -24,6 +27,8 @@
     onRelayUrlsChange,
     graspServerOptions,
     importing = false,
+    accountChecks = [],
+    checkingAccounts = false,
   }: Props = $props();
   let tokens = $state<Token[]>([]);
   let newRelay = $state("");
@@ -63,7 +68,7 @@
     {#if !importing}<h2 class="text-xl font-semibold">Choose Git Service</h2>{/if}
     <p class="text-sm text-muted-foreground">
       {importing
-        ? "Select destinations for independent Git copies. Later synchronization stays manual."
+        ? "Select at least one writable destination for independent Git copies. The new repositories will be announced on Nostr."
         : "Select one or more services for your new repository."}
       Hosted destinations need their own token; GRASP uses your Nostr signer.
     </p>
@@ -96,6 +101,22 @@
             >Name conflict</span
           >{/if}
       </label>
+      {#if selectedProviders.includes(provider.id) && provider.id !== "grasp"}
+        {@const account = accountChecks.find((item) => item.host === provider.host)}
+        {#if checkingAccounts}<p role="status" class="mt-2 text-sm">
+            Checking destination account…
+          </p>
+        {:else if account?.status === "ready"}<p
+            role="status"
+            class="mt-2 text-sm font-semibold text-green-700 dark:text-green-300"
+          >
+            Destination account: {account.username}
+          </p>
+        {:else}<p role="alert" class="mt-2 text-sm text-destructive">
+            {account?.detail ||
+              "Could not verify this destination account. Check its token in Settings, then select the destination again."}
+          </p>{/if}
+      {/if}
       {#if !provider.hasToken}
         <p class="mt-2 text-sm text-muted-foreground">
           Add a destination token in <a class="underline" href={ACCESS_TOKEN_SETTINGS_PATH}
@@ -175,7 +196,7 @@
   {/each}
   {#if selectedProviders.length === 0}
     <p class="text-sm text-muted-foreground">Select at least one target to continue.</p>
-  {:else if graspValid && selectedProviders.every( (id) => providers.some((provider) => provider.id === id && provider.hasToken && provider.supported) )}
+  {:else if !checkingAccounts && graspValid && accountChecks.length > 0 && accountChecks.every((account) => account.status === "ready") && selectedProviders.every( (id) => providers.some((provider) => provider.id === id && provider.hasToken && provider.supported) )}
     <p role="status" class="rounded bg-muted/50 p-3 text-sm">
       Ready: {selectedProviders
         .map((id) => providers.find((provider) => provider.id === id)?.name)
