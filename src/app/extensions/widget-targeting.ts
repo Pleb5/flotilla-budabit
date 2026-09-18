@@ -107,6 +107,26 @@ export const getWidgetTargetEventRelayHints = (event: TrustedEvent) => {
   ])
 }
 
+// Preflight every old association before deleting any of them. New selections,
+// widget provenance and association hints cannot authorize cleanup destinations.
+export const getWidgetTargetCleanupPlan = (
+  events: TrustedEvent[],
+  communityOptions: WidgetCommunityOption[],
+) =>
+  events.map(event => {
+    const targeting = parseTargetedPublication(event)
+    if (targeting?.kind !== SMART_WIDGET_KIND || !targeting.communities.length) {
+      throw new Error("Invalid widget community association.")
+    }
+    return {
+      event,
+      relays: getWidgetTargetPublishRelays({
+        communityOptions,
+        communityAddresses: targeting.communities.map(community => community.address),
+      }),
+    }
+  })
+
 export const publishWidgetEventToTargets = ({
   event,
   baseRelays = [],

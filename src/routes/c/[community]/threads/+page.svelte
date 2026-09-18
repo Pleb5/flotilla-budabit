@@ -20,6 +20,7 @@
     activeExactCommunityPointer,
     activeCommunityProfileListEvents,
     activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
     activeExactCommunitySession,
     getCommunityBootstrapKey,
@@ -419,7 +420,7 @@
         community={routeCommunity}
         url={communityOwnerPubkey}
         relays={$activeExactCommunityRelays}
-        publishRelays={$activeExactCommunityRelays}
+        publishRelays={$activeExactCommunityPublishRelays}
         scopeH={communityId}
         activityLiveCovered
         communitySectionName={threadSectionName}

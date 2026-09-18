@@ -30,6 +30,7 @@
     activeCommunityDescriptor,
     activeCommunityProfileListEvents,
     activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
     activeExactCommunitySession,
     activeExactCommunityDefinition,
@@ -358,7 +359,7 @@
       return false
     }
 
-    const relays = $activeExactCommunityRelays
+    const relays = $activeExactCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return false
@@ -1268,7 +1269,7 @@
             {community}
             profileRelays={$activeExactCommunityRelays}
             interactionRelays={$activeExactCommunityRelays}
-            actionRelays={$activeExactCommunityRelays}
+            actionRelays={$activeExactCommunityPublishRelays}
             allowedAuthors={commentAuthorPubkeys}
             reactionAllowedAuthors={reactionAuthorPubkeys}
             reportAllowedAuthors={reportAuthorPubkeys}

@@ -3,11 +3,7 @@
   import Star from "@assets/icons/star.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import LogIn from "@app/components/LogIn.svelte"
-  import {
-    activeCommunityStarByAddress,
-    getCommunityStarRelays,
-    hydrateCommunityStars,
-  } from "@app/core/community-state"
+  import {activeCommunityStarByAddress, hydrateCommunityStars} from "@app/core/community-state"
   import {normalizeRelays, type CommunityPointer} from "@app/core/community"
   import {
     discardPublication,
@@ -25,20 +21,13 @@
 
   type Props = {
     community: CommunityPointer
-    publishRelayHints?: string[]
+    publishRelayHints: string[]
     class?: string
   }
 
-  const {
-    community,
-    publishRelayHints = undefined,
-    class: className = "btn btn-square btn-sm",
-  }: Props = $props()
+  const {community, publishRelayHints, class: className = "btn btn-square btn-sm"}: Props = $props()
 
-  const relays = $derived(getCommunityStarRelays(community.relayHints))
-  const publishRelays = $derived(
-    publishRelayHints === undefined ? relays : normalizeRelays(publishRelayHints),
-  )
+  const publishRelays = $derived(normalizeRelays(publishRelayHints || []))
   const starProjection = $derived(
     projectCommunityStarOperation({
       star: $activeCommunityStarByAddress.get(community.address),
@@ -89,7 +78,7 @@
       } else {
         const event = makeCommunityStarReaction({
           ...community,
-          relayHints: publishRelayHints ?? community.relayHints,
+          relayHints: publishRelays,
         })
         startPublication({
           event,

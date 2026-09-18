@@ -20,6 +20,7 @@
     activeExactCommunityDefinition,
     activeCommunityProfileListEvents,
     activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
     activeExactCommunityPointer,
   } from "@app/core/community-state"
@@ -180,7 +181,7 @@
       pushToast({theme: "error", message: permalinkAccessMessage})
       return
     }
-    const relays = $activeExactCommunityRelays
+    const relays = $activeExactCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return

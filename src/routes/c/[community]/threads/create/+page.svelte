@@ -18,7 +18,7 @@
     activeCommunityDescriptor,
     activeExactCommunityDefinition,
     activeCommunityProfileListEvents,
-    activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
   } from "@app/core/community-state"
   import {makeCommunityThread} from "@app/core/community-threads"
@@ -97,7 +97,7 @@
       return
     }
 
-    const relays = $activeExactCommunityRelays
+    const relays = $activeExactCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return

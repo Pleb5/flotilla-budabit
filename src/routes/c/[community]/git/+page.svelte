@@ -21,6 +21,7 @@
     activeExactCommunityDefinition,
     activeCommunityProfileListEvents,
     activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
   } from "@app/core/community-state"
   import {
@@ -152,7 +153,7 @@
       pushToast({theme: "error", message: repoAccessMessage})
       return
     }
-    const relays = $activeExactCommunityRelays
+    const relays = $activeExactCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return

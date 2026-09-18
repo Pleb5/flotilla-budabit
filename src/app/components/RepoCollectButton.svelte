@@ -107,6 +107,7 @@
     class?: string
     iconClass?: string
     disabled?: boolean
+    showLabel?: boolean
     collectionState?: RepoCollectionReadState
   }
 
@@ -118,6 +119,7 @@
       className = "rounded-full border border-border bg-background/80 p-1.5 text-muted-foreground transition-colors hover:text-foreground",
     iconClass = "h-4 w-4",
     disabled = false,
+    showLabel = false,
     collectionState,
   }: Props = $props()
 
@@ -733,4 +735,5 @@
         >?</span>
     {/if}
   </span>
+  {#if showLabel}{collected ? "Starred" : "Star"}{/if}
 </button>

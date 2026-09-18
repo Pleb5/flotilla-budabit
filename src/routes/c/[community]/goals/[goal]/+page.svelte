@@ -39,6 +39,7 @@
     activeExactCommunityDefinition,
     activeCommunityProfileListEvents,
     activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
     type CommunityHydrationStatus,
   } from "@app/core/community-state"
@@ -389,7 +390,7 @@
       pushToast({theme: "error", message: commentAccessMessage})
       return false
     }
-    if ($activeExactCommunityRelays.length === 0) {
+    if ($activeExactCommunityPublishRelays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return false
     }
@@ -400,7 +401,7 @@
           event: eventToEdit,
           content: trimmed,
           tags,
-          relays: $activeExactCommunityRelays,
+          relays: $activeExactCommunityPublishRelays,
           url: communityId,
         })
       } catch (error) {
@@ -414,7 +415,7 @@
       return true
     }
 
-    const relays = $activeExactCommunityRelays
+    const relays = $activeExactCommunityPublishRelays
 
     try {
       startPublication({
@@ -762,7 +763,7 @@
               event={approvedGoal}
               url={communityId}
               relays={$activeExactCommunityRelays}
-              publishRelays={$activeExactCommunityRelays}
+              publishRelays={$activeExactCommunityPublishRelays}
               scopeH={communityId}
               disableContributions={Boolean(goalOperationId)} />
             {#if goalOperationId}
@@ -776,7 +777,7 @@
                   url={communityId}
                   community={routeCommunity}
                   relays={$activeExactCommunityRelays}
-                  publishRelays={$activeExactCommunityRelays}
+                  publishRelays={$activeExactCommunityPublishRelays}
                   scopeH={communityId}
                   communitySectionName={goalSectionName}
                   allowedAuthors={commentAuthorPubkeys}
@@ -828,7 +829,7 @@
                 showPubkey
                 readOnly={!canReact}
                 interactionRelays={$activeExactCommunityRelays}
-                actionRelays={$activeExactCommunityRelays}
+                actionRelays={$activeExactCommunityPublishRelays}
                 profileRelays={$activeExactCommunityRelays}
                 allowedAuthors={commentAuthorPubkeys}
                 reactionAllowedAuthors={reactionAuthorPubkeys}

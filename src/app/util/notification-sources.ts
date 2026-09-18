@@ -6,6 +6,7 @@ import {
   getPlaintext,
   getValidZap,
   pubkey,
+  repository,
   tracker,
 } from "@welshman/app"
 import {request, type RequestOptions} from "@welshman/net"
@@ -49,6 +50,12 @@ import {
 } from "@nostr-git/core/events"
 import {APP_RELAYS, DM_KIND, chatsById, type Chat} from "@app/core/state"
 import {
+  communityOutcomeContexts,
+  mergeCommunityOutcomeContexts,
+  rememberCommunityOutcomeContexts,
+  makeCommunityOutcomeSources,
+} from "@app/core/community-outcome-context"
+import {
   activeExactCommunityPointer,
   activeUserCommunityRefs,
   communityMemberDefinitionEvents,
@@ -76,6 +83,7 @@ import {
   normalizeCommunitySectionName,
   normalizePubkey,
   parseCommunityDefinition,
+  parseCommunityDefinitionAddress,
   parseTargetedPublication,
   makeTargetedPublicationLifecycleFilters,
   selectTargetedPublicationLifecycleCandidates,
@@ -4144,15 +4152,46 @@ const communityApplicationOutcomeRelays = derived(pubkey, $pubkey =>
   $pubkey ? normalizeRelayHints(getUserRelayHints(), getAuthorRelayHints($pubkey), APP_RELAYS) : [],
 )
 
-const communityApplicationOutcomeLoad = deriveLoadedNotificationEventsWithStatus({
+const legacyCommunityApplicationOutcomeLoad = deriveLoadedNotificationEventsWithStatus({
   filters: communityApplicationOutcomeFilters,
   relays: communityApplicationOutcomeRelays,
   label: "community application outcomes",
 })
 
-const communityApplicationOutcomeEvents = derived(
-  communityApplicationOutcomeLoad,
+const legacyCommunityApplicationOutcomeEvents = derived(
+  legacyCommunityApplicationOutcomeLoad,
   $load => $load.events,
+)
+
+const localApplicantResponses = derived(
+  pubkey,
+  ($pubkey, set) => {
+    if (!$pubkey) return set([])
+    return deriveEventsAsc(
+      deriveEventsById({repository, filters: [{kinds: [FORM_RESPONSE_KIND], authors: [$pubkey]}]}),
+    ).subscribe(set)
+  },
+  [] as TrustedEvent[],
+)
+
+const applicantCommunityContexts = derived(
+  [pubkey, activeUserCommunityRefs, localApplicantResponses, communityOutcomeContexts],
+  ([$pubkey, $refs, $responses, $retained]) => {
+    if (!$pubkey) return []
+    const additions = [
+      ...$refs.map(ref => ({address: ref.community.address, relays: ref.definition.relays})),
+      ...$responses.flatMap(event => {
+        const response = parseAdmissionResponse(event)
+        return response
+          ? [{address: response.community.address, relays: response.community.relayHints}]
+          : []
+      }),
+    ]
+    void rememberCommunityOutcomeContexts($pubkey, additions).catch(error => {
+      console.warn("[notifications] Failed to retain application context", error)
+    })
+    return mergeCommunityOutcomeContexts($retained[$pubkey] || [], additions)
+  },
 )
 
 const getOutcomeWorkflowRelays = (definition: CommunityDefinition) =>
@@ -4170,10 +4209,16 @@ const getOutcomeReviews = (events: TrustedEvent[], communityAddress: string) =>
   events.filter(event => parseAdmissionReview(event)?.community.address === communityAddress)
 
 const communityApplicationOutcomeDefinitionBootstrapSources = derived(
-  communityApplicationOutcomeEvents,
-  $events => {
+  [legacyCommunityApplicationOutcomeEvents, applicantCommunityContexts],
+  ([$events, $contexts]) => {
     const acceptedRelays = new Set<string>()
-    const sources: CommunityNotificationFilterSource[] = []
+    const sources: CommunityNotificationFilterSource[] = $contexts.map(context => ({
+      communityAddress: context.address,
+      relays: context.relays,
+      filters: [
+        makeExactCommunityDefinitionFilter(parseCommunityDefinitionAddress(context.address)!),
+      ],
+    }))
 
     for (const event of $events) {
       const community = parseAdmissionReview(event)?.community
@@ -4253,6 +4298,32 @@ const communityApplicationOutcomeDefinitions = derived(
 const communityApplicationOutcomeDefinitionEvents = derived(
   communityApplicationOutcomeDefinitions,
   $definitions => $definitions.map(definition => definition.event),
+)
+
+const communityApplicationOutcomeSources = derived(
+  [
+    pubkey,
+    communityApplicationOutcomeDefinitions,
+    notificationHistorySince,
+    notificationHistoryFilterLimit,
+  ],
+  ([$pubkey, $definitions, since, limit]) =>
+    makeCommunityOutcomeSources({
+      account: $pubkey,
+      definitions: $definitions,
+      since,
+      limit: Math.max(COMMUNITY_NOTIFICATION_LOAD_LIMIT, limit),
+    }),
+)
+
+const communityApplicationOutcomeLoad = deriveLoadedNotificationEventGroupsWithStatus({
+  groups: makeCommunityNotificationGroups(communityApplicationOutcomeSources, true),
+  label: "community-scoped application outcomes",
+})
+
+const communityApplicationOutcomeEvents = derived(
+  [legacyCommunityApplicationOutcomeEvents, communityApplicationOutcomeLoad],
+  ([$legacy, $load]) => dedupeTrustedEvents([...$legacy, ...$load.events]),
 )
 
 const communityApplicationOutcomeFormSources = derived(

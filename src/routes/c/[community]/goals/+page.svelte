@@ -29,6 +29,7 @@
     activeExactCommunityPointer,
     activeCommunityProfileListEvents,
     activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
     getCommunityBootstrapKey,
     hasCommunityHydrationCompleted,
@@ -637,7 +638,7 @@
       url={communityId}
       community={routeCommunity}
       relays={$activeExactCommunityRelays}
-      publishRelays={$activeExactCommunityRelays}
+      publishRelays={$activeExactCommunityPublishRelays}
       scopeH={communityId}
       activityLiveCovered
       communitySectionName={goalSectionName}

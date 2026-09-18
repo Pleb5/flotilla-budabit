@@ -145,12 +145,9 @@ export const REPO_ACTIONS_KEY = Symbol("repo-actions")
 export type RepoActions = {
   refreshRepo: () => void | Promise<void>
   forkRepo: () => void | Promise<void>
-  bookmarkRepo: () => void | Promise<void>
   openWatchModal: () => void
   openRemoteFixModal: () => void
   readonly isRefreshing: boolean
-  readonly isBookmarked: boolean
-  readonly isTogglingBookmark: boolean
   readonly isWatching: boolean
 }
 

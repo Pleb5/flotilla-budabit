@@ -23,7 +23,6 @@
   import {pushModal} from "@app/util/modal"
   import {pushToast} from "@app/util/toast"
   import {FORM_RESPONSE_KIND, getProfileListPubkeys, normalizePubkey} from "@app/core/community"
-  import {APP_RELAYS} from "@app/core/state"
   import {
     getOwnerMembershipGrantProfileList,
     makeCommunityGrantEvent,
@@ -87,7 +86,6 @@
     getCommunityMembershipChangeSemanticKey,
   } from "@app/core/governance-publication-operations"
   import {setChecked} from "@app/util/notifications"
-  import {getAuthorRelayHints, normalizeRelayHints} from "@app/util/event-links"
   import {makeExactCommunityPath, parseExactCommunityRouteParam} from "@app/util/routes"
 
   type ReviewApplication = {
@@ -983,11 +981,7 @@
     })
 
     events.push({
-      relays: normalizeRelayHints(
-        communityPublishRelays,
-        getAuthorRelayHints(applicant),
-        APP_RELAYS,
-      ),
+      relays: communityPublishRelays,
       event: makeEvent(review.kind, review),
       label: "application decision",
       semanticKey: getCommunityAdmissionReviewSemanticKey(application.response.event.id),

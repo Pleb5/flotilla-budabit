@@ -35,7 +35,6 @@
   import {pushModal, clearModals} from "@app/util/modal"
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
   import {getRepoRenameAddresses} from "@app/util/repo-rename-history"
-  import RepoCollectModal from "@app/components/RepoCollectModal.svelte"
   import BranchStateSyncModal from "@app/components/BranchStateSyncModal.svelte"
   import RemoteFixHelperModal from "@app/components/RemoteFixHelperModal.svelte"
   import GitCommunityMenuButton from "@app/components/GitCommunityMenuButton.svelte"
@@ -44,15 +43,10 @@
     createRepoPublishTransport,
     postRepoAnnouncement,
     postRepoStateEvent,
-    publishEvent,
     publishRepoEventWithRelayOutcomes,
     type RepoPublishTransport,
   } from "@app/core/git-commands.js"
-  import {
-    getDeclaredRepoRelays,
-    getRepoPublicationAddress,
-    requireRepoPublicationScope,
-  } from "@app/core/repo-publication"
+  import {getRepoPublicationAddress, requireRepoPublicationScope} from "@app/core/repo-publication"
   import {createForkRepoPublisher} from "@app/core/fork-publication"
   import RepoWatchModal from "@app/components/RepoWatchModal.svelte"
   import {nip19} from "nostr-tools"
@@ -109,7 +103,6 @@
     pubkey,
     profilesByPubkey,
     relaySearch,
-    publishThunk,
     deriveProfile,
     abortThunk,
   } from "@welshman/app"
@@ -118,7 +111,6 @@
   import {Router} from "@welshman/router"
   import {goto, beforeNavigate} from "$app/navigation"
   import {
-    Address,
     REPORT,
     GIT_ISSUE,
     DELETE,
@@ -128,13 +120,11 @@
     GIT_STATUS_COMPLETE,
     getTagValue,
     RELAYS,
-    makeEvent,
-    REACTION,
     COMMENT,
     type Filter,
     type TrustedEvent,
   } from "@welshman/util"
-  import {makeExactEventDelete, publishDelete} from "@src/app/core/commands"
+  import {makeExactEventDelete} from "@src/app/core/commands"
   import {setContext, onDestroy, onMount, tick} from "svelte"
   import {
     REPO_KEY,
@@ -182,11 +172,6 @@
     overlayLatestRepoStates,
     type BranchChange,
   } from "@app/util/branch-update"
-  import {
-    getCanonicalRepoKeyFromEvent,
-    getRepoBookmarkAddressSet,
-    isAnyBookmarked,
-  } from "@app/util/bookmarks"
   import {activeRepoStars, hydrateRepoStars} from "@app/core/repo-stars-state"
   import {
     activeExactCommunityPointer,
@@ -194,26 +179,11 @@
     clearActiveExactCommunity,
     setActiveExactCommunityPointer,
   } from "@app/core/community-state"
-  import {
-    TARGETED_PUBLICATION_KIND,
-    makeCommunityPointer,
-    parseCommunityDefinitionAddress,
-  } from "@app/core/community"
+  import {makeCommunityPointer, parseCommunityDefinitionAddress} from "@app/core/community"
   import {
     COMMUNITY_WRITE_TARGETS,
     communityWritableSectionsSupportTarget,
   } from "@app/core/community-permissions"
-  import {
-    makeEventPublicationRef,
-    makeTargetedPublicationForCommunity,
-    withPublicationTargetingId,
-  } from "@app/core/community-targeting"
-  import {
-    makeRepoStarReaction,
-    repoStarToBookmarkAddress,
-    type RepoStarRef,
-  } from "@app/util/repo-stars"
-  import {randomId} from "@welshman/lib"
   import {registerRepoLiveOwnership} from "@app/core/repo-live-ownership"
   import {
     buildRepoExactThreadLiveFilters,
@@ -300,12 +270,6 @@
         graspServers: ref.definition.graspServers,
       })),
   )
-
-  type PublishThunkResult = {
-    event?: TrustedEvent
-    complete?: Promise<unknown>
-    results?: Record<string, {status?: unknown}>
-  }
 
   const repoCommunityLabel = $derived.by(() => {
     const community = repoClass?.community
@@ -2505,17 +2469,10 @@
   setContext(REPO_ACTIONS_KEY, {
     refreshRepo: () => refreshRepo(),
     forkRepo: () => forkRepo(),
-    bookmarkRepo: () => bookmarkRepo(),
     openWatchModal: () => openWatchModal(),
     openRemoteFixModal: () => openRemoteFixModal(),
     get isRefreshing() {
       return isRefreshing
-    },
-    get isBookmarked() {
-      return isBookmarked
-    },
-    get isTogglingBookmark() {
-      return isTogglingBookmark
     },
     get isWatching() {
       return isWatching
@@ -2975,66 +2932,13 @@
   // Refresh state
   let isRefreshing = $state(false)
 
-  // Star state. Legacy bookmarks still populate the listing page, but this
-  // button only reflects kind:7 repo stars.
-  let isTogglingBookmark = $state(false)
-  let isBookmarked = $state(false)
   let relaysWarningKey = $state("")
   let suppressRelaysWarning = $state(false)
 
-  const getPrimaryBookmarkAddress = () => {
-    if (repoAddress) return repoAddress
-    if (repoClass?.address) return repoClass.address
-
-    try {
-      return repoClass?.repoEvent ? Address.fromEvent(repoClass.repoEvent).toString() : ""
-    } catch {
-      return ""
-    }
-  }
-
-  const getBookmarkAddressCandidates = () =>
-    getRepoBookmarkAddressSet({
-      primaryAddress: getPrimaryBookmarkAddress(),
-      relatedAddresses: getStore(repoAddressesStore),
-    })
-
-  const findActiveRepoStar = (): RepoStarRef | undefined => {
-    if (!repoClass || !repoClass.repoEvent) return undefined
-
-    const repoKey = getCanonicalRepoKeyFromEvent(repoClass.repoEvent as RepoAnnouncementEvent)
-    const candidateAddresses = getBookmarkAddressCandidates()
-
-    return $activeRepoStars.find(star =>
-      isAnyBookmarked([repoStarToBookmarkAddress(star)], candidateAddresses, {
-        candidateRepoKeys: repoKey ? [repoKey] : [],
-        getCachedEvent: address =>
-          repository.getEvent(address) as RepoAnnouncementEvent | undefined,
-      }),
-    )
-  }
-
-  const syncBookmarkState = () => {
-    try {
-      isBookmarked = Boolean(findActiveRepoStar())
-    } catch {
-      isBookmarked = false
-    }
-  }
-
-  // Keep star status in sync with kind:7 reactions and their delete events.
+  // Hydrate stars used by repository cleanup; collection UI owns its read model.
   $effect(() => {
     void $repoAddressesStore
-    void $activeRepoStars
-
-    if (!repoClass || !repoClass.repoEvent) {
-      isBookmarked = false
-      return
-    }
-
-    syncBookmarkState()
-
-    if (!$repoActivityHydrationReady) return
+    if (!repoClass?.repoEvent || !$repoActivityHydrationReady) return
 
     hydrateRepoStars({
       relayHints: getStore(repoRelaysStore),
@@ -3043,229 +2947,6 @@
       console.warn("[repo layout] Failed to hydrate repo stars", error)
     })
   })
-
-  const getPublishThunkSucceeded = (thunk?: PublishThunkResult) => {
-    if (!thunk) return false
-    const results = Object.values(thunk.results || {})
-    if (results.length === 0) return Boolean(thunk.event)
-    return results.some(result => result?.status === PublishStatus.Success)
-  }
-
-  const awaitPublishThunks = async (
-    thunks: Array<PublishThunkResult | undefined>,
-    mode: "all" | "any" = "any",
-  ) => {
-    const publishThunks = thunks.filter(Boolean) as PublishThunkResult[]
-    if (publishThunks.length === 0) return false
-
-    await Promise.allSettled(publishThunks.map(thunk => thunk.complete || Promise.resolve()))
-
-    const successes = publishThunks.map(getPublishThunkSucceeded)
-    return mode === "all" ? successes.every(Boolean) : successes.some(Boolean)
-  }
-
-  const getRepoCollectionCommunityLabel = (community: RepoCommunityOption) =>
-    community.label || getCommunityOptionLabel(community.ownerPubkey)
-
-  const publishPersonalRepoStar = ({
-    event,
-    address,
-    relayHint,
-    repoRelays,
-    createdAt,
-  }: {
-    event: RepoAnnouncementEvent
-    address: string
-    relayHint: string
-    repoRelays: string[]
-    createdAt: number
-  }) => {
-    const relays = normalizeScopeValues(repoRelays)
-    const starEvent = {
-      ...makeRepoStarReaction({event, address, relayHints: [relayHint]}),
-      created_at: createdAt,
-    }
-    const thunk = publishEvent(starEvent as any, relays, address)
-    if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
-    return thunk as PublishThunkResult | undefined
-  }
-
-  const publishCommunityRepoStar = ({
-    event,
-    address,
-    relayHint,
-    repoRelays,
-    community,
-    createdAt,
-  }: {
-    event: RepoAnnouncementEvent
-    address: string
-    relayHint: string
-    repoRelays: string[]
-    community: RepoCommunityOption
-    createdAt: number
-  }) => {
-    const targetingId = randomId()
-    const relays = normalizeScopeValues(repoRelays)
-    const communityRelays = normalizeScopeValues([
-      community.relay || "",
-      ...(community.relays || []),
-    ])
-    if (communityRelays.length === 0) {
-      throw new Error("Selected community must declare at least one relay.")
-    }
-    const communityPointer = makeCommunityPointer({
-      ownerPubkey: community.ownerPubkey,
-      communityId: community.communityId,
-      relayHints: communityRelays,
-    })
-    if (!communityPointer || communityPointer.address !== community.address) {
-      throw new Error("Selected community is unavailable.")
-    }
-    const starEvent = withPublicationTargetingId(
-      {...makeRepoStarReaction({event, address, relayHints: [relayHint]}), created_at: createdAt},
-      targetingId,
-    )
-    const starThunk = publishEvent(starEvent as any, relays, address)
-    if (starThunk?.event) repository.publish(starThunk.event as TrustedEvent)
-
-    const targetingEvent = makeEvent(TARGETED_PUBLICATION_KIND, {
-      ...makeTargetedPublicationForCommunity({
-        targetingId,
-        originalKind: REACTION,
-        originalRef: starThunk?.event?.id
-          ? makeEventPublicationRef({
-              id: starThunk.event.id,
-              relay: relays[0],
-              pubkey: starThunk.event.pubkey,
-            })
-          : undefined,
-        community: communityPointer,
-      }),
-      created_at: createdAt + 1,
-    })
-    const targetingThunk = publishThunk({event: targetingEvent, relays: communityRelays})
-    if (targetingThunk?.event) repository.publish(targetingThunk.event as TrustedEvent)
-    return [starThunk, targetingThunk] as Array<PublishThunkResult | undefined>
-  }
-
-  const openRepoCollectModal = ({
-    event,
-    address,
-    relayHint,
-    repoRelays,
-  }: {
-    event: RepoAnnouncementEvent
-    address: string
-    relayHint: string
-    repoRelays: string[]
-  }) => {
-    const existingPersonalStar = findActiveRepoStar()
-
-    pushModal(RepoCollectModal, {
-      title: "Edit collections",
-      submitLabel: "Update",
-      submittingLabel: "editing collections...",
-      communityOptions: repoCommunityOptions,
-      allowEmpty: true,
-      requireChanges: true,
-      defaultPersonal: Boolean(existingPersonalStar),
-      onCancel: clearModals,
-      onCollect: async ({
-        personal,
-        communityAddresses,
-      }: {
-        personal: boolean
-        communityAddresses: string[]
-      }) => {
-        if (isTogglingBookmark) return
-        isTogglingBookmark = true
-
-        try {
-          const baseCreatedAt = Math.floor(Date.now() / 1000)
-          const actions: Array<{
-            thunks: Array<PublishThunkResult | undefined>
-            mode: "all" | "any"
-            failureMessage: string
-          }> = []
-
-          if (existingPersonalStar && !personal) {
-            const relaysToPublish = normalizeScopeValues(repoRelays)
-            const thunk = publishDelete({
-              event: existingPersonalStar.reaction,
-              relays: relaysToPublish,
-              repoAddress: address,
-            })
-            if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
-            actions.push({
-              thunks: [thunk],
-              mode: "any",
-              failureMessage: "failed to remove personal star",
-            })
-          } else if (!existingPersonalStar && personal) {
-            actions.push({
-              thunks: [
-                publishPersonalRepoStar({
-                  event,
-                  address,
-                  relayHint,
-                  repoRelays,
-                  createdAt: baseCreatedAt,
-                }),
-              ],
-              mode: "any",
-              failureMessage: "failed to collect personally",
-            })
-          }
-
-          for (const [index, communityAddress] of communityAddresses.entries()) {
-            const community = repoCommunityOptions.find(
-              option => option.address === communityAddress,
-            )
-            if (!community) continue
-
-            actions.push({
-              thunks: publishCommunityRepoStar({
-                event,
-                address,
-                relayHint,
-                repoRelays,
-                community,
-                createdAt: baseCreatedAt + 2 + index * 2,
-              }),
-              mode: "all",
-              failureMessage: `failed to collect into ${getRepoCollectionCommunityLabel(community)}`,
-            })
-          }
-
-          const results = await Promise.all(
-            actions.map(async action => ({
-              action,
-              succeeded: await awaitPublishThunks(action.thunks, action.mode),
-            })),
-          )
-          const failures = results.filter(result => !result.succeeded)
-
-          for (const failure of failures) {
-            pushToast({message: failure.action.failureMessage, theme: "error"})
-          }
-
-          clearModals()
-          if (actions.length > 0 && failures.length === 0) {
-            pushToast({message: "Repository collections updated"})
-          }
-        } catch (error) {
-          console.error("Failed to edit repository collections:", error)
-          pushToast({
-            message: `Failed to edit repository collections: ${error instanceof Error ? error.message : "Unknown error"}`,
-            theme: "error",
-          })
-        } finally {
-          isTogglingBookmark = false
-        }
-      },
-    })
-  }
 
   // --- GRASP servers (user profile) ---
   // Only query GRASP servers when a user is logged in to avoid relay auth errors
@@ -4165,51 +3846,6 @@
       clearWarningDebounce()
     }
   })
-
-  async function bookmarkRepo() {
-    if (!repoClass || !$pubkey || isTogglingBookmark) return
-
-    isTogglingBookmark = true
-    let wasRemoving = false
-
-    try {
-      if (!repoClass.repoEvent) {
-        throw new Error("Repository event not available")
-      }
-
-      const repoRelays = getStore(repoRelaysStore) || repoClass?.relays || []
-
-      // Get repo address
-      const address = getPrimaryBookmarkAddress()
-      if (!address) {
-        throw new Error("Repository address not available")
-      }
-      // Determine relay hint
-      const relayHint =
-        repoRelays[0] || Router.get().getRelaysForPubkey(repoClass.repoEvent.pubkey)?.[0] || ""
-      const normalizedRelayHint = relayHint ? safeNormalizeRelayUrl(relayHint) : ""
-      const activeStar = findActiveRepoStar()
-      wasRemoving = Boolean(activeStar)
-
-      isTogglingBookmark = false
-      openRepoCollectModal({
-        event: repoClass.repoEvent as RepoAnnouncementEvent,
-        address,
-        relayHint: normalizedRelayHint,
-        repoRelays,
-      })
-      return
-    } catch (error) {
-      console.error("Failed to toggle repository star:", error)
-      const action = wasRemoving ? "remove" : "add"
-      pushToast({
-        message: `Failed to ${action} star: ${error instanceof Error ? error.message : "Unknown error"}`,
-        theme: "error",
-      })
-    } finally {
-      isTogglingBookmark = false
-    }
-  }
 
   function overviewRepo() {
     if (!repoClass) return

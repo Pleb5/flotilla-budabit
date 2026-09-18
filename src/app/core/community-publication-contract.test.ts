@@ -17,7 +17,7 @@ describe("strict community publication source contracts", () => {
     for (const route of routes) {
       const source = readProjectFile(route)
 
-      expect(source, route).toContain("const relays = $activeExactCommunityRelays")
+      expect(source, route).toContain("const relays = $activeExactCommunityPublishRelays")
     }
 
     for (const route of [
@@ -26,7 +26,9 @@ describe("strict community publication source contracts", () => {
     ]) {
       const source = readProjectFile(route)
 
-      expect(source, route).toContain("const relays = normalizeRelays($activeExactCommunityRelays)")
+      expect(source, route).toContain(
+        "const relays = normalizeRelays($activeExactCommunityPublishRelays)",
+      )
     }
 
     expect(readProjectFile("../../routes/c/[community]/+page.svelte")).toContain(
@@ -57,7 +59,7 @@ describe("strict community publication source contracts", () => {
     ]) {
       const source = readProjectFile(route)
 
-      expect(source, route).toContain("publishRelays={$activeExactCommunityRelays}")
+      expect(source, route).toContain("publishRelays={$activeExactCommunityPublishRelays}")
       expect(source, route).not.toContain("getUserOutboxRelays")
     }
   })
@@ -77,7 +79,8 @@ describe("strict community publication source contracts", () => {
       const source = readProjectFile(route)
 
       expect(source, route).toContain("$activeExactCommunityRelays")
-      expect(source, route).toContain("$activeExactCommunityRelays")
+      expect(source, route).toContain("$activeExactCommunityPublishRelays")
+      expect(source, route).not.toMatch(/\sactionRelays=\{\$activeExactCommunityRelays\}/)
     }
   })
 
@@ -119,9 +122,8 @@ describe("strict community publication source contracts", () => {
     const explore = readProjectFile("../../routes/explore/+page.svelte")
     const communityHome = readProjectFile("../../routes/c/[community]/+page.svelte")
 
-    expect(star).toContain(
-      "publishRelayHints === undefined ? relays : normalizeRelays(publishRelayHints)",
-    )
+    expect(star).toContain("publishRelayHints: string[]")
+    expect(star).not.toContain("getCommunityStarRelays")
     expect(badges).toContain("relays: badgePublishRelays")
     expect(badgeAward).toContain("relays: badgePublishRelays")
     expect(widgets).toContain("const baseRelays: string[] = []")
@@ -130,6 +132,10 @@ describe("strict community publication source contracts", () => {
     expect(widgetSettings).toContain("const communityPublishRelays = getWidgetTargetPublishRelays")
     expect(widgetSettings).toContain("baseRelays: []")
     expect(widgetSettings).not.toContain("baseRelays: publishRelays")
+    expect(widgetSettings).toContain(
+      "getWidgetTargetCleanupPlan(targetEvents, communityDiscoveryOptions)",
+    )
+    expect(widgetSettings).not.toContain("relays: cleanupRelays")
     expect(explore).toContain(
       "const previewPublishRelayHints = $derived(normalizeRelays(previewDefinition?.relays || []))",
     )
@@ -249,6 +255,10 @@ describe("strict community publication source contracts", () => {
     )
 
     expect(review).toContain("startPublication({")
+    expect(review).toContain(
+      "relays: communityPublishRelays,\n      event: makeEvent(review.kind, review)",
+    )
+    expect(review).not.toContain("getAuthorRelayHints(applicant)")
     expect(review).toContain('preview: "none"')
     expect(review).toContain("confirmRelays: requiredRelay ? [requiredRelay] : relays")
     expect(review).toContain("const result = await operation.settled")

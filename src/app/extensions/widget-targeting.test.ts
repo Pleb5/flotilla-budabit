@@ -23,6 +23,7 @@ import {
   getWidgetAddress,
   getWidgetCommunityOptionRelayHints,
   getWidgetTargetEventRelayHints,
+  getWidgetTargetCleanupPlan,
   getWidgetTargetPublishRelays,
   publishWidgetTargetingEvent,
 } from "./widget-targeting"
@@ -189,5 +190,41 @@ describe("widget targeting", () => {
       parseTargetedPublication(publishedEvent)!.communities.map(community => community.address),
     ).toEqual([firstCommunity.address, secondCommunity.address])
     expect(publishedEvent.tags.some(tag => tag[0] === "p")).toBe(false)
+  })
+
+  it("preflights cleanup per old association, ignoring source and community hints", () => {
+    const targets = [[firstCommunity], [secondCommunity], [firstCommunity, secondCommunity]].map(
+      (communities, index) =>
+        makeEvent({
+          ...buildTargetedPublication({
+            id: `old-${index}`,
+            kind: SMART_WIDGET_KIND,
+            source: {
+              type: "a",
+              value: `${SMART_WIDGET_KIND}:${widgetPubkey}:weather`,
+              relay: "wss://widget-host.example",
+            },
+            communities,
+          }),
+          kind: TARGETED_PUBLICATION_KIND,
+        }),
+    )
+    const options = [
+      {
+        community: firstCommunity,
+        relays: ["wss://current-first.example"],
+        relayHints: ["wss://indexer.example"],
+      },
+      {community: secondCommunity, relays: ["wss://current-second.example"]},
+    ]
+    expect(getWidgetTargetCleanupPlan(targets, options).map(item => item.relays)).toEqual([
+      ["wss://current-first.example/"],
+      ["wss://current-second.example/"],
+      ["wss://current-first.example/", "wss://current-second.example/"],
+    ])
+    expect(() => getWidgetTargetCleanupPlan(targets, options.slice(0, 1))).toThrow("not available")
+    expect(() =>
+      getWidgetTargetCleanupPlan(targets, [options[0], {...options[1], relays: []}]),
+    ).toThrow("must declare relays")
   })
 })

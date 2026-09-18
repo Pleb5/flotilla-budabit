@@ -24,6 +24,7 @@
     activeExactCommunityPointer,
     activeCommunityProfileListEvents,
     activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
     getCommunityBootstrapKey,
     hasCommunityHydrationCompleted,
@@ -682,8 +683,8 @@
         url={communityId}
         community={routeCommunity}
         relays={$activeExactCommunityRelays}
-        publishRelays={$activeExactCommunityRelays}
-        reactionRelays={$activeExactCommunityRelays}
+        publishRelays={$activeExactCommunityPublishRelays}
+        reactionRelays={$activeExactCommunityPublishRelays}
         scopeH={communityId}
         communitySectionName={getCalendarEventSectionName(event.kind)}
         allowedAuthors={commentAuthorPubkeys}

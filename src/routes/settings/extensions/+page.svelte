@@ -45,7 +45,7 @@
   import {
     getWidgetAddress,
     getWidgetCommunityOptionRelayHints,
-    getWidgetTargetEventRelayHints,
+    getWidgetTargetCleanupPlan,
     getWidgetTargetPublishRelays,
     publishWidgetEventToTargets,
     publishWidgetTargetingEvent,
@@ -395,31 +395,15 @@
     }
 
     const targetEvents = getWidgetTargetEvents(widget)
-    const previousCommunityAddresses = targetEvents.flatMap(
-      event =>
-        parseTargetedPublication(event)?.communities.map(community => community.address) || [],
-    )
-    const baseRelays = normalizeRelays([
-      ...getWidgetOriginalRelayHints(widget),
-      ...getUserOutboxRelays(),
-    ])
 
     try {
       const communityPublishRelays = getWidgetTargetPublishRelays({
         communityOptions: widgetCommunityOptions,
         communityAddresses,
       })
-      const cleanupRelays = normalizeRelays([
-        ...baseRelays,
-        ...targetEvents.flatMap(getWidgetTargetEventRelayHints),
-        ...communityPublishRelays,
-        ...getWidgetTargetPublishRelays({
-          communityOptions: widgetCommunityOptions,
-          communityAddresses: previousCommunityAddresses,
-        }),
-      ])
-      const deleteThunks = targetEvents.map(event => {
-        const thunk = publishDelete({event, relays: cleanupRelays})
+      const cleanupPlan = getWidgetTargetCleanupPlan(targetEvents, communityDiscoveryOptions)
+      const deleteThunks = cleanupPlan.map(({event, relays}) => {
+        const thunk = publishDelete({event, relays})
         if (thunk?.event) repository.publish(thunk.event as TrustedEvent)
         return thunk
       })

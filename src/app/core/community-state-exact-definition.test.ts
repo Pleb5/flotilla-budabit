@@ -1,5 +1,7 @@
 import {describe, expect, it, vi} from "vitest"
 import {getPublicKey} from "nostr-tools/pure"
+import {get} from "svelte/store"
+import {repository} from "@welshman/app"
 import type {Filter, TrustedEvent} from "@welshman/util"
 import {
   COMMUNITY_DEFINITION_KIND,
@@ -17,6 +19,10 @@ import {
   selectBoundedCommunityDefinitionDiscovery,
   selectExactCommunityDefinition,
   writeExactCommunitySession,
+  activeExactCommunityRelays,
+  activeExactCommunityPublishRelays,
+  setActiveExactCommunityPointer,
+  clearActiveExactCommunity,
 } from "./community-state"
 import {selectCurrentCommunityDefinitions} from "./community"
 
@@ -181,6 +187,29 @@ describe("exact community state", () => {
 
     writeExactCommunitySession(storage, undefined)
     expect(stored).toBeNull()
+  })
+
+  it("keeps bootstrap hints readable but never writable before an exact definition loads", () => {
+    const definition = makeDefinition({id: "9".repeat(64), createdAt: 20})
+    setActiveExactCommunityPointer(pointer)
+    try {
+      expect(get(activeExactCommunityRelays)).toEqual(pointer.relayHints)
+      expect(get(activeExactCommunityPublishRelays)).toEqual([])
+      repository.publish(definition)
+      expect(get(activeExactCommunityPublishRelays)).toEqual(["wss://relay.example/"])
+      setActiveExactCommunityPointer(
+        makeCommunityPointer({
+          ownerPubkey: otherController,
+          communityId,
+          relayHints: ["wss://sibling-hint.example"],
+        })!,
+      )
+      expect(get(activeExactCommunityRelays)).toEqual(["wss://sibling-hint.example"])
+      expect(get(activeExactCommunityPublishRelays)).toEqual([])
+    } finally {
+      repository.removeEvent(definition.id)
+      clearActiveExactCommunity()
+    }
   })
 
   it("uses exact branch identity without relay hints in state keys", () => {

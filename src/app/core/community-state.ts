@@ -286,6 +286,12 @@ export const activeExactCommunityRelays: Readable<string[]> = derived(
   ([pointer, definition]) => definition?.relays || pointer?.relayHints || [],
 )
 
+// Unlike read/bootstrap relays, publication requires a loaded exact definition.
+export const activeExactCommunityPublishRelays: Readable<string[]> = derived(
+  activeExactCommunityDefinition,
+  definition => normalizeRelays(definition?.relays || []),
+)
+
 export const clearActiveExactCommunity = () => activeExactCommunitySession.set(undefined)
 
 const fromCsv = (value?: string) =>

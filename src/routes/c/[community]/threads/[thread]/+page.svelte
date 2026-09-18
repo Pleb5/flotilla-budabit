@@ -29,6 +29,7 @@
     activeExactCommunityDefinition,
     activeCommunityProfileListEvents,
     activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
     type CommunityHydrationStatus,
   } from "@app/core/community-state"
@@ -324,7 +325,7 @@
       return false
     }
 
-    const relays = $activeExactCommunityRelays
+    const relays = $activeExactCommunityPublishRelays
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return false
@@ -572,7 +573,7 @@
                 community={routeCommunity}
                 url={communityOwnerPubkey}
                 relays={$activeExactCommunityRelays}
-                publishRelays={$activeExactCommunityRelays}
+                publishRelays={$activeExactCommunityPublishRelays}
                 scopeH={communityId}
                 communitySectionName={threadSectionName}
                 allowedAuthors={replyAuthorPubkeys}
@@ -612,7 +613,7 @@
                 showPubkey
                 readOnly={!canReact}
                 interactionRelays={$activeExactCommunityRelays}
-                actionRelays={$activeExactCommunityRelays}
+                actionRelays={$activeExactCommunityPublishRelays}
                 profileRelays={$activeExactCommunityRelays}
                 allowedAuthors={replyAuthorPubkeys}
                 reactionAllowedAuthors={reactionAuthorPubkeys}

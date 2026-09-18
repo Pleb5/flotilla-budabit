@@ -71,6 +71,7 @@
   } from "@app/core/community-forms"
   import {makeModeratorProfileListRequest} from "@app/core/community-moderator-requests"
   import {getCommunityScopedPublishRelays} from "@app/core/community-relays"
+  import {rememberCommunityOutcomeContexts} from "@app/core/community-outcome-context"
   import {
     selectCommunityMemberList,
     type CommunityMemberListItem,
@@ -692,10 +693,14 @@
       metadata,
     })
 
+    const applicationRelays = communityPublishRelays
     try {
+      await rememberCommunityOutcomeContexts($pubkey, [
+        {address: form.community.address, relays: applicationRelays},
+      ])
       await publishGovernanceEvent(
         `admission-submit:${communityPubkey}:${form.address}`,
-        communityPublishRelays,
+        applicationRelays,
         template,
       )
       pushToast({message: `Application submitted for ${sectionDisplayName}.`})

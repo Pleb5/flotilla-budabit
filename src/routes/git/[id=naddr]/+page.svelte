@@ -9,7 +9,6 @@
     BookOpen,
     Copy,
     Check,
-    Star,
     Bell,
     GitFork,
     RotateCcw,
@@ -27,6 +26,7 @@
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
   import RepoMaintainerList from "@app/components/RepoMaintainerList.svelte"
+  import RepoCollectButton from "@app/components/RepoCollectButton.svelte"
   import {pushModal} from "@app/util/modal"
   import ResetRepoConfirm from "@app/components/ResetRepoConfirm.svelte"
   import {
@@ -796,16 +796,13 @@
         {/if}
         {#if $pubkey}
           <div class="ml-auto flex flex-wrap items-center gap-2">
-            <Button
-              class="btn btn-sm {repoActions.isBookmarked
-                ? 'border-amber-400/60 bg-amber-400/10 text-amber-600 hover:bg-amber-400/20 dark:text-amber-400'
-                : 'btn-outline'} gap-1"
-              onclick={repoActions.bookmarkRepo}
-              disabled={repoActions.isTogglingBookmark}
-              title={repoActions.isBookmarked ? "Unstar repository" : "Star repository"}>
-              <Star class="h-4 w-4 {repoActions.isBookmarked ? 'fill-current' : ''}" />
-              {repoActions.isBookmarked ? "Starred" : "Star"}
-            </Button>
+            {#if repoClass.repoEvent}
+              <RepoCollectButton
+                event={repoClass.repoEvent}
+                relayHints={repoClass.relays}
+                class="btn btn-outline btn-sm gap-1"
+                showLabel />
+            {/if}
             <Button
               class="btn btn-sm {repoActions.isWatching ? 'btn-primary' : 'btn-outline'} gap-1"
               onclick={repoActions.openWatchModal}

@@ -20,7 +20,7 @@
     activeCommunityDescriptor,
     activeExactCommunityDefinition,
     activeCommunityProfileListEvents,
-    activeExactCommunityRelays,
+    activeExactCommunityPublishRelays,
     activeCommunityReportState,
   } from "@app/core/community-state"
   import {TARGETED_PUBLICATION_KIND, normalizeRelays} from "@app/core/community"
@@ -118,7 +118,7 @@
       return
     }
 
-    const relays = normalizeRelays($activeExactCommunityRelays)
+    const relays = normalizeRelays($activeExactCommunityPublishRelays)
     if (relays.length === 0) {
       pushToast({theme: "error", message: "Community relays are not loaded yet."})
       return
