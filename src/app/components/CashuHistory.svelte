@@ -26,7 +26,11 @@
   }
 
   const directionClass = (entry: TokenHistoryEntry) => {
-    if (["failed", "rolled_back", "rolledback"].includes(entry.state.toLowerCase()))
+    if (
+      ["failed", "rolled_back", "rolledback", "recovery_required"].includes(
+        entry.state.toLowerCase(),
+      )
+    )
       return "opacity-60"
     if (!["finalized", "paid", "issued"].includes(entry.state.toLowerCase())) return "text-warning"
     if (entry.direction === "sent") return "text-error"
@@ -73,6 +77,7 @@
               >{entry.state.replaceAll("_", " ").toLowerCase()}</span>
           </div>
           <span class="text-xs opacity-50">{formatDate(entry.createdAt)}</span>
+          {#if entry.error}<p class="break-words text-xs text-error">{entry.error}</p>{/if}
         </div>
         {#if entry.direction === "sent" && entry.token}
           <Button

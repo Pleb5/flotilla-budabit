@@ -14,15 +14,26 @@ const server = await createServer({
       name: "cashu-synthetic-verification",
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
-          if (req.url.startsWith("/__fixture__/pay/") && req.method === "POST") {
+          const action = req.url.split("/")[2]
+          if (
+            req.url.startsWith("/__fixture__/") &&
+            ["pay", "issued", "recover"].includes(action) &&
+            req.method === "POST"
+          ) {
             const id = req.url.split("/").at(-1)
             if (!mint.quotes.has(id)) {
               res.statusCode = 404
               res.end()
               return
             }
-            mint.pay(id)
-            res.end("synthetic paid")
+            if (action === "pay") mint.pay(id)
+            if (action === "issued") mint.quotes.get(id).state = "ISSUED"
+            if (action === "recover") {
+              let body = ""
+              for await (const chunk of req) body += chunk
+              mint.issueBeforeCrash(id, JSON.parse(body).outputs)
+            }
+            res.end(`synthetic ${action}`)
             return
           }
           if (!req.url.startsWith("/v1/")) return next()

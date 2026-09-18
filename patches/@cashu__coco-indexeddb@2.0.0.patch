@@ -1,5 +1,5 @@
 diff --git a/dist/index.js b/dist/index.js
-index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42ea243b09 100644
+index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..9784387d9c6f981382b03301ff2e6d7f6149d829 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -655,6 +655,15 @@ async function ensureSchema(db) {
@@ -54,7 +54,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42
  	db.version(29).stores({
  		coco_cashu_mints: "&mintUrl, name, updatedAt, trusted",
  		coco_cashu_keysets: "&[mintUrl+id], mintUrl, id, updatedAt, unit",
-@@ -805,6 +817,20 @@ async function ensureSchema(db) {
+@@ -805,6 +817,29 @@ async function ensureSchema(db) {
  			row.remoteUpdatedAt = null;
  		});
  	});
@@ -72,10 +72,19 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42
 +			if (!row.purpose && owned.has(row.publicKey)) row.legacyMintQuote = true;
 +		});
 +	});
++	// Forward repair for 32.2 wallets: quote-only v1 rows were never backfilled
++	// into the canonical table. Keep their existing lock key usable as well.
++	db.version(32.3).stores({}).upgrade(async (tx) => {
++		const legacyQuotes = await tx.table("coco_cashu_mint_quotes").toArray();
++		const owned = new Set(legacyQuotes.map(row => row.pubkey).filter(Boolean));
++		await tx.table("coco_cashu_keypairs").toCollection().modify(row => {
++			if (!row.purpose && owned.has(row.publicKey)) row.legacyMintQuote = true;
++		});
++	});
  }
  
  //#endregion
-@@ -898,6 +924,7 @@ var IdbKeysetRepository = class {
+@@ -898,6 +933,7 @@ var IdbKeysetRepository = class {
  			keypairs: JSON.parse(r.keypairs),
  			active: !!r.active,
  			feePpk: r.feePpk,
@@ -83,7 +92,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42
  			updatedAt: r.updatedAt
  		}));
  	}
-@@ -911,6 +938,7 @@ var IdbKeysetRepository = class {
+@@ -911,6 +947,7 @@ var IdbKeysetRepository = class {
  			keypairs: JSON.parse(row.keypairs),
  			active: !!row.active,
  			feePpk: row.feePpk,
@@ -91,7 +100,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42
  			updatedAt: row.updatedAt
  		};
  	}
-@@ -925,6 +953,7 @@ var IdbKeysetRepository = class {
+@@ -925,6 +962,7 @@ var IdbKeysetRepository = class {
  				keypairs: JSON.stringify({}),
  				active: keyset.active ? 1 : 0,
  				feePpk: keyset.feePpk,
@@ -99,7 +108,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42
  				updatedAt: now
  			});
  			return;
-@@ -934,6 +963,7 @@ var IdbKeysetRepository = class {
+@@ -934,6 +972,7 @@ var IdbKeysetRepository = class {
  			unit: keyset.unit,
  			active: keyset.active ? 1 : 0,
  			feePpk: keyset.feePpk,
@@ -107,7 +116,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42
  			updatedAt: now
  		});
  	}
-@@ -946,6 +976,7 @@ var IdbKeysetRepository = class {
+@@ -946,6 +985,7 @@ var IdbKeysetRepository = class {
  			keypairs: JSON.stringify(keyset.keypairs ?? {}),
  			active: keyset.active ? 1 : 0,
  			feePpk: keyset.feePpk,
@@ -115,7 +124,7 @@ index 7ad9dcf7721b68c43dfcddd98e87e25d7b759a07..8838d8444a67045eacf5e563b4e7ea42
  			updatedAt: now
  		};
  		await this.db.table("coco_cashu_keysets").put(row);
-@@ -991,7 +1022,7 @@ var IdbKeyRingRepository = class {
+@@ -991,7 +1031,7 @@ var IdbKeyRingRepository = class {
  		const row = await this.db.table("coco_cashu_keypairs").get(publicKey);
  		if (!row) return null;
  		const keypairRow = row;

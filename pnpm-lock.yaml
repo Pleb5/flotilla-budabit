@@ -13,7 +13,7 @@ patchedDependencies:
     hash: 18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361
     path: patches/@cashu__coco-core@2.0.0.patch
   '@cashu/coco-indexeddb@2.0.0':
-    hash: 946d9356210cc9484c0607fe99e344ece4aa91446705801d7f02bbb778d33839
+    hash: 787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c
     path: patches/@cashu__coco-indexeddb@2.0.0.patch
 
 importers:
@@ -28,7 +28,7 @@ importers:
         version: 2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3)
       '@cashu/coco-indexeddb':
         specifier: 2.0.0
-        version: 2.0.0(patch_hash=946d9356210cc9484c0607fe99e344ece4aa91446705801d7f02bbb778d33839)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3))(typescript@5.9.3)
+        version: 2.0.0(patch_hash=787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3))(typescript@5.9.3)
       '@codemirror/lang-cpp':
         specifier: ^6.0.2
         version: 6.0.3
@@ -5257,7 +5257,7 @@ snapshots:
       '@scure/bip32': 2.0.1
       typescript: 5.9.3
 
-  '@cashu/coco-indexeddb@2.0.0(patch_hash=946d9356210cc9484c0607fe99e344ece4aa91446705801d7f02bbb778d33839)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3))(typescript@5.9.3)':
+  '@cashu/coco-indexeddb@2.0.0(patch_hash=787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3))(typescript@5.9.3)':
     dependencies:
       '@cashu/cashu-ts': 5.0.0-rc.4
       '@cashu/coco-core': 2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3)

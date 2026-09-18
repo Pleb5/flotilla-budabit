@@ -8,6 +8,7 @@
     mintTokensFromQuote,
     getCashuTopUp,
     refreshCashuTopUps,
+    prepareCashuTopUp,
     type CashuTopUpQuote,
   } from "@app/core/cashu"
   import {formatCashuSats} from "@app/util/cashu-format"
@@ -53,7 +54,9 @@
     try {
       let latest = await getCashuTopUp(quote.mintUrl, quote.quote)
       if (current !== generation) return
-      if (latest.state !== "complete" && latest.state !== "failed") {
+      if (
+        !["complete", "failed", "needs_preparation", "recovery_required"].includes(latest.state)
+      ) {
         const remote = await checkMintQuote(quote.mintUrl, quote.quote)
         if (current !== generation) return
         if (remote === "paid") {
@@ -66,7 +69,11 @@
       if (current !== generation) return
       active = latest
       error = latest.error || ""
-      if (["complete", "expired", "failed"].includes(latest.state)) {
+      if (
+        ["complete", "expired", "failed", "needs_preparation", "recovery_required"].includes(
+          latest.state,
+        )
+      ) {
         void refreshCashuTopUps()
         return
       }
@@ -89,6 +96,7 @@
     pollCount = 0
     void poll(quote, current)
     try {
+      if (!quote.request || quote.state !== "unpaid") return
       const image = await QRCode.toDataURL(quote.request, {margin: 1, width: 256})
       if (current === generation) qrDataUrl = image
     } catch {
@@ -118,6 +126,25 @@
     error = ""
     paused = false
     void refreshCashuTopUps()
+  }
+  const retryTopUp = async () => {
+    if (!active || loading) return
+    const quote = active
+    stopPolling()
+    const current = generation
+    loading = true
+    error = ""
+    try {
+      if (quote.state === "needs_preparation") await prepareCashuTopUp(quote.mintUrl, quote.quote)
+      else await mintTokensFromQuote(quote.mintUrl, quote.quote, quote.amount)
+      const latest = await getCashuTopUp(quote.mintUrl, quote.quote)
+      if (current === generation) await showQuote(latest)
+    } catch (e) {
+      if (current === generation)
+        error = e instanceof Error ? e.message : "Could not retry this top-up. Its data is saved."
+    } finally {
+      loading = false
+    }
   }
   const copyInvoice = async () => {
     if (!active) return
@@ -166,12 +193,24 @@
       {/if}
       <p role="status" class="text-center text-sm">
         {#if active.state === "expired"}This unpaid invoice has expired.
+        {:else if active.state === "needs_preparation"}Invoice preparation is incomplete. Retry
+          before paying.
+        {:else if active.state === "recovery_required"}The mint reports issuance, but your ecash has
+          not been recovered. Do not pay again.
         {:else if active.state === "failed"}This top-up needs attention. Its recovery data is saved.
         {:else if paused}Automatic checking is paused. Your invoice is saved; you can check again.
         {:else if active.state === "pending"}Payment detected. Recovering your ecash—do not pay
           again.
         {:else}Waiting for payment…{/if}
       </p>
+      {#if active.state === "needs_preparation" || active.state === "recovery_required"}
+        <Button class="btn btn-sm" disabled={loading} onclick={retryTopUp}
+          >{loading
+            ? "Retrying…"
+            : active.state === "needs_preparation"
+              ? "Retry preparation"
+              : "Retry recovery"}</Button>
+      {/if}
       {#if paused}
         <Button class="btn btn-sm" onclick={() => active && showQuote(active)}>Check again</Button>
       {/if}
@@ -192,11 +231,13 @@
               <span class="text-xs opacity-70">
                 · {quote.state === "pending"
                   ? "Recovering"
-                  : quote.state === "failed"
-                    ? "Needs attention"
-                    : quote.state === "expired"
-                      ? "Expired · check payment status"
-                      : "Awaiting payment"}</span>
+                  : quote.state === "needs_preparation"
+                    ? "Preparation incomplete"
+                    : quote.state === "failed" || quote.state === "recovery_required"
+                      ? "Needs attention"
+                      : quote.state === "expired"
+                        ? "Expired · check payment status"
+                        : "Awaiting payment"}</span>
               <p class="break-all text-xs opacity-60">{quote.mintUrl}</p>
             </div>
             <Button class="btn btn-sm" onclick={() => showQuote(quote)}>Resume invoice</Button>

@@ -4,7 +4,11 @@ import {initializeCoco, type Manager} from "@cashu/coco-core"
 import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import {mnemonicToSeedSync} from "@scure/bip39"
 import {CashuTestMint} from "../../../tests/helpers/cashu-mint"
-import {legacyCashuWallet, loadLegacyCashuWallet} from "../../../tests/helpers/cashu-idb-fixture"
+import {
+  legacyCashuWallet,
+  loadLegacyCashuWallet,
+  loadCashuDatabaseFixture,
+} from "../../../tests/helpers/cashu-idb-fixture"
 import {Amount, getEncodedToken} from "@cashu/cashu-ts"
 
 const open: {repo: IndexedDbRepositories; manager: Manager}[] = []
@@ -39,6 +43,37 @@ const wallet = async (mint: CashuTestMint, name = `cashu-protocol-${crypto.rando
 }
 
 describe("supported Cashu mint protocol", () => {
+  it("reconciles and issues a quote-only v1 locked invoice using its retained key", async () => {
+    const mint = new CashuTestMint({amounts: [1, 2, 4, 8, 16], url: legacyCashuWallet.mintUrl})
+    const name = `legacy-quote-only-${crypto.randomUUID()}`
+    const quoteOnly = structuredClone(legacyCashuWallet)
+    quoteOnly.stores.find(store => store.name === "coco_cashu_mint_operations")!.rows = []
+    await loadCashuDatabaseFixture(name, quoteOnly)
+    const {repo, manager} = await wallet(mint, name)
+    // initializeCoco reconciles legacy quotes before exposing the manager.
+    expect(
+      await manager.ops.mint.listByQuote({mintUrl: mint.url, quoteId: "mint-unpaid"}),
+    ).toHaveLength(1)
+    const quote = await manager.quotes.mint.get({mintUrl: mint.url, quoteId: "mint-unpaid"})
+    mint.quotes.set("mint-unpaid", {
+      quote: "mint-unpaid",
+      amount: 4,
+      unit: "sat",
+      request: quote!.request,
+      pubkey: quote!.pubkey,
+      expiry: 4102444800,
+      state: "PAID",
+    })
+    await manager.quotes.mint.refresh(quote!)
+    const [operation] = await manager.ops.mint.listByQuote(quote!)
+    expect((await manager.ops.mint.execute(operation)).state).toBe("finalized")
+    expect(
+      (await repo.proofRepository.getReadyProofs(mint.url))
+        .filter(p => p.createdByOperationId === operation.id)
+        .reduce((total, p) => total + p.amount.toNumber(), 0),
+    ).toBe(4)
+  })
+
   it("continues a v1 pending mint with its saved quote key and output secrets", async () => {
     const mint = new CashuTestMint({amounts: [1, 2, 4, 8, 16], url: legacyCashuWallet.mintUrl})
     const name = `legacy-issuance-${crypto.randomUUID()}`

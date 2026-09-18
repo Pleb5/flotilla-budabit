@@ -68,8 +68,10 @@ before retrying a blocked upgrade.
    NUT-20 lookup, while retaining P2PK access and derivation indexes. New keys
    retain v2's normal purpose separation. This prevents a saved locked quote
    failing with `Missing NUT-20 mint quote key` after migration.
+   Schema 32.3 repairs quote-only references from the legacy mint-quote table,
+   including wallets that already ran 32.2 without marking those keys.
 
-The current patched native database version is **322**. Future adapter upgrades
+The current patched native database version is **323**. Future adapter upgrades
 must account for these intermediate versions, metadata and legacy-key marker.
 Do not simply remove the patches after checking that a fresh wallet opens.
 
@@ -97,6 +99,10 @@ are migrated; all newly created top-ups use the durable flow below.
   deterministic mint operation and persist its outputs before displaying the
   invoice. Identity is `{mintUrl, quoteId}`; operations are reused across polling,
   background settlement and reloads.
+- If preparation fails, the saved quote has an explicit **Preparation incomplete**
+  state. Its invoice text and QR are withheld until **Retry preparation** saves
+  the deterministic outputs. Retries reuse the canonical quote and serialize
+  preparation within the manager session.
 - The Receive tab lists saved invoices. Closing the invoice view keeps the
   quote; reopening/reloading can resume it. Polling timeout pauses local checking
   and offers **Check again**. Only actual quote expiry is called expiration.
@@ -106,6 +112,13 @@ are migrated; all newly created top-ups use the durable flow below.
   stored operation, not merely seeing `PAID`. Persisted outputs support NUT-09
   recovery if the response is lost. Pending recovery is shown without asking
   the user to pay again.
+- Coco 2.0 can report `finalized` with a recovery error when the mint has already
+  issued but NUT-09 returns no proofs. These operations remain visible after
+  reload as **Recovery required** in both invoices and history, without a success
+  amount prefix. **Retry recovery** atomically requeues only that specific Coco
+  error and executes the same operation/outputs. Successful finalized operations
+  are never requeued, since their proofs may already have been spent. This also
+  handles errored operations persisted by earlier Budabit bundles.
 - Default mint settlement and melt recovery remain enabled. Only automatic
   polling of externally spent send proofs is disabled, as before. Coco can
   perform startup recovery before `initializeCoco()` returns even when ongoing
@@ -135,6 +148,9 @@ with actual secp256k1 blind signatures and DLEQ. They exercise:
   retry, plus expiry-bearing `01` keysets.
 - App lifecycle failures, concurrent claims, reload-resume, checked amounts,
   non-sat/BLS rejection and legacy derivation collisions.
+- Production-default background processing for incomplete preparation and
+  terminal issuance errors, including reload and successful later recovery;
+  quote-only v1 migration and forward repair from native version 322.
 
 ```sh
 pnpm exec vitest run --project=main src/app/core/cashu-*.test.ts \
@@ -160,6 +176,11 @@ invoice, close/reload/resume it, then POST `/__fixture__/pay/<quoteId>` to chang
 its simulated state. Its invoice strings are deliberately unpayable. Mint state
 is in memory; restarting this fixture server resets its quotes. Production code
 does not include this server or its endpoints.
+
+For issuance-recovery reproduction, POST `/__fixture__/issued/<quoteId>` to report
+issuance without available proofs. Later POST `/__fixture__/recover/<quoteId>`
+with `{outputs: [...]}` containing the saved operation's original blinded messages
+to make their signatures available to NUT-09, then use **Retry recovery**.
 
 To regenerate the v1 fixture, use `scripts/capture-cashu-v1-fixture.mjs` with the
 original Coco IndexedDB 1.0.0 and Cashu-TS 3.3.0. Optional `CASHU_V1_ADAPTER` and

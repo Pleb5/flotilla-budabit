@@ -6,6 +6,7 @@ import {mnemonicToSeedSync} from "@scure/bip39"
 import {
   legacyCashuWallet as fixture,
   loadLegacyCashuWallet,
+  loadCashuDatabaseFixture,
 } from "../../../tests/helpers/cashu-idb-fixture"
 import {
   cashuSnapshotDatabaseName,
@@ -23,6 +24,44 @@ afterEach(() => {
 })
 
 describe("existing Cashu wallet compatibility", () => {
+  it.each([170, 322])(
+    "retains quote-only legacy signing keys when upgrading native version %s",
+    async version => {
+      const name = `quote-only-${crypto.randomUUID()}`
+      const quoteOnly = structuredClone(fixture)
+      quoteOnly.stores.find(store => store.name === "coco_cashu_mint_operations")!.rows = []
+      await loadCashuDatabaseFixture(name, quoteOnly)
+      const first = new IndexedDbRepositories({name})
+      opened.push(first)
+      await first.init()
+      if (version === 322) {
+        await first.db.open()
+        const snapshot = (await readCashuDatabaseSnapshot(name))!
+        // Recreate the already-deployed 322 state: same tables/rows but no marker
+        // for a quote-only key. This exercises a forward migration, not 32.2 again.
+        snapshot.version = 322
+        for (const row of snapshot.stores.find(store => store.name === "coco_cashu_keypairs")!
+          .rows) {
+          delete (row as Record<string, unknown>).legacyMintQuote
+        }
+        first.db.close()
+        const repairedName = `${name}-forward`
+        await loadCashuDatabaseFixture(repairedName, snapshot)
+        const repair = new IndexedDbRepositories({name: repairedName})
+        opened.push(repair)
+        await repair.init()
+      }
+      const repo = opened.at(-1)!
+      const [key] = await repo.keyRingRepository.getAllPersistedKeyPairs()
+      expect(
+        await repo.keyRingRepository.getPersistedKeyPair(key.publicKeyHex, "nut20_mint_quote"),
+      ).toMatchObject({secretKey: key.secretKey, derivationIndex: 3})
+      expect(
+        await repo.keyRingRepository.getPersistedKeyPair(key.publicKeyHex, "p2pk"),
+      ).toMatchObject({secretKey: key.secretKey, derivationIndex: 3})
+    },
+  )
+
   it("opens the captured wallet and retains spendable cryptographic material and counters", async () => {
     const name = `cashu-v1-fixture-${crypto.randomUUID()}`
     await loadLegacyCashuWallet(name)

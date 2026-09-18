@@ -1,7 +1,7 @@
 import {writable, get} from "svelte/store"
 import type {Writable} from "svelte/store"
 import {Manager, initializeCoco, getEncodedToken, getTokenMetadata} from "@cashu/coco-core"
-import type {HistoryEntry, MintQuote, MintOperation} from "@cashu/coco-core"
+import type {HistoryEntry, MintQuote, MintOperation, Bolt11MintQuote} from "@cashu/coco-core"
 import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import * as bip39 from "@scure/bip39"
 import {wordlist} from "@scure/bip39/wordlists/english"
@@ -33,6 +33,7 @@ export interface TokenHistoryEntry {
   token?: string
   createdAt: number
   state: string
+  error?: string
 }
 
 export const cashuInitialized: Writable<boolean> = writable(false)
@@ -56,7 +57,14 @@ export interface CashuTopUpQuote {
   amount: number
   expiry: number | null
   operationId?: string
-  state: "unpaid" | "pending" | "complete" | "expired" | "failed"
+  state:
+    | "unpaid"
+    | "pending"
+    | "complete"
+    | "expired"
+    | "failed"
+    | "needs_preparation"
+    | "recovery_required"
   error?: string
 }
 export const cashuTopUps: Writable<CashuTopUpQuote[]> = writable([])
@@ -599,6 +607,61 @@ export const createCashuToken = async (amount: number, mintUrl: string): Promise
 
 // ─── Lightning Top-up ─────────────────────────────────────────────────────────
 
+// Coalesce explicit retries with invoice creation in this manager session. Coco
+// also serializes operation creation across its own background processor.
+const topUpPreparations = new WeakMap<Manager, Map<string, Promise<MintOperation>>>()
+const topUpClaims = new WeakMap<Manager, Map<string, Promise<void>>>()
+
+const ensureTopUpOperation = (active: Manager, quote: Bolt11MintQuote): Promise<MintOperation> => {
+  let preparing = topUpPreparations.get(active)
+  if (!preparing) topUpPreparations.set(active, (preparing = new Map()))
+  const key = JSON.stringify([quote.mintUrl, quote.quoteId])
+  const existing = preparing.get(key)
+  if (existing) return existing
+  const task = (async () => {
+    let operations = await active.ops.mint.listByQuote(quote)
+    if (operations[0]?.state === "init") {
+      // Coco owns cleanup of abandoned init rows, respecting its operation lock.
+      await active.ops.mint.recovery.run()
+      operations = await active.ops.mint.listByQuote(quote)
+    }
+    if (operations[0]?.state === "init")
+      throw new Error("Invoice preparation is still in progress. Try again shortly.")
+    if (operations[0]) return operations[0]
+    if (manager !== active) throw new Error("Wallet session changed")
+    try {
+      return await active.ops.mint.prepare({quote, amount: quote.amount})
+    } catch (error) {
+      // A background claimant may have prepared this fixed-amount quote first.
+      const [concurrent] = await active.ops.mint.listByQuote(quote)
+      if (concurrent && concurrent.state !== "init") return concurrent
+      throw error
+    }
+  })().finally(() => preparing!.delete(key))
+  preparing.set(key, task)
+  return task
+}
+
+export const prepareCashuTopUp = async (
+  mintUrl: string,
+  quoteId: string,
+): Promise<CashuTopUpQuote> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  if (!get(cashuBackupConfirmed)) throw new Error("backup_required")
+  const active = manager
+  const quote = await active.quotes.mint.get({mintUrl, quoteId})
+  if (!quote || quote.method !== "bolt11" || quote.unit !== "sat")
+    throw new Error("Top-up quote not found")
+  try {
+    const operation = await ensureTopUpOperation(active, quote)
+    if (manager !== active) throw new Error("Wallet session changed")
+    return topUpFromQuote(quote, operation)
+  } finally {
+    if (manager === active) await refreshCashuTopUps()
+  }
+}
+
 export const requestMintQuote = async (
   mintUrl: string,
   amount: number,
@@ -619,10 +682,13 @@ export const requestMintQuote = async (
   if (quote.method !== "bolt11" || quote.unit !== "sat" || !quote.amount.equals(sats)) {
     throw new Error("Mint returned an unexpected quote amount or unit")
   }
-  const operation = await active.ops.mint.prepare({quote, amount: sats})
-  if (manager !== active) throw new Error("Wallet session changed")
-  await refreshCashuTopUps()
-  return topUpFromQuote(quote, operation)
+  try {
+    const operation = await ensureTopUpOperation(active, quote)
+    if (manager !== active) throw new Error("Wallet session changed")
+    return topUpFromQuote(quote, operation)
+  } finally {
+    if (manager === active) await refreshCashuTopUps()
+  }
 }
 
 export const checkMintQuote = async (
@@ -655,34 +721,75 @@ export const mintTokensFromQuote = async (
     throw new Error("Top-up quote not found")
   if (!stored.amount.equals(cashuPositiveSats(amount)))
     throw new Error("Top-up amount does not match its stored quote")
-  const operations = await active.ops.mint.listByQuote({mintUrl, quoteId: quote})
-  // Reuse original outputs even if the mint already issued them before a reload.
-  const operation =
-    operations[0] ?? (await active.ops.mint.prepare({quote: stored, amount: stored.amount}))
-  await active.quotes.mint.refresh(stored)
-  const result = await active.ops.mint.execute(operation.id)
-  if (result.state === "failed" || result.error)
-    throw new Error(result.terminalFailure?.reason || result.error || "Minting failed")
-  if (result.state !== "finalized")
-    throw new Error("Top-up is still pending; its recovery data is saved")
-  if (manager !== active) throw new Error("Wallet session changed")
-  await Promise.all([refreshCashuBalances(), refreshCashuHistory(), refreshCashuTopUps()])
+  let claims = topUpClaims.get(active)
+  if (!claims) topUpClaims.set(active, (claims = new Map()))
+  const key = JSON.stringify([stored.mintUrl, stored.quoteId])
+  const existing = claims.get(key)
+  if (existing) return existing
+  const task = (async () => {
+    // Reuse original outputs even if the mint already issued them before a reload.
+    const operation = await ensureTopUpOperation(active, stored)
+    const activeRepo = repo
+    if (!activeRepo || manager !== active) throw new Error("Wallet session changed")
+    try {
+      // Coco 2.0 can finalize ALREADY_ISSUED with an error and no saved proofs.
+      // Requeue ONLY that outcome, atomically, keeping its ID, outputs and counters.
+      // A regular finalized operation must never be replayed (its proofs may be spent).
+      if (operation.state === "finalized" && operation.error) {
+        await activeRepo.db.transaction("rw", "coco_cashu_mint_operations", async () => {
+          const current = await activeRepo.mintOperationRepository.getById(operation.id)
+          if (current?.state !== "finalized" || !current.error) return
+          if (
+            current.method !== "bolt11" ||
+            current.error !==
+              `Recovered issued quote ${current.quoteId} but no proofs could be restored`
+          ) {
+            throw new Error(current.error)
+          }
+          await activeRepo.mintOperationRepository.update({
+            ...current,
+            state: "pending",
+            updatedAt: Date.now(),
+          })
+        })
+      }
+      if (manager !== active) throw new Error("Wallet session changed")
+      await active.quotes.mint.refresh(stored)
+      let result = await active.ops.mint.execute(operation.id)
+      // A background claimant may acquire the quote lock after execute's initial
+      // read. Re-enter the SDK's execution join path for that in-progress result.
+      if (result.state === "executing") result = await active.ops.mint.execute(result.id)
+      if (result.state === "failed" || result.error)
+        throw new Error(result.terminalFailure?.reason || result.error || "Minting failed")
+      if (result.state !== "finalized")
+        throw new Error("Top-up is still pending; its recovery data is saved")
+      if (manager !== active) throw new Error("Wallet session changed")
+    } finally {
+      if (manager === active)
+        await Promise.all([refreshCashuBalances(), refreshCashuHistory(), refreshCashuTopUps()])
+    }
+  })().finally(() => claims!.delete(key))
+  claims.set(key, task)
+  return task
 }
 
 const topUpFromQuote = (quote: MintQuote, operation?: MintOperation): CashuTopUpQuote => {
   if (quote.method !== "bolt11" || quote.unit !== "sat") throw new Error("Unsupported top-up quote")
   const paid = quote.amountPaid.greaterThan(0) || quote.state === "PAID" || quote.state === "ISSUED"
+  const prepared = operation && operation.state !== "init"
   return {
     mintUrl: quote.mintUrl,
     quote: quote.quoteId,
-    request: quote.request,
+    // Never expose a payable invoice until its deterministic outputs are durable.
+    request: prepared ? quote.request : "",
     amount: cashuSatsNumber(quote.amount),
     expiry: quote.expiry,
     operationId: operation?.id,
-    state:
-      operation?.state === "finalized"
+    state: !prepared
+      ? "needs_preparation"
+      : operation?.state === "finalized"
         ? operation.error
-          ? "failed"
+          ? "recovery_required"
           : "complete"
         : operation?.state === "failed"
           ? "failed"
@@ -691,7 +798,12 @@ const topUpFromQuote = (quote: MintQuote, operation?: MintOperation): CashuTopUp
             : quote.expiry !== null && quote.expiry <= Date.now() / 1000
               ? "expired"
               : "unpaid",
-    error: operation?.terminalFailure?.reason || operation?.error,
+    error:
+      operation?.terminalFailure?.reason ||
+      operation?.error ||
+      (!prepared
+        ? "Invoice outputs are not saved yet. Retry preparation before paying."
+        : undefined),
   }
 }
 
@@ -706,12 +818,18 @@ export const getCashuTopUp = async (mintUrl: string, quoteId: string): Promise<C
 }
 
 export const refreshCashuTopUps = async (): Promise<void> => {
-  if (!manager) return
+  if (!manager || !repo) return
   const active = manager
+  const activeRepo = repo
   try {
     const quotes = await active.quotes.mint.listPending({method: "bolt11"})
-    // An ISSUED quote can still have local outputs awaiting NUT-09 recovery.
-    for (const operation of await active.ops.mint.listInFlight()) {
+    // ISSUED quotes can be terminal-with-error in Coco while NUT-09 recovery
+    // is outstanding. Preserve their discoverability, including after reload.
+    const terminal = (await activeRepo.mintOperationRepository.getByState("finalized")).filter(
+      op => op.error,
+    )
+    const failed = await activeRepo.mintOperationRepository.getByState("failed")
+    for (const operation of [...(await active.ops.mint.listInFlight()), ...terminal, ...failed]) {
       if (!quotes.some(q => q.mintUrl === operation.mintUrl && q.quoteId === operation.quoteId)) {
         const quote = await active.quotes.mint.get(operation)
         if (quote) quotes.push(quote)
@@ -764,7 +882,11 @@ const mapHistoryEntry = (entry: HistoryEntry): TokenHistoryEntry | null => {
     mintUrl: entry.mintUrl,
     amount: cashuSatsNumber(entry.amount ?? 0),
     createdAt: entry.createdAt,
-    state: entry.state,
+    state:
+      entry.type === "mint" && entry.state === "finalized" && "error" in entry && entry.error
+        ? "recovery_required"
+        : entry.state,
+    error: "error" in entry ? entry.error : undefined,
   }
   switch (entry.type) {
     case "send":
