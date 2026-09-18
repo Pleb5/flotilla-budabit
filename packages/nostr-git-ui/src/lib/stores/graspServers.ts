@@ -1,6 +1,13 @@
 import { writable } from "svelte/store";
 import { normalizeRelayUrl } from "@nostr-git/core/utils";
 
+/** Suggested destinations; these are not automatically selected or saved to the user's list. */
+export const DEFAULT_RECOMMENDED_GRASP_SERVER_URLS = [
+  "wss://grasp.budabit.club",
+  "wss://relay.ngit.dev",
+  "wss://gitnostr.com",
+];
+
 export function normalizeGraspServerUrl(url: string): string {
   try {
     return normalizeRelayUrl((url || "").trim());

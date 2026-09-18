@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { normalizeGraspServerUrls } from "../../stores/graspServers.js";
+  import {
+    DEFAULT_RECOMMENDED_GRASP_SERVER_URLS,
+    normalizeGraspServerUrls,
+  } from "../../stores/graspServers.js";
   import { tokens as tokensStore, type Token } from "../../stores/tokens.js";
   import { ACCESS_TOKEN_SETTINGS_PATH } from "../../utils/tokenManagement";
   import { sanitizeRelays } from "@nostr-git/core/utils";
@@ -42,7 +45,9 @@
   });
   const providers = $derived(newRepoTargetCards(tokens));
   const graspValid = $derived(validGraspSelection(selectedProviders.includes("grasp"), relayUrls));
-  const recommended = $derived(normalizeGraspServerUrls(graspServerOptions));
+  const recommended = $derived(
+    normalizeGraspServerUrls([...graspServerOptions, ...DEFAULT_RECOMMENDED_GRASP_SERVER_URLS])
+  );
 
   function toggle(id: string) {
     onProvidersChange(
