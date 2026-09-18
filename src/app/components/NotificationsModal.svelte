@@ -58,7 +58,6 @@
     markNotificationRowsRead,
     notificationCenterOpen,
     notificationReadState,
-    setNotificationUnreadHint,
   } from "@app/util/notification-center"
   import {
     loadMoreNotificationHistory,
@@ -190,13 +189,6 @@
 
   $effect(() => {
     if (!sessionInitialized || !$notificationCenterOpen) return
-
-    const allUnreadIds = getUnreadNotificationRowIdsState(
-      $notificationReadState,
-      $pubkey || undefined,
-      $notificationCenterRows.map(row => row.id),
-    )
-    setNotificationUnreadHint($pubkey || undefined, allUnreadIds.length > 0)
 
     const additions = $notificationCenterRows.filter(row => !knownRowIds.has(row.id))
     additions.forEach(row => knownRowIds.add(row.id))

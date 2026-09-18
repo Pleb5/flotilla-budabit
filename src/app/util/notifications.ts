@@ -94,6 +94,7 @@ export type NotificationCandidate = {
   path: string
   latestEvent?: TrustedEvent
   repoRelayHints?: string[]
+  retainInCenter?: boolean
 }
 
 export type RoomMessageNotificationCandidateOptions = {
@@ -494,6 +495,7 @@ const moderatorRequestStatusCandidates: Readable<NotificationCandidate[]> = deri
       .map(request => ({
         path: makeExactCommunityPath(request.community, "access"),
         latestEvent: request.statusEvent,
+        retainInCenter: true,
       }))
   },
 )
@@ -523,6 +525,7 @@ const moderatorRequestAdminCandidates: Readable<NotificationCandidate[]> = deriv
           {
             path: makeExactCommunityPath($activeCommunityDefinition.pointer, "admin"),
             latestEvent,
+            retainInCenter: true,
           },
         ]
       : []

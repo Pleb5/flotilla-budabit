@@ -1,4 +1,6 @@
 import {
+  BADGE_AWARD,
+  BADGE_DEFINITION,
   DELETE,
   EVENT_DATE,
   EVENT_TIME,
@@ -178,7 +180,10 @@ export const buildCommunityLiveFilters = ({
   )
   const filters: Filter[] = [
     makeExactCommunityDefinitionFilter(community),
-    {kinds: COMMUNITY_EXCLUSIVE_KINDS, "#h": [community.communityId]},
+    {
+      kinds: [...COMMUNITY_EXCLUSIVE_KINDS, BADGE_AWARD, BADGE_DEFINITION],
+      "#h": [community.communityId],
+    },
     makeCommunityTargetingFilter(community.communityId, TARGETED_PUBLICATION_KINDS),
     ...(profileListIdentifiers.length
       ? [

@@ -424,6 +424,138 @@ describe("notification sources", () => {
     expect(getLatestNotificationCenterTimestamp(rows)).toBe(200)
   })
 
+  it("treats a second event at the same community route as new after reading the first", async () => {
+    const {buildRouteNotificationRows} = await import("./notification-sources")
+    const {markNotificationRowsReadState, hasUnreadNotificationRowsState} =
+      await import("./notification-center")
+    const path = `/c/${communityPubkey}/access`
+    const build = (id: string) =>
+      buildRouteNotificationRows({
+        paths: [path],
+        currentPubkey: viewer,
+        candidates: [
+          {path, latestEvent: makeEvent({id, kind: REACTION, content: "+", pubkey: writer})},
+        ],
+      })[0]
+    const first = build("first-decision")
+    const second = build("second-decision")
+    const read = markNotificationRowsReadState(undefined, viewer, [first.id])
+    expect(hasUnreadNotificationRowsState(read, viewer, [first.id])).toBe(false)
+    expect(hasUnreadNotificationRowsState(read, viewer, [second.id])).toBe(true)
+  })
+
+  it("retains workflow rows after the route is checked and suppresses self-authored candidates", async () => {
+    const {buildRouteNotificationRows} = await import("./notification-sources")
+    const path = `/c/${communityPubkey}/admin`
+    const candidate = {
+      path,
+      retainInCenter: true,
+      latestEvent: makeEvent({
+        id: "request",
+        pubkey: writer,
+        kind: 30000,
+        tags: [["role", "moderator-request"]],
+      }),
+    }
+    expect(
+      buildRouteNotificationRows({paths: [], currentPubkey: viewer, candidates: [candidate]}),
+    ).toMatchObject([{id: `route:${path}:request`, title: "New moderator request"}])
+    expect(
+      buildRouteNotificationRows({paths: [], currentPubkey: writer, candidates: [candidate]}),
+    ).toEqual([])
+    expect(
+      buildRouteNotificationRows({
+        paths: [],
+        currentPubkey: viewer,
+        candidates: [{...candidate, retainInCenter: false}],
+      }),
+    ).toEqual([])
+  })
+
+  it("notifies valid badge recipients and suppresses foreign, forged, muted, and withdrawn awards", async () => {
+    const {buildCommunityBadgeNotificationRows} = await import("./notification-sources")
+    const {
+      makeCommunityBadgeDefinitionEvent,
+      makeCommunityBadgeAwardEvent,
+      makeCommunityBadgeAwardDelete,
+    } = await import("@app/core/community-badges")
+    const ref = makeCommunityRef()
+    const definition = makeEvent({
+      id: "badge-definition",
+      pubkey: communityPubkey,
+      ...makeCommunityBadgeDefinitionEvent({
+        community: notificationCommunity,
+        identifier: "helper",
+        name: "Community helper",
+      }),
+    })
+    const address = `30009:${communityPubkey}:${definition.tags.find(tag => tag[0] === "d")![1]}`
+    const award = makeEvent({
+      id: "badge-award",
+      pubkey: communityPubkey,
+      ...makeCommunityBadgeAwardEvent({
+        community: notificationCommunity,
+        definitionAddress: address,
+        recipientPubkey: viewer,
+      }),
+    })
+    const options = {
+      refs: [ref],
+      currentPubkey: viewer,
+      reportStates: new Map([[notificationCommunity.address, emptyReportState]]),
+      badgeDefinitionEvents: [definition],
+      badgeAwardEvents: [award],
+    }
+    expect(buildCommunityBadgeNotificationRows(options)).toMatchObject([
+      {
+        id: "community-badge:badge-award",
+        contextLabel: "Community helper",
+        action: "awarded you a badge",
+        path: expect.stringContaining("/badges"),
+      },
+    ])
+    expect(buildCommunityBadgeNotificationRows({...options, currentPubkey: outsider})).toEqual([])
+    expect(
+      buildCommunityBadgeNotificationRows({
+        ...options,
+        badgeAwardEvents: [{...award, pubkey: outsider}],
+      }),
+    ).toEqual([])
+    expect(
+      buildCommunityBadgeNotificationRows({...options, mutedPubkeys: [communityPubkey]}),
+    ).toEqual([])
+    expect(buildCommunityBadgeNotificationRows({...options, reportStates: new Map()})).toEqual([])
+    expect(
+      buildCommunityBadgeNotificationRows({
+        ...options,
+        badgeAwardEvents: [
+          makeEvent({
+            ...award,
+            ...makeCommunityBadgeAwardEvent({
+              community: siblingCommunity,
+              definitionAddress: address,
+              recipientPubkey: viewer,
+            }),
+          }),
+        ],
+      }),
+    ).toEqual([])
+    const withdrawal = makeEvent({
+      id: "withdrawal",
+      pubkey: communityPubkey,
+      ...makeCommunityBadgeAwardDelete({community: notificationCommunity, awardId: award.id}),
+    })
+    expect(
+      buildCommunityBadgeNotificationRows({...options, badgeAwardDeleteEvents: [withdrawal]}),
+    ).toEqual([])
+    expect(
+      buildCommunityBadgeNotificationRows({
+        ...options,
+        badgeAwardDeleteEvents: [{...withdrawal, pubkey: outsider}],
+      }),
+    ).toHaveLength(1)
+  })
+
   it("builds explicit access decision route rows", async () => {
     const {buildRouteNotificationRows} = await import("./notification-sources")
     const accessPath = `/c/${communityPubkey}/access`
@@ -1228,7 +1360,7 @@ describe("notification sources", () => {
     ])
   })
 
-  it("keeps user-specific community access and suppresses generic community rows", async () => {
+  it("suppresses generic community activity and delegates membership notices to grant transitions", async () => {
     const {buildCommunityNotificationRows} = await import("./notification-sources")
     const ref = makeCommunityRef()
     const allowedMessage = makeEvent({
@@ -1305,9 +1437,7 @@ describe("notification sources", () => {
       mutedPubkeys: [muted],
     })
 
-    expect(rows.map(row => row.eventId)).toEqual(
-      expect.arrayContaining([`profile-list-${notificationCommunity.communityId}-general`]),
-    )
+    expect(rows).toEqual([])
     expect(rows.map(row => row.eventId)).not.toEqual(
       expect.arrayContaining([
         "allowed-message",
@@ -1318,14 +1448,10 @@ describe("notification sources", () => {
       ]),
     )
     expect(rows.find(row => row.eventId === allowedMessage.id)).toBeUndefined()
+    // List edits are handled by persisted grant transitions, not emitted as generic activity.
     expect(
       rows.find(row => row.eventId === `profile-list-${notificationCommunity.communityId}-general`),
-    ).toEqual(
-      expect.objectContaining({
-        source: "community",
-        title: "Community membership updated",
-      }),
-    )
+    ).toBeUndefined()
   })
 
   it("builds community moderation rows affecting the signed-in user", async () => {
@@ -2197,12 +2323,7 @@ describe("notification sources", () => {
       reportStates: new Map([[notificationCommunity.address, emptyReportState]]),
     })
 
-    expect(rows.map(row => row.eventId)).toEqual(
-      expect.arrayContaining([
-        `profile-list-${notificationCommunity.communityId}-general`,
-        commentReply.id,
-      ]),
-    )
+    expect(rows.map(row => row.eventId)).toEqual([commentReply.id])
     expect(rows.map(row => row.eventId)).not.toEqual(
       expect.arrayContaining([rootThreadReply.id, crossThreadReply.id]),
     )

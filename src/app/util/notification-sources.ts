@@ -1,4 +1,4 @@
-import {derived, readable, writable, type Readable} from "svelte/store"
+import {derived, get, readable, writable, type Readable} from "svelte/store"
 import * as nip19 from "nostr-tools/nip19"
 import {
   displayProfileByPubkey,
@@ -57,6 +57,7 @@ import {
 } from "@app/core/community-outcome-context"
 import {
   activeExactCommunityPointer,
+  activeExactCommunityDefinition,
   activeUserCommunityRefs,
   communityMemberDefinitionEvents,
   communityMemberReportDeleteEvents,
@@ -100,6 +101,17 @@ import {
   parseAdmissionReview,
   type CommunityAdmissionForm,
 } from "@app/core/community-forms"
+import {
+  getPendingCommunityBadgeAwards,
+  makeCommunityBadgeAwardDeleteFilters,
+  makeCommunityBadgeAwardFilters,
+  makeCommunityBadgeDefinitionFilters,
+  selectCommunityBadgeDefinitions,
+} from "@app/core/community-badges"
+import {
+  communityMembershipNotificationState,
+  updateCommunityMembershipNotifications,
+} from "@app/util/community-membership-notifications"
 import {
   COMMUNITY_TARGETABLE_KINDS,
   eventTargetsCommunity,
@@ -249,6 +261,17 @@ export type BuildCommunityModerationNotificationRowsOptions = {
   reportEvents?: TrustedEvent[]
   reportDeleteEvents?: TrustedEvent[]
   reportReviewEvents?: TrustedEvent[]
+  mutedPubkeys?: string[]
+}
+
+export type BuildCommunityBadgeNotificationRowsOptions = {
+  refs: ActiveUserCommunityRef[]
+  currentPubkey?: string
+  profileListEvents?: TrustedEvent[]
+  reportStates?: UserCommunityReportStates
+  badgeDefinitionEvents: TrustedEvent[]
+  badgeAwardEvents: TrustedEvent[]
+  badgeAwardDeleteEvents?: TrustedEvent[]
   mutedPubkeys?: string[]
 }
 
@@ -1275,29 +1298,6 @@ const getZapPreview = (events: TrustedEvent[], target: TrustedEvent) => {
   return `${countLabel}${amountLabel} to ${getEngagementTargetLabel(target)}${comment ? `: ${comment}` : "."}`
 }
 
-const getMembershipProfileListAddress = (event: TrustedEvent) => {
-  const d = getTagValue("d", event.tags)
-  return d ? `${event.kind}:${event.pubkey}:${d}` : ""
-}
-
-const getMembershipCommunityRef = (
-  event: TrustedEvent,
-  refs: ActiveUserCommunityRef[],
-  currentPubkey?: string,
-) => {
-  const address = getMembershipProfileListAddress(event)
-  if (!address || !currentPubkey) return undefined
-  if (!event.tags.some(tag => tag[0] === "p" && normalizePubkey(tag[1] || "") === currentPubkey)) {
-    return undefined
-  }
-
-  return refs.find(ref =>
-    ref.definition.sections.some(section =>
-      section.profileLists.some(profileList => profileList.address === address),
-    ),
-  )
-}
-
 const getImportantCommunityRootRow = ({
   event,
   ref,
@@ -1614,8 +1614,17 @@ const deriveLoadedNotificationEventGroupsWithStatus = ({
           filtersKey = nextFiltersKey
 
           if (filters.length > 0) {
-            unsubscribeEvents = deriveEventsAsc(
-              deriveEventsById({repository: notificationEventRepository, filters}),
+            // Foreground community subscriptions own live coverage on active routes.
+            // Read their matching events too; background history stays in its isolated store.
+            unsubscribeEvents = derived(
+              [
+                deriveEventsAsc(
+                  deriveEventsById({repository: notificationEventRepository, filters}),
+                ),
+                deriveEventsAsc(deriveEventsById({repository, filters})),
+              ],
+              ([$backgroundEvents, $foregroundEvents]) =>
+                dedupeTrustedEvents([...$backgroundEvents, ...$foregroundEvents]),
             ).subscribe(loadedEvents => {
               cachedEvents = loadedEvents
               emit()
@@ -2169,40 +2178,6 @@ export const buildCommunityNotificationRows = ({
       }
     }
 
-    for (const event of profileListEvents) {
-      if (getMembershipCommunityRef(event, [ref], normalizedCurrentPubkey) !== ref) continue
-      const profileListAddress = getMembershipProfileListAddress(event)
-      const section = ref.definition.sections.find(candidate =>
-        candidate.profileLists.some(profileList => profileList.address === profileListAddress),
-      )
-      if (
-        !section ||
-        !hasCommunitySectionEvidence({
-          ref,
-          sectionName: section.name,
-          reportStates,
-        })
-      ) {
-        continue
-      }
-      if (reportState && isCommunityPersonBanned(reportState, event.pubkey)) continue
-
-      addRow({
-        ref,
-        event,
-        path: makeExactCommunityPath(ref.community, "access"),
-        title: "Community membership updated",
-        preview: "Your community membership changed.",
-        sectionName: "access",
-        displayType: "community",
-        action: "updated",
-        contextLabel: "your community membership",
-        detailLabel: "Access update",
-        actionLabel: "Open access settings",
-        focusEvent: false,
-      })
-    }
-
     if (normalizedCurrentPubkey && reportState) {
       for (const report of reportState.personReports) {
         if (normalizePubkey(report.targetPubkey || "") !== normalizedCurrentPubkey) continue
@@ -2538,6 +2513,65 @@ const communityReportTargetsMatch = (
   )
 }
 
+export const buildCommunityBadgeNotificationRows = ({
+  refs,
+  currentPubkey,
+  profileListEvents = [],
+  reportStates,
+  badgeDefinitionEvents,
+  badgeAwardEvents,
+  badgeAwardDeleteEvents = [],
+  mutedPubkeys = [],
+}: BuildCommunityBadgeNotificationRowsOptions): NotificationRow[] => {
+  const viewer = normalizePubkey(currentPubkey || "")
+  if (!viewer) return []
+  const muted = new Set(mutedPubkeys.map(normalizePubkey))
+
+  return sortNotificationRows(
+    refs.flatMap(ref => {
+      const reportState = getReportState(reportStates, ref.community.address)
+      if (!reportState) return []
+      const path = makeExactCommunityPath(ref.community, "badges")
+      // Acceptance doesn't erase award history or make an already-read award new.
+      return getPendingCommunityBadgeAwards({
+        definition: ref.definition,
+        profileListEvents,
+        reportState,
+        badgeDefinitionEvents,
+        badgeAwardEvents,
+        badgeAwardDeleteEvents,
+        profileBadgeEvents: [],
+        profilePubkey: viewer,
+      })
+        .filter(({award}) => !muted.has(award.event.pubkey))
+        .map(({definition, award}) => ({
+          id: `community-badge:${award.event.id}`,
+          eventId: award.event.id,
+          actorPubkey: award.event.pubkey,
+          source: "community" as const,
+          sourceLabel: "Communities",
+          type: "community" as const,
+          title: "Community badge awarded",
+          preview: `You were awarded ${definition.name}.`,
+          action: "awarded you a badge",
+          contextLabel: definition.name,
+          actionLabel: "View community badges",
+          path,
+          readPath: path,
+          expandable: false,
+          createdAt: award.event.created_at,
+          searchText: buildNotificationSearchText(
+            "badge",
+            definition.name,
+            definition.description,
+            ref.definition.metadata.name,
+            award.event.pubkey,
+          ),
+        }))
+    }),
+  )
+}
+
 export const buildCommunityModerationNotificationRows = ({
   refs,
   currentPubkey,
@@ -2743,6 +2777,7 @@ export const buildCommunityModerationNotificationRows = ({
       for (const report of reportState.personReports) {
         const targetsCurrentUser =
           normalizePubkey(report.targetPubkey || "") === normalizedCurrentPubkey
+        if (!targetsCurrentUser && ref.roles.length === 0) continue
 
         addRow({
           id: `${targetsCurrentUser ? "community-ban-user" : "community-ban-member"}:${report.event.id}`,
@@ -3449,6 +3484,20 @@ const getCommunityRouteCandidateDisplay = (
   const accessDisplay = getCommunityAccessRouteCandidateDisplay(event, path)
   if (accessDisplay) return accessDisplay
 
+  if (
+    path.endsWith("/admin") &&
+    event.tags.some(tag => tag[0] === "role" && tag[1] === "moderator-request")
+  ) {
+    return {
+      type: "community",
+      title: "New moderator request",
+      preview: "Someone requested a moderator role in your community.",
+      action: "requested a moderator role in",
+      contextLabel: "your community",
+      actionLabel: "Review moderator request",
+    }
+  }
+
   const roomMessage = readCommunityRoomMessage(event)
   if (roomMessage) {
     if (roomMessage.parentMessageId) {
@@ -3536,7 +3585,18 @@ export const buildRouteNotificationRows = ({
     }
   }
 
-  for (const path of Array.from(paths).sort()) {
+  // Reading a workflow notice must not remove the row while the center is open.
+  const centerPaths = new Set(paths)
+  for (const candidate of candidates) {
+    if (
+      candidate.retainInCenter &&
+      candidate.latestEvent &&
+      candidate.latestEvent.pubkey !== currentPubkey
+    ) {
+      centerPaths.add(candidate.path)
+    }
+  }
+  for (const path of Array.from(centerPaths).sort()) {
     if (!path) continue
 
     const candidateEvent = candidatesByPath.get(path)?.latestEvent
@@ -3560,7 +3620,7 @@ export const buildRouteNotificationRows = ({
     const actionLabel = communityDisplay?.actionLabel || "Open activity"
 
     rows.push({
-      id: `route:${path}`,
+      id: candidateEvent ? `route:${path}:${candidateEvent.id}` : `route:${path}`,
       eventId: candidateEvent?.id,
       source,
       sourceLabel: getNotificationSourceLabel(source),
@@ -3726,20 +3786,37 @@ export const selectActiveNotificationCommunityRefs = (
 
 const globalCommunitySeedRefs: Readable<ActiveUserCommunityRef[]> = derived(
   [
+    pubkey,
     activeUserCommunityRefs,
     activeExactCommunityPointer,
+    activeExactCommunityDefinition,
     communityMemberDefinitionEvents,
     userRenouncedCommunityAddresses,
   ],
-  ([$refs, $activeCommunity, $definitionEvents, $renouncedCommunityAddresses]) =>
-    selectActiveNotificationCommunityRefs(
-      buildNotificationCommunitySeedRefs({
-        refs: $refs,
-        definitionEvents: $definitionEvents,
-        renouncedCommunityAddresses: $renouncedCommunityAddresses,
-      }),
-      $activeCommunity,
-    ),
+  ([
+    $pubkey,
+    $refs,
+    $activeCommunity,
+    $activeDefinition,
+    $definitionEvents,
+    $renouncedCommunityAddresses,
+  ]) =>
+    $pubkey
+      ? selectActiveNotificationCommunityRefs(
+          buildNotificationCommunitySeedRefs({
+            refs: $refs,
+            definitionEvents: [
+              ...$definitionEvents,
+              ...($activeDefinition &&
+              $activeDefinition.pointer.address === $activeCommunity?.address
+                ? [$activeDefinition.event]
+                : []),
+            ],
+            renouncedCommunityAddresses: $renouncedCommunityAddresses,
+          }),
+          $activeCommunity,
+        )
+      : [],
 )
 
 const globalCommunityDefinitionSources = derived(globalCommunitySeedRefs, $refs =>
@@ -3910,6 +3987,177 @@ const globalCommunityReportStates: Readable<Map<string, EffectiveCommunityReport
   },
 )
 
+const membershipNotificationsReady = readable(false, set => {
+  let active = true
+  void communityMembershipNotificationState.ready.then(() => {
+    if (active) set(true)
+  })
+  return () => {
+    active = false
+  }
+})
+
+const globalCommunityMembershipRows = derived(
+  [
+    pubkey,
+    globalCommunityEvidenceRefs,
+    globalCommunityProfileListEvents,
+    globalCommunityReportStates,
+    membershipNotificationsReady,
+  ],
+  ([$pubkey, $refs, $profileListEvents, $reportStates, $ready]) => {
+    if (!$pubkey || !$ready) return []
+    const completeRefs = $refs.filter(ref => $reportStates.has(ref.community.address))
+    const previous = get(communityMembershipNotificationState)
+    const state = completeRefs.reduce(
+      (state, ref) =>
+        updateCommunityMembershipNotifications(
+          state,
+          $pubkey,
+          [ref],
+          $profileListEvents.filter(
+            event =>
+              !isCommunityPersonBanned($reportStates.get(ref.community.address), event.pubkey),
+          ),
+        ),
+      previous,
+    )
+    if (state !== previous) communityMembershipNotificationState.set(state)
+    const addresses = new Set(completeRefs.map(ref => ref.community.address))
+    const muted = new Set(getMutes($pubkey))
+    return (state[$pubkey]?.rows || []).filter(
+      row =>
+        addresses.has(row.communityAddress) &&
+        !muted.has(row.actorPubkey || "") &&
+        !isCommunityPersonBanned($reportStates.get(row.communityAddress), row.actorPubkey || ""),
+    )
+  },
+)
+
+const globalCommunityBadgeDefinitionSources = derived(
+  [
+    pubkey,
+    globalCommunityEvidenceRefs,
+    globalCommunityProfileListEvents,
+    globalCommunityReportStates,
+  ],
+  ([$pubkey, $refs, $profileListEvents, $reportStates]) =>
+    $pubkey
+      ? $refs
+          .filter(ref => $reportStates.has(ref.community.address))
+          .map(ref => ({
+            communityAddress: ref.community.address,
+            relays: getCommunityNotificationRelays(ref),
+            filters: makeCommunityBadgeDefinitionFilters({
+              definition: ref.definition,
+              profileListEvents: $profileListEvents,
+              reportState: $reportStates.get(ref.community.address),
+            }),
+          }))
+      : [],
+)
+const globalCommunityBadgeDefinitionLoad = deriveLoadedNotificationEventGroupsWithStatus({
+  groups: makeCommunityNotificationGroups(globalCommunityBadgeDefinitionSources, true),
+  label: "community badge definitions",
+})
+const globalCommunityBadgeAwardSources = derived(
+  [
+    pubkey,
+    globalCommunityEvidenceRefs,
+    globalCommunityProfileListEvents,
+    globalCommunityReportStates,
+    globalCommunityBadgeDefinitionLoad,
+    notificationHistorySince,
+    notificationHistoryFilterLimit,
+  ],
+  ([$pubkey, $refs, $profileListEvents, $reportStates, $definitions, $since, $limit]) =>
+    $pubkey
+      ? $refs
+          .filter(ref => $reportStates.has(ref.community.address))
+          .map(ref => ({
+            communityAddress: ref.community.address,
+            relays: getCommunityNotificationRelays(ref),
+            filters: makeCommunityBadgeAwardFilters({
+              definitions: selectCommunityBadgeDefinitions({
+                definition: ref.definition,
+                badgeDefinitionEvents: $definitions.events,
+                profileListEvents: $profileListEvents,
+                reportState: $reportStates.get(ref.community.address),
+              }),
+              recipientPubkey: $pubkey,
+              limit: $limit,
+            }).map(filter => ({...filter, since: $since})),
+          }))
+      : [],
+)
+const globalCommunityBadgeAwardLoad = deriveLoadedNotificationEventGroupsWithStatus({
+  groups: makeCommunityNotificationGroups(globalCommunityBadgeAwardSources, true),
+  label: "community badge awards",
+})
+const globalCommunityBadgeDeleteSources = derived(
+  [globalCommunityBadgeAwardSources, globalCommunityBadgeAwardLoad],
+  ([$sources, $awards]) =>
+    $sources.map(source => ({
+      ...source,
+      filters: makeCommunityBadgeAwardDeleteFilters(
+        $awards.events.filter(event =>
+          event.tags.some(
+            tag => tag[0] === "a" && tag[1] === source.communityAddress && tag[3] === "community",
+          ),
+        ),
+      ),
+    })),
+)
+const globalCommunityBadgeDeleteLoad = deriveLoadedNotificationEventGroupsWithStatus({
+  groups: makeCommunityNotificationGroups(globalCommunityBadgeDeleteSources, true),
+  label: "community badge award deletions",
+})
+const globalCommunityBadgeRows = derived(
+  [
+    pubkey,
+    globalCommunityEvidenceRefs,
+    globalCommunityProfileListEvents,
+    globalCommunityReportStates,
+    globalCommunityBadgeDefinitionSources,
+    globalCommunityBadgeDefinitionLoad,
+    globalCommunityBadgeAwardSources,
+    globalCommunityBadgeAwardLoad,
+    globalCommunityBadgeDeleteSources,
+    globalCommunityBadgeDeleteLoad,
+  ],
+  ([
+    $pubkey,
+    $refs,
+    $profileListEvents,
+    $reportStates,
+    $definitionSources,
+    $definitions,
+    $awardSources,
+    $awards,
+    $deleteSources,
+    $deletes,
+  ]) =>
+    buildCommunityBadgeNotificationRows({
+      refs: $refs.filter(
+        ref =>
+          isNotificationCommunitySourceComplete(
+            ref.community.address,
+            $definitionSources,
+            $definitions,
+          ) &&
+          isNotificationCommunitySourceComplete(ref.community.address, $awardSources, $awards) &&
+          isNotificationCommunitySourceComplete(ref.community.address, $deleteSources, $deletes),
+      ),
+      currentPubkey: $pubkey,
+      profileListEvents: $profileListEvents,
+      reportStates: $reportStates,
+      badgeDefinitionEvents: $definitions.events,
+      badgeAwardEvents: $awards.events,
+      badgeAwardDeleteEvents: $deletes.events,
+      mutedPubkeys: $pubkey ? getMutes($pubkey) : [],
+    }),
+)
+
 const notificationCommunityRefs: Readable<ActiveUserCommunityRef[]> = derived(
   [
     pubkey,
@@ -4049,7 +4297,7 @@ const globalCommunityAdmissionDecisionSources = derived(
     const communityByFormAddress = new Map(
       $forms.flatMap(event => {
         const form = parseAdmissionForm(event)
-        return form ? [[form.address, form.community.ownerPubkey] as const] : []
+        return form ? [[form.address, form.community.address] as const] : []
       }),
     )
 
@@ -5235,6 +5483,8 @@ export const notificationCenterRows = derived(
     notificationCandidates,
     globalCommunityNotificationRows,
     globalCommunityApplicationRows,
+    globalCommunityMembershipRows,
+    globalCommunityBadgeRows,
     globalCommunityModerationRows,
     repoWatchNotificationRows,
     widgetUpdateNotificationRows,
@@ -5247,6 +5497,8 @@ export const notificationCenterRows = derived(
     $notificationCandidates,
     $globalCommunityNotificationRows,
     $globalCommunityApplicationRows,
+    $globalCommunityMembershipRows,
+    $globalCommunityBadgeRows,
     $globalCommunityModerationRows,
     $repoWatchNotificationRows,
     $widgetUpdateNotificationRows,
@@ -5260,6 +5512,8 @@ export const notificationCenterRows = derived(
       ...chatRows,
       ...$globalCommunityNotificationRows,
       ...$globalCommunityApplicationRows,
+      ...$globalCommunityMembershipRows,
+      ...$globalCommunityBadgeRows,
       ...$globalCommunityModerationRows,
       ...$repoWatchNotificationRows,
       ...$widgetUpdateNotificationRows,

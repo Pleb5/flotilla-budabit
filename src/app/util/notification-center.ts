@@ -1,4 +1,5 @@
 import {synced} from "@welshman/store"
+import {pubkey} from "@welshman/app"
 import {derived, writable} from "svelte/store"
 import {kv} from "@app/core/storage"
 import {modal} from "@app/util/modal"
@@ -108,6 +109,40 @@ export const notificationReadState = synced<NotificationReadState>({
   defaultValue: defaultNotificationReadState(),
   storage: kv,
 })
+
+// Keep the bell in sync even before the lazily loaded notification modal opens.
+// The layout owns this subscription so source discovery follows background admission
+// and is cancelled alongside the other notification work on navigation.
+export const setupNotificationUnreadHints = () => {
+  let active = true
+  let unsubscribe: (() => void) | undefined
+
+  void Promise.all([import("./notification-sources"), notificationReadState.ready])
+    .then(([{notificationCenterRows}]) => {
+      if (!active) return
+
+      unsubscribe = derived(
+        [pubkey, notificationCenterRows, notificationReadState],
+        ([$pubkey, $rows, $readState]) => ({
+          pubkey: $pubkey,
+          unread: hasUnreadNotificationRowsState(
+            $readState,
+            $pubkey,
+            $rows.map(row => row.id),
+          ),
+        }),
+      ).subscribe(({pubkey, unread}) => setNotificationUnreadHint(pubkey, unread))
+    })
+    .catch(error => {
+      if (active) console.warn("[notifications] Failed to start unread tracking", error)
+    })
+
+  return () => {
+    active = false
+    unsubscribe?.()
+    unsubscribe = undefined
+  }
+}
 
 export const markNotificationRowsRead = (pubkey: string | undefined, rowIds: Iterable<string>) =>
   notificationReadState.update(state => markNotificationRowsReadState(state, pubkey, rowIds))

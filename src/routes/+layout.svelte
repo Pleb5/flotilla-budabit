@@ -46,6 +46,7 @@
   import {setupChiiDevInjection} from "@app/util/chii-dev"
   import {setupActiveNip46ReceiverResumeRecovery} from "@app/util/nip46"
   import {setupBudabitNotifications} from "@app/util/notifications"
+  import {setupNotificationUnreadHints} from "@app/util/notification-center"
   import {setupRepoWatchNotifications} from "@app/util/repo-watch-notifications"
   import {ExtensionProvider} from "@src/app/extensions"
   import {installBuiltinExtensions} from "@app/extensions/builtin"
@@ -360,6 +361,7 @@
         setNotificationBackgroundEnabled(true)
         return unsubscribe
       }),
+      startStage("center-unread", setupNotificationUnreadHints),
       startStage("repo-watch", setupRepoWatchNotifications),
       startStage("widget-updates", setupWidgetUpdateNotifications),
       startStage("badge-projection", () => badgeCount.subscribe(handleBadgeCountChanges)),

@@ -150,6 +150,14 @@ describe("community live filters", () => {
 
     expect(filters.length).toBeLessThanOrEqual(10)
     expect(filters.every(filter => filter.limit === 0)).toBe(true)
+    expect(
+      filters.some(
+        filter =>
+          filter.kinds?.includes(8) &&
+          filter.kinds?.includes(30009) &&
+          filter["#h"]?.includes(communityId),
+      ),
+    ).toBe(true)
     expect(profileFilters).toHaveLength(2)
     expect(
       profileFilters.some(

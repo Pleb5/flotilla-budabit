@@ -650,10 +650,7 @@
         {/if}
       </SecondaryNavItem>
 
-      <SecondaryNavItem
-        {replaceState}
-        href={accessPath}
-        notification={$notifications.has(accessPath)}>
+      <SecondaryNavItem {replaceState} href={accessPath}>
         <Icon icon={ShieldUser} /> Membership
         {#if $notifications.has(accessPath)}
           <span class="badge badge-info badge-sm ml-auto">updated</span>
@@ -661,21 +658,16 @@
       </SecondaryNavItem>
 
       {#if canModerate}
-        <SecondaryNavItem
-          {replaceState}
-          href={moderationPath}
-          notification={!moderationEvidenceLoading && pendingModerationReviewCount > 0}>
+        <SecondaryNavItem {replaceState} href={moderationPath}>
           <Icon icon={ShieldUser} />
-          <span class="flex min-w-0 items-center gap-2">
-            <span>Moderation</span>
-            {#if moderationEvidenceLoading}
-              <span class="badge badge-neutral badge-sm shrink-0">checking</span>
-            {:else if pendingModerationReviewCount > 0}
-              <span class="badge badge-info badge-sm shrink-0">
-                {pendingModerationReviewCount} pending
-              </span>
-            {/if}
-          </span>
+          <span class="min-w-0 flex-1 truncate">Moderation</span>
+          {#if moderationEvidenceLoading}
+            <span class="badge badge-neutral badge-sm shrink-0 whitespace-nowrap">checking</span>
+          {:else if pendingModerationReviewCount > 0}
+            <span class="badge badge-info badge-sm shrink-0 whitespace-nowrap">
+              {pendingModerationReviewCount} pending
+            </span>
+          {/if}
         </SecondaryNavItem>
       {:else if moderationAccessLoading}
         <SecondaryNavItem disabled title="Loading moderation access">
