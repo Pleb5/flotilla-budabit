@@ -10,15 +10,22 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   timeoutMs?: number
   signal?: AbortSignal
   throwOnTimeout?: boolean
+  /** Single-relay inventory page: EOSE and an untruncated response are required. */
+  requireComplete?: boolean
+  onEvent?: (event: TEvent) => void
   isolated?: boolean
   maxEvents?: number
   maxBytes?: number
   onOutcome?: (outcome: {timedOut: boolean; sawEose: boolean; capped: boolean}) => void
 }): Promise<TEvent[]> {
+  params.signal?.throwIfAborted()
+  if (params.requireComplete && params.relays.length !== 1)
+    throw new Error("Complete relay pages require exactly one relay")
   const events: TEvent[] = []
   const eventIds = new Set<string>()
   let sawEose = false
   let disconnectedRelay = ""
+  let closedReason = ""
   const controller = new AbortController()
   const isolatedPool = params.isolated ? new Pool() : undefined
   const onAbort = () => controller.abort()
@@ -57,6 +64,7 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
         bytes += eventBytes
         eventIds.add(event.id)
         events.push(event as TEvent)
+        params.onEvent?.(event as TEvent)
         if (params.maxEvents && events.length >= params.maxEvents) {
           capped = true
           controller.abort()
@@ -68,12 +76,17 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
       onDisconnect: relay => {
         disconnectedRelay = relay
       },
+      onClosed: (message, relay) => {
+        if (!sawEose)
+          closedReason = `Relay closed before EOSE: ${relay}${message ? ` (${message})` : ""}`
+      },
     })
     if (params.throwOnTimeout && events.length === 0 && !sawEose) {
       throw new Error(
-        disconnectedRelay
-          ? `Relay disconnected before EOSE: ${disconnectedRelay}`
-          : "Relay query ended without EOSE",
+        closedReason ||
+          (disconnectedRelay
+            ? `Relay disconnected before EOSE: ${disconnectedRelay}`
+            : "Relay query ended without EOSE"),
       )
     }
   } catch (error) {
@@ -99,6 +112,11 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
     params.onOutcome?.({timedOut, sawEose, capped})
   }
 
+  params.signal?.throwIfAborted()
+  if (params.requireComplete && (!sawEose || capped || timedOut))
+    throw new Error(
+      closedReason || "Relay inventory page was incomplete or exceeded its read budget",
+    )
   return events
 }
 

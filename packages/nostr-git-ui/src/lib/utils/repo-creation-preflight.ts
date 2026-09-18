@@ -80,47 +80,89 @@ export function assertRepoCreationPrerequisites(params: RepoCreationPrerequisite
   return relayUrls;
 }
 
-export async function assertRepoCoordinateAvailable(params: {
+export interface RepoRelayCheckReport {
+  checkedRelays: string[];
+  failedRelays: Array<{ relay: string; error: string }>;
+}
+
+interface RepoCoordinateCheckParams {
   ownerPubkey: string;
   repoName: string;
   relayUrls: string[];
   onFetchRelayEvents: FetchRelayEvents;
   knownEvents?: Array<Pick<NostrEvent, "kind" | "pubkey" | "tags">>;
-}): Promise<void> {
-  assertRepoCoordinateNotKnown(params.ownerPubkey, params.repoName, params.knownEvents || []);
+  signal?: AbortSignal;
+}
+
+export async function checkRepoCoordinateAvailability(
+  params: RepoCoordinateCheckParams
+): Promise<RepoRelayCheckReport & { conflict?: string }> {
+  params.signal?.throwIfAborted();
+  try {
+    assertRepoCoordinateNotKnown(params.ownerPubkey, params.repoName, params.knownEvents || []);
+  } catch (error) {
+    return { checkedRelays: [], failedRelays: [], conflict: (error as Error).message };
+  }
   const relayUrls = Array.from(new Set(params.relayUrls.map(normalizeRelayUrl).filter(Boolean)));
   if (!relayUrls.length)
     throw new Error("Could not verify repository coordinate availability without a relay");
-  for (const relayUrl of relayUrls) {
-    let events: NostrEvent[];
-    try {
-      events = await params.onFetchRelayEvents({
-        relays: [relayUrl],
-        filters: [
-          { kinds: [30617, 30618], authors: [params.ownerPubkey], "#d": [params.repoName] },
-        ],
-        timeoutMs: 5000,
-        throwOnTimeout: true,
-      });
-    } catch (error) {
-      throw new Error(
-        `Could not verify repository coordinate availability on ${relayUrl}: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-    }
-
-    const existing = events.some(
+  const outcomes = await Promise.all(
+    relayUrls.map(async (relayUrl) => {
+      const received: NostrEvent[] = [];
+      try {
+        const events = await params.onFetchRelayEvents({
+          relays: [relayUrl],
+          filters: [
+            { kinds: [30617, 30618], authors: [params.ownerPubkey], "#d": [params.repoName] },
+          ],
+          timeoutMs: 5000,
+          throwOnTimeout: true,
+          requireComplete: true,
+          signal: params.signal,
+          onEvent: (event) => received.push(event),
+        });
+        return { relay: relayUrl, events };
+      } catch (error) {
+        return {
+          relay: relayUrl,
+          events: received,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    })
+  );
+  params.signal?.throwIfAborted();
+  const report: RepoRelayCheckReport & { conflict?: string } = {
+    checkedRelays: [],
+    failedRelays: [],
+  };
+  for (const outcome of outcomes) {
+    if (outcome.error !== undefined)
+      report.failedRelays.push({ relay: outcome.relay, error: outcome.error });
+    else report.checkedRelays.push(outcome.relay);
+    const existing = outcome.events.some(
       (event) =>
         (event.kind === 30617 || event.kind === 30618) &&
         event.pubkey === params.ownerPubkey &&
         event.tags.some((tag) => tag[0] === "d" && tag[1] === params.repoName)
     );
     if (existing) {
-      throw new Error(
-        `You already have a repository with identifier "${params.repoName}" on ${relayUrl}. Open it, manage its hosting, resume its recorded creation, or choose another identifier.`
-      );
+      report.conflict ||= `You already have a repository with identifier "${params.repoName}" on ${outcome.relay}. Open it, manage its hosting, resume its recorded creation, or choose another identifier.`;
     }
+  }
+  return report;
+}
+
+export async function assertRepoCoordinateAvailable(
+  params: RepoCoordinateCheckParams & { allowIncomplete?: boolean }
+): Promise<void> {
+  const report = await checkRepoCoordinateAvailability(params);
+  if (report.conflict) throw new Error(report.conflict);
+  if (report.failedRelays.length && !params.allowIncomplete) {
+    const failure = report.failedRelays[0];
+    throw new Error(
+      `Could not verify repository coordinate availability on ${failure.relay}: ${failure.error}. Review the relay checks and select Import anyway to continue an import.`
+    );
   }
 }
 

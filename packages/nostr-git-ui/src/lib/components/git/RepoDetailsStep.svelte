@@ -1,4 +1,6 @@
 <script lang="ts">
+  import RepoRelayCheckStatus from "./RepoRelayCheckStatus.svelte";
+  import type { RepoRelayCheckReport } from "../../utils/repo-creation-preflight.js";
   interface Props {
     importing?: boolean;
     repoName: string;
@@ -35,6 +37,11 @@
       conflictProviders: string[];
     } | null;
     isCheckingAvailability?: boolean;
+    coordinateAvailability?: { name: string; available: boolean; error?: string } | null;
+    onCheckAvailability?: () => void;
+    coordinateChecks?: RepoRelayCheckReport | null;
+    importAnyway?: boolean;
+    onImportAnyway?: (value: boolean) => void;
   }
 
   const {
@@ -57,6 +64,11 @@
     validationErrors = {},
     nameAvailabilityResults = null,
     isCheckingAvailability = false,
+    coordinateAvailability = null,
+    onCheckAvailability,
+    coordinateChecks = null,
+    importAnyway = false,
+    onImportAnyway,
   }: Props = $props();
 
   const gitignoreOptions = [
@@ -209,6 +221,51 @@
           30617:{ownerPubkey}:{repoName}
         </p>
       {/if}
+      {#if coordinateAvailability?.name === repoName}
+        {#if coordinateAvailability.available}
+          <p
+            role="status"
+            class="mt-2 font-semibold {coordinateChecks?.failedRelays.length
+              ? ''
+              : 'text-green-700 dark:text-green-300'}"
+          >
+            {coordinateChecks?.failedRelays.length
+              ? "No identifier clash found in the results received"
+              : "✓ Nostr repository identifier available"}
+          </p>
+        {:else}
+          <p role="alert" class="mt-2 font-medium text-destructive">
+            {coordinateAvailability.error}
+          </p>
+          {#if onCheckAvailability}<button
+              type="button"
+              class="mt-2 rounded border border-input px-3 py-2 text-sm"
+              onclick={onCheckAvailability}>Check identifier again</button
+            >{/if}
+        {/if}
+      {/if}
+      {#if coordinateChecks}
+        <div class="mt-3 space-y-3 rounded border border-border p-3">
+          <RepoRelayCheckStatus report={coordinateChecks} />
+          {#if coordinateChecks.failedRelays.length}
+            <button
+              type="button"
+              class="rounded border border-input px-3 py-2 text-sm"
+              onclick={onCheckAvailability}>Check identifier again</button
+            >
+            {#if importing && coordinateAvailability?.available}
+              <label class="flex cursor-pointer items-center gap-3 font-semibold"
+                ><input
+                  type="checkbox"
+                  class="h-4 w-4 rounded-sm"
+                  checked={importAnyway}
+                  onchange={(event) => onImportAnyway?.(event.currentTarget.checked)}
+                /> Import anyway</label
+              >
+            {/if}
+          {/if}
+        </div>
+      {/if}
 
       <!-- These are bounded destination checks, not global name reservation. -->
       {#if repoName.trim() && (isCheckingAvailability || nameAvailabilityResults)}
@@ -222,7 +279,7 @@
               <div
                 class="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full"
               ></div>
-              <span>Checking availability on selected provider...</span>
+              <span>Checking your Nostr identifier and selected destinations…</span>
             </div>
           {:else if nameAvailabilityResults}
             <div class="space-y-2">

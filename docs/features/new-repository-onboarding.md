@@ -7,8 +7,10 @@ The import choice inspects a public repository; it does not verify that you own 
 
 GitHub, GitLab, Gitea and Forgejo (including Codeberg) are supported. Paste a repository
 root URL, with or without `.git` or a trailing slash. Supported SSH URLs are normalized
-to HTTPS; GitLab nested namespaces are supported. For an unidentified self-hosted forge,
-choose its family under **Self-hosted provider**. Bitbucket is disabled. For GRASP sources,
+to HTTPS; GitLab nested namespaces are supported. Inspection starts automatically after
+1.2 seconds without typing. A green checkmark and **Repository available** confirm success.
+For a custom forge that automatic detection cannot identify, a **Repository server software**
+selector appears with an explanation. Bitbucket is disabled. For GRASP sources,
 use the existing Nostr repository/fork flow instead.
 
 Metadata and Git source reads are anonymous—even when a saved destination token uses the
@@ -16,6 +18,21 @@ same host. No source token is requested or used, cookies are omitted, embedded U
 credentials are rejected, and redirects are not followed. Private or missing repositories
 cannot be imported. Rate limits, timeouts and browser/CORS failures are reported; a server
 being public does not guarantee it is reachable from this browser.
+
+Before accepting a source, Budabit checks the active owner's cached announcements and
+repository/outbox relays for equivalent clone URLs (including supported SSH and `.git`
+variants). Existing announcements are listed and require **Import anyway** to continue.
+Changing or rechecking the source resets that consent. The wizard lists successful relay checks,
+individual failures and any matches found. Incomplete relay reads require **Import anyway**
+or a successful retry; they do not imply that no duplicate exists. Checks use bounded,
+paginated reads and are repeated before execution.
+
+The repository identifier (`d`-tag) is checked separately in the details step, including
+announcement-only mode, and again before execution/publication. An existing announcement,
+repository state or unresolved creation blocks reuse of that identifier. **Import anyway**
+can acknowledge an incomplete relay check, but never bypasses a confirmed identifier clash:
+choose a different identifier. Superseded name checks cancel their relay reads. Checks cover known and
+queried relays; Nostr has no global atomic identifier reservation.
 
 ## Announce or copy
 

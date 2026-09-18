@@ -4,6 +4,7 @@ import { getRepoStorageKey } from "@nostr-git/core/git";
 
 import {
   assertRepoCoordinateAvailable,
+  checkRepoCoordinateAvailability,
   assertLocalRepoCoordinateAvailable,
   reserveRepoCreation,
   assertRepoCreationPrerequisites,
@@ -196,5 +197,62 @@ describe("repository creation preflight", () => {
         onFetchRelayEvents: vi.fn().mockRejectedValue(new Error("Relay query timed out")),
       })
     ).rejects.toThrow("Could not verify repository coordinate availability");
+  });
+  it("collects every relay result and only lets explicit consent bypass unknown results, never a clash", async () => {
+    const owner = "a".repeat(64);
+    let occupied = false;
+    const params = {
+      ownerPubkey: owner,
+      repoName: "repo",
+      relayUrls: ["wss://offline.test", "wss://online.test"],
+      onFetchRelayEvents: vi.fn(async ({ relays }) => {
+        if (relays[0].includes("offline")) throw new Error("timed out");
+        return occupied ? ([{ kind: 30617, pubkey: owner, tags: [["d", "repo"]] }] as any) : [];
+      }),
+    };
+    expect(await checkRepoCoordinateAvailability(params)).toEqual({
+      checkedRelays: ["wss://online.test/"],
+      failedRelays: [{ relay: "wss://offline.test/", error: "timed out" }],
+    });
+    await expect(assertRepoCoordinateAvailable(params)).rejects.toThrow("Could not verify");
+    await expect(
+      assertRepoCoordinateAvailable({ ...params, allowIncomplete: true })
+    ).resolves.toBeUndefined();
+    occupied = true;
+    await expect(
+      assertRepoCoordinateAvailable({ ...params, allowIncomplete: true })
+    ).rejects.toThrow('identifier "repo"');
+  });
+  it("propagates cancellation to superseded relay reads", async () => {
+    const controller = new AbortController();
+    const fetchEvents = vi.fn(async ({ signal }) => {
+      expect(signal).toBe(controller.signal);
+      controller.abort();
+      return [];
+    });
+    await expect(
+      checkRepoCoordinateAvailability({
+        ownerPubkey: "a",
+        repoName: "repo",
+        relayUrls: ["wss://relay.test"],
+        signal: controller.signal,
+        onFetchRelayEvents: fetchEvents,
+      })
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+  it("retains a confirmed clash received before a relay fails even with Import anyway", async () => {
+    const owner = "a".repeat(64);
+    await expect(
+      assertRepoCoordinateAvailable({
+        ownerPubkey: owner,
+        repoName: "repo",
+        relayUrls: ["wss://partial.test"],
+        allowIncomplete: true,
+        onFetchRelayEvents: async ({ onEvent }) => {
+          onEvent?.({ kind: 30617, pubkey: owner, tags: [["d", "repo"]] } as any);
+          throw new Error("disconnected before EOSE");
+        },
+      })
+    ).rejects.toThrow('identifier "repo"');
   });
 });

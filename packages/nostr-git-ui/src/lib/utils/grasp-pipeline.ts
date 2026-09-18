@@ -133,6 +133,11 @@ export interface FetchRelayEventsParams {
   filters: NostrFilter[];
   timeoutMs?: number;
   throwOnTimeout?: boolean;
+  signal?: AbortSignal;
+  /** Inventory reads must reach EOSE without truncation, even after receiving events. */
+  requireComplete?: boolean;
+  /** Preserve verified positive evidence even if the rest of the read fails. */
+  onEvent?: (event: NostrEvent) => void;
 }
 
 export type FetchRelayEvents = (params: FetchRelayEventsParams) => Promise<NostrEvent[]>;

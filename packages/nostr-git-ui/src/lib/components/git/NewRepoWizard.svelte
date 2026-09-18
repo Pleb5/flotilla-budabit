@@ -11,6 +11,17 @@
   } from "../../utils/new-repo-targets.js";
   import { preflightRemoteTargets } from "../../utils/remote-targets.js";
   import {
+    checkRepoCoordinateAvailability,
+    reserveRepoCreation,
+    type RepoRelayCheckReport,
+  } from "../../utils/repo-creation-preflight.js";
+  import { getPendingRepoCreationTransactions } from "../../utils/repo-creation-transaction.js";
+  import {
+    loadOwnerRepoAnnouncements,
+    findSourceAnnouncements,
+    type ExistingSourceAnnouncement,
+  } from "../../utils/repo-import-checks.js";
+  import {
     suggestRepoIdentifier,
     validateRepoIdentifier,
     validateRepoDisplayName,
@@ -93,6 +104,8 @@
     platformUrl?: string;
     makeRepoPath?: (relayUrl: string, naddr: string) => string;
     userPubkey?: string; // User's nostr pubkey (required for GRASP repos)
+    ownerRepoRelays?: string[];
+    getKnownOwnerRepoEvents?: (owner: string) => NostrEvent[];
     getKnownRepoEvents?: (
       owner: string,
       identifier: string
@@ -121,6 +134,9 @@
       filters: import("@nostr-git/core").NostrFilter[];
       timeoutMs?: number;
       throwOnTimeout?: boolean;
+      signal?: AbortSignal;
+      requireComplete?: boolean;
+      onEvent?: (event: NostrEvent) => void;
     }) => Promise<NostrEvent[]>;
   }
 
@@ -140,6 +156,8 @@
     platformUrl = "",
     makeRepoPath,
     userPubkey,
+    ownerRepoRelays = [],
+    getKnownOwnerRepoEvents,
     getKnownRepoEvents,
     getProfile,
     searchProfiles,
@@ -165,6 +183,14 @@
   let importAction = $state<"announce" | "copy">("announce");
   let sourceUrl = $state("");
   let source = $state<PublicRepoSource | null>(null);
+  let ownerAnnouncements = $state<NostrEvent[]>([]);
+  let sourceDuplicates = $state<ExistingSourceAnnouncement[]>([]);
+  let sourceRelayChecks = $state<RepoRelayCheckReport | null>(null);
+  let importAnyway = $state(false);
+  const sourceAccepted = $derived(
+    Boolean(source) &&
+      ((!sourceDuplicates.length && !sourceRelayChecks?.failedRelays.length) || importAnyway)
+  );
   const importing = $derived(repoType === "import");
   const needsTargets = $derived(!importing || importAction === "copy");
   const edited = new Set<string>();
@@ -178,6 +204,11 @@
     getKnownRepoEvents,
     subscribeGitProgress,
     assertActor,
+    ownerRepoRelays: [...ownerRepoRelays, ...platformRelays, ...defaultRelays],
+    getKnownOwnerRepoEvents: (owner) => [
+      ...(getKnownOwnerRepoEvents?.(owner) || []),
+      ...ownerAnnouncements,
+    ],
     onProgress: (steps) => {
       progressSteps = steps.map((step) => ({
         ...step,
@@ -187,7 +218,37 @@
     },
   });
 
-  function acceptSource(value: PublicRepoSource) {
+  function getRepositoryCheckRelays() {
+    return dedupeStrings([
+      ...ownerRepoRelays,
+      ...platformRelays,
+      ...defaultRelays,
+      ...getEffectiveRepoRelays(),
+    ]);
+  }
+
+  async function checkSourceAnnouncements(value: PublicRepoSource, signal?: AbortSignal) {
+    const inventory = await loadOwnerRepoAnnouncements({
+      owner: userPubkey || "",
+      relays: getRepositoryCheckRelays(),
+      knownEvents: [...(getKnownOwnerRepoEvents?.(userPubkey || "") || []), ...ownerAnnouncements],
+      fetchEvents: onFetchRelayEvents,
+      signal,
+      assertActor,
+    });
+    if (closed) throw new Error("Repository wizard closed");
+    signal?.throwIfAborted();
+    ownerAnnouncements = inventory.events;
+    sourceRelayChecks = inventory;
+    sourceDuplicates = findSourceAnnouncements(value, userPubkey || "", inventory.events);
+  }
+
+  async function acceptSource(value: PublicRepoSource, signal: AbortSignal) {
+    await checkSourceAnnouncements(value, signal);
+    prefillSource(value);
+  }
+
+  function prefillSource(value: PublicRepoSource) {
     source = value;
     if (value.empty) importAction = "announce";
     if (!edited.has("displayName")) repoDetails.displayName = value.displayName;
@@ -268,6 +329,10 @@
     conflictProviders: string[];
   } | null>(null);
   let isCheckingAvailability = $state(false);
+  let coordinateAvailability = $state<{ name: string; available: boolean; error?: string } | null>(
+    null
+  );
+  let coordinateChecks = $state<RepoRelayCheckReport | null>(null);
 
   // Subscribe to token store changes
   const unsubscribeTokens = tokensStore.subscribe((t) => {
@@ -278,6 +343,7 @@
     unsubscribeGrasp();
     unsubscribeTokens();
     nameCheckRun++;
+    nameCheckController?.abort();
     graspServiceResolutionRunId++;
     if (nameCheckTimeout) clearTimeout(nameCheckTimeout);
   });
@@ -574,16 +640,63 @@
 
   // Check repository name availability across all providers
   let nameCheckRun = 0;
+  let nameCheckController: AbortController | undefined;
   async function checkNameAvailability(name: string): Promise<typeof nameAvailabilityResults> {
+    if (nameCheckTimeout) clearTimeout(nameCheckTimeout);
     const run = ++nameCheckRun;
-    if (validateRepoIdentifier(name) || !needsTargets || selectedProviders.length === 0) {
+    nameCheckController?.abort();
+    const controller = new AbortController();
+    nameCheckController = controller;
+    coordinateChecks = null;
+    if (validateRepoIdentifier(name)) {
       nameAvailabilityResults = null;
+      coordinateAvailability = null;
       isCheckingAvailability = false;
       return null;
     }
 
     isCheckingAvailability = true;
+    coordinateAvailability = null;
     try {
+      try {
+        assertActor?.();
+        const release = reserveRepoCreation(
+          userPubkey || "",
+          name,
+          getPendingRepoCreationTransactions()
+        );
+        release();
+        if (!onFetchRelayEvents) throw new Error("Repository identifier checks are unavailable");
+        const report = await checkRepoCoordinateAvailability({
+          ownerPubkey: userPubkey || "",
+          repoName: name,
+          relayUrls: getRepositoryCheckRelays(),
+          onFetchRelayEvents,
+          signal: controller.signal,
+          knownEvents: [
+            ...(getKnownRepoEvents?.(userPubkey || "", name) || []),
+            ...(getKnownOwnerRepoEvents?.(userPubkey || "") || []),
+            ...ownerAnnouncements,
+          ],
+        });
+        assertActor?.();
+        if (closed || run !== nameCheckRun || name !== repoDetails.name) return null;
+        coordinateChecks = report;
+        coordinateAvailability = { name, available: !report.conflict, error: report.conflict };
+        if (report.conflict) return null;
+      } catch (cause) {
+        if (!closed && run === nameCheckRun && name === repoDetails.name)
+          coordinateAvailability = {
+            name,
+            available: false,
+            error: cause instanceof Error ? cause.message : String(cause),
+          };
+        return null;
+      }
+      if (!needsTargets || selectedProviders.length === 0) {
+        nameAvailabilityResults = null;
+        return null;
+      }
       const checked = await preflightRemoteTargets({
         targets: selectedTargets.map((target) => ({ ...target, status: "checking" as const })),
         tokenList: tokens,
@@ -637,8 +750,11 @@
   let nameCheckTimeout: number | null = null;
   function debouncedNameCheck(name: string) {
     nameCheckRun++;
+    nameCheckController?.abort();
     nameAvailabilityResults = null;
-    isCheckingAvailability = false;
+    coordinateAvailability = null;
+    coordinateChecks = null;
+    isCheckingAvailability = !validateRepoIdentifier(name);
     if (nameCheckTimeout) {
       clearTimeout(nameCheckTimeout);
     }
@@ -693,6 +809,9 @@
     debouncedNameCheck(repoDetails.name);
   }
   function availabilityBlocksCreation(result: typeof nameAvailabilityResults): boolean {
+    if (coordinateAvailability?.name !== repoDetails.name || !coordinateAvailability.available)
+      return true;
+    if (coordinateChecks?.failedRelays.length && !(importing && importAnyway)) return true;
     if (!needsTargets) return false;
     return (
       !result ||
@@ -703,12 +822,17 @@
 
   async function nextStep() {
     if (currentStep === 0) {
-      if (repoType && (!importing || source)) currentStep = 1;
+      try {
+        assertActor?.();
+        if (repoType && (!importing || sourceAccepted)) currentStep = 1;
+      } catch (cause) {
+        preflightError = cause instanceof Error ? cause.message : String(cause);
+      }
     } else if (currentStep === 1) {
       // Require provider selection (and valid GRASP relay when applicable)
       if (!needsTargets || (selectedProviders.length > 0 && isValidGraspConfig())) {
         currentStep = 2;
-        if (needsTargets && repoDetails.name) debouncedNameCheck(repoDetails.name);
+        if (repoDetails.name) debouncedNameCheck(repoDetails.name);
       }
     } else if (currentStep === 2 && validateStep1()) {
       const availability = await checkNameAvailability(repoDetails.name);
@@ -798,6 +922,15 @@
     ];
     try {
       assertActor?.();
+      if (importing) {
+        editStep = 0;
+        if (!source) throw new Error("Check the public repository before continuing");
+        await checkSourceAnnouncements(source);
+        if (!sourceAccepted)
+          throw new Error(
+            "Review the existing announcements and relay check results, then select Import anyway to continue."
+          );
+      }
       editStep = 2;
       if (!validateStep1()) throw new Error("Review the repository details before continuing");
 
@@ -811,7 +944,13 @@
       assertActor?.();
       editStep = 2;
       if (availabilityBlocksCreation(availability))
-        throw new Error("Destination availability changed. Review target errors before continuing");
+        throw new Error(
+          coordinateAvailability?.error ||
+            (coordinateChecks?.failedRelays.length
+              ? "Some relays could not be checked. Review the results and select Import anyway to continue."
+              : "") ||
+            "Destination availability changed. Review target errors before continuing"
+        );
 
       editStep = 3;
       const relayCount = getEffectiveRepoRelays().length;
@@ -833,6 +972,7 @@
         ];
         const result = await publicRepo.createRepository({
           source,
+          importAnyway,
           mode: importAction,
           forkName: repoDetails.name,
           displayName: repoDetails.displayName,
@@ -1003,6 +1143,7 @@
       selectedProviders.includes("grasp") ? graspRelayUrls || [] : []
     );
     userEditedRelays = true;
+    if (repoDetails.name) debouncedNameCheck(repoDetails.name);
   }
 
   function handleTagsChange(tags: string[]) {
@@ -1101,13 +1242,20 @@
             onModeChange={(mode) => {
               repoType = mode;
               nameAvailabilityResults = null;
-              if (mode === "import" && source) acceptSource(source);
+              if (mode === "import" && source) prefillSource(source);
             }}
             onUrlChange={(value) => {
               sourceUrl = value;
               source = null;
+              sourceDuplicates = [];
+              sourceRelayChecks = null;
+              importAnyway = false;
             }}
             onSource={acceptSource}
+            duplicates={sourceDuplicates}
+            relayChecks={sourceRelayChecks}
+            importAnyway={importAnyway}
+            onImportAnyway={(value) => (importAnyway = value)}
           />
         {:else if currentStep === 1}
           {#if importing}
@@ -1175,6 +1323,11 @@
             validationErrors={validationErrors}
             nameAvailabilityResults={nameAvailabilityResults}
             isCheckingAvailability={isCheckingAvailability}
+            coordinateAvailability={coordinateAvailability}
+            coordinateChecks={coordinateChecks}
+            importAnyway={importAnyway}
+            onImportAnyway={(value) => (importAnyway = value)}
+            onCheckAvailability={() => checkNameAvailability(repoDetails.name)}
           />
         {:else if currentStep === 3}
           <AdvancedSettingsStep
@@ -1263,7 +1416,7 @@
 
           <Button
             onclick={nextStep}
-            disabled={(currentStep === 0 && (!repoType || (importing && !source))) ||
+            disabled={(currentStep === 0 && (!repoType || (importing && !sourceAccepted))) ||
               (currentStep === 1 &&
                 needsTargets &&
                 (selectedProviders.length === 0 ||

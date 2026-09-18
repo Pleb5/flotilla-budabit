@@ -20,6 +20,11 @@ import {
   trackRepoCreationPublisher,
 } from "../utils/repo-creation-transaction.js";
 import type { RemoteSyncTargetResult } from "../utils/remote-sync.js";
+import type { NostrEvent } from "@nostr-git/core";
+import {
+  loadOwnerRepoAnnouncements,
+  findSourceAnnouncements,
+} from "../utils/repo-import-checks.js";
 
 export interface PublicRepoResult {
   announcementEvent: RepoAnnouncementEvent;
@@ -30,10 +35,16 @@ export interface PublicRepoResult {
 export interface PublicRepoConfig extends ForkConfig {
   source: PublicRepoSource;
   mode: "announce" | "copy";
+  importAnyway?: boolean;
+}
+
+export interface UsePublicRepoOptions extends UseForkRepoOptions {
+  ownerRepoRelays?: string[];
+  getKnownOwnerRepoEvents?: (owner: string) => NostrEvent[];
 }
 
 /** Metadata-only announcements never initialize a Git worker or consult target tokens. */
-export function usePublicRepo(options: UseForkRepoOptions = {}) {
+export function usePublicRepo(options: UsePublicRepoOptions = {}) {
   const copy = useRepoCopy(options);
   let announcing = $state(false);
   let error = $state<string | null>(null);
@@ -58,6 +69,40 @@ export function usePublicRepo(options: UseForkRepoOptions = {}) {
       options.assertActor?.();
       if (source.id !== config.source.id || source.cloneUrl !== config.source.cloneUrl)
         throw new Error("The source repository changed. Inspect it again before continuing");
+      const owner = options.userPubkey || "";
+      const checkRelays = [...(options.ownerRepoRelays || []), ...(config.relays || [])];
+      const inventory = await loadOwnerRepoAnnouncements({
+        owner,
+        relays: checkRelays,
+        knownEvents: options.getKnownOwnerRepoEvents?.(owner),
+        fetchEvents: options.onFetchRelayEvents,
+        signal,
+        assertActor: options.assertActor,
+      });
+      const announcements = inventory.events;
+      if (inventory.failedRelays.length && !config.importAnyway)
+        throw new Error(
+          "Some repository relays could not be checked. Review the relay results and select Import anyway to continue."
+        );
+      if (findSourceAnnouncements(source, owner, announcements).length && !config.importAnyway)
+        throw new Error(
+          "You already announced this repository. Select Import anyway to continue with a different identifier."
+        );
+      const assertAvailable = () =>
+        assertRepoCoordinateAvailable({
+          ownerPubkey: owner,
+          repoName: config.forkName,
+          relayUrls: checkRelays,
+          onFetchRelayEvents: options.onFetchRelayEvents!,
+          knownEvents: [
+            ...announcements,
+            ...(options.getKnownRepoEvents?.(owner, config.forkName) || []),
+          ],
+          allowIncomplete: config.importAnyway,
+          signal,
+        });
+      await assertAvailable();
+      signal.throwIfAborted();
       if (config.mode === "copy") {
         const result = await copy.copyRepository(
           {
@@ -69,6 +114,7 @@ export function usePublicRepo(options: UseForkRepoOptions = {}) {
             cloneUrls: [source.cloneUrl],
             webUrls: [source.url],
             publicSource: source,
+            allowIncompleteRepoChecks: config.importAnyway,
           },
           config
         );
@@ -77,7 +123,6 @@ export function usePublicRepo(options: UseForkRepoOptions = {}) {
         return result;
       }
       if (config.targets.length) throw new Error("Announce only cannot contain writable targets");
-      const owner = options.userPubkey || "";
       const displayError = validateRepoDisplayName(config.displayName ?? source.displayName);
       if (displayError) throw new Error(displayError);
       const relays = assertRepoCreationPrerequisites({
@@ -90,14 +135,6 @@ export function usePublicRepo(options: UseForkRepoOptions = {}) {
         onFetchRelayEvents: options.onFetchRelayEvents,
       });
       release = reserveRepoCreation(owner, config.forkName, getPendingRepoCreationTransactions());
-      const assertAvailable = () =>
-        assertRepoCoordinateAvailable({
-          ownerPubkey: owner,
-          repoName: config.forkName,
-          relayUrls: relays,
-          onFetchRelayEvents: options.onFetchRelayEvents!,
-          knownEvents: options.getKnownRepoEvents?.(owner, config.forkName),
-        });
       await assertAvailable();
       signal.throwIfAborted();
       journal = new RepoCreationTransactionJournal({

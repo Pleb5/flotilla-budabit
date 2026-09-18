@@ -93,6 +93,49 @@ describe("fetchRelayEventsWithTimeout", () => {
     )
     expect(mockPoolClear).toHaveBeenCalledOnce()
   })
+  it("rejects partial inventory pages, truncation and cancelled results", async () => {
+    const {fetchRelayEventsWithTimeout} = await import("./fetch-relay-events")
+    const onEvent = vi.fn()
+    const params = {
+      relays: ["wss://relay.example"],
+      filters: [{kinds: [30617]}],
+      requireComplete: true,
+      throwOnTimeout: true,
+      onEvent,
+    }
+    mockLoad.mockImplementation(async options => {
+      options.onEvent({id: "partial"})
+      options.onDisconnect("wss://relay.example")
+    })
+    await expect(fetchRelayEventsWithTimeout(params)).rejects.toThrow("incomplete")
+    expect(onEvent).toHaveBeenCalledWith({id: "partial"})
+    mockLoad.mockImplementation(async options => {
+      options.onClosed("rate-limited: too many subscriptions", "wss://relay.example")
+    })
+    await expect(fetchRelayEventsWithTimeout(params)).rejects.toThrow(
+      "rate-limited: too many subscriptions",
+    )
+    mockLoad.mockImplementation(async options => {
+      options.onEvent({id: "oversized", content: "x".repeat(100)})
+      options.onEose("wss://relay.example")
+    })
+    await expect(fetchRelayEventsWithTimeout({...params, maxBytes: 50})).rejects.toThrow(
+      "read budget",
+    )
+    const controller = new AbortController()
+    mockLoad.mockImplementation(async options => {
+      options.onEvent({id: "cancelled"})
+      controller.abort()
+    })
+    await expect(
+      fetchRelayEventsWithTimeout({...params, signal: controller.signal}),
+    ).rejects.toMatchObject({name: "AbortError"})
+    mockLoad.mockImplementation(async options => {
+      options.onEvent({id: "complete"})
+      options.onEose("wss://relay.example")
+    })
+    await expect(fetchRelayEventsWithTimeout(params)).resolves.toEqual([{id: "complete"}])
+  })
   it("bounds initial-import exact reads and requires EOSE even after an event", async () => {
     const {fetchInitialImportRelayEvents} = await import("./fetch-relay-events")
     mockLoad.mockImplementation(async options => {

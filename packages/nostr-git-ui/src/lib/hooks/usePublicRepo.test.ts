@@ -8,6 +8,7 @@ import { publishRepoSyncAnnouncement, syncLocalRepoToTargets } from "../utils/re
 import { tokens } from "$lib/stores/tokens";
 import { recoverRepoCreationRecord } from "../utils/repo-creation-recovery";
 import type { PublicRepoSource } from "@nostr-git/core/git";
+import type { NostrEvent } from "@nostr-git/core";
 
 vi.mock("$lib/stores/tokens", () => ({
   tokens: {
@@ -85,7 +86,7 @@ const refs = [
   { ref: "refs/tags/v1", oid: "c".repeat(40) },
 ];
 
-function setup() {
+function setup(knownAnnouncements: NostrEvent[] = []) {
   const worker = {
     isRepoCloned: vi.fn(async () => false),
     cloneRemoteRepo: vi.fn(async () => {}),
@@ -105,7 +106,7 @@ function setup() {
     failedRelays: [],
     hasRelayOutcomes: true,
   }));
-  const fetchEvents = vi.fn(async () => []);
+  const fetchEvents = vi.fn(async (_params?: any): Promise<NostrEvent[]> => []);
   const deleteEvent = vi.fn();
   const hook = usePublicRepo({
     workerApi: worker,
@@ -113,6 +114,7 @@ function setup() {
     onPublishEvent: publish,
     onFetchRelayEvents: fetchEvents,
     onDeleteEvent: deleteEvent,
+    getKnownOwnerRepoEvents: () => knownAnnouncements,
   });
   return { hook, worker, publish, fetchEvents, deleteEvent };
 }
@@ -141,6 +143,89 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("public repository execution", () => {
+  it.each(["announce", "copy"] as const)(
+    "allows explicitly acknowledged relay outages through execution (%s)",
+    async (mode) => {
+      const { hook, worker, publish, fetchEvents } = setup();
+      fetchEvents.mockImplementation(async ({ relays }) => {
+        if (relays[0].includes("offline")) throw new Error("Relay timed out");
+        return [];
+      });
+      const config = {
+        mode,
+        source,
+        forkName: "partial-relay-check",
+        relays: [relay, "wss://offline.test/"],
+        targets:
+          mode === "copy"
+            ? [
+                {
+                  id: "destination",
+                  label: "Codeberg",
+                  provider: "forgejo" as const,
+                  host: "codeberg.org",
+                },
+              ]
+            : [],
+      };
+      expect(await hook.createRepository(config)).toBeNull();
+      expect(hook.error).toContain("Import anyway");
+      expect(publish).not.toHaveBeenCalled();
+      expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+      expect(await hook.createRepository({ ...config, importAnyway: true })).not.toBeNull();
+      if (mode === "copy") expect(worker.cloneRemoteRepo).toHaveBeenCalledOnce();
+    }
+  );
+  it.each(["announce", "copy"] as const)(
+    "requires duplicate consent but never permits an occupied d-tag (%s)",
+    async (mode) => {
+      const existing = {
+        kind: 30617,
+        pubkey: owner,
+        id: "existing",
+        sig: "fixture",
+        created_at: 1,
+        content: "",
+        tags: [
+          ["d", "already-announced"],
+          ["clone", "git@codeberg.org:o/r.git"],
+        ],
+      };
+      const { hook, worker, publish } = setup([existing]);
+      const config = {
+        mode,
+        source,
+        forkName: "different-identifier",
+        relays: [relay],
+        targets:
+          mode === "copy"
+            ? [
+                {
+                  id: "destination",
+                  label: "Codeberg",
+                  provider: "forgejo" as const,
+                  host: "codeberg.org",
+                },
+              ]
+            : [],
+      };
+      expect(await hook.createRepository(config)).toBeNull();
+      expect(hook.error).toContain("Import anyway");
+      expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+      expect(publish).not.toHaveBeenCalled();
+      expect(
+        await hook.createRepository({
+          ...config,
+          importAnyway: true,
+          forkName: "already-announced",
+        })
+      ).toBeNull();
+      expect(hook.error).toContain('identifier "already-announced"');
+      expect(worker.cloneRemoteRepo).not.toHaveBeenCalled();
+      expect(publish).not.toHaveBeenCalled();
+      expect(await hook.createRepository({ ...config, importAnyway: true })).not.toBeNull();
+    }
+  );
   it("keeps zero-ACK copy announcements until exact cleanup succeeds", async () => {
     const { hook, worker, publish, fetchEvents, deleteEvent } = setup();
     const actual =

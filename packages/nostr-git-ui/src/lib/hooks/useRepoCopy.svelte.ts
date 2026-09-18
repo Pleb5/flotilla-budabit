@@ -665,6 +665,8 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
       community?: RepoCommunityBinding;
       earliestUniqueCommit?: string;
       publicSource?: PublicRepoSource;
+      /** Explicit import consent only; never bypass a confirmed coordinate conflict. */
+      allowIncompleteRepoChecks?: boolean;
     },
     config: ForkConfig
   ): Promise<ForkRepositoryResult | null> {
@@ -827,6 +829,8 @@ export function useRepoCopy(options: UseForkRepoOptions = {}) {
           relayUrls: verifiedRelayUrls,
           onFetchRelayEvents: options.onFetchRelayEvents!,
           knownEvents: options.getKnownRepoEvents?.(userPubkey, forkName),
+          allowIncomplete: Boolean(publicSource && originalRepo.allowIncompleteRepoChecks),
+          signal: abortSignal,
         });
       } else {
         await assertRepoAnnouncementCurrent(

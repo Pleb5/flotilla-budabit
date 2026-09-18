@@ -30,7 +30,6 @@ async function inspect(page: Page, name = "public") {
   await page
     .getByLabel("Repository URL", {exact: true})
     .fill(`https://codeberg.org/fixture/${name}.git/`)
-  await page.getByRole("button", {name: "Inspect repository", exact: true}).click()
   await expect(page.getByRole("status").filter({hasText: "Public repository found"})).toContainText(
     `fixture/${name}`,
   )
@@ -53,7 +52,7 @@ test("anonymous announcement preserves edits, has no author/init requirements an
   await page.getByLabel("Description (optional)").fill("Edited description")
   for (let i = 0; i < 2; i++)
     await page.getByRole("button", {name: "Previous", exact: true}).click()
-  await page.getByRole("button", {name: "Inspect repository", exact: true}).click()
+  await page.getByRole("button", {name: "Check again", exact: true}).click()
   await expect(page.getByRole("button", {name: "Next", exact: true})).toBeEnabled()
   await next(page)
   await next(page)
@@ -139,15 +138,22 @@ test("invalid, private/missing and stale sources fail safely; empty source remai
 }) => {
   await open(page)
   const url = page.getByLabel("Repository URL", {exact: true})
-  const inspectButton = page.getByRole("button", {name: "Inspect repository", exact: true})
   await url.fill("https://bitbucket.org/owner/repo")
-  await inspectButton.click()
   await expect(page.getByRole("alert")).toContainText(/not supported|disabled|retired/i)
   await url.fill("https://codeberg.org/fixture/private")
-  await inspectButton.click()
   await expect(page.getByRole("alert")).toContainText(/public|private|not found/i)
   await url.fill("https://codeberg.org/fixture/slow")
-  await inspectButton.click()
+  await expect
+    .poll(() =>
+      page.evaluate(
+        async fixture =>
+          (await import(/* @vite-ignore */ fixture)).evidence.requests.some((url: string) =>
+            url.endsWith("/fixture/slow"),
+          ),
+        fixture,
+      ),
+    )
+    .toBe(true)
   await url.fill("https://codeberg.org/fixture/empty")
   await page.evaluate(
     async fixture => (await import(/* @vite-ignore */ fixture)).finishSlowInspection(),
@@ -160,6 +166,163 @@ test("invalid, private/missing and stale sources fail safely; empty source remai
     page.getByRole("radio", {name: "Copy to target remotes", exact: true}),
   ).toBeDisabled()
   await expect(page.getByRole("radio", {name: "Announce only", exact: true})).toBeChecked()
+})
+
+test("automatic source check debounces input, flags duplicates, resets consent and prevents d-tag reuse", async ({
+  page,
+}) => {
+  await page.setViewportSize({width: 390, height: 844})
+  await open(page)
+  await page.evaluate(
+    async fixture => (await import(/* @vite-ignore */ fixture)).addExistingAnnouncement(),
+    fixture,
+  )
+  const url = page.getByLabel("Repository URL", {exact: true})
+  await url.fill("https://codeberg.org/fixture/private")
+  await url.fill("https://codeberg.org/fixture/public.git/")
+  await expect(page.getByText("Repository available", {exact: true})).toBeVisible()
+  await expect(page.getByLabel("Repository server software")).toHaveCount(0)
+  await expect(page.getByRole("alert")).toContainText("You already announced this repository")
+  await expect(page.getByRole("button", {name: "Next", exact: true})).toBeDisabled()
+  const consent = page.getByRole("checkbox", {name: "Import anyway", exact: true})
+  await consent.focus()
+  await page.keyboard.press("Space")
+  await expect(page.getByRole("button", {name: "Next", exact: true})).toBeEnabled()
+  await next(page)
+  await next(page)
+  await expect(page.getByRole("alert")).toContainText('identifier "public"')
+  await expect(page.getByRole("button", {name: "Next", exact: true})).toBeDisabled()
+  await page.getByLabel("Repository identifier *", {exact: true}).fill("public-second-announcement")
+  await expect(page.getByText("✓ Nostr repository identifier available")).toBeVisible()
+  await page.getByRole("button", {name: "Previous", exact: true}).click()
+  await page.getByRole("button", {name: "Previous", exact: true}).click()
+  await page.getByRole("button", {name: "Check again", exact: true}).click()
+  await expect(consent).not.toBeChecked()
+  await expect(page.getByRole("button", {name: "Next", exact: true})).toBeDisabled()
+  expect(await page.getByRole("dialog").evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+  await consent.check()
+  await next(page)
+  await next(page)
+  await expect(page.getByLabel("Repository identifier *", {exact: true})).toHaveValue(
+    "public-second-announcement",
+  )
+  await next(page)
+  await page.getByRole("button", {name: "Announce Repository", exact: true}).click()
+  await expect(
+    page.getByRole("heading", {name: "Repository Announced Successfully!"}),
+  ).toBeVisible()
+  const evidence = await page.evaluate(
+    async fixture => (await import(/* @vite-ignore */ fixture)).evidence,
+    fixture,
+  )
+  expect(evidence.mutations).toEqual([])
+  expect(evidence.requests.filter((url: string) => url.includes("codeberg.org"))).toEqual(
+    Array(3).fill("GET https://codeberg.org/api/v1/repos/fixture/public"),
+  )
+  expect(evidence.events[0].tags).toContainEqual(["d", "public-second-announcement"])
+})
+
+test("incomplete inventory needs consent or retry; new duplicate at final preflight returns for consent", async ({
+  page,
+}) => {
+  await open(page)
+  await page.evaluate(async fixture => {
+    ;(await import(/* @vite-ignore */ fixture)).preflight.inventoryUnavailable = true
+  }, fixture)
+  await page.getByLabel("Repository URL", {exact: true}).fill("https://codeberg.org/fixture/public")
+  await expect(page.getByRole("alert")).toContainText("Some relays could not be checked")
+  await expect(page.getByRole("button", {name: "Next", exact: true})).toBeDisabled()
+  await page.evaluate(async fixture => {
+    ;(await import(/* @vite-ignore */ fixture)).preflight.inventoryUnavailable = false
+  }, fixture)
+  await page.getByRole("button", {name: "Check again", exact: true}).click()
+  await expect(page.getByText("Repository available", {exact: true})).toBeVisible()
+  await next(page)
+  await next(page)
+  await next(page)
+  await page.evaluate(
+    async fixture =>
+      (await import(/* @vite-ignore */ fixture)).addExistingAnnouncement("another-identifier"),
+    fixture,
+  )
+  await page.getByRole("button", {name: "Announce Repository", exact: true}).click()
+  await expect(page.getByRole("checkbox", {name: "Import anyway", exact: true})).toBeVisible()
+  await expect(page.getByRole("button", {name: "Next", exact: true})).toBeDisabled()
+  const evidence = await page.evaluate(
+    async fixture => (await import(/* @vite-ignore */ fixture)).evidence,
+    fixture,
+  )
+  expect(evidence.mutations).toEqual([])
+  expect(evidence.events).toEqual([])
+})
+
+for (const failure of ["inventoryUnavailable", "coordinateUnavailable"] as const) {
+  test(`${failure} lists relay coverage and requires Import anyway before announcement`, async ({
+    page,
+  }) => {
+    await open(page)
+    await page.evaluate(
+      async ({fixture, failure}) => {
+        ;(await import(/* @vite-ignore */ fixture)).preflight[failure] = true
+      },
+      {fixture, failure},
+    )
+    await inspect(page)
+    if (failure === "coordinateUnavailable") {
+      await next(page)
+      await next(page)
+    }
+    await expect(page.getByText("Some relays could not be checked.", {exact: true})).toBeVisible()
+    await expect(page.getByText("Relays checked successfully: 1", {exact: true})).toBeVisible()
+    await expect(page.getByText("✓ wss://metadata.fixture.test/", {exact: true})).toBeVisible()
+    await expect(page.getByText(/Fixture relay timed out/)).toBeVisible()
+    await expect(page.getByRole("button", {name: "Next", exact: true})).toBeDisabled()
+    await page.getByRole("checkbox", {name: "Import anyway", exact: true}).check()
+    await next(page)
+    if (failure === "inventoryUnavailable") {
+      await next(page)
+      await next(page)
+    }
+    await page.getByRole("button", {name: "Announce Repository", exact: true}).click()
+    await expect(
+      page.getByRole("heading", {name: "Repository Announced Successfully!"}),
+    ).toBeVisible()
+    const evidence = await page.evaluate(
+      async fixture => (await import(/* @vite-ignore */ fixture)).evidence,
+      fixture,
+    )
+    expect(evidence.mutations).toEqual([])
+    expect(evidence.events.map((event: any) => event.kind)).toEqual([30617])
+  })
+}
+
+test("announce-only final preflight rejects an identifier taken after the details check", async ({
+  page,
+}) => {
+  await open(page)
+  await inspect(page)
+  await next(page)
+  await next(page)
+  await expect(page.getByText("✓ Nostr repository identifier available")).toBeVisible()
+  await next(page)
+  await page.evaluate(
+    async fixture =>
+      (await import(/* @vite-ignore */ fixture)).addExistingAnnouncement(
+        "public",
+        "https://codeberg.org/fixture/another-repo.git",
+      ),
+    fixture,
+  )
+  await page.getByRole("button", {name: "Announce Repository", exact: true}).click()
+  await expect(page.getByLabel("Repository identifier *", {exact: true})).toHaveValue("public")
+  await expect(page.getByRole("alert").first()).toContainText('identifier "public"')
+  await expect(page.getByRole("button", {name: "Next", exact: true})).toBeDisabled()
+  const evidence = await page.evaluate(
+    async fixture => (await import(/* @vite-ignore */ fixture)).evidence,
+    fixture,
+  )
+  expect(evidence.mutations).toEqual([])
+  expect(evidence.events).toEqual([])
 })
 
 test("brand new repository retains initialization and explicit author controls", async ({page}) => {

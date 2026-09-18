@@ -10,7 +10,31 @@ export const evidence = {
   events: [] as any[],
   result: null as any,
 }
-export const preflight = {occupied: false, actorChanged: false}
+export const preflight = {
+  occupied: false,
+  actorChanged: false,
+  inventoryUnavailable: false,
+  coordinateUnavailable: false,
+}
+export const announcements: any[] = []
+export function addExistingAnnouncement(
+  identifier = "public",
+  clone = "git@codeberg.org:fixture/public.git",
+) {
+  announcements.push({
+    id: `existing-${identifier}`,
+    pubkey: TEST_PUBKEYS.alice,
+    kind: 30617,
+    created_at: 1,
+    content: "",
+    sig: "mock-signature",
+    tags: [
+      ["d", identifier],
+      ["name", "Previously announced fixture"],
+      ["clone", clone],
+    ],
+  })
+}
 let originalFetch: typeof fetch | undefined
 let finishSlow: (() => void) | undefined
 export function finishSlowInspection() {
@@ -35,6 +59,9 @@ export function openOnboardingFixture(withTargetToken = false) {
   evidence.result = null
   preflight.occupied = false
   preflight.actorChanged = false
+  preflight.inventoryUnavailable = false
+  preflight.coordinateUnavailable = false
+  announcements.length = 0
   tokens.clear()
   tokens.setTokenLoader(async () =>
     withTargetToken ? [{host: "codeberg.org", token: "disposable-fixture-token"}] : [],
@@ -138,6 +165,7 @@ export function openOnboardingFixture(withTargetToken = false) {
       },
       workerApi,
       defaultRelays: ["wss://metadata.fixture.test/"],
+      ownerRepoRelays: ["wss://owner.fixture.test/"],
       onPublishEvent: async (event: any, context: any) => {
         context?.onPrepare?.()
         context?.assertCurrent?.()
@@ -157,16 +185,24 @@ export function openOnboardingFixture(withTargetToken = false) {
           hasRelayOutcomes: true,
         }
       },
-      onFetchRelayEvents: async ({filters}: any) =>
-        evidence.events.filter(event =>
+      onFetchRelayEvents: async ({relays, filters, requireComplete}: any) => {
+        if (
+          relays[0].includes("owner.fixture") &&
+          ((requireComplete && preflight.inventoryUnavailable) ||
+            (preflight.coordinateUnavailable && filters.some((filter: any) => filter["#d"])))
+        )
+          throw new Error("Fixture relay timed out")
+        return [...announcements, ...evidence.events].filter(event =>
           filters.some(
             (filter: any) =>
               (!filter.ids || filter.ids.includes(event.id)) &&
               (!filter.kinds || filter.kinds.includes(event.kind)) &&
+              (!filter.authors || filter.authors.includes(event.pubkey)) &&
               (!filter["#d"] ||
                 filter["#d"].includes(event.tags.find((tag: any) => tag[0] === "d")?.[1])),
           ),
-        ),
+        )
+      },
       onDeleteEvent: async () => {},
       onRepoCreated: (result: any) => {
         evidence.result = result

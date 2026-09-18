@@ -4289,12 +4289,19 @@
     filters: NostrFilter[]
     timeoutMs?: number
     throwOnTimeout?: boolean
+    signal?: AbortSignal
+    requireComplete?: boolean
+    onEvent?: (event: NostrEvent) => void
   }): Promise<NostrEvent[]> =>
     fetchRelayEventsWithTimeout<NostrEvent>({
       relays: params.relays,
       filters: params.filters as any,
       timeoutMs: params.timeoutMs,
       throwOnTimeout: params.throwOnTimeout,
+      signal: params.signal,
+      requireComplete: params.requireComplete,
+      onEvent: params.onEvent,
+      ...(params.requireComplete ? {maxEvents: 201, maxBytes: 2 * 1024 * 1024} : {}),
       isolated: true,
     })
 
@@ -4469,6 +4476,9 @@
           platformUrl: $APP_URL,
           makeRepoPath: makeGitPath,
           userPubkey: creationOwner,
+          ownerRepoRelays: getAccountSearchRelays(creationOwner, getRelaysFromList($userRelayList)),
+          getKnownOwnerRepoEvents: (owner: string) =>
+            repository.query([{kinds: [30617], authors: [owner]}]) as NostrEvent[],
           communityOptions: repoPublishCommunityOptions,
           onPublishEvent: createRepoCreationPublisher({
             ownerPubkey: creationOwner,
