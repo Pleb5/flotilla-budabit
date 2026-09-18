@@ -1,0 +1,581 @@
+{
+  "description": "PUBLIC SYNTHETIC TEST DATA. Captured using Coco IndexedDB 1.0.0 and Cashu-TS 3.3.0; never funded.",
+  "mnemonic": "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+  "mintUrl": "https://cashu-fixture.invalid",
+  "ids": [
+    "0002171b414d0a7a",
+    "011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b"
+  ],
+  "version": 170,
+  "stores": [
+    {
+      "name": "coco_cashu_auth_sessions",
+      "keyPath": "mintUrl",
+      "autoIncrement": false,
+      "indexes": [],
+      "rows": []
+    },
+    {
+      "name": "coco_cashu_counters",
+      "keyPath": [
+        "mintUrl",
+        "keysetId"
+      ],
+      "autoIncrement": false,
+      "indexes": [],
+      "rows": [
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "keysetId": "0002171b414d0a7a",
+          "counter": 1
+        },
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "keysetId": "011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b",
+          "counter": 8
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_history",
+      "keyPath": "id",
+      "autoIncrement": true,
+      "indexes": [
+        {
+          "name": "[mintUrl+operationId]",
+          "keyPath": [
+            "mintUrl",
+            "operationId"
+          ],
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "[mintUrl+quoteId+type]",
+          "keyPath": [
+            "mintUrl",
+            "quoteId",
+            "type"
+          ],
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "createdAt",
+          "keyPath": "createdAt",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "type",
+          "keyPath": "type",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "type": "send",
+          "amount": 2,
+          "createdAt": 1780000000,
+          "metadata": null,
+          "tokenJson": "{\"mint\":\"https://cashu-fixture.invalid\",\"unit\":\"sat\",\"proofs\":[{\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\",\"amount\":2,\"secret\":\"cb62fa4d5a18fc2fee1d5424c0033a14a24e21d3ee4769e91b54a6b84a8f9a03\",\"C\":\"031e91aabd183cfee7ccb1fefae539f0da0b9b7f25c17faeb3cc33a2b6322aca72\"}]}",
+          "operationId": "send-pending",
+          "state": "pending",
+          "id": 1
+        },
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "type": "mint",
+          "amount": 4,
+          "createdAt": 1779999999,
+          "metadata": null,
+          "quoteId": "legacy-issued",
+          "operationId": null,
+          "state": "ISSUED",
+          "id": 2
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_keypairs",
+      "keyPath": "publicKey",
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "createdAt",
+          "keyPath": "createdAt",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "derivationIndex",
+          "keyPath": "derivationIndex",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "publicKey": "025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc",
+          "secretKey": "0000000000000000000000000000000000000000000000000000000000000007",
+          "createdAt": 1780000000,
+          "derivationIndex": 3
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_keysets",
+      "keyPath": [
+        "mintUrl",
+        "id"
+      ],
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "id",
+          "keyPath": "id",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "unit",
+          "keyPath": "unit",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "updatedAt",
+          "keyPath": "updatedAt",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "id": "0002171b414d0a7a",
+          "unit": "sat",
+          "keypairs": "{\"1\":\"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\",\"2\":\"02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5\",\"4\":\"02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\",\"8\":\"02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\",\"16\":\"022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4\"}",
+          "active": 0,
+          "feePpk": 0,
+          "updatedAt": 1780000000
+        },
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "id": "011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b",
+          "unit": "sat",
+          "keypairs": "{\"1\":\"0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798\",\"2\":\"02c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5\",\"4\":\"02f9308a019258c31049344f85f89d5229b531c845836f99b08601f113bce036f9\",\"8\":\"02e493dbf1c10d80f3581e4904930b1404cc6c13900ee0758474fa94abe8c4cd13\",\"16\":\"022f8bde4d1a07209355b4a7250a5c5128e88b84bddc619ab7cba8d569b240efe4\"}",
+          "active": 1,
+          "feePpk": 0,
+          "updatedAt": 1780000000
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_melt_operations",
+      "keyPath": "id",
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "[mintUrl+quoteId]",
+          "keyPath": [
+            "mintUrl",
+            "quoteId"
+          ],
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "state",
+          "keyPath": "state",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "id": "melt-pending",
+          "mintUrl": "https://cashu-fixture.invalid",
+          "state": "pending",
+          "createdAt": 1780000,
+          "updatedAt": 1780000,
+          "error": null,
+          "method": "bolt11",
+          "methodDataJson": "{}",
+          "quoteId": "melt-pending",
+          "unit": "sat",
+          "amount": 7,
+          "fee_reserve": 1,
+          "swap_fee": 0,
+          "needsSwap": 0,
+          "inputAmount": 8,
+          "inputProofSecretsJson": "[\"43c7646bf0455b437a53047ce492791ae80af071274597c307f79140866ed8e7\"]",
+          "changeOutputDataJson": "{\"keep\":[],\"send\":[{\"blindedMessage\":{\"amount\":1,\"B_\":\"03cd50ebe9e7afa09e5b4e17e6bdc4cccd3669480d4d1842313e149f058e5fe285\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"5188fc2b66583edf5ee08d7144b99e41682a2926e692d4fb22623bcdb6ac1d55\",\"secret\":\"35313463303461613639613863626638393334376331373532303031633063363131343266623934633564626231323736633439383462393931353762646435\"}]}",
+          "swapOutputDataJson": null,
+          "changeAmount": null,
+          "effectiveFee": null,
+          "finalizedDataJson": null
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_melt_quotes",
+      "keyPath": [
+        "mintUrl",
+        "quote"
+      ],
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "state",
+          "keyPath": "state",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "quote": "melt-pending",
+          "state": "PENDING",
+          "request": "lnbc-fixture-melt",
+          "amount": 7,
+          "unit": "sat",
+          "expiry": 4102444800,
+          "fee_reserve": 1,
+          "payment_preimage": null
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_mint_operations",
+      "keyPath": "id",
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "[mintUrl+quoteId]",
+          "keyPath": [
+            "mintUrl",
+            "quoteId"
+          ],
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "state",
+          "keyPath": "state",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "id": "mint-pending",
+          "mintUrl": "https://cashu-fixture.invalid",
+          "quoteId": "mint-unpaid",
+          "state": "pending",
+          "createdAt": 1780000,
+          "updatedAt": 1780000,
+          "error": null,
+          "method": "bolt11",
+          "methodDataJson": "{}",
+          "amount": 4,
+          "unit": "sat",
+          "request": "lnbc-fixture-unpaid",
+          "expiry": 4102444800,
+          "pubkey": "025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc",
+          "lastObservedRemoteState": "UNPAID",
+          "lastObservedRemoteStateAt": null,
+          "terminalFailureJson": null,
+          "outputDataJson": "{\"keep\":[],\"send\":[{\"blindedMessage\":{\"amount\":4,\"B_\":\"039d86772397511ee0801701e945c27115e92f1982bb6ea464c2c1ffe05a56e1d7\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"2470b94c6277b9f1f9f978622b1a4aaba7b8481781710463bddaaf665704fd34\",\"secret\":\"38323537313938363066626264653663313939623963323163643233646536633231333065383263626533633636646633663434313061623532353439636466\"}]}"
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_mint_quotes",
+      "keyPath": [
+        "mintUrl",
+        "quote"
+      ],
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "state",
+          "keyPath": "state",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "quote": "mint-unpaid",
+          "state": "UNPAID",
+          "request": "lnbc-fixture-unpaid",
+          "amount": 4,
+          "unit": "sat",
+          "expiry": 4102444800,
+          "pubkey": "025cbdf0646e5db4eaa398f365f2ea7a0e3d419b7e0330e39ce92bddedcac4f9bc"
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_mints",
+      "keyPath": "mintUrl",
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "name",
+          "keyPath": "name",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "trusted",
+          "keyPath": "trusted",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "updatedAt",
+          "keyPath": "updatedAt",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "name": "Synthetic migration mint",
+          "mintInfo": "{\"name\":\"fixture\",\"nuts\":{}}",
+          "trusted": true,
+          "createdAt": 1780000000,
+          "updatedAt": 1780000000
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_proofs",
+      "keyPath": [
+        "mintUrl",
+        "secret"
+      ],
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "[mintUrl+id+state]",
+          "keyPath": [
+            "mintUrl",
+            "id",
+            "state"
+          ],
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "[mintUrl+state]",
+          "keyPath": [
+            "mintUrl",
+            "state"
+          ],
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "createdByOperationId",
+          "keyPath": "createdByOperationId",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "id",
+          "keyPath": "id",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "state",
+          "keyPath": "state",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "usedByOperationId",
+          "keyPath": "usedByOperationId",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "id": "011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b",
+          "amount": 8,
+          "secret": "43c7646bf0455b437a53047ce492791ae80af071274597c307f79140866ed8e7",
+          "C": "0283bd3524d64639f176a20b9f00e0019edff10a92f8abf761e6441b9183e09a52",
+          "dleqJson": null,
+          "witness": null,
+          "state": "inflight",
+          "createdAt": 1780000000,
+          "usedByOperationId": "melt-pending",
+          "createdByOperationId": null
+        },
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "id": "0002171b414d0a7a",
+          "amount": 2,
+          "secret": "6fe21cebae5ce71033bb7f21e0da09df8abda4e0a9aa40dc866b45f34e4c27f8",
+          "C": "03d3c252d1f130e4fada99835e10f2f8f2597e5851863dc24e334537ffa2eda185",
+          "dleqJson": null,
+          "witness": null,
+          "state": "ready",
+          "createdAt": 1780000000,
+          "usedByOperationId": null,
+          "createdByOperationId": null
+        },
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "id": "011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b",
+          "amount": 2,
+          "secret": "cb62fa4d5a18fc2fee1d5424c0033a14a24e21d3ee4769e91b54a6b84a8f9a03",
+          "C": "031e91aabd183cfee7ccb1fefae539f0da0b9b7f25c17faeb3cc33a2b6322aca72",
+          "dleqJson": null,
+          "witness": null,
+          "state": "inflight",
+          "createdAt": 1780000000,
+          "usedByOperationId": "send-pending",
+          "createdByOperationId": null
+        },
+        {
+          "mintUrl": "https://cashu-fixture.invalid",
+          "id": "011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b",
+          "amount": 4,
+          "secret": "fa052dabe3eb67aac804d594320c282114d8daefa25890553394fe1d8dfc0fdb",
+          "C": "0316145ad71b9fbab9e7131c4603457e8b8a72704072731fda957f8664f0370899",
+          "dleqJson": null,
+          "witness": null,
+          "state": "ready",
+          "createdAt": 1780000000,
+          "usedByOperationId": null,
+          "createdByOperationId": null
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_receive_operations",
+      "keyPath": "id",
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "state",
+          "keyPath": "state",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "id": "receive-executing",
+          "mintUrl": "https://cashu-fixture.invalid",
+          "unit": "sat",
+          "amount": 2,
+          "state": "executing",
+          "createdAt": 1780000,
+          "updatedAt": 1780000,
+          "error": null,
+          "fee": 0,
+          "inputProofsJson": "[{\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\",\"amount\":2,\"secret\":\"cb62fa4d5a18fc2fee1d5424c0033a14a24e21d3ee4769e91b54a6b84a8f9a03\",\"C\":\"031e91aabd183cfee7ccb1fefae539f0da0b9b7f25c17faeb3cc33a2b6322aca72\"}]",
+          "outputDataJson": "{\"keep\":[],\"send\":[{\"blindedMessage\":{\"amount\":2,\"B_\":\"027a09f04a12309ace59dff67f27f02b96c19a42ccea42b3555775a1ca97d0f242\",\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\"},\"blindingFactor\":\"ba92e54e5ec44b4ffebac2a72e2d9d9dd388d7bdc79eb30e8fb1595ef3c251d5\",\"secret\":\"64386335343766623938663239356637376437656235633161643133636539396562356165323862393535636165376630613638653064613265613962383662\"}]}"
+        }
+      ]
+    },
+    {
+      "name": "coco_cashu_send_operations",
+      "keyPath": "id",
+      "autoIncrement": false,
+      "indexes": [
+        {
+          "name": "mintUrl",
+          "keyPath": "mintUrl",
+          "unique": false,
+          "multiEntry": false
+        },
+        {
+          "name": "state",
+          "keyPath": "state",
+          "unique": false,
+          "multiEntry": false
+        }
+      ],
+      "rows": [
+        {
+          "id": "send-pending",
+          "mintUrl": "https://cashu-fixture.invalid",
+          "amount": 2,
+          "state": "pending",
+          "createdAt": 1780000,
+          "updatedAt": 1780000,
+          "error": null,
+          "method": "default",
+          "methodDataJson": "{}",
+          "needsSwap": 0,
+          "fee": 0,
+          "inputAmount": 2,
+          "inputProofSecretsJson": "[\"cb62fa4d5a18fc2fee1d5424c0033a14a24e21d3ee4769e91b54a6b84a8f9a03\"]",
+          "outputDataJson": null,
+          "tokenJson": "{\"mint\":\"https://cashu-fixture.invalid\",\"unit\":\"sat\",\"proofs\":[{\"id\":\"011b545cd57dbf814ddee081f0f2ab50f809a6ec238e40a61c7163bfb9b14b527b\",\"amount\":2,\"secret\":\"cb62fa4d5a18fc2fee1d5424c0033a14a24e21d3ee4769e91b54a6b84a8f9a03\",\"C\":\"031e91aabd183cfee7ccb1fefae539f0da0b9b7f25c17faeb3cc33a2b6322aca72\"}]}"
+        }
+      ]
+    }
+  ]
+}

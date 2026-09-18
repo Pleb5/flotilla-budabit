@@ -271,6 +271,9 @@ importers:
       eslint-plugin-svelte:
         specifier: ^2.46.1
         version: 2.46.1(eslint@9.39.3(jiti@1.21.7))(svelte@5.39.12)(ts-node@10.9.2(@types/node@22.19.13)(typescript@5.9.3))
+      fake-indexeddb:
+        specifier: 6.2.5
+        version: 6.2.5
       globals:
         specifier: ^15.15.0
         version: 15.15.0
