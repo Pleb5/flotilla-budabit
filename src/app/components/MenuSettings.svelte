@@ -76,6 +76,11 @@
 
 <div class="column menu gap-2">
   <header class="flex shrink-0 items-center justify-between gap-3">
+    <span class="w-11 shrink-0" aria-hidden="true"></span>
+    <h1
+      class="flex min-w-0 flex-1 items-center justify-center self-stretch text-lg font-semibold leading-none">
+      Settings
+    </h1>
     <Button
       class="btn btn-square btn-ghost h-11 min-h-11 w-11 shrink-0"
       aria-label="Close settings"
@@ -84,11 +89,6 @@
       onclick={closeTopModal}>
       <Icon icon={Close} size={7} />
     </Button>
-    <h1
-      class="flex min-w-0 flex-1 items-center justify-center self-stretch text-lg font-semibold leading-none">
-      Settings
-    </h1>
-    <span class="w-11 shrink-0" aria-hidden="true"></span>
   </header>
   {#if !$pubkey}
     <Button onclick={login}>
