@@ -94,13 +94,17 @@ export function formatTimeAgo(timestamp: number): string {
 
 /** Exact wall-clock time with minute precision (no seconds), for tooltips. */
 export function formatExactTime(timestamp: number): string {
-  return new Date(timestamp).toLocaleString(undefined, {
+  const date = new Date(timestamp)
+  if (!Number.isFinite(date.getTime())) return '—'
+  return date.toLocaleString('en-GB', {
     year: 'numeric',
-    month: 'short',
+    month: 'long',
     day: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  })
+    hourCycle: 'h23',
+    timeZoneName: 'longOffset',
+  }).replace('GMT', 'UTC')
 }
 
 export function formatDuration(seconds?: number) {

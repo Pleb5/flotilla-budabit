@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDate } from "@welshman/lib";
   import { onDestroy, untrack } from "svelte";
   import {
     Settings,
@@ -1985,9 +1986,7 @@
                           {getCommitMessage(commit).split("\n")[0] || "No message"}
                         </div>
                         <div class="text-xs text-gray-400 mt-0.5">
-                          {getCommitAuthor(commit) || "Unknown"} · {new Date(
-                            getCommitTimestamp(commit) * 1000
-                          ).toLocaleDateString()}
+                          {getCommitAuthor(commit) || "Unknown"} · {formatDate(getCommitTimestamp(commit) * 1000)}
                         </div>
                       </div>
                     </div>

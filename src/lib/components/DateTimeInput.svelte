@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {secondsToDate, dateToSeconds} from "@welshman/lib"
+  import {secondsToDate, dateToSeconds, getLocalTimeZone, formatTimeZone} from "@welshman/lib"
   import CloseCircle from "@assets/icons/close-circle.svg?dataurl"
   import CalendarMinimalistic from "@assets/icons/calendar-minimalistic.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -121,4 +121,7 @@
       step="60"
       bind:value={time} />
   </label>
+  <p class="col-span-2 text-xs opacity-70">
+    Local time · {getLocalTimeZone()}{value !== undefined ? ` (${formatTimeZone(value * 1000)})` : ""}
+  </p>
 </div>

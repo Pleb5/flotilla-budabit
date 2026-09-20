@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDate, formatExactDateTime } from "@welshman/lib";
   import { nip19, type NostrEvent } from "nostr-tools";
   import { onMount } from "svelte";
   import { MessageCircle, Copy, Reply } from "@lucide/svelte";
@@ -125,7 +126,7 @@
       <div class="flex items-center gap-2 text-xs text-muted-foreground mb-1">
         <span>By <ProfileLink pubkey={event.pubkey} /></span>
         <span>•</span>
-        <span>{createdDate.toLocaleDateString()}</span>
+        <span class="whitespace-nowrap" title={formatExactDateTime(createdDate)}>{formatDate(createdDate)}</span>
         {#if isReply}
           <span>•</span>
           <span class="flex items-center gap-1">

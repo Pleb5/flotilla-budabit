@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import {onDestroy, onMount} from "svelte"
   import {get as getStore, writable} from "svelte/store"
   import {page} from "$app/stores"
@@ -809,7 +810,7 @@
                   </p>
                   <p class="text-xs opacity-60">
                     {getRequestTimeLabel(moderatorRequest)}
-                    {new Date(getRequestTime(moderatorRequest) * 1000).toLocaleString()}
+                    <DateTimeDisplay value={getRequestTime(moderatorRequest) * 1000} options={{showTimeZone: true}} />
                   </p>
                 </div>
                 <div class="flex flex-wrap gap-2">

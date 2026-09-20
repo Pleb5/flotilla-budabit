@@ -3,6 +3,7 @@
   import type {TokenHistoryEntry} from "@app/core/cashu"
   import {formatCashuSats} from "@app/util/cashu-format"
   import Button from "@lib/components/Button.svelte"
+  import TimestampDetails from "@lib/components/TimestampDetails.svelte"
 
   interface Props {
     limit?: number
@@ -37,15 +38,6 @@
     return "text-success"
   }
 
-  // Coco history timestamps are Unix milliseconds, including migrated rows.
-  const formatDate = (ts: number) =>
-    new Date(ts).toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-
   const copyToken = async (entry: TokenHistoryEntry) => {
     if (!entry.token) return
     await navigator.clipboard.writeText(entry.token)
@@ -76,7 +68,7 @@
             <span class="text-xs capitalize opacity-70"
               >{entry.state.replaceAll("_", " ").toLowerCase()}</span>
           </div>
-          <span class="text-xs opacity-50">{formatDate(entry.createdAt)}</span>
+          <div class="text-xs opacity-70"><TimestampDetails value={entry.createdAt} /></div>
           {#if entry.error}<p class="break-words text-xs text-error">{entry.error}</p>{/if}
         </div>
         {#if entry.direction === "sent" && entry.token}

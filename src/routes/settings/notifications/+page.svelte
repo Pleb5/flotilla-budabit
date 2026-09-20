@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {formatDateTime} from "@welshman/lib"
   import {onMount} from "svelte"
   import {request} from "@welshman/net"
   import {Address, type TrustedEvent} from "@welshman/util"
@@ -237,7 +238,7 @@
 
   const formatStatusTime = (timestamp?: number | null) =>
     typeof timestamp === "number"
-      ? new Date(timestamp * 1000).toLocaleString([], {dateStyle: "medium", timeStyle: "short"})
+      ? formatDateTime(timestamp * 1000, {showTimeZone: true})
       : "Not reported"
 
   const setCadence = (days: number) => {

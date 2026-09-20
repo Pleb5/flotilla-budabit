@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "@welshman/lib";
   import { tick } from "svelte";
   import {
     X,
@@ -1669,7 +1670,7 @@
                           </span>
                           <span class="text-[11px] text-gray-400 sm:whitespace-nowrap">
                             {#if branch.commitDate}
-                              {new Date(branch.commitDate).toLocaleString()}
+                              {formatDateTime(branch.commitDate)}
                             {:else}
                               unknown
                             {/if}

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {formatTimestamp} from "@welshman/lib"
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import type {TrustedEvent} from "@welshman/util"
   import AltArrowLeft from "@assets/icons/alt-arrow-left.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -27,14 +27,14 @@
     <div class="flex items-start gap-3">
       <ProfileCircle pubkey={earliest.pubkey} size={10} />
       <div class="min-w-0 flex-1">
-        <div class="flex items-center gap-2 text-sm opacity-70">
+        <div class="flex flex-wrap items-center gap-2 text-sm opacity-70">
           {#if h}
             <span class="truncate font-medium text-blue-400">
               #{displayChannel(url, h)}
             </span>
             <span class="opacity-50">•</span>
           {/if}
-          <span class="text-nowrap">{formatTimestamp(earliest.created_at)}</span>
+          <DateTimeDisplay value={earliest.created_at * 1000} />
         </div>
         <NoteContentMinimal event={earliest} />
       </div>
@@ -58,13 +58,13 @@
     {#if latest !== earliest}
       <Button class="card2 bg-alt" onclick={() => goToEvent(latest)}>
         <div class="flex flex-col gap-2">
-          <div class="flex items-center justify-between">
+          <div class="flex flex-wrap items-center justify-between gap-1">
             <div class="flex items-center gap-2 text-sm opacity-70">
               <ProfileCircle pubkey={latest.pubkey} size={5} />
               <span class="font-medium">Latest reply:</span>
             </div>
             <span class="text-xs opacity-50">
-              {formatTimestamp(latest.created_at)}
+              <DateTimeDisplay value={latest.created_at * 1000} />
             </span>
           </div>
           <NoteContentMinimal event={latest} />

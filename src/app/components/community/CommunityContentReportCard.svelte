@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {
     COMMENT,
@@ -258,13 +259,11 @@
         </span>
       </div>
       <p class="mt-1 text-xs opacity-60">
-        Latest report {new Date(group.latestCreatedAt * 1000).toLocaleString()}
+        Latest report <DateTimeDisplay value={group.latestCreatedAt * 1000} options={{showTimeZone: true}} />
       </p>
       {#if latestReview}
         <p class="mt-1 text-xs opacity-70">
-          Reviewed by <ProfileLink pubkey={latestReview.reviewerPubkey} relays={profileRelays} /> on {new Date(
-            latestReview.event.created_at * 1000,
-          ).toLocaleString()}
+          Reviewed by <ProfileLink pubkey={latestReview.reviewerPubkey} relays={profileRelays} /> on <DateTimeDisplay value={latestReview.event.created_at * 1000} options={{showTimeZone: true}} />
         </p>
       {/if}
     </div>
@@ -347,7 +346,7 @@
             </span>
           </div>
           <p class="mt-1 text-xs opacity-60">
-            Published {new Date(report.event.created_at * 1000).toLocaleString()}
+            Published <DateTimeDisplay value={report.event.created_at * 1000} options={{style: "full", showTimeZone: true}} />
           </p>
           {#if report.event.content.trim()}
             <p class="mt-2 whitespace-pre-wrap opacity-75">{report.event.content}</p>

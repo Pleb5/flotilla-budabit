@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as nip19 from "nostr-tools/nip19"
-  import {LOCALE, secondsToDate} from "@welshman/lib"
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import type {TrustedEvent} from "@welshman/util"
   import {displayRelayUrl, getTagValue} from "@welshman/util"
   import {tracker, forceLoadMessagingRelayList, messagingRelayListsByPubkey} from "@welshman/app"
@@ -54,11 +54,6 @@
   const copyPubkey = () => clip(npub1)
   const copyJson = () => clip(json)
 
-  const formatter = new Intl.DateTimeFormat(LOCALE, {
-    dateStyle: "long",
-    timeStyle: "long",
-  })
-
   $effect(() => {
     if (event.kind === DM_KIND && dmRecipient) {
       forceLoadMessagingRelayList(dmRecipient, getMessagingRelayHints())
@@ -80,7 +75,7 @@
       <p>Created At</p>
     {/snippet}
     {#snippet input()}
-      <p>{formatter.format(secondsToDate(event.created_at))}</p>
+      <DateTimeDisplay value={event.created_at * 1000} options={{style: "full", seconds: true, showTimeZone: true}} />
     {/snippet}
   </FieldInline>
   <FieldInline>

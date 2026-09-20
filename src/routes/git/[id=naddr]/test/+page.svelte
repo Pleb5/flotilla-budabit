@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {formatExactDateTime} from "@welshman/lib"
   import {onMount, onDestroy} from "svelte"
   import {getContext} from "svelte"
   import {page} from "$app/stores"
@@ -124,7 +125,7 @@
           </div>
           <div class="mb-3 font-mono text-sm text-muted-foreground">ID: {event.id}</div>
           <div class="mb-3 text-sm">
-            Created: {new Date(event.created_at * 1000).toLocaleString()}
+            Created: {formatExactDateTime(event.created_at * 1000, {seconds: true})}
           </div>
           <div class="mb-3 text-sm">
             <strong>Pubkey:</strong>

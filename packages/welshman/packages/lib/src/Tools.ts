@@ -1,4 +1,5 @@
 import {bech32, utf8} from "@scure/base"
+import {formatDate, formatDateTime, formatTime} from "./DateDisplay.js"
 
 export type Obj<T = any> = Record<string, T>
 
@@ -309,9 +310,13 @@ export const createLocalDate = (dateString: any, timezone = TIMEZONE) =>
   new Date(`${dateString} GMT${timezone}`)
 
 /** Formatter for date+time */
-export const dateTimeFormatter = new Intl.DateTimeFormat(LOCALE, {
-  dateStyle: "short",
-  timeStyle: "short",
+export const dateTimeFormatter = new Intl.DateTimeFormat("en-GB", {
+  day: "numeric",
+  month: "short",
+  year: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
 })
 
 /**
@@ -319,10 +324,10 @@ export const dateTimeFormatter = new Intl.DateTimeFormat(LOCALE, {
  * @param seconds - timestamp in seconds
  * @returns datetime string
  */
-export const formatTimestamp = (seconds: number) => dateTimeFormatter.format(secondsToDate(seconds))
+export const formatTimestamp = (seconds: number) => formatDateTime(secondsToDate(seconds))
 
 /** Formatter for date */
-export const dateFormatter = new Intl.DateTimeFormat(LOCALE, {
+export const dateFormatter = new Intl.DateTimeFormat("en-GB", {
   year: "numeric",
   month: "long",
   day: "numeric",
@@ -333,11 +338,13 @@ export const dateFormatter = new Intl.DateTimeFormat(LOCALE, {
  * @param seconds - timestamp in seconds
  * @returns date string
  */
-export const formatTimestampAsDate = (ts: number) => dateFormatter.format(secondsToDate(ts))
+export const formatTimestampAsDate = (ts: number) => formatDate(secondsToDate(ts), {style: "full"})
 
 /** Formatter for time */
-export const timeFormatter = new Intl.DateTimeFormat(LOCALE, {
-  timeStyle: "short",
+export const timeFormatter = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
 })
 
 /**
@@ -345,7 +352,7 @@ export const timeFormatter = new Intl.DateTimeFormat(LOCALE, {
  * @param seconds - timestamp in seconds
  * @returns time string
  */
-export const formatTimestampAsTime = (ts: number) => timeFormatter.format(secondsToDate(ts))
+export const formatTimestampAsTime = (ts: number) => formatTime(secondsToDate(ts))
 
 /**
  * Formats seconds as a relative date (x minutes ago)

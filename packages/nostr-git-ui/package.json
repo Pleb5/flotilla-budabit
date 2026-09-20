@@ -104,6 +104,7 @@
     "@tiptap/extension-code-block": "^2.26.0",
     "@tiptap/pm": "^2.26.0",
     "@tiptap/starter-kit": "^2.26.0",
+    "@welshman/lib": "workspace:*",
     "@welshman/store": "workspace:*",
     "bits-ui": "^1.5.3",
     "buffer": "^6.0.3",

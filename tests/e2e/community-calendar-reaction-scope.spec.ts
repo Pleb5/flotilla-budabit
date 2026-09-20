@@ -131,6 +131,57 @@ const openCalendarEvent = async (
   })
 }
 
+test.describe("calendar date display", () => {
+  test.use({locale: "en-US", timezoneId: "America/Los_Angeles"})
+
+  test("preserves all-day dates and adapts to the available width", async ({page}, testInfo) => {
+    await page.setViewportSize({width: 1280, height: 900})
+    await openCalendarEvent(
+      page,
+      new MockRelay({seedEvents: [definition, relayList, profileList, calendarEvent]}),
+    )
+    const schedule = page.getByRole("article").locator(".calendar-schedule").first()
+    await expect(schedule.getByText("Thursday, 1 January 2099", {exact: true})).toBeVisible()
+    await expect(schedule.getByText("All day", {exact: true})).toBeVisible()
+    await expect(schedule).not.toContainText("UTC")
+    await page.screenshot({path: testInfo.outputPath("calendar-date-desktop.png")})
+
+    await page.setViewportSize({width: 320, height: 844})
+    await expect(schedule.getByText("Thu, 1 Jan 2099", {exact: true})).toBeVisible()
+    expect(await schedule.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+    await page.screenshot({path: testInfo.outputPath("calendar-date-mobile.png")})
+  })
+
+  test("shows local event-date offsets and the organizer's timezone", async ({page}) => {
+    const timedEvent = finalizeEvent(
+      {
+        kind: 31923,
+        created_at: 3,
+        content: "Timezone display fixture",
+        tags: [
+          ["d", "calendar-reaction-scope"],
+          ["h", communityId],
+          ["title", "Calendar reaction scope"],
+          ["start", String(Date.parse("2026-11-01T08:30:00Z") / 1000)],
+          ["end", String(Date.parse("2026-11-01T09:30:00Z") / 1000)],
+          ["start_tzid", "Europe/Berlin"],
+        ],
+      },
+      communitySecret,
+    )
+    await openCalendarEvent(
+      page,
+      new MockRelay({seedEvents: [definition, relayList, profileList, timedEvent]}),
+    )
+    const schedule = page.getByRole("article").locator(".calendar-schedule").first()
+    await expect(schedule).toContainText("01:30 UTC-07:00")
+    await expect(schedule).toContainText("UTC-08:00")
+    await schedule.locator("summary").click()
+    await expect(schedule).toContainText("Starts 1 November 2026 at 09:30 · UTC+01:00")
+    await expect(schedule).toContainText("Ends 1 November 2026 at 10:30 · UTC+01:00")
+  })
+})
+
 test("publishes calendar reaction additions only to community relays", async ({page}) => {
   const destinations: string[] = []
   const mockRelay = new MockRelay({

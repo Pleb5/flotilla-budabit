@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {formatExactDateTime} from "@welshman/lib"
   import type {Snippet} from "svelte"
   import Close from "@assets/icons/close.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -54,7 +55,7 @@
       .sort((a, b) => Number(a) - Number(b))
   })
   const primaryNutNumbers = $derived(nutNumbers.slice(0, 4))
-  const serverTime = $derived(info?.time ? new Date(info.time * 1000).toLocaleString() : "")
+  const serverTime = $derived(info?.time ? formatExactDateTime(info.time * 1000, {seconds: true}) : "")
 
   const isRecord = (value: unknown): value is Record<string, unknown> =>
     Boolean(value && typeof value === "object" && !Array.isArray(value))

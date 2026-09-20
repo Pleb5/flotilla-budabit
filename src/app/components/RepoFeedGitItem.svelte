@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {formatDate} from "@welshman/lib"
   import {displayProfileByPubkey, thunks} from "@welshman/app"
   import {getTag, type EventContent, type TrustedEvent} from "@welshman/util"
   import {
@@ -259,7 +260,7 @@
         <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           <span>By @{authorDisplay}</span>
           <span>•</span>
-          <span>{new Date(event.created_at * 1000).toLocaleDateString()}</span>
+          <span class="whitespace-nowrap">{formatDate(event.created_at * 1000)}</span>
         </div>
 
         {#if bodyPreview}

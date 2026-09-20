@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import {
     BLOSSOM_SERVERS,
     getListTags,
@@ -387,9 +388,7 @@
                   <div class="min-w-0">
                     <div class="truncate font-semibold">{getUploadFileName(upload)}</div>
                     <div class="text-xs opacity-70">
-                      {upload.context.label || upload.context.type} · {new Date(
-                        upload.createdAt,
-                      ).toLocaleString()} · {formatBytes(upload.canonical.size)} ·
+                      {upload.context.label || upload.context.type} · <DateTimeDisplay value={upload.createdAt} /> · {formatBytes(upload.canonical.size)} ·
                       {upload.canonical.type || "unknown type"}
                     </div>
                   </div>
@@ -583,7 +582,7 @@
                   <div class="mt-1 text-xs opacity-70">
                     {formatBytes(blob.size)} · {blob.type || "unknown type"}
                     {#if blob.uploadedAt}
-                      · {new Date(blob.uploadedAt * 1000).toLocaleString()}{/if}
+                      · <DateTimeDisplay value={blob.uploadedAt * 1000} />{/if}
                   </div>
                   <div class="mt-2 flex flex-wrap gap-2">
                     <Button class="btn btn-sm" onclick={() => clip(blob.url)}>Copy URL</Button>

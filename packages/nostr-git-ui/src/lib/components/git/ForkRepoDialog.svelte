@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDate } from "@welshman/lib";
   import { tick } from "svelte";
   import {
     X,
@@ -1639,9 +1640,7 @@
                                   "No message"}
                               </div>
                               <div class="text-xs text-gray-400 mt-0.5">
-                                {commit.author || commit.commit?.author?.name || "Unknown"} · {new Date(
-                                  (commit.timestamp || commit.commit?.author?.timestamp || 0) * 1000
-                                ).toLocaleDateString()}
+                                {commit.author || commit.commit?.author?.name || "Unknown"} · {formatDate((commit.timestamp || commit.commit?.author?.timestamp || 0) * 1000)}
                               </div>
                             </div>
                           </div>

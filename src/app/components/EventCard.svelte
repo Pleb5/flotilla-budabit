@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import type {Snippet} from "svelte"
   import type {TrustedEvent} from "@welshman/util"
   import NoteCard from "@app/components/NoteCard.svelte"
@@ -78,7 +79,7 @@
               </div>
               <div>
                 <dt class="font-medium">Created</dt>
-                <dd>{new Date(event.created_at * 1000).toLocaleString()}</dd>
+                <dd><DateTimeDisplay value={event.created_at * 1000} options={{style: "full", seconds: true, showTimeZone: true}} /></dd>
               </div>
               <div>
                 <dt class="font-medium">Relay hints</dt>

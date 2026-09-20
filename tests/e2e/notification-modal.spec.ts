@@ -100,6 +100,44 @@ test.beforeEach(async ({page}) => {
   await openNotifications(page)
 })
 
+for (const width of [320, 1280]) {
+  test.describe(`notification date display at ${width}px`, () => {
+    test.use({
+      viewport: {width, height: 844},
+      isMobile: width === 320,
+      hasTouch: width === 320,
+      locale: "en-US",
+      timezoneId: "Europe/Berlin",
+    })
+
+    test("shows month names and tap-accessible exact timestamps without navigating", async ({
+      page,
+    }, testInfo) => {
+      const modal = notifications(page)
+      const timestamp = modal.locator("summary").first()
+      await expect(timestamp.locator("time")).toHaveText(
+        /^\d{1,2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{2},\s*\d{2}:\d{2}\s*$/,
+      )
+      const url = page.url()
+      if (width === 320) await timestamp.tap()
+      else {
+        await timestamp.focus()
+        await page.keyboard.press("Enter")
+      }
+      const details = timestamp.locator("..")
+      await expect(details).toHaveAttribute("open", "")
+      await expect(details.locator("p")).toContainText(
+        /\d{4}\s*at \d{2}:\d{2}:\d{2}\s*· UTC\+0[12]:00/,
+      )
+      await expect(page).toHaveURL(url)
+      await expect(modal).toBeVisible()
+      expect(await details.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+      expect(await modal.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+      await page.screenshot({path: testInfo.outputPath(`notification-dates-${width}.png`)})
+    })
+  })
+}
+
 test.describe("mobile notification modal", () => {
   test.use({viewport: {width: 390, height: 844}, isMobile: true, hasTouch: true})
 

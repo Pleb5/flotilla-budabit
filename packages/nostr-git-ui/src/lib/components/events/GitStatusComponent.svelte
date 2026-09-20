@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDate, formatExactDateTime } from "@welshman/lib";
   import { nip19, type NostrEvent } from "nostr-tools";
   import { onMount } from "svelte";
   import { Activity, Copy } from "@lucide/svelte";
@@ -133,7 +134,7 @@
       <div class="flex items-center gap-2 text-xs text-muted-foreground mb-1">
         <span>By <ProfileLink pubkey={event.pubkey} /></span>
         <span>•</span>
-        <span>{createdDate.toLocaleDateString()}</span>
+        <span class="whitespace-nowrap" title={formatExactDateTime(createdDate)}>{formatDate(createdDate)}</span>
         <span>•</span>
         <Badge variant="secondary" class="text-xs px-2 py-0.5 {statusTypeInfo.color}">
           {statusTypeInfo.type}

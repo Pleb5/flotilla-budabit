@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDate, formatExactDateTime } from "@welshman/lib";
   import { nip19, type NostrEvent } from "nostr-tools";
   import { onMount } from "svelte";
   import { FolderGit2, Copy, Star, GitBranch } from "@lucide/svelte";
@@ -120,7 +121,7 @@
           <span class="rounded-full border px-1.5 py-0.5 text-[11px]">Community {communityLabel}</span>
         {/if}
         <span>•</span>
-        <span>{createdDate.toLocaleDateString()}</span>
+        <span class="whitespace-nowrap" title={formatExactDateTime(createdDate)}>{formatDate(createdDate)}</span>
       </div>
 
       <p class="text-sm text-muted-foreground mb-3 line-clamp-2">

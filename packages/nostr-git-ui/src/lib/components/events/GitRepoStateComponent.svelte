@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "@welshman/lib";
   import { nip19, type NostrEvent } from "nostr-tools";
   import { onMount } from "svelte";
   import { GitBranch, Copy } from "@lucide/svelte";
@@ -22,7 +23,7 @@
   const shortNpub = $derived(authorNpub ? authorNpub.slice(0, 16) + "..." : "");
   const shortCommit = $derived(headCommit ? headCommit.slice(0, 8) : "");
   const formattedDate = $derived(
-    lastUpdate ? lastUpdate.toLocaleDateString() + " " + lastUpdate.toLocaleTimeString() : ""
+    lastUpdate ? formatDateTime(lastUpdate) : ""
   );
 
   const shortenMiddle = (value: string, start = 20, end = 10) => {

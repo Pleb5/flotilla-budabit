@@ -12,7 +12,7 @@
 <script lang="ts">
   import {goto} from "$app/navigation"
   import {pubkey} from "@welshman/app"
-  import {formatTimestamp} from "@welshman/lib"
+  import TimestampDetails from "@lib/components/TimestampDetails.svelte"
   import {onDestroy, onMount, tick, untrack} from "svelte"
   import Bell from "@assets/icons/bell.svg?dataurl"
   import ArrowRightUp from "@assets/icons/arrow-right-up.svg?dataurl"
@@ -333,6 +333,7 @@
     event: Event | undefined,
     display: ReturnType<typeof getNotificationRowDisplay>,
   ) => {
+    if (event?.target instanceof Element && event.target.closest("details")) return
     if (navigationPending) {
       event?.preventDefault()
       event?.stopPropagation()
@@ -571,7 +572,7 @@
                       <div
                         class="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                         {#if row.createdAt > 0}
-                          <span>{formatTimestamp(row.createdAt)}</span>
+                          <TimestampDetails value={row.createdAt * 1000} />
                         {/if}
                         {#if row.eventIds && row.eventIds.length > 1}
                           <span>{row.eventIds.length} events</span>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "@welshman/lib";
   import type { Repo } from "./Repo.svelte";
   import type { StatusEvent } from "@nostr-git/core/events";
   import {
@@ -408,7 +409,7 @@
                 <span>by</span>
                 <ProfileComponent pubkey={currentStatusEvent.pubkey} />
                 <span class="hidden sm:inline">•</span>
-                <span class="break-all sm:break-normal">{info.displayDate.toLocaleString()}</span>
+                <span>{formatDateTime(info.displayDate)}</span>
               </span>
             {/if}
           </div>
@@ -554,8 +555,8 @@
                         <span>by</span>
                         <ProfileComponent pubkey={event.pubkey} />
                         <span class="hidden sm:inline">•</span>
-                        <span class="break-all sm:break-normal"
-                          >{info.displayDate.toLocaleString()}</span
+                        <span
+                          >{formatDateTime(info.displayDate)}</span
                         >
                       </span>
                     </div>
@@ -594,8 +595,8 @@
                           <span>by</span>
                           <ProfileComponent pubkey={event.pubkey} />
                           <span class="hidden sm:inline">•</span>
-                          <span class="break-all sm:break-normal"
-                            >{info.displayDate.toLocaleString()}</span
+                          <span
+                            >{formatDateTime(info.displayDate)}</span
                           >
                         </span>
                       </div>

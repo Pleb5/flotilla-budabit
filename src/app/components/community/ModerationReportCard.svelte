@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import type {TrustedEvent} from "@welshman/util"
   import {
@@ -212,7 +213,7 @@
         </p>
       {/if}
       <p class="mt-1 text-xs opacity-60">
-        Published {new Date(report.event.created_at * 1000).toLocaleString()}
+        Published <DateTimeDisplay value={report.event.created_at * 1000} options={{showTimeZone: true}} />
       </p>
     </div>
 

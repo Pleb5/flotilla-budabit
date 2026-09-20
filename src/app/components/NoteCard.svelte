@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
+  import {formatDate, formatExactDateTime} from "@welshman/lib"
   import {getListTags, getPubkeyTagValues} from "@welshman/util"
   import type {TrustedEvent} from "@welshman/util"
   import {userMuteList} from "@welshman/app"
@@ -46,15 +47,6 @@
     muted = false
   }
 
-  // Format date as dd/mm/yy
-  const formatShortDate = (timestamp: number) => {
-    const date = new Date(timestamp * 1000)
-    const dd = String(date.getDate()).padStart(2, "0")
-    const mm = String(date.getMonth() + 1).padStart(2, "0")
-    const yy = String(date.getFullYear()).slice(-2)
-    return `${dd}/${mm}/${yy}`
-  }
-
   let muted = $state(getPubkeyTagValues(getListTags($userMuteList)).includes(event.pubkey))
 </script>
 
@@ -89,12 +81,13 @@
         {#if dateInteractive}
           <Button
             class="shrink-0 whitespace-nowrap text-xs opacity-75"
+            title={formatExactDateTime(event.created_at * 1000)}
             onclick={() => goToEvent(event)}>
-            {formatShortDate(event.created_at)}
+            {formatDate(event.created_at * 1000)}
           </Button>
         {:else}
-          <span class="mr-2 shrink-0 whitespace-nowrap text-xs opacity-60">
-            {formatShortDate(event.created_at)}
+          <span class="mr-2 shrink-0 whitespace-nowrap text-xs opacity-60" title={formatExactDateTime(event.created_at * 1000)}>
+            {formatDate(event.created_at * 1000)}
           </span>
         {/if}
       {/if}

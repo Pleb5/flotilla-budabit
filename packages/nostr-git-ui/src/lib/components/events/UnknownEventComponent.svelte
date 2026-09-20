@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDateTime } from "@welshman/lib";
   import { nip19, type NostrEvent } from "nostr-tools";
   import { onMount } from "svelte";
   import { HelpCircle, Copy } from "@lucide/svelte";
@@ -18,7 +19,7 @@
   const eventContent = $derived(event.content || "");
   const createdDate = $derived(new Date(event.created_at * 1000));
   const formattedDate = $derived(
-    createdDate.toLocaleDateString() + " " + createdDate.toLocaleTimeString()
+    formatDateTime(createdDate)
   );
   const tagCount = $derived(event.tags?.length || 0);
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {formatDateTime} from "@welshman/lib"
   import {
     GIT_ISSUE,
     createCoverLetterEvent,
@@ -399,7 +400,7 @@
     return issue?.createdAt ?? ""
   })
   const displayDateFormatted = $derived.by(() =>
-    displayDate ? new Date(displayDate).toLocaleString() : "",
+    displayDate ? formatDateTime(displayDate) : "",
   )
 
   // NIP-32: Add label UI state and publisher
@@ -997,7 +998,7 @@
               <ProfileLink pubkey={issue?.author.pubkey} relays={repoCommunityProfileRelays} />
               <span class="hidden sm:inline">opened this issue •</span>
               <span class="sm:hidden">opened</span>
-              <span class="break-all text-xs sm:break-normal">{displayDateFormatted}</span>
+              <span class="text-xs">{displayDateFormatted}</span>
             </span>
           </div>
           <ImportedProvenance event={issueEvent} />

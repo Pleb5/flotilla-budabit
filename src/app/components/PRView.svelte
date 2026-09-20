@@ -1,4 +1,6 @@
 <script lang="ts">
+  import {formatDateTime, formatTime} from "@welshman/lib"
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import {
     AlertCircle,
     CheckCircle,
@@ -3924,19 +3926,13 @@
     const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
     if (diffDays === 0) {
-      return `today at ${date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`
+      return `today at ${formatTime(date)}`
     } else if (diffDays === 1) {
-      return `yesterday at ${date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`
+      return `yesterday at ${formatTime(date)}`
     } else if (diffDays < 7) {
       return `${diffDays} days ago`
     } else {
-      return date.toLocaleDateString([], {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
+      return formatDateTime(date)
     }
   }
 
@@ -5120,7 +5116,7 @@
                   {update.tipCommitOid?.substring(0, 8) ?? "—"}
                 </code>
                 <span class="text-muted-foreground">
-                  {new Date(update.createdAt).toLocaleString()}
+                  <DateTimeDisplay value={update.createdAt} />
                 </span>
                 <ProfileLink pubkey={update.author.pubkey} relays={profileRelays} />
               </li>

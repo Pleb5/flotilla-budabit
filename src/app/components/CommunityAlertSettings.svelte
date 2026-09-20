@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {formatDateTime} from "@welshman/lib"
   import {pubkey, signer} from "@welshman/app"
   import Clock from "@assets/icons/clock-circle.svg?dataurl"
   import Mailbox from "@assets/icons/mailbox.svg?dataurl"
@@ -168,7 +169,7 @@
 
   const formatStatusTime = (timestamp?: number | null) =>
     typeof timestamp === "number"
-      ? new Date(timestamp * 1000).toLocaleString([], {dateStyle: "medium", timeStyle: "short"})
+      ? formatDateTime(timestamp * 1000, {showTimeZone: true})
       : "Not reported"
 
   const beginRequest = (key: string): RequestGuard => {

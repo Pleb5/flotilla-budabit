@@ -1,4 +1,5 @@
 export * from "./Deferred.js"
+export * from "./DateDisplay.js"
 export * from "./Emitter.js"
 export * from "./LRUCache.js"
 export * from "./Tools.js"

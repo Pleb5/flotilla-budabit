@@ -580,6 +580,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^2.26.0
         version: 2.27.2
+      '@welshman/lib':
+        specifier: workspace:*
+        version: link:../welshman/packages/lib
       '@welshman/store':
         specifier: workspace:*
         version: link:../welshman/packages/store

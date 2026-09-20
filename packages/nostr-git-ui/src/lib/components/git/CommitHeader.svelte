@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDate as formatCompactDate, formatExactDateTime } from "@welshman/lib";
   import { Copy, Calendar, GitCommit } from "@lucide/svelte";
   import { toast } from "../../stores/toast";
   import NostrAvatar from "./NostrAvatar.svelte";
@@ -50,12 +51,12 @@
     } else if (diffDays < 7) {
       return `${diffDays} days ago`;
     } else {
-      return date.toLocaleDateString();
+      return formatCompactDate(date);
     }
   };
 
   const formatExactDate = (timestamp: number) => {
-    return new Date(timestamp).toLocaleString();
+    return formatExactDateTime(timestamp);
   };
 
   // Copy SHA to clipboard

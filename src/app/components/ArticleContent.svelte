@@ -1,5 +1,6 @@
 <script lang="ts">
   import type {TrustedEvent} from "@welshman/util"
+  import {formatDate, formatExactDateTime} from "@welshman/lib"
   import Markdown from "@lib/components/Markdown.svelte"
   import {userSettingsValues} from "@app/core/state"
   import {getArticleDetails} from "@app/util/articles"
@@ -40,12 +41,8 @@
       {#if date}
         <span
           >{article.draft ? "Draft saved" : "Published"}
-          <time datetime={date.toISOString()} title={date.toLocaleString()}
-            >{date.toLocaleDateString(undefined, {
-              year: "numeric",
-              month: "long",
-              day: "numeric",
-            })}</time
+          <time datetime={date.toISOString()} title={formatExactDateTime(date)}
+            >{formatDate(date, {style: "full"})}</time
           ></span>
       {/if}
     </div>

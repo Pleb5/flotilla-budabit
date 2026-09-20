@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import {onDestroy, tick} from "svelte"
   import {writable} from "svelte/store"
   import {page} from "$app/stores"
@@ -1783,9 +1784,7 @@
                             <span class="block text-xs font-medium uppercase opacity-60"
                               >Submitted</span>
                             <span>
-                              {new Date(
-                                application.response.event.created_at * 1000,
-                              ).toLocaleString()}
+                              <DateTimeDisplay value={application.response.event.created_at * 1000} options={{showTimeZone: true}} />
                             </span>
                           </div>
                         </div>
@@ -1797,9 +1796,7 @@
                             {reviewHistoryLabel(priorReview.status)} by
                             <ProfileLink
                               pubkey={priorReview.event.pubkey}
-                              relays={communityProfileRelays} /> on {new Date(
-                              priorReview.event.created_at * 1000,
-                            ).toLocaleString()}.
+                              relays={communityProfileRelays} /> on <DateTimeDisplay value={priorReview.event.created_at * 1000} options={{showTimeZone: true}} />.
                           </p>
                         {/if}
 
