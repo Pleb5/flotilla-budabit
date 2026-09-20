@@ -57,3 +57,15 @@ The adapter releases its store watch and timer on request replacement, community
 ## Freelance integration
 
 Community Freelance v0.5.0 coalesces mounted identity labels into this API, renders avatars and profile names, and uses shortened npubs when no usable name is available. The signing account can render matching `widget:init.user` metadata immediately. Old hosts without the API retain that signer metadata and npub fallbacks for other accounts. Full profile resolution requires both the host update and the widget manifest's added read permission.
+
+## Verification — 2026-09-20
+
+Host implementation `12242f577`; Community Freelance implementation `176e311` (v0.5.0).
+
+- `pnpm check`: zero Svelte/TypeScript errors or warnings.
+- Focused Vitest run for `extensions/profiles`, `extensions/bridge`, `extensions/host-capabilities`, and `core/profile-resolver`: 101 tests passed. Verified cache-first snapshots, community hints, bounded fallback and late updates, stale-context/detach cleanup, request bounds, and the explicit read permission alongside existing resolver regressions.
+- `tests/e2e/community-freelance-quicklink.spec.ts`: four Chromium desktop/mobile tests passed using the real localhost host and built widget with generated identities and intercepted relay/HTTP fixtures. The two profile tests also passed against the final widget bundle.
+- Browser telemetry confirmed community-only and indexer-only profiles were discovered through their respective host relay requests; a cache-only profile needed no request. Late profiles and avatar edits hydrated labels. Service/order participants and both reviews, Job/proposal authors, and existing signer/access/draft flows passed. Iframe workflow networking contained no profile queries or external relay reads.
+- Inspected desktop-light/mobile-dark profile cards and service-detail screenshots; no page errors or mobile horizontal overflow. Private evidence is retained under `~/.cache/opencode-v2/tmp/opencode/freelance-profile-bridge/results/`.
+
+The user is deploying the production host. These checks establish local real-host behavior; production verification awaits deployment confirmation.
