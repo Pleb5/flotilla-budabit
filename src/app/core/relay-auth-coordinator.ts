@@ -21,7 +21,6 @@ import {
   RELAY_AUTH_ACK_TIMEOUT,
   recordRelayAuthRequired,
 } from "./relay-policy"
-import {isUserOwnedRelay, subscribeRelayAuthConsent} from "./relay-auth-consent"
 import {isOperationScopedProviderAuthSocket} from "./provider-relay-auth"
 
 export type RelayAuthOptions = {
@@ -136,8 +135,6 @@ export const authenticateRelay = (
   const required = getRelayPolicy(socket.url).auth === "required"
   const activePubkey = pubkey.get(),
     activeSigner = signer.get()
-  if (!isUserOwnedRelay(socket.url))
-    return Promise.reject(new RelayAuthenticationError(socket.url, "consent-required"))
   if ((!activePubkey || !activeSigner) && (required || activePubkey))
     return Promise.reject(
       new RelayAuthenticationError(socket.url, activePubkey ? "signer-required" : "login-required"),
@@ -249,13 +246,14 @@ export const coordinatedAuthPolicy = (socket: Socket) => {
   const controller = new AbortController()
   let pending = false
   const attempt = () => {
+    // An actual AUTH challenge takes precedence over relay-list membership and
+    // NIP-11 metadata. Repository/invitation relay hints use this same policy.
     if (
       !pending &&
       !controller.signal.aborted &&
       [AuthStatus.Requested, AuthStatus.PendingSignature, AuthStatus.PendingResponse].includes(
         socket.auth.status,
-      ) &&
-      getRelayPolicy(socket.url).auth !== "none"
+      )
     ) {
       pending = true
       void authenticateRelay(socket, {signal: controller.signal}).then(
@@ -278,7 +276,6 @@ export const coordinatedAuthPolicy = (socket: Socket) => {
     on(socket.auth, AuthStateEvent.Status, attempt),
     signer.subscribe(attempt),
     pubkey.subscribe(attempt),
-    subscribeRelayAuthConsent(attempt),
   ]
   const runtimeRequired = (message: RelayMessage) => {
     const reason = isRelayClosed(message)
@@ -291,7 +288,7 @@ export const coordinatedAuthPolicy = (socket: Socket) => {
       attempt()
     }
   }
-  // Update policy/start consented authentication before the shared replay owner
+  // Update policy/start authentication before the shared replay owner
   // decides whether this CLOSED is terminal or awaiting one AUTH-confirmed retry.
   socket.prependListener(SocketEvent.Receiving, runtimeRequired)
   return () => {

@@ -8,7 +8,8 @@ import {
   AuthStatus,
   socketPolicyAuthBuffer,
 } from "@welshman/net"
-import {finalizeEvent, getPublicKey} from "nostr-tools"
+import {finalizeEvent, getPublicKey, nip19} from "nostr-tools"
+import {resolvePrivateCommunityScope} from "./private-community-scope"
 import {
   authenticateRelay,
   cancelRelayAuthentication,
@@ -18,7 +19,6 @@ import {
 const model = vi.hoisted(() => ({
   sign: vi.fn(),
   hasSigner: true,
-  consent: true,
   auth: "required",
   subscribers: new Set<() => void>(),
 }))
@@ -47,10 +47,6 @@ vi.mock("./relay-policy", async importOriginal => {
     },
   }
 })
-vi.mock("./relay-auth-consent", () => ({
-  isUserOwnedRelay: () => model.consent,
-  subscribeRelayAuthConsent: () => () => {},
-}))
 vi.mock("./provider-relay-auth", () => ({isOperationScopedProviderAuthSocket: () => false}))
 const key = new Uint8Array(32).fill(37),
   wrongKey = new Uint8Array(32).fill(38)
@@ -59,7 +55,7 @@ describe("relay auth coordinator", () => {
   let socket: Socket
   beforeEach(() => {
     vi.useFakeTimers()
-    model.hasSigner = model.consent = true
+    model.hasSigner = true
     model.auth = "required"
     pubkey.set(getPublicKey(key))
     model.sign.mockReset().mockImplementation(async event => finalizeEvent(event, key))
@@ -149,12 +145,54 @@ describe("relay auth coordinator", () => {
     release()
   })
 
-  it("requires independent authentication consent, without mutating trust settings", async () => {
-    model.consent = false
+  it.each(["none", "optional", "required"])(
+    "automatically authenticates an unlisted relay with %s metadata on its challenge",
+    async auth => {
+      model.auth = auth
+      const cleanup = coordinatedAuthPolicy(socket)
+      challenge(socket)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(model.sign).toHaveBeenCalledOnce()
+      expect(model.sign.mock.calls[0][0]).toMatchObject({
+        kind: 22242,
+        tags: expect.arrayContaining([
+          ["relay", socket.url],
+          ["challenge", "challenge"],
+        ]),
+      })
+      ack(socket)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(socket.auth.status).toBe(AuthStatus.Ok)
+      cleanup()
+    },
+  )
+
+  it("an invitation cannot suppress automatic authentication for other reads on its relay", async () => {
+    const naddr = nip19.naddrEncode({
+      pubkey: getPublicKey(key),
+      kind: 32222,
+      identifier: "d".repeat(64),
+      relays: [socket.url],
+    })
+    expect(
+      resolvePrivateCommunityScope(new URL(`/c/${naddr}?read-access=members`, "https://app.test")),
+    ).toMatchObject({relays: [socket.url]})
+    const replay = socketPolicyAuthBuffer(socket)
+    const cleanup = coordinatedAuthPolicy(socket)
+    const send = vi.spyOn(socket, "send")
     challenge(socket)
-    await expect(authenticateRelay(socket)).rejects.toMatchObject({status: "consent-required"})
-    expect(model.sign).not.toHaveBeenCalled()
-    expect(socket.auth.status).toBe(AuthStatus.Requested)
+    socket.send(["REQ", "repo-stars", {kinds: [7], authors: [getPublicKey(key)], "#k": ["30617"]}])
+    const closed = ["CLOSED", "repo-stars", "auth-required: authenticate"] as any
+    socket._recvQueue.push(closed)
+    socket.emit(SocketEvent.Receiving, closed)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(model.sign).toHaveBeenCalledOnce()
+    ack(socket)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(socket.auth.status).toBe(AuthStatus.Ok)
+    expect(send.mock.calls.filter(([message]) => message[0] === "REQ")).toHaveLength(2)
+    cleanup()
+    replay()
   })
 
   it("removes old socket on identity change and ignores delayed signature", async () => {

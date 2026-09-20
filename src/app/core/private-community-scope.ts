@@ -1,6 +1,5 @@
 import {normalizeRelayUrl} from "@welshman/util"
 import {parseCommunityNaddr, type CommunityPointer} from "./community-protocol"
-import {requireExplicitRelayAuthConsent} from "./relay-auth-consent"
 import {recordRelayAuthRequired} from "./relay-policy"
 
 // Invitation scopes only remember which relays serve a member-only community.
@@ -11,7 +10,6 @@ const scopes = new Map<string, PrivateCommunityScope>()
 const rememberInvitation = (scope: PrivateCommunityScope) => {
   // Only explicit invitations set authentication expectations. A definition's
   // read-access/r tags never classify a relay or block unrelated requests.
-  requireExplicitRelayAuthConsent(scope.relays)
   scope.relays.forEach(recordRelayAuthRequired)
   scopes.set(scope.pointer.address, scope)
   return scope

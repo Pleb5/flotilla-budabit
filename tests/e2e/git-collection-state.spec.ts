@@ -1,4 +1,5 @@
 import {expect, test, type Page} from "@playwright/test"
+import {nip19} from "nostr-tools"
 import {
   buildCommunityDefinition,
   buildTargetedPublication,
@@ -15,6 +16,7 @@ import {MockRelay, type NostrFilter} from "./helpers/mock-relay"
 
 const viewer = TEST_PUBKEYS.devUser
 const repoRelay = "wss://collection-repos.test/"
+const authRepoRelay = "wss://collection-repo-auth.test/"
 const communityRelay = "wss://collection-community.test/"
 const sourceRelay = "wss://collection-originals.test/"
 const community = makeCommunityPointer({
@@ -28,7 +30,7 @@ const announcements = Array.from({length: 40}, (_, index) =>
       identifier: `collection-${index}`,
       name: `Collection fixture ${String(index).padStart(2, "0")}`,
       pubkey: viewer,
-      relays: [repoRelay],
+      relays: index < 3 ? [repoRelay, authRepoRelay] : [repoRelay],
       created_at: BASE_TIMESTAMP + index,
     }),
   ),
@@ -91,13 +93,19 @@ const writers = signTestEvent({
 
 async function openFixture(
   page: Page,
-  options: {communityMode?: boolean; gate?: Promise<"eose">} = {},
+  options: {
+    communityMode?: boolean
+    gate?: Promise<"eose">
+    authenticateRepos?: boolean
+    directRepo?: number
+  } = {},
 ) {
   const requests: Array<{filters: NostrFilter[]; relay: string}> = []
   const relay = new MockRelay({
+    authRequiredRelays: options.authenticateRepos ? [authRepoRelay] : [],
     seedEvents: [...announcements, definition, writers],
     seedEventsByRelay: {
-      [repoRelay]: [personal],
+      [options.authenticateRepos ? authRepoRelay : repoRelay]: [personal],
       [communityRelay]: [wrapper(referenced), wrapper(otherMemberStar, TEST_PUBKEYS.bob)],
       [sourceRelay]: [referenced, otherMemberStar],
     },
@@ -132,7 +140,22 @@ async function openFixture(
   await page.route("https://**", route =>
     route.fulfill({status: 503, body: "Fixture: external services unavailable"}),
   )
-  await page.goto(options.communityMode ? `/git?community=${community.naddr}` : "/git")
+  const directRepo =
+    options.directRepo === undefined
+      ? undefined
+      : nip19.naddrEncode({
+          kind: 30617,
+          pubkey: viewer,
+          identifier: `collection-${options.directRepo}`,
+          relays: [repoRelay, authRepoRelay],
+        })
+  await page.goto(
+    directRepo
+      ? `/git/${directRepo}`
+      : options.communityMode
+        ? `/git?community=${community.naddr}`
+        : "/git",
+  )
   return {relay, requests}
 }
 
@@ -142,6 +165,67 @@ const card = (page: Page, index: number) =>
   })
 const starButton = (page: Page, index: number) =>
   card(page, index).locator("[data-collection-status]")
+
+for (const entry of ["list", "overview"] as const) {
+  test(`automatically authenticates an unlisted repo relay from a cold ${entry} and after reload`, async ({
+    page,
+  }, testInfo) => {
+    const errors: string[] = []
+    page.on("pageerror", error => errors.push(error.message))
+    const {relay, requests} = await openFixture(page, {
+      authenticateRepos: true,
+      ...(entry === "overview" ? {directRepo: 2} : {}),
+    })
+    const authCount = async () =>
+      (await relay.getTelemetry()).filter(
+        event => event.type === "auth" && event.relayUrl === authRepoRelay,
+      ).length
+    const ownAuthRepoReads = () =>
+      requests.filter(
+        request =>
+          request.relay === authRepoRelay &&
+          request.filters.some(
+            filter => filter.kinds?.includes(7) && filter.authors?.includes(viewer),
+          ),
+      ).length
+    const expectOverviewResolved = () =>
+      expect(page.locator('[data-collection-status="uncollected"]')).toHaveCount(1, {
+        timeout: 15_000,
+      })
+    const expectListResolved = async () => {
+      // The personal star exists only on the unlisted AUTH-required relay.
+      await expect(starButton(page, 0)).toHaveAttribute("data-collection-status", "collected", {
+        timeout: 15_000,
+      })
+      await expect(starButton(page, 2)).toHaveAttribute("data-collection-status", "uncollected")
+      await expect(starButton(page, 3)).toHaveAttribute("data-collection-status", "uncollected")
+      await expect(page.locator('[data-collection-status="indeterminate"]')).toHaveCount(0)
+    }
+    if (entry === "overview") await expectOverviewResolved()
+    else await expectListResolved()
+    await expect.poll(authCount).toBe(1)
+    expect(ownAuthRepoReads()).toBeGreaterThan(0)
+
+    if (entry === "list") {
+      const baselineReads = ownAuthRepoReads()
+      await card(page, 2).getByText("Collection fixture 02", {exact: true}).click()
+      await expect(page).toHaveURL(/\/git\/naddr/)
+      await expectOverviewResolved()
+      await page.goBack()
+      await expectListResolved()
+      expect(ownAuthRepoReads()).toBe(baselineReads)
+      expect(await authCount()).toBe(1)
+    }
+
+    await page.reload()
+    if (entry === "overview") await expectOverviewResolved()
+    else await expectListResolved()
+    await expect.poll(authCount).toBe(1)
+    await page.screenshot({path: testInfo.outputPath(`authenticated-${entry}.png`)})
+    expect(relay.getPublishedEvents()).toEqual([])
+    expect(errors).toEqual([])
+  })
+}
 
 test("resolves unknown stars and reuses layout reads across pagination and repository navigation", async ({
   page,

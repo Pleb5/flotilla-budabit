@@ -24,7 +24,8 @@ not hold the community roster or address. It is not E2E encryption.
 
 An explicit `/c/<naddr>?read-access=members` invitation remembers relay hints before
 definition lookup, without a public discovery fallback for that lookup. Login,
-signer, consent and AUTH/retry controls accompany the normal community layout.
+signer and AUTH/retry controls accompany the normal community layout. Relay challenges
+authenticate automatically through the shared socket coordinator.
 They use pooled sockets and shared loaders, not a separate reader or content gate.
 Denial and unavailable policy are not successful empty history.
 

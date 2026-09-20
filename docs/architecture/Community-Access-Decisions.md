@@ -13,7 +13,7 @@ ReadGate design is superseded; its history is not evidence for the replacement.
 | Current roles, writes and content moderation | [Community moderation](Budabit-Community-Moderation.md) |
 | Invitation connections, shared client data and tests | [Read-access client architecture](Community-Read-Control-Plan.md) |
 | Publication destinations and external disclosure boundaries | [Relay publishing policy](Budabit-Relay-Publishing-Policy.md) |
-| AUTH ownership, consent and request scheduling | [Relay I/O scheduling](community-relay-io-scheduling.md) |
+| Automatic AUTH and request scheduling | [Relay I/O scheduling](community-relay-io-scheduling.md) |
 | DM wire format and encryption | [Project NIP-4444 draft](NIP-4444.md) |
 | Relay/plugin contract, defaults and implementation map | `strfry/deploy/budabit/READ-CONTROL-PLAN.md` in the sibling repository |
 | Operator configuration, health, maintenance and rollback | `strfry/deploy/budabit/PRIVATE-READS.md` |
@@ -30,7 +30,7 @@ the trustworthiness or freshness of a running relay.
 | --- | --- | --- |
 | Client-only moderation | Ordinary public community reads; no Budabit write plugin required | Validate signed branch authority and current content admission |
 | Public reads plus write enforcement | Reject unauthorized community writes using signed event authors | Still moderate retained history/imports; do not assume the relay curated them |
-| Optional member-only reads | Enforcing write policy plus whole-relay REQ admission and periodic connection rechecks | Authenticate with consent; use ordinary shared storage, features and content checks |
+| Optional member-only reads | Enforcing write policy plus whole-relay REQ admission and periodic connection rechecks | Authenticate on relay challenges; use ordinary shared storage, features and content checks |
 
 The third level does not replace the first two. “Public reads” here refers to
 community content: independent DM participant privacy remains mandatory in the
@@ -94,7 +94,7 @@ design.
 
 - **Identity:** NIP-42 proves control of a key on a connection. A valid nonmember
   proof still gets `OK true`. Budabit waits for the matching ACK; a signature alone
-  is not authentication. Authentication consent does not grant unsigned-event trust.
+  is not authentication. Authentication does not grant unsigned-event trust.
 - **Readership:** after a complete successful initial scan, the owner can bootstrap
   even without a definition. A non-owner needs an available definition, a structural,
   active-moderator or any-section-grant role, and no effective person ban. Referenced
@@ -172,7 +172,7 @@ Downstream disclosure is not prevented by this contract.
 Signed `['read-access', 'members']` remains preserved metadata, not a client routing
 or export restriction. Unsolicited definitions cannot classify endpoints, register
 private coordinates or block unrelated requests. Explicit invitations remember relay
-hints for definition lookup and require authentication consent; that lookup has no
+hints for definition lookup and use automatic challenge-driven authentication; that lookup has no
 public discovery/outbox fallback. Subsequent ordinary application routing is not
 confined to those hints. Neither the tag nor the invitation configures relay enforcement.
 

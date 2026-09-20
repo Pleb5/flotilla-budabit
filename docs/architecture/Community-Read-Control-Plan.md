@@ -57,8 +57,8 @@ reports connection/admission results, not whether all community history is compl
 Cached content remains available while disconnected or signed out.
 
 Retry uses Welshman's pooled socket. It replaces closed, failed, disposed or
-AUTH-forbidden connections, but reuses healthy and opening connections. It grants
-identity-specific authentication consent, awaits the shared AUTH coordinator, then
+AUTH-forbidden connections, but reuses healthy and opening connections. It
+awaits the shared AUTH coordinator, then
 queries the exact definition through the normal status-aware loader. A completed
 query triggers normal community bootstrap recovery. Denial and unavailability are
 distinct from completion; a later grant can be followed by explicit retry.
@@ -74,7 +74,9 @@ most 60 seconds. This recovery state is not a global endpoint blacklist or cache
 
 Cancellation and identity/signer changes stop the connection attempt and invalidate
 stale signing work. Account-change socket cleanup does not clear the repository.
-AUTH consent never grants unsigned-event trust. The coordinator retains verified
+AUTH is automatic on relay challenges, including invitation and repository relays;
+there is no relay-ownership or per-relay consent gate. AUTH never grants unsigned-event
+trust. The coordinator retains verified
 proof checks, matching ACK handling and separate signing/ACK time budgets. Normal
 transport recovery is shared by all reads; publishes are not implicitly replayed.
 
@@ -114,7 +116,7 @@ pnpm exec playwright test -c tests/e2e/private-community.config.ts
 
 It uses fresh browser contexts, a disposable NIP-07 identity, the existing mock relay
 and blocked off-origin HTTP. Only AUTH for the fixture relay can be signed. It checks
-login/consent, denial, explicit retry, shared repository intake, IndexedDB persistence,
+login, automatic authentication, denial, explicit retry, shared repository intake, IndexedDB persistence,
 normal child routes, reload, retained data after logout and malformed invitations.
 It also verifies that a revoked live community read is not recreated over a
 12-second observation window, and that successful explicit retry clears its block.
@@ -127,11 +129,11 @@ error without draining queued EVENT/EOSE, and discards them on local cancellatio
 `socket-terminal.test.ts` covers this separately from the mocked browser flow.
 The adjacent AUTH/CLOSED replay-ordering finding was fixed in `f576df3f7`.
 AUTH challenges update state at wire ingress, before adjacent closures are classified;
-a consented challenge-probe continuation gets one microtask to start signing.
+a challenge-probe continuation gets one microtask to start signing.
 Requested state alone never suppresses a terminal CLOSED, and read replay waits for
 the matching positive AUTH ACK. Suppressed closures are removed from both receive
 and pending disconnect-flush queues. `auth-replay-order.test.ts` covers wire ordering,
-ACK matching, absent consent, superseding challenges and disconnect behavior;
+ACK matching, absent authentication attempts, superseding challenges and disconnect behavior;
 `relay-auth-coordinator.test.ts` covers the existing-probe continuation race.
 
 `community-read-recovery.test.ts` covers scoped denials, remount/late-EOSE behavior,
@@ -147,7 +149,7 @@ of the production live effect with controlled dependencies.
 | Connection controls and normal layout | `src/app/components/CommunityRelayAccess.svelte`, `CommunityLayout.svelte` |
 | Shared loading, bootstrap and recovery | `src/app/core/community-state.ts` |
 | Scoped background read recovery | `src/app/core/community-read-recovery.ts` |
-| AUTH consent/coordinator | `src/app/core/relay-auth-consent.ts`, `relay-auth-coordinator.ts` |
+| Automatic AUTH coordinator | `src/app/core/relay-auth-coordinator.ts` |
 | Shared AUTH/replay/repository | `packages/welshman/packages/net/src/auth.ts`, `read-replay.ts`, `repository.ts` |
 | Current content permissions/moderation | `src/app/core/community-permissions.ts`, `community-reports.ts` |
 | Shared reader semantics and immutable pin | `src/app/core/community-read-access.ts`, `community-policy-vectors.test.ts`, `community-policy-conformance.json` |

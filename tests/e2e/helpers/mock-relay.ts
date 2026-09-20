@@ -84,7 +84,7 @@ export interface MockRelayPublishResponse {
 }
 
 export interface MockRelayTelemetryEntry {
-  type: "connect" | "open" | "req" | "event" | "eose" | "close" | "external"
+  type: "connect" | "open" | "req" | "auth" | "event" | "eose" | "close" | "external"
   at: number
   relayUrl: string
   subId?: string
@@ -565,6 +565,7 @@ export class MockRelay {
 
           private handleAuth(params: unknown[]): void {
             const [event] = params as [NostrEvent]
+            recordTelemetry({type: "auth", relayUrl: this.url, eventId: event.id})
 
             if (debug) {
               console.log(`[MockRelay] AUTH:`, event)

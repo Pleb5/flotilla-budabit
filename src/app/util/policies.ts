@@ -26,7 +26,7 @@ export const authPolicy = coordinatedAuthPolicy
 export const trustPolicy = (socket: Socket) => {
   const buffer: RelayMessage[] = []
   const unsubscribers = [
-    // Authentication consent never changes unsigned-event trust.
+    // Relay authentication never changes unsigned-event trust.
     userSettingsValues.subscribe($settings => {
       if (isTrustedRelay(socket.url, $settings.trusted_relays)) {
         for (const message of buffer.splice(0)) socket._recvQueue.push(message)

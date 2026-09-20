@@ -13,7 +13,6 @@ vi.mock("@welshman/app", async original => {
   return {...(await original<typeof import("@welshman/app")>()), signer: {get: () => signing}}
 })
 vi.mock("./relay-auth-coordinator", () => ({authenticateRelay: vi.fn()}))
-vi.mock("./relay-auth-consent", () => ({allowRelayAuthentication: vi.fn()}))
 vi.mock("./relay-policy", () => ({recordRelayAuthRequired: vi.fn()}))
 vi.mock("./community-state", () => ({
   loadCommunityEventsWithStatus: vi.fn(),

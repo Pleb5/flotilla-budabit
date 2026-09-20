@@ -52,14 +52,6 @@ vi.mock("@welshman/app", async importOriginal => {
   }
 })
 
-// These loading tests assume explicit consent and a connected controlled signer;
-// permission/guest/identity checks are exercised in relay-auth-coordinator.test.ts.
-vi.mock("./relay-auth-consent", () => ({
-  requireExplicitRelayAuthConsent: vi.fn(),
-  isUserOwnedRelay: () => true,
-  subscribeRelayAuthConsent: () => () => {},
-}))
-
 vi.mock("@welshman/net", async importOriginal => {
   const actual = await importOriginal<typeof import("@welshman/net")>()
 

@@ -15,16 +15,18 @@ AUTH/probes and waiting reads. A later caller starts a fresh attempt. This canno
 withdraw a remote signer's prompt, but its late result cannot reach the wire.
 Reconnects authenticate
 before replay. No EVENT or Negentropy message is implicitly replayed. Runtime
-`auth-required:` evidence overrides stale public metadata; authentication consent
-does not grant unsigned-event trust.
+AUTH challenges trigger authentication automatically, including for relays discovered
+through repository and invitation hints. There is no relay-ownership allowlist or
+per-relay consent gate. Actual challenges and `auth-required:` evidence override stale
+public metadata; authentication does not grant unsigned-event trust.
 AUTH challenges update state at wire ingress, before adjacent auth-required CLOSED
 frames are classified. A pending challenge-probe continuation gets one microtask
-to start consented signing; Requested alone does not suppress a terminal closure.
+to start signing; Requested alone does not suppress a terminal closure.
 Buffered closures are removed from the disconnect flush as well as the receive queue.
 
 Explicit invitations use their relay hints for definition lookup through pooled
-sockets and the normal shared repository. They require authentication consent but
-do not blacklist endpoints or coordinates for unrelated requests. Signed definitions
+sockets and the normal shared repository. Their relays authenticate through the same
+automatic socket policy and do not suppress authentication for unrelated requests. Signed definitions
 cannot register such restrictions. The shared loader reports per-relay
 denied/cancelled/timeout/unavailable outcomes and permits a bounded policy-unavailable
 retry. Explicit invitation retry replaces closed/failed connections, retaining healthy
@@ -148,7 +150,7 @@ client uses normal authority loaders, not a separate private-capability gate.
 
 ## Authentication
 
-Public relays do not run pre-authentication. This avoids Welshman's challenge wait when no challenge will arrive.
+Public relays do not run pre-authentication. This avoids Welshman's challenge wait when no challenge will arrive. An actual AUTH challenge always triggers the shared coordinator regardless of the relay's NIP-11 metadata or presence in user relay lists.
 
 Required-auth relays use one in-flight authentication attempt per relay socket. Priority reads wait for a successful NIP-42 response before sending. Forbidden authentication produces a typed error.
 
@@ -225,6 +227,11 @@ or exhausted page budget remains saturated; a failed boundary request remains
 retryable. Failed reads back off without restarting completed scopes. Known stars
 remain usable during partial history, while absent stars require completed
 personal and community coverage before displaying an uncollected state.
+
+Focused browser verification (`pnpm exec playwright test -c tests/e2e/relay-auth.config.ts`)
+uses disposable identities and mocked relay traffic. It covers an unlisted
+AUTH-required repository relay on cold `/git` and overview loads, warm navigation,
+reloads, one AUTH per connection, shared collection reads, and invitation recovery.
 
 ## Live Subscription Scope
 

@@ -1,7 +1,6 @@
 import {pubkey, signer} from "@welshman/app"
 import {AuthError, AuthStatus, Pool, SocketStatus} from "@welshman/net"
 import {authenticateRelay} from "./relay-auth-coordinator"
-import {allowRelayAuthentication} from "./relay-auth-consent"
 import {recordRelayAuthRequired} from "./relay-policy"
 import {loadCommunityEventsWithStatus, makeExactCommunityDefinitionFilter} from "./community-state"
 import type {PrivateCommunityScope} from "./private-community-scope"
@@ -40,7 +39,6 @@ export const connectCommunityInvitation = async (
             previous.auth.status === AuthStatus.Forbidden)
         )
           pool.remove(relay)
-        allowRelayAuthentication(relay, identity)
         await authenticateRelay(pool.get(relay), {signal, retry: true})
         current()
         // AUTH is not membership. Even an empty definition query must reach EOSE.

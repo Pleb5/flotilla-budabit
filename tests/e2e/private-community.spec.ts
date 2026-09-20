@@ -221,9 +221,19 @@ test("invitation authenticates a pooled connection; normal routes and persistent
             filter.limit === 0 &&
             filter.kinds?.includes(32222) &&
             filter["#d"]?.includes(community),
+        ) &&
+        // The community-core reader includes targeting events. Background
+        // notification authority reads also include the definition but are an
+        // independent reader on the shared connection.
+        entry.filters?.some(
+          filter =>
+            filter.limit === 0 &&
+            filter.kinds?.includes(30222) &&
+            filter["#h"]?.includes(community),
         ),
     ).length
   const requestsAfterRevocation = await liveRequests()
+  expect(requestsAfterRevocation).toBeGreaterThan(0)
   // A silence assertion needs an observation window spanning multiple old retries.
   // This is a shared socket: unrelated application queries may still use it.
   await page.waitForTimeout(12_000)
