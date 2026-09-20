@@ -12,6 +12,7 @@
   import Plugins from "@assets/icons/plug-circle.svg?dataurl"
   import Flower from "@assets/icons/flower.svg?dataurl"
   import Chart from "@assets/icons/chart.svg?dataurl"
+  import Close from "@assets/icons/close.svg?dataurl"
   import {goto, preloadCode} from "$app/navigation"
   import {onMount} from "svelte"
   import Icon from "@lib/components/Icon.svelte"
@@ -20,7 +21,7 @@
   import LogIn from "@app/components/LogIn.svelte"
   import LogOut from "@app/components/LogOut.svelte"
   import {pubkey} from "@welshman/app"
-  import {clearModals, pushModal} from "@app/util/modal"
+  import {clearModals, closeTopModal, pushModal} from "@app/util/modal"
   import {makeProfilePath} from "@app/util/routes"
   import {theme} from "@app/util/theme"
   import {pushToast} from "@app/util/toast"
@@ -74,6 +75,21 @@
 <svelte:window onkeydown={dismissOnEscape} />
 
 <div class="column menu gap-2">
+  <header class="flex shrink-0 items-center justify-between gap-3">
+    <Button
+      class="btn btn-square btn-ghost h-11 min-h-11 w-11 shrink-0"
+      aria-label="Close settings"
+      data-modal-initial-focus
+      disabled={navigationPending}
+      onclick={closeTopModal}>
+      <Icon icon={Close} size={7} />
+    </Button>
+    <h1
+      class="flex min-w-0 flex-1 items-center justify-center self-stretch text-lg font-semibold leading-none">
+      Settings
+    </h1>
+    <span class="w-11 shrink-0" aria-hidden="true"></span>
+  </header>
   {#if !$pubkey}
     <Button onclick={login}>
       <CardButton class="btn-primary">
