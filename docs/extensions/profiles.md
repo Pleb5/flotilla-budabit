@@ -89,3 +89,15 @@ Host implementation `12242f577`; Community Freelance implementation `176e311` (v
 - Inspected desktop-light/mobile-dark profile cards and service-detail screenshots; no page errors or mobile horizontal overflow. Private evidence is retained under `~/.cache/opencode-v2/tmp/opencode/freelance-profile-bridge/results/`.
 
 The user is deploying the production host. These checks establish local real-host behavior; production verification awaits deployment confirmation.
+
+### Profile-modal verification — v0.5.1
+
+Host implementation `e9951c577`; widget implementation `b00752c`.
+
+- Host `pnpm check`: zero errors/warnings. Focused Vitest run: **91 tests passed** across `extensions/profile-modal`, `extensions/bridge`, `extensions/host-capabilities`, `util/modal-stack`, and `util/modal-retention`.
+- Widget `pnpm check`: **40 tests passed**, zero diagnostics, production build passed.
+- Real-host/production-widget desktop-light and mobile-dark quicklink checks passed; extended profile checks passed in 18.4 seconds. Verified avatar/name/keyboard activation, no listing-card activation from author clicks, Escape, browser Back, desktop Go back, and mobile backdrop dismissal.
+- Full-profile viewing opened a new tab with no opener while preserving the original widget. Ordinary host profile modals retained their same-tab link. A title/category draft retained both its values and original input/iframe DOM nodes after dismissal.
+- Opened and inspected the desktop/mobile profile-modal PNGs and updated listing card. No browser page errors or workflow publication. Fixture evidence is retained in `~/.cache/opencode-v2/tmp/opencode/freelance-release-0.5.1/browser-results/`.
+
+Production deployment remains user-managed and awaits confirmation.
