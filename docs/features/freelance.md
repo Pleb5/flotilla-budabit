@@ -42,6 +42,16 @@ This action link focuses the matching section's current authorized application f
 
 The widget saves open drafts before navigation. Application selection and submission status come from Membership's existing community-scoped state. The widget and updated Membership route must both be deployed to enable this focused behavior.
 
+### Account profile and access recovery
+
+Widget v0.4.1 consumes Budabit's existing `widget:init.user` name/avatar only when its pubkey matches the current community viewer. `WidgetFrame` resends this metadata after profile hydration or account changes. The widget's profile-only updates preserve its relay connections.
+
+Launcher dialogs own a live community runtime-store subscription, independent of the launcher's lifetime. The public `communityContext` and capability requests share the same versioned snapshot. Ready descriptors carry `authorityEvidenceSettled`; missing referenced lists can then produce ordinary missing-grant results instead of permanent context-unavailable errors. During pending authority, the dialog retains public context for drafts while bridge requests fail closed. The store remains pinned to the exact community address.
+
+**Check again** and activity refresh repeat the existing `widget:ready` / `widget:init` handshake before permission checks. The host answers repeated readiness from the correct iframe without repeating `widget:mounted`. Stale permission replies remain rejected. Empty Jobs/Services views provide creation controls when granted and access/sign-in/retry guidance otherwise.
+
+Deploy host commit `f22037a9f` (or a descendant) before releasing widget v0.4.1; update installed widget manifests afterward. As of 2026-09-20 these fixes are locally committed and verified, **not deployed or published**. Verification used the real dev host and production widget HTML with MockRelay/assets and generated view-only accounts: 35 widget tests, 124 focused host tests, zero host/widget Svelte diagnostics, and two desktop/mobile browser flows. These cover late profiles, missing lists, grant/revocation, stale-context recovery, retained drafts, account/guest changes, access routing, and the prior quicklink/focus behavior. Repo-wide E2E type checking still reports unrelated test errors outside the changed files.
+
 ### Relay and bridge scope
 
 The Community Freelance widget receives Budabit's exact community context, resolves its kind-32222 definition, checks descriptor write capabilities, and uses `nostr:sign`. It owns its relay connection pool and sends freelance reads and writes only to that definition's `r` relays. Its freelance records carry `h=<communityId>` and a marked exact-definition `a` tag; SatShoot workflow references are separate. The widget manifest is targeted through kind 30222, while the freelance records themselves are directly community-bound.
