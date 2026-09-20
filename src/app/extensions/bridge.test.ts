@@ -73,6 +73,7 @@ const mocks = vi.hoisted(() => {
     signer: createStore(null),
     pubkey: createStore(undefined as string | undefined),
     goto: vi.fn(),
+    openWidgetProfile: vi.fn(),
     activeRepoClass: createStore(null),
     activeExactCommunityDefinition: createStore(undefined as any),
     activeExactCommunityPointer: createStore(undefined as any),
@@ -307,6 +308,8 @@ vi.mock("@app/util/toast", () => ({
   pushToast: mocks.pushToast,
 }))
 
+vi.mock("./profile-modal", () => ({openWidgetProfile: mocks.openWidgetProfile}))
+
 type FakeWindow = {
   postMessage: ReturnType<typeof vi.fn>
 }
@@ -432,6 +435,76 @@ afterEach(() => {
 })
 
 describe("ExtensionBridge", () => {
+  it("requires profile-modal permission and derives relay hints from the widget context", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const context = {
+      definitionAddress: "32222:owner:community",
+      viewer: {pubkey: communityPubkey},
+      contextSessionId: "profile-session",
+      contextVersion: 1,
+      relays: ["wss://community.example"],
+      relayHints: ["wss://community.example", "wss://hint.example"],
+    }
+    const payload = {
+      pubkey: communityPubkey,
+      contextSessionId: context.contextSessionId,
+      contextVersion: 1,
+      relays: ["wss://untrusted.example"],
+    }
+    const denied = makeExtension({
+      widget: {permissions: ["profiles:resolve", "ui:navigate"]},
+      communityContext: context,
+    })
+    expect(
+      await sendBridgeRequest(
+        new ExtensionBridge(denied as any),
+        denied,
+        "ui:openProfile",
+        payload,
+      ),
+    ).toMatchObject({code: "CAPABILITY_NOT_AUTHORIZED"})
+    expect(mocks.openWidgetProfile).not.toHaveBeenCalled()
+    const allowed = makeExtension({
+      widget: {permissions: ["ui:openProfile"]},
+      communityContext: context,
+    })
+    const bridge = new ExtensionBridge(allowed as any)
+    expect(await sendBridgeRequest(bridge, allowed, "ui:openProfile", payload)).toEqual({
+      status: "ok",
+    })
+    expect(mocks.openWidgetProfile).toHaveBeenCalledWith(communityPubkey, [
+      "wss://community.example",
+      "wss://hint.example",
+    ])
+    mocks.openWidgetProfile.mockClear()
+    expect(
+      await sendBridgeRequest(bridge, allowed, "ui:openProfile", {...payload, pubkey: "invalid"}),
+    ).toMatchObject({error: "Invalid profile pubkey"})
+    expect(
+      await sendBridgeRequest(bridge, allowed, "ui:openProfile", {...payload, contextVersion: 0}),
+    ).toMatchObject({error: expect.stringContaining("context changed")})
+    expect(mocks.openWidgetProfile).not.toHaveBeenCalled()
+  })
+
+  it("does not open a profile if the iframe detaches or changes context during lazy loading", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeExtension({widget: {permissions: ["ui:openProfile"]}})
+    const bridge = new ExtensionBridge(extension as any)
+    const pending = bridge.openProfile({pubkey: communityPubkey})
+    bridge.detach()
+    await expect(pending).rejects.toThrow("Widget closed or community context changed")
+    const next = new ExtensionBridge(extension as any)
+    const changed = next.openProfile({pubkey: communityPubkey})
+    next.updateCommunityContext({
+      contextSessionId: "next",
+      contextVersion: 1,
+      viewer: {},
+      definitionAddress: "next",
+    } as any)
+    await expect(changed).rejects.toThrow("Widget closed or community context changed")
+    expect(mocks.openWidgetProfile).not.toHaveBeenCalled()
+  })
+
   it("requires the dedicated read-only profile permission before calling the profile adapter", async () => {
     const {ExtensionBridge} = await import("./bridge")
     const payload = {requestId: "profiles", pubkeys: [communityPubkey]}

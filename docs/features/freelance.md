@@ -44,6 +44,8 @@ The widget saves open drafts before navigation. Application selection and submis
 
 ### Account profile and access recovery
 
+Widget v0.5.1 adds `ui:openProfile`: clicking an account name/avatar opens Budabit's existing profile modal. Dismissing it returns to the still-mounted Freelance widget. Its View full profile link opens a separate tab, preserving the widget and draft. Open Chat retains normal same-tab navigation. This requires the corresponding host bridge action and updated widget manifest permission.
+
 Widget v0.5.0 uses the read-only [`profiles:resolve`](../extensions/profiles.md) bridge API for all account displays, including listing cards/details, proposals/orders, participants, and reviews. The host adapter reads the existing shared profile store and invokes the existing resolver with current community relay hints. Configured indexers and known-author outbox fallback follow normal Budabit profile policy. Cached profiles appear immediately; missing names fall back to npubs after lookup, and late profiles/edits update the same labels. Account/community changes and iframe closure release the watch. Deploy this host API and install the new widget manifest permission to enable it; older hosts retain npub fallback.
 
 Widget v0.4.1 consumes Budabit's existing `widget:init.user` name/avatar only when its pubkey matches the current community viewer. `WidgetFrame` resends this metadata after profile hydration or account changes. The widget's profile-only updates preserve its relay connections.

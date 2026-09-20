@@ -142,6 +142,12 @@ export type ProfilesResolveRequest = {
   contextVersion?: number
 }
 
+export type WidgetOpenProfileRequest = {
+  pubkey: string
+  contextSessionId?: string
+  contextVersion?: number
+}
+
 export type WidgetProfileResult = {
   pubkey: string
   status: "loading" | "ready" | "unavailable"

@@ -56,6 +56,26 @@ The adapter releases its store watch and timer on request replacement, community
 
 ## Freelance integration
 
+### Opening the host profile modal
+
+`ui:openProfile` opens the same `ProfileDetail` modal used by Budabit's own profile links. Declare the separate `ui:openProfile` permission and check the advertised actions before rendering interactive profile labels.
+
+```ts
+await bridge.request("ui:openProfile", {
+  pubkey,
+  contextSessionId: communityContext.contextSessionId,
+  contextVersion: communityContext.contextVersion,
+})
+```
+
+The public key must be full lowercase hex. Community widgets supply their current context tokens. The host checks context before and after lazy loading, rejects detached iframes, and derives relay hints from the current widget context. The response is `{status: "ok"}` when the modal opens, or the normal bridge error payload.
+
+The host pushes the profile onto its existing modal stack, retaining the underlying widget iframe. Escape, backdrop dismissal, Back, and the profile's Go back control remove the top modal and return to the widget. For this entry point, **View full profile opens in a separate tab**, preserving the widget and its draft; ordinary host profile modals retain their normal same-tab link. **Open Chat** retains its normal same-tab navigation and therefore closes the widget.
+
+Community Freelance v0.5.1 adds profile buttons throughout its shared account labels. Listing cards use a separate listing button and profile button, supporting keyboard activation without nested buttons. Unsupported hosts continue to render static labels; a bridge error appears in the widget and the user can retry the identity click.
+
+### Profile data
+
 Community Freelance v0.5.0 coalesces mounted identity labels into this API, renders avatars and profile names, and uses shortened npubs when no usable name is available. The signing account can render matching `widget:init.user` metadata immediately. Old hosts without the API retain that signer metadata and npub fallbacks for other accounts. Full profile resolution requires both the host update and the widget manifest's added read permission.
 
 ## Verification — 2026-09-20

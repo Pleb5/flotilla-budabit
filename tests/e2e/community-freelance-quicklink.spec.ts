@@ -45,6 +45,7 @@ const curators = sign(30000, 1, [
 const permissions = [
   "nostr:sign",
   "profiles:resolve",
+  "ui:openProfile",
   "community:checkWriteCapabilities",
   "storage:get",
   "storage:set",
@@ -417,7 +418,7 @@ for (const mobile of [false, true]) {
     page,
     context,
   }, info) => {
-    test.setTimeout(60000)
+    test.setTimeout(90000)
     if (mobile) await page.setViewportSize({width: 390, height: 844})
     await page.emulateMedia({colorScheme: mobile ? "dark" : "light"})
     const errors: string[] = []
@@ -618,6 +619,92 @@ for (const mobile of [false, true]) {
     await card("Indexer profile service").screenshot({
       path: info.outputPath("freelance-indexer-profile-card.png"),
     })
+    // Identity clicks use the real host modal stack, without activating the card.
+    const iframeElement = await page
+      .locator('iframe[title="Community Freelance · SatShoot"]')
+      .elementHandle()
+    const originalUrl = page.url()
+    const profileDialog = page.getByRole("dialog", {name: "Profile", exact: true})
+    const identity = card("Community profile service").getByRole("button", {
+      name: "Open profile for Community Maker",
+      exact: true,
+    })
+    await identity.locator("img").click()
+    await expect(profileDialog).toBeVisible()
+    await expect(profileDialog).toContainText("Community Maker")
+    await expect(dialog).toBeHidden()
+    expect(await iframeElement!.evaluate(element => element.isConnected)).toBe(true)
+    await profileDialog.screenshot({path: info.outputPath("freelance-host-profile-modal.png")})
+    await page.keyboard.press("Escape")
+    await expect(dialog).toBeVisible()
+    await expect(card("Community profile service")).toBeVisible()
+    await expect(frame.locator(".detail")).toHaveCount(0)
+    expect(page.url()).toBe(originalUrl)
+
+    // Keyboard activation followed by browser Back removes only the top modal.
+    await identity.focus()
+    await identity.press("Enter")
+    await expect(profileDialog).toBeVisible()
+    await page.goBack()
+    await expect(dialog).toBeVisible()
+    await expect(card("Community profile service")).toBeVisible()
+
+    // The full-profile link opens a separate tab with no opener. The fixture only
+    // intercepts that destination; this page still runs the real modal/bridge.
+    await identity.locator(".identity-name").click()
+    await expect(profileDialog).toBeVisible()
+    const fullProfile = profileDialog.getByRole("link", {name: "View full profile", exact: false})
+    await expect(fullProfile).toHaveAttribute("target", "_blank")
+    const profileHref = await fullProfile.getAttribute("href")
+    const destination = new URL(profileHref!, page.url()).href
+    await context.route(destination, route =>
+      route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<h1>Full profile destination</h1>",
+      }),
+    )
+    const popupPromise = context.waitForEvent("page")
+    await fullProfile.click()
+    const popup = await popupPromise
+    await expect(popup.getByRole("heading", {name: "Full profile destination"})).toBeVisible()
+    expect(popup.url()).toBe(destination)
+    expect(await popup.evaluate(() => window.opener === null)).toBe(true)
+    await popup.close()
+    await expect(profileDialog).toBeVisible()
+    expect(await iframeElement!.evaluate(element => element.isConnected)).toBe(true)
+    if (mobile) {
+      await page
+        .getByRole("button", {name: "Close dialog", exact: true})
+        .click({position: {x: 5, y: 5}})
+    } else {
+      await profileDialog.getByRole("button", {name: "Go back", exact: true}).click()
+    }
+    await expect(dialog).toBeVisible()
+    await expect(card("Community profile service")).toBeVisible()
+
+    // The same mounted draft and its category chips survive profile dismissal.
+    await switchAccount(page, owner)
+    await frame.getByRole("button", {name: "Offer a service", exact: true}).click()
+    await frame.getByLabel("Title", {exact: true}).fill("Keep this draft through profile viewing")
+    await frame.getByLabel("Add category", {exact: true}).fill("Keep category")
+    await frame.getByLabel("Add category", {exact: true}).press("Enter")
+    const draftElement = await frame.getByLabel("Title", {exact: true}).elementHandle()
+    await frame.getByLabel("Signing account").getByRole("button").click()
+    await expect(profileDialog).toBeVisible()
+    await page.keyboard.press("Escape")
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue(
+      "Keep this draft through profile viewing",
+    )
+    await expect(frame.getByRole("list", {name: "Selected categories"})).toContainText(
+      "keep category",
+    )
+    expect(await draftElement!.evaluate(element => element.isConnected)).toBe(true)
+    expect(await iframeElement!.evaluate(element => element.isConnected)).toBe(true)
+    await frame.getByRole("button", {name: "Cancel", exact: true}).click()
+    await switchAccount(page, viewer)
+    await frame.getByRole("button", {name: "Services", exact: true}).click()
+
     // A late profile updates the fallback through the shared store watch, without a refresh.
     await receiveEvents(page, [metadata(2, "Late Client")])
     await expect(card("Missing profile service")).toContainText("Late Client")
@@ -679,6 +766,19 @@ for (const mobile of [false, true]) {
       )
       .toBe(true)
     await dialog.getByRole("button", {name: "Close widget", exact: true}).click()
+    // Ordinary host profile modals keep their existing same-tab navigation.
+    await page.evaluate(async pubkey => {
+      const moduleUrl = "/tests/e2e/fixtures/profile-identity-browser.ts"
+      const fixture = await import(/* @vite-ignore */ moduleUrl)
+      fixture.openFixtureProfileModal(pubkey)
+    }, communityAuthor)
+    await expect(page.getByRole("link", {name: "View full profile", exact: true})).toHaveAttribute(
+      "target",
+      "",
+    )
+    await page
+      .getByRole("button", {name: "Close dialog", exact: true})
+      .click({position: {x: 5, y: 5}})
     expect(relay.getPublishedEvents()).toEqual([])
     expect(errors).toEqual([])
   })

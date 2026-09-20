@@ -33,7 +33,7 @@
     activeCommunityReportState,
   } from "@app/core/community-state"
   import {canCreateCommunityBadge} from "@app/core/community-badges"
-  import {pushModal} from "@app/util/modal"
+  import {pushModal, closeTopModal} from "@app/util/modal"
   import {makeChatPath, makeProfilePath} from "@app/util/routes"
   import {deriveBudabitProfile} from "@app/core/profile-resolver"
   import type {VerifiedMaintainerForRepo} from "@app/core/git-state"
@@ -43,9 +43,16 @@
     url?: string
     relays?: string[]
     verifiedMaintainerForRepo?: VerifiedMaintainerForRepo
+    fullProfileInNewTab?: boolean
   }
 
-  const {pubkey, url, relays = [], verifiedMaintainerForRepo}: Props = $props()
+  const {
+    pubkey,
+    url,
+    relays = [],
+    verifiedMaintainerForRepo,
+    fullProfileInNewTab = false,
+  }: Props = $props()
 
   const relayHints = $derived(
     Array.from(new Set(removeUndefined([url, ...relays]).filter(Boolean))),
@@ -68,7 +75,7 @@
     ),
   )
 
-  const back = () => history.back()
+  const back = () => closeTopModal()
 
   const chatPath = $derived(makeChatPath(pubkey))
   const fullProfilePath = $derived(makeProfilePath(pubkey, relayHints))
@@ -201,9 +208,13 @@
       Go back
     </Button>
     <div class="grid w-full grid-cols-2 gap-2 md:flex md:w-auto md:justify-end">
-      <Link href={fullProfilePath} class="btn btn-neutral min-w-0 justify-center whitespace-nowrap">
+      <Link
+        href={fullProfilePath}
+        external={fullProfileInNewTab}
+        class="btn btn-neutral min-w-0 justify-center whitespace-nowrap">
         <Icon icon={UserCircle} />
         <span class="truncate text-xs sm:text-sm">View full profile</span>
+        {#if fullProfileInNewTab}<span class="sr-only"> (opens in a new tab)</span>{/if}
       </Link>
       <Button onclick={openChat} class="btn btn-primary min-w-0 justify-center whitespace-nowrap">
         <Icon icon={Letter} />

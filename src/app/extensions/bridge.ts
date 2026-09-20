@@ -565,6 +565,7 @@ export class ExtensionBridge {
       action.startsWith("profiles:") ||
       action === "repo:listFiles" ||
       action === "repo:getFile" ||
+      action === "ui:openProfile" ||
       action === "ui:notify"
     return privileged
   }
@@ -637,6 +638,37 @@ export class ExtensionBridge {
       result => this.post("profiles:updated", result),
     )
     return this.profiles.resolve(payload)
+  }
+
+  /** Open the normal host profile modal after checking the iframe's current context. */
+  async openProfile(payload: import("./types").WidgetOpenProfileRequest) {
+    if (typeof payload?.pubkey !== "string" || !/^[0-9a-f]{64}$/.test(payload.pubkey)) {
+      throw new Error("Invalid profile pubkey")
+    }
+    const context = this.extension.communityContext
+    const scope = (value?: CommunityWidgetContext) =>
+      JSON.stringify([
+        value?.definitionAddress,
+        value?.viewer.pubkey,
+        value?.contextSessionId,
+        value?.contextVersion,
+      ])
+    const scopeKey = scope(context)
+    if (
+      context &&
+      (payload.contextSessionId !== context.contextSessionId ||
+        payload.contextVersion !== context.contextVersion)
+    ) {
+      throw new Error("Community context changed before opening profile")
+    }
+    const {openWidgetProfile} = await import("./profile-modal")
+    if (this.detached || scopeKey !== scope(this.extension.communityContext)) {
+      throw new Error("Widget closed or community context changed before opening profile")
+    }
+    openWidgetProfile(payload.pubkey, [
+      ...new Set([...(context?.relays || []), ...(context?.relayHints || [])]),
+    ])
+    return {status: "ok" as const}
   }
 
   /** Synchronize redirect origin only from this iframe's window and a known deployment origin. */
@@ -2395,6 +2427,11 @@ registerBridgeHandler("ui:navigate", async (payload, ext) => {
     console.error("Error in ui:navigate bridge handler:", err)
     return {error: err.message || "Navigation failed"}
   }
+})
+
+registerBridgeHandler("ui:openProfile", (payload, _ext, bridge) => {
+  if (!bridge) throw new Error("Opening a profile requires an attached widget bridge")
+  return bridge.openProfile(payload)
 })
 
 registerBridgeHandler("ui:resize", (payload, ext) => {

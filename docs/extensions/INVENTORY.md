@@ -154,6 +154,7 @@ type ExtensionMessage = {
 | `nostr:publish`                    | `nostr:publish`      | Publish signed Nostr events.                                                       |
 | `nostr:query`                      | `nostr:query`        | Query allowed relay/event kinds.                                                   |
 | `profiles:resolve`                | Same action          | Resolve watched identities through the existing profile cache/resolver; emit `profiles:updated`. |
+| `ui:openProfile`                  | Same action          | Open the existing host profile modal above the widget; full-profile viewing uses a new tab. |
 | `nostr:subscribe`                  | `nostr:subscribe`    | Open relay subscriptions for allowed kinds.                                        |
 | `nostr:unsubscribe`                | `nostr:unsubscribe`  | Close widget subscriptions.                                                        |
 | `nostr:sign`                       | `nostr:sign`         | Sign an event with the active signer.                                              |
