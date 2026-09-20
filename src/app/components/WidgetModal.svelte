@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type {Readable} from "svelte/store"
   import type {CommunityWidgetRuntimeContext, SmartWidgetEvent} from "@app/extensions/types"
   import WidgetFrame from "@app/components/WidgetFrame.svelte"
   import {clearModals} from "@app/util/modal"
@@ -9,10 +10,17 @@
     widget: SmartWidgetEvent
     context?: Record<string, unknown>
     communityRuntimeContextProvider?: () => CommunityWidgetRuntimeContext | undefined
+    communityRuntimeContextStore?: Readable<CommunityWidgetRuntimeContext | undefined>
     wide?: boolean
   }
 
-  const {widget, context = {}, communityRuntimeContextProvider, wide = false}: Props = $props()
+  const {
+    widget,
+    context = {},
+    communityRuntimeContextProvider,
+    communityRuntimeContextStore,
+    wide = false,
+  }: Props = $props()
 </script>
 
 <div
@@ -42,6 +50,7 @@
       {widget}
       {context}
       {communityRuntimeContextProvider}
+      {communityRuntimeContextStore}
       class="h-full"
       minHeight={500} />
   </div>

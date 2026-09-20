@@ -2,7 +2,7 @@
   import WidgetIcon from "@assets/icons/widget.svg?dataurl"
   import {pubkey} from "@welshman/app"
   import {onDestroy, onMount} from "svelte"
-  import {get} from "svelte/store"
+  import {derived, get} from "svelte/store"
   import WidgetModal from "@app/components/WidgetModal.svelte"
   import {normalizePubkey, type CommunityPointer} from "@app/core/community"
   import {
@@ -21,7 +21,11 @@
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
-  import type {SmartWidgetEvent, WidgetActionSlotType} from "@app/extensions/types"
+  import type {
+    CommunityWidgetRuntimeContext,
+    SmartWidgetEvent,
+    WidgetActionSlotType,
+  } from "@app/extensions/types"
   import {pushModal} from "@app/util/modal"
   import {makeExactCommunityInputValue} from "@app/util/community-stars"
 
@@ -43,11 +47,7 @@
   const exactCommunity = $derived(descriptor?.community)
   const exactDefinition = $derived(descriptor?.definition)
   const relayHints = $derived(exactCommunity?.relayHints || [])
-  const communityRelays = $derived(descriptor?.relays.length ? descriptor.relays : relayHints)
   const communityReady = $derived(isCommunityDescriptorReady(descriptor, community.address))
-  const contextDefinition = $derived(
-    exactDefinition ? {...exactDefinition, pubkey: exactDefinition.ownerPubkey} : undefined,
-  )
   let curatedWidgets = $state<SmartWidgetEvent[]>([])
   let loadKey = ""
   let curationContextKey = ""
@@ -85,55 +85,6 @@
   const getWidgetTitle = (widget: SmartWidgetEvent) =>
     widget.slot?.label || widget.content || widget.identifier || "Widget"
 
-  const communityContext = $derived.by(() => {
-    if (!exactDefinition || !exactCommunity || !communityReady) {
-      return undefined
-    }
-
-    return makeCommunityWidgetContext({
-      definition: contextDefinition as any,
-      profileListEvents: $activeCommunityProfileListEvents,
-      reportState: $activeCommunityReportState,
-      userPubkey: $pubkey || "",
-      relays: communityRelays,
-      relayHints,
-    })
-  })
-  const getCurrentCommunityRuntimeContext = () => {
-    const descriptor = get(activeCommunityDescriptor)
-    const exactCommunity = descriptor?.community
-    const definition = descriptor?.definition
-    if (
-      !exactCommunity ||
-      exactCommunity.address !== community.address ||
-      !definition ||
-      !isCommunityDescriptorReady(descriptor, community.address)
-    ) {
-      return undefined
-    }
-
-    const profileListEvents = get(activeCommunityProfileListEvents)
-    const reportState = get(activeCommunityReportState)
-    const relays = descriptor.relays.length ? descriptor.relays : exactCommunity.relayHints
-    const currentCommunityContext = makeCommunityWidgetContext({
-      definition: {...definition, pubkey: definition.ownerPubkey} as any,
-      profileListEvents,
-      reportState,
-      userPubkey: get(pubkey) || "",
-      relays,
-      relayHints: exactCommunity.relayHints,
-    })
-
-    return {
-      community: exactCommunity,
-      definition,
-      profileListEvents,
-      reportState,
-      relays,
-      relayHints: exactCommunity.relayHints,
-      communityContext: currentCommunityContext,
-    }
-  }
   const curationEvidence = $derived.by(() => {
     const definition = exactDefinition
     const matchesCommunity =
@@ -161,6 +112,49 @@
   const openWidget = (widget: SmartWidgetEvent) => {
     if (!widget.appUrl || !exactCommunity || !communityReady) return
 
+    // The modal can outlive its launcher (including hash navigation). Own a store
+    // subscription in WidgetFrame so public context and bridge checks stay in sync.
+    const communityAddress = exactCommunity.address
+    const communityRuntimeContextStore = derived(
+      [
+        activeCommunityDescriptor,
+        activeCommunityProfileListEvents,
+        activeCommunityReportState,
+        pubkey,
+      ],
+      ([descriptor, profileListEvents, reportState, userPubkey]):
+        | CommunityWidgetRuntimeContext
+        | undefined => {
+        if (
+          descriptor?.community.address !== communityAddress ||
+          descriptor.definition?.pointer.address !== communityAddress
+        )
+          return undefined
+        const definition = descriptor.definition
+        const community = descriptor.community
+        const relays = descriptor.relays.length ? descriptor.relays : community.relayHints
+        const communityContext = makeCommunityWidgetContext({
+          definition,
+          profileListEvents,
+          reportState,
+          userPubkey: userPubkey || "",
+          relays,
+          relayHints: community.relayHints,
+          readinessKey: `${descriptor.authorityReadiness.key}:${descriptor.authorityReadiness.state}`,
+        })
+        return {
+          community,
+          definition,
+          profileListEvents,
+          reportState,
+          relays,
+          relayHints: community.relayHints,
+          authorityEvidenceSettled: isCommunityDescriptorReady(descriptor, communityAddress),
+          communityContext,
+        }
+      },
+    )
+    const communityContext = get(communityRuntimeContextStore)?.communityContext
     pushModal(
       WidgetModal,
       {
@@ -178,7 +172,7 @@
           },
           ...(communityContext ? {communityContext} : {}),
         },
-        communityRuntimeContextProvider: getCurrentCommunityRuntimeContext,
+        communityRuntimeContextStore,
       },
       variant === "home-quicklinks"
         ? {fullscreen: true, trapFocus: true, ariaLabel: getWidgetTitle(widget)}

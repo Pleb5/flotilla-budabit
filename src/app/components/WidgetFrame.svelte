@@ -1,7 +1,7 @@
 <script lang="ts">
-  import {onDestroy, onMount} from "svelte"
+  import {onDestroy, onMount, untrack} from "svelte"
+  import {get, type Readable} from "svelte/store"
   import {pubkey, profilesByPubkey} from "@welshman/app"
-  import {get} from "svelte/store"
   import type {
     CommunityWidgetContext,
     CommunityWidgetRuntimeContext,
@@ -33,6 +33,7 @@
     onResizeRequest?: (request: WidgetResizeRequest) => void
     onLoad?: () => void
     communityRuntimeContextProvider?: () => CommunityWidgetRuntimeContext | undefined
+    communityRuntimeContextStore?: Readable<CommunityWidgetRuntimeContext | undefined>
   }
 
   const {
@@ -45,6 +46,7 @@
     onResizeRequest,
     onLoad,
     communityRuntimeContextProvider,
+    communityRuntimeContextStore,
   }: Props = $props()
 
   let iframeRef: HTMLIFrameElement | undefined = $state()
@@ -53,6 +55,7 @@
   let appUrlIndex = $state(0)
   let frameWrapperRef: HTMLDivElement | undefined = $state()
   let lastCommunityContextKey = ""
+  let lastUserContextKey = ""
   let initSent = false
   let lastThemePosted = ""
   let lastThemeBackgroundPosted = ""
@@ -174,8 +177,8 @@
   }
 
   const getUserContext = () => {
-    const userPubkey = get(pubkey)
-    const profiles = get(profilesByPubkey)
+    const userPubkey = $pubkey
+    const profiles = $profilesByPubkey
     const profile = userPubkey ? profiles.get(userPubkey) : undefined
 
     return {
@@ -190,13 +193,26 @@
     }
   }
 
+  const liveCommunityRuntimeContext = $derived(
+    communityRuntimeContextStore
+      ? $communityRuntimeContextStore
+      : communityRuntimeContextProvider?.(),
+  )
+  const hasLiveCommunityContext = $derived(
+    Boolean(communityRuntimeContextStore || communityRuntimeContextProvider),
+  )
   const getCommunityContext = () =>
-    context.communityContext && typeof context.communityContext === "object"
-      ? (context.communityContext as CommunityWidgetContext)
-      : undefined
+    hasLiveCommunityContext
+      ? liveCommunityRuntimeContext?.communityContext
+      : context.communityContext && typeof context.communityContext === "object"
+        ? (context.communityContext as CommunityWidgetContext)
+        : undefined
 
   const getCommunityRuntimeContext = () => {
-    if (communityRuntimeContextProvider) return communityRuntimeContextProvider()
+    if (hasLiveCommunityContext)
+      return liveCommunityRuntimeContext?.authorityEvidenceSettled === false
+        ? undefined
+        : liveCommunityRuntimeContext
 
     return context.communityRuntimeContext && typeof context.communityRuntimeContext === "object"
       ? (context.communityRuntimeContext as CommunityWidgetRuntimeContext)
@@ -206,6 +222,7 @@
   const getPublicContext = () => {
     const publicContext = {...context}
     delete publicContext.communityRuntimeContext
+    if (hasLiveCommunityContext) publicContext.communityContext = getCommunityContext()
 
     return publicContext
   }
@@ -218,9 +235,9 @@
       : ""
   }
 
-  const makeCommunityContextChangedPayload = (communityContext: CommunityWidgetContext) => ({
-    contextSessionId: communityContext.contextSessionId,
-    contextVersion: communityContext.contextVersion,
+  const makeCommunityContextChangedPayload = (communityContext?: CommunityWidgetContext) => ({
+    contextSessionId: communityContext?.contextSessionId,
+    contextVersion: communityContext?.contextVersion,
     communityContext,
   })
 
@@ -452,8 +469,9 @@
     const payload = makeInitPayload()
     bridge?.updateCommunityContext(payload.communityContext, getCommunityRuntimeContext())
     const initPosted = postBridgeEvent("widget:init", payload)
-    postBridgeEvent("widget:mounted", {timestamp: Date.now()})
+    if (initPosted && !initSent) postBridgeEvent("widget:mounted", {timestamp: Date.now()})
     lastCommunityContextKey = getCommunityContextKey()
+    lastUserContextKey = JSON.stringify(payload.user)
     lastThemePosted = payload.theme
     lastThemeBackgroundPosted = payload.themeBackground
     initSent = initPosted
@@ -493,7 +511,14 @@
         iframe: iframeRef,
         communityContext: getCommunityContext(),
         communityRuntimeContext: getCommunityRuntimeContext(),
-        communityRuntimeContextProvider: communityRuntimeContextProvider || undefined,
+        communityRuntimeContextProvider: communityRuntimeContextStore
+          ? () => {
+              // A pending authority snapshot still supplies public identity/version
+              // to preserve drafts, but cannot authorize any bridge operation.
+              const runtime = get(communityRuntimeContextStore)
+              return runtime?.authorityEvidenceSettled === false ? undefined : runtime
+            }
+          : communityRuntimeContextProvider,
         onResizeRequest: handleResizeRequest,
       }
       bridgeExtension = ext
@@ -542,6 +567,7 @@
       const {kind, type, action} = event.data || {}
 
       if (kind === "app-loaded" || (type === "event" && action === "widget:ready")) {
+        if (event.source !== iframeRef?.contentWindow) return
         if (!isAllowedWidgetOrigin(event.origin, event.source)) return
         readyOrigin = event.origin
         syncBridgeOrigin(event.origin, event.source)
@@ -554,7 +580,7 @@
           action,
           bridgeReady: Boolean(bridge),
         })
-        if (bridge && !initSent) {
+        if (bridge && (!initSent || (type === "event" && action === "widget:ready"))) {
           clearContextPostTimer()
           sendContext(event.origin)
         }
@@ -608,18 +634,20 @@
   $effect(() => {
     const key = getCommunityContextKey()
     const communityContext = getCommunityContext()
-    if (!loaded || !bridge || !initSent || !key || !communityContext) return
-    if (!lastCommunityContextKey) {
-      lastCommunityContextKey = key
-      bridge.updateCommunityContext(communityContext, getCommunityRuntimeContext())
-      bridge.post("community:contextChanged", makeCommunityContextChangedPayload(communityContext))
-      return
-    }
+    if (!loaded || !bridge || !initSent) return
     if (key === lastCommunityContextKey) return
 
     lastCommunityContextKey = key
     bridge.updateCommunityContext(communityContext, getCommunityRuntimeContext())
     bridge.post("community:contextChanged", makeCommunityContextChangedPayload(communityContext))
+  })
+
+  $effect(() => {
+    const userKey = JSON.stringify(getUserContext())
+    if (!loaded || !bridge || !initSent || userKey === lastUserContextKey) return
+    // Reuse widget:init for late profile hydration and account switches. A matching
+    // community context lets widgets update identity without restarting their runtime.
+    untrack(() => sendContext(readyOrigin))
   })
 
   $effect(() => {

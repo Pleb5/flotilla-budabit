@@ -1,5 +1,5 @@
 import {readFileSync} from "node:fs"
-import {expect, test} from "@playwright/test"
+import {expect, test, type Page} from "@playwright/test"
 import {finalizeEvent, getPublicKey, nip19} from "nostr-tools"
 import {MockRelay} from "./helpers/mock-relay"
 
@@ -30,8 +30,13 @@ const definition = sign(32222, 1, [
   ["content", "Widget-curator"],
   ["k", "30033"],
   ["a", `30000:${owner}:${communityId}-curators`],
+  // A settled, absent grant in another section must not break Freelance access.
+  ["content", "General"],
+  ["k", "1"],
+  ["a", `30000:${owner}:${communityId}-absent-general`],
   ["content", "Freelance"],
   ...[32765, 32766, 32767, 32768, 1986].map(kind => ["k", String(kind)]),
+  ["a", `30000:${owner}:${communityId}-freelance`],
 ])
 const curators = sign(30000, 1, [
   ["d", `${communityId}-curators`],
@@ -80,6 +85,18 @@ const targeting = sign(30222, 3, [
   ["a", address, relayUrl],
 ])
 const homePath = `/c/${nip19.naddrEncode({kind: 32222, pubkey: owner, identifier: communityId, relays: [relayUrl]})}`
+const receiveEvents = (page: Page, events: ReturnType<typeof sign>[]) =>
+  page.evaluate(async events => {
+    const moduleUrl = "/tests/e2e/fixtures/freelance-access-browser.ts"
+    const fixture = await import(/* @vite-ignore */ moduleUrl)
+    fixture.receiveFreelanceFixtureEvents(events)
+  }, events)
+const switchAccount = (page: Page, account: string) =>
+  page.evaluate(async account => {
+    const moduleUrl = "/tests/e2e/fixtures/freelance-access-browser.ts"
+    const fixture = await import(/* @vite-ignore */ moduleUrl)
+    fixture.switchFreelanceFixtureAccount(account)
+  }, account)
 
 test.afterEach(async ({page}, info) => {
   if (info.status !== info.expectedStatus) {
@@ -102,7 +119,25 @@ for (const mobile of [false, true]) {
     page.on("pageerror", error => errors.push(error.message))
     await page.addInitScript(
       ({viewer, widgetId, widget}) => {
+        if (location.hostname === "freelance-widget.example") {
+          // Hold a context notification to reproduce a delayed/stale handoff.
+          window.addEventListener("message", event => {
+            if (
+              event.data?.action === "community:contextChanged" &&
+              (window as any).__holdCommunityContext
+            ) {
+              ;(window as any).__heldCommunityContext = event.data.payload
+              event.stopImmediatePropagation()
+            }
+          })
+          return
+        }
         if (location.hostname !== "localhost") return
+        ;(window as any).__freelanceRequests = []
+        window.addEventListener("message", event => {
+          if (event.data?.type === "request")
+            (window as any).__freelanceRequests.push(event.data.action)
+        })
         localStorage.setItem("pubkey", JSON.stringify(viewer))
         localStorage.setItem(
           "sessions",
@@ -181,6 +216,151 @@ for (const mobile of [false, true]) {
     ).toBeVisible()
     await expect(frame.locator(".brand-mark svg")).toHaveAttribute("viewBox", "0 0 38 38")
     await expect(frame.locator("main")).toHaveAttribute("data-theme", mobile ? "dark" : "light")
+    await expect(frame.getByRole("heading", {name: "No jobs yet", exact: true})).toBeVisible()
+    await expect(frame.getByRole("button", {name: "Post a job", exact: true})).toHaveCount(0)
+    await frame.getByRole("button", {name: "Check again", exact: true}).click()
+    await expect(frame.getByText("Publishing access required", {exact: true})).toBeVisible()
+
+    // Budabit hydrates the profile after the iframe has already started.
+    const widgetFrame = page.frames().find(item => item.url().startsWith(appUrl))!
+    const sockets = () =>
+      widgetFrame.evaluate(() => [...(window as any).__mockRelayConnections.keys()])
+    const originalSockets = await sockets()
+    const profile = finalizeEvent(
+      {
+        kind: 0,
+        created_at: 1,
+        tags: [],
+        content: JSON.stringify({display_name: "Ada Maker", name: "ada", picture: iconUrl}),
+      },
+      new Uint8Array(32).fill(24),
+    )
+    await receiveEvents(page, [profile])
+    await expect(frame.getByLabel("Signing account")).toContainText("Ada Maker")
+    await expect(frame.locator(".signing-account img")).toHaveJSProperty("naturalWidth", 38)
+    expect(await sockets()).toEqual(originalSockets)
+
+    // The empty state leads into both real creation forms after a grant arrives.
+    const grant = (createdAt: number, allowed: boolean) =>
+      sign(30000, createdAt, [
+        ["d", `${communityId}-freelance`],
+        ...(allowed ? [["p", viewer]] : []),
+      ])
+    await receiveEvents(page, [grant(2, true)])
+    await expect(frame.getByRole("button", {name: "Post a job", exact: true})).toBeVisible()
+    await frame.getByRole("heading", {name: "Freelance", exact: true}).scrollIntoViewIfNeeded()
+    await dialog.screenshot({path: info.outputPath("freelance-create-job.png")})
+    await frame.getByRole("button", {name: "Services", exact: true}).click()
+    await expect(frame.getByRole("heading", {name: "No services yet", exact: true})).toBeVisible()
+    await frame.getByRole("button", {name: "Offer a service", exact: true}).click()
+    await expect(frame.getByRole("region", {name: "Offer a service", exact: true})).toBeVisible()
+    await frame.getByRole("button", {name: "Cancel", exact: true}).click()
+    await frame.getByRole("button", {name: "Jobs", exact: true}).click()
+    await frame.getByRole("button", {name: "Post a job", exact: true}).click()
+    await frame.getByLabel("Title", {exact: true}).fill("Keep my community draft")
+    await frame
+      .getByLabel("Description", {exact: true})
+      .fill("Retain this text when access changes")
+
+    // Model the host loader's pending -> settled transition with a draft open.
+    await page.evaluate(async () => {
+      const moduleUrl = "/tests/e2e/fixtures/freelance-access-browser.ts"
+      const fixture = await import(/* @vite-ignore */ moduleUrl)
+      fixture.setFreelanceFixtureAuthorityPending(true)
+    })
+    await expect(frame.getByText("Access check unavailable", {exact: true})).toBeVisible()
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Keep my community draft")
+    await page.evaluate(async () => {
+      const moduleUrl = "/tests/e2e/fixtures/freelance-access-browser.ts"
+      const fixture = await import(/* @vite-ignore */ moduleUrl)
+      fixture.setFreelanceFixtureAuthorityPending(false)
+    })
+    await expect(frame.getByRole("button", {name: "Publish", exact: true})).toBeEnabled()
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Keep my community draft")
+
+    // Revocation arrives after opening the composer. No stale capability may sign.
+    await widgetFrame.evaluate(() => {
+      ;(window as any).__holdCommunityContext = true
+    })
+    await receiveEvents(page, [grant(3, false)])
+    await expect
+      .poll(() => widgetFrame.evaluate(() => Boolean((window as any).__heldCommunityContext)))
+      .toBe(true)
+    await frame.getByRole("button", {name: "Publish", exact: true}).click()
+    await expect(frame.getByText("Access check unavailable", {exact: true})).toBeVisible()
+    await expect(frame.getByRole("button", {name: "Access options", exact: true})).toBeVisible()
+    await frame.getByRole("button", {name: "Check again", exact: true}).click()
+    await expect(frame.getByText("Publishing access required", {exact: true})).toBeVisible()
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Keep my community draft")
+    await expect(frame.getByRole("button", {name: "Publish", exact: true})).toHaveCount(0)
+    await expect(
+      frame.getByText("Community permissions changed. Refresh before publishing.", {exact: true}),
+    ).toHaveCount(0)
+    await dialog.screenshot({path: info.outputPath("freelance-revoked-draft.png")})
+    await widgetFrame.evaluate(() => {
+      ;(window as any).__holdCommunityContext = false
+    })
+    await receiveEvents(page, [grant(4, true)])
+    await expect(frame.getByRole("button", {name: "Publish", exact: true})).toBeEnabled()
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Keep my community draft")
+    await frame.getByRole("button", {name: "Cancel", exact: true}).click()
+    await frame.getByLabel("Search freelance listings").fill("nothing here")
+    await expect(
+      frame.getByRole("heading", {name: "No matching listings", exact: true}),
+    ).toBeVisible()
+    await frame.getByRole("button", {name: "Clear filters", exact: true}).click()
+    await expect(frame.getByLabel("Search freelance listings")).toHaveValue("")
+
+    // Account changes invalidate the profile/grant without remounting the iframe.
+    await switchAccount(page, owner)
+    await expect(frame.getByLabel("Signing account")).not.toContainText("Ada Maker")
+    await expect(frame.getByLabel("Signing account")).toHaveAttribute("title", owner)
+    await expect(frame.locator(".signing-account img")).toHaveCount(0)
+    await switchAccount(page, viewer)
+    await expect(frame.getByLabel("Signing account")).toContainText("Ada Maker")
+    await receiveEvents(page, [grant(5, false)])
+    // Malformed and broken pictures fall back locally without hiding the name.
+    await receiveEvents(page, [
+      finalizeEvent(
+        {
+          ...profile,
+          created_at: 2,
+          content: JSON.stringify({name: "ada", picture: "javascript:alert(1)"}),
+        },
+        new Uint8Array(32).fill(24),
+      ),
+    ])
+    await expect(frame.getByLabel("Signing account")).toContainText("ada")
+    await expect(frame.locator(".signing-account img")).toHaveCount(0)
+    await receiveEvents(page, [
+      finalizeEvent(
+        {
+          ...profile,
+          created_at: 3,
+          content: JSON.stringify({
+            display_name: "Ada Maker",
+            picture: "https://freelance-widget.example/missing.png",
+          }),
+        },
+        new Uint8Array(32).fill(24),
+      ),
+    ])
+    await expect(frame.getByLabel("Signing account")).toContainText("Ada Maker")
+    await expect(frame.locator(".signing-account img")).toHaveCount(0)
+    await receiveEvents(page, [
+      finalizeEvent({...profile, created_at: 4}, new Uint8Array(32).fill(24)),
+    ])
+    await expect(frame.locator(".signing-account img")).toHaveJSProperty("naturalWidth", 38)
+    await switchAccount(page, "")
+    await expect(
+      frame.getByRole("button", {name: "Open community to sign in", exact: true}),
+    ).toBeVisible()
+    await expect(frame.getByLabel("Signing account")).toHaveCount(0)
+    await switchAccount(page, viewer)
+    await expect(frame.getByLabel("Signing account")).toContainText("Ada Maker")
+    await expect(frame.getByText("Publishing access required", {exact: true})).toBeVisible()
+    await frame.getByRole("button", {name: "Refresh community activity", exact: true}).click()
+    await expect(frame.getByText("Publishing access required", {exact: true})).toBeVisible()
     await expect(iframe).toHaveCount(1)
     expect(bundleRequests).toBe(1)
     if (!mobile)
@@ -196,6 +376,8 @@ for (const mobile of [false, true]) {
       )
       .toBe(true)
     await dialog.screenshot({path: info.outputPath("freelance-workspace.png")})
+    await frame.getByRole("button", {name: "Access options", exact: true}).scrollIntoViewIfNeeded()
+    await dialog.screenshot({path: info.outputPath("freelance-access-actions.png")})
 
     await dialog.getByRole("button", {name: "Close widget", exact: true}).click()
     await expect(page.getByRole("dialog")).toHaveCount(0)
@@ -220,6 +402,9 @@ for (const mobile of [false, true]) {
     )
     await expect(page.getByRole("dialog")).toHaveCount(0)
     expect(relay.getPublishedEvents()).toEqual([])
+    const requests = await page.evaluate(() => (window as any).__freelanceRequests as string[])
+    expect(requests).not.toContain("nostr:sign")
+    expect(requests).not.toContain("community:queryEvents")
     expect(errors).toEqual([])
   })
 }
