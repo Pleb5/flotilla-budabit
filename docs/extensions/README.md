@@ -69,7 +69,7 @@ Runtime parsing extracts the widget `identifier`, `widgetType`, `buttons`, `appU
 
 Budabit's default **Freelance** section declares services `32765`, orders `32766`, jobs `32767`, proposals `32768`, and reviews `1986`. Its workflow grants are separate from **Widget-curator** access for publishing/targeting the widget. Existing communities can add the section with **Add Freelance** in the definition editor.
 
-The separately published Community Freelance widget uses `community:checkWriteCapabilities`, `nostr:sign`, `storage:get`, `storage:set`, `ui:resize`, and `ui:navigate`, with a `community-home-quicklinks` slot. It owns community-relay reads/publication and Blossom uploads; its signing declaration also includes `5`, `22242`, and `24242`. The host's bridge checks do not automatically govern a widget's direct network requests. See [Community Freelance](../features/freelance.md) for configuration and implementation boundaries.
+The separately published Community Freelance widget uses `community:checkWriteCapabilities`, `nostr:sign`, `storage:get`, `storage:set`, `ui:resize`, and `ui:navigate`, with a `community-home-quicklinks` slot. Version 0.5.0 adds the read-only [`profiles:resolve`](profiles.md) API to reuse Budabit's profile resolver and shared cache for all displayed accounts. It owns community-relay workflow reads/publication and Blossom uploads; its signing declaration also includes `5`, `22242`, and `24242`. The host's bridge checks do not automatically govern a widget's direct network requests. See [Community Freelance](../features/freelance.md) for configuration and implementation boundaries.
 
 ---
 
@@ -86,7 +86,7 @@ Smart Widgets declare privileges with repeatable `permission` tags:
 
 Budabit enforces these rules:
 
-- Privileged bridge actions under `nostr:*`, `storage:*`, and `community:*` require an exact matching permission tag.
+- Privileged bridge actions under `nostr:*`, `storage:*`, `community:*`, and `profiles:*` require an exact matching permission tag.
 - UI actions such as `ui:toast` and `ui:navigate` are not privileged by the bridge policy, but handlers still validate payload shape and host constraints.
 - `action` and `tool` widgets run in iframes with `allow-scripts allow-same-origin` only.
 - The bridge checks that incoming messages originate from the registered widget origin.

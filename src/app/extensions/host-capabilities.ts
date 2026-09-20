@@ -13,8 +13,13 @@ export const MAX_NOSTR_QUERY_LIMIT = MAX_EXTENSION_EVENTS_PER_FILTER
 export const MAX_STORAGE_KEY_LENGTH = 256
 export const MAX_STORAGE_VALUE_SIZE = 1024 * 1024
 export const MAX_WIDGET_RESIZE_HEIGHT = 2_400
+export const MAX_WIDGET_PROFILE_PUBKEYS = 512
 
-export type BridgeHandler = (payload: any, ext: LoadedExtension) => Promise<any> | any
+export type BridgeHandler = (
+  payload: any,
+  ext: LoadedExtension,
+  bridge?: import("./bridge").ExtensionBridge,
+) => Promise<any> | any
 
 const bridgeHandlers = new Map<string, BridgeHandler>()
 
@@ -71,6 +76,7 @@ export const getHostCapabilitySnapshot = ({
       "nostr.queryCompleteness": true,
       "nostr.expectedSigner": true,
       "nostr.declaredWriteKinds": true,
+      "profiles.liveUpdates": true,
       "storage.compareAndSet": supportsAtomicStorage(),
       "community.sharedConfigRefresh": true,
       "widget.theme": true,
@@ -83,6 +89,7 @@ export const getHostCapabilitySnapshot = ({
       storageKeyLength: MAX_STORAGE_KEY_LENGTH,
       storageValueBytes: MAX_STORAGE_VALUE_SIZE,
       widgetResizeHeight: MAX_WIDGET_RESIZE_HEIGHT,
+      profilePubkeys: MAX_WIDGET_PROFILE_PUBKEYS,
     },
     surface: {
       kind: "widget",

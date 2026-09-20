@@ -517,6 +517,7 @@ export class ExtensionBridge {
   private targetWindow: Window | null = null
   private readonly entrypointOrigin: string
   private detached = false
+  private profiles?: import("./profiles").ExtensionProfileResolver
 
   constructor(private extension: LoadedExtension) {
     this.entrypointOrigin = extension.origin
@@ -543,6 +544,7 @@ export class ExtensionBridge {
     if (this.extension.type === "widget") {
       this.extension.communityContext = communityContext || undefined
       this.extension.communityRuntimeContext = communityRuntimeContext || undefined
+      this.profiles?.contextChanged()
     }
   }
 
@@ -550,6 +552,7 @@ export class ExtensionBridge {
     this.detached = true
     if (this.listener) window.removeEventListener("message", this.listener)
     cleanupExtensionSubscriptions(this.extension.id)
+    this.profiles?.close()
     this.pending.clear()
     this.targetWindow = null
   }
@@ -559,6 +562,7 @@ export class ExtensionBridge {
       action.startsWith("nostr:") ||
       action.startsWith("storage:") ||
       action.startsWith("community:") ||
+      action.startsWith("profiles:") ||
       action === "repo:listFiles" ||
       action === "repo:getFile" ||
       action === "ui:notify"
@@ -596,7 +600,7 @@ export class ExtensionBridge {
             code: "UNSUPPORTED_CAPABILITY",
           })
         }
-        const result = await handler(msg.payload, this.extension)
+        const result = await handler(msg.payload, this.extension, this)
         const win = source as Window | null
         if (win) {
           safePostMessage(
@@ -622,6 +626,17 @@ export class ExtensionBridge {
         }
       }
     }
+  }
+
+  /** Lazy adapter around the app's profile resolver, scoped to this iframe's lifetime. */
+  async resolveProfiles(payload: import("./types").ProfilesResolveRequest) {
+    const {ExtensionProfileResolver} = await import("./profiles")
+    if (this.detached) throw new Error("Widget has closed")
+    this.profiles ||= new ExtensionProfileResolver(
+      () => this.extension.communityContext,
+      result => this.post("profiles:updated", result),
+    )
+    return this.profiles.resolve(payload)
   }
 
   /** Synchronize redirect origin only from this iframe's window and a known deployment origin. */
@@ -773,6 +788,11 @@ registerBridgeHandler("nostr:query", async (payload, ext) => {
     console.error("Error in nostr:query bridge handler:", err)
     return {error: err.message}
   }
+})
+
+registerBridgeHandler("profiles:resolve", (payload, _ext, bridge) => {
+  if (!bridge) throw new Error("Profile resolution requires an attached widget bridge")
+  return bridge.resolveProfiles(payload)
 })
 
 const normalizeCommunityDescriptorsPayload = (

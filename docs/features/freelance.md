@@ -44,6 +44,8 @@ The widget saves open drafts before navigation. Application selection and submis
 
 ### Account profile and access recovery
 
+Widget v0.5.0 uses the read-only [`profiles:resolve`](../extensions/profiles.md) bridge API for all account displays, including listing cards/details, proposals/orders, participants, and reviews. The host adapter reads the existing shared profile store and invokes the existing resolver with current community relay hints. Configured indexers and known-author outbox fallback follow normal Budabit profile policy. Cached profiles appear immediately; missing names fall back to npubs after lookup, and late profiles/edits update the same labels. Account/community changes and iframe closure release the watch. Deploy this host API and install the new widget manifest permission to enable it; older hosts retain npub fallback.
+
 Widget v0.4.1 consumes Budabit's existing `widget:init.user` name/avatar only when its pubkey matches the current community viewer. `WidgetFrame` resends this metadata after profile hydration or account changes. The widget's profile-only updates preserve its relay connections.
 
 Launcher dialogs own a live community runtime-store subscription, independent of the launcher's lifetime. The public `communityContext` and capability requests share the same versioned snapshot. Ready descriptors carry `authorityEvidenceSettled`; missing referenced lists can then produce ordinary missing-grant results instead of permanent context-unavailable errors. During pending authority, the dialog retains public context for drafts while bridge requests fail closed. The store remains pinned to the exact community address.

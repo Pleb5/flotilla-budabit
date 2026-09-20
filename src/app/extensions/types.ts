@@ -135,6 +135,27 @@ export type CommunityCheckWriteCapabilitiesRequest = {
   descriptors: CommunityEventDescriptor[]
 }
 
+export type ProfilesResolveRequest = {
+  requestId: string
+  pubkeys: string[]
+  contextSessionId?: string
+  contextVersion?: number
+}
+
+export type WidgetProfileResult = {
+  pubkey: string
+  status: "loading" | "ready" | "unavailable"
+  profile?: {pubkey: string; display_name?: string; name?: string; picture?: string}
+}
+
+/** Also delivered as profiles:updated for the current request until replaced or detached. */
+export type ProfilesResolveResponse = {
+  status: "ok"
+  requestId: string
+  revision: number
+  profiles: WidgetProfileResult[]
+}
+
 export type CommunityCheckWriteCapabilitiesResponse =
   | {
       status: "ok"

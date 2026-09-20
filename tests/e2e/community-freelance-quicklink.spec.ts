@@ -44,6 +44,7 @@ const curators = sign(30000, 1, [
 ])
 const permissions = [
   "nostr:sign",
+  "profiles:resolve",
   "community:checkWriteCapabilities",
   "storage:get",
   "storage:set",
@@ -314,7 +315,10 @@ for (const mobile of [false, true]) {
     // Account changes invalidate the profile/grant without remounting the iframe.
     await switchAccount(page, owner)
     await expect(frame.getByLabel("Signing account")).not.toContainText("Ada Maker")
-    await expect(frame.getByLabel("Signing account")).toHaveAttribute("title", owner)
+    await expect(frame.getByLabel("Signing account")).toHaveAttribute(
+      "title",
+      nip19.npubEncode(owner),
+    )
     await expect(frame.locator(".signing-account img")).toHaveCount(0)
     await switchAccount(page, viewer)
     await expect(frame.getByLabel("Signing account")).toContainText("Ada Maker")
@@ -405,6 +409,277 @@ for (const mobile of [false, true]) {
     const requests = await page.evaluate(() => (window as any).__freelanceRequests as string[])
     expect(requests).not.toContain("nostr:sign")
     expect(requests).not.toContain("community:queryEvents")
+    expect(requests).toContain("profiles:resolve")
+    expect(errors).toEqual([])
+  })
+
+  test(`Freelance resolves profiles through the existing host resolver (${mobile ? "mobile" : "desktop"})`, async ({
+    page,
+    context,
+  }, info) => {
+    test.setTimeout(60000)
+    if (mobile) await page.setViewportSize({width: 390, height: 844})
+    await page.emulateMedia({colorScheme: mobile ? "dark" : "light"})
+    const errors: string[] = []
+    page.on("pageerror", error => errors.push(error.message))
+    const keys = [26, 27, 28, 29].map(value => new Uint8Array(32).fill(value))
+    const [communityAuthor, indexerAuthor, missingAuthor, cachedAuthor] = keys.map(getPublicKey)
+    const signed = (
+      index: number,
+      kind: number,
+      tags: string[][],
+      content: string,
+      created_at = 10,
+    ) => finalizeEvent({kind, tags, content, created_at}, keys[index])
+    const metadata = (index: number, name: string, picture = iconUrl, created_at = 10) =>
+      signed(index, 0, [], JSON.stringify({display_name: name, picture}), created_at)
+    const scoped = [
+      ["h", communityId],
+      ["a", address, relayUrl, "community"],
+    ]
+    const serviceAddress = `32765:${communityAuthor}:community-service`
+    const orderAddress = `32766:${missingAuthor}:order`
+    const jobAddress = `32767:${indexerAuthor}:profile-job`
+    const bidAddress = `32768:${communityAuthor}:bid`
+    const service = (index: number, id: string, title: string, extra: string[][] = []) =>
+      signed(
+        index,
+        32765,
+        [
+          ["d", id],
+          ["title", title],
+          ["s", "1"],
+          ["amount", "10000"],
+          ["pricing", "0"],
+          ...scoped,
+          ...extra,
+        ],
+        "Profile rendering fixture",
+      )
+    const events = [
+      service(0, "community-service", "Community profile service", [["a", orderAddress, "10"]]),
+      service(1, "indexer-service", "Indexer profile service"),
+      service(2, "missing-service", "Missing profile service"),
+      service(3, "cached-service", "Cached profile service"),
+      signed(
+        2,
+        32766,
+        [
+          ["d", "order"],
+          ["a", serviceAddress],
+          ["s", "1"],
+          ["amount", "10000"],
+          ["pricing", "0"],
+          ...scoped,
+        ],
+        "Completed order",
+      ),
+      signed(
+        0,
+        1986,
+        [
+          ["L", "qts/freelancing"],
+          ["l", "client", "qts/freelancing"],
+          ["rating", "1", "thumb"],
+          ["rating", "1", "communication"],
+          ["a", orderAddress],
+          ["engagement", orderAddress],
+          ...scoped,
+        ],
+        "Review from the freelancer",
+      ),
+      signed(
+        2,
+        1986,
+        [
+          ["L", "qts/freelancing"],
+          ["l", "freelancer", "qts/freelancing"],
+          ["rating", "1", "success"],
+          ["rating", "1", "expertise"],
+          ["rating", "1", "communication"],
+          ["a", serviceAddress],
+          ["engagement", orderAddress],
+          ...scoped,
+        ],
+        "Review from the client",
+      ),
+      signed(
+        1,
+        32767,
+        [
+          ["d", "profile-job"],
+          ["title", "Profile job"],
+          ["s", "2"],
+          ["a", bidAddress, "10"],
+          ...scoped,
+        ],
+        "Concluded job",
+      ),
+      signed(
+        0,
+        32768,
+        [["d", "bid"], ["a", jobAddress], ["amount", "10000"], ["pricing", "0"], ...scoped],
+        "Accepted proposal",
+      ),
+    ]
+    await page.addInitScript(
+      ({viewer, widgetId, widget}) => {
+        if (location.hostname !== "localhost") return
+        localStorage.setItem("pubkey", JSON.stringify(viewer))
+        localStorage.setItem(
+          "sessions",
+          JSON.stringify({[viewer]: {method: "pubkey", pubkey: viewer}}),
+        )
+        localStorage.setItem(
+          "flotilla/extensions",
+          JSON.stringify({
+            enabled: [widgetId],
+            disabledDefaultIds: [],
+            installed: {widget: {[widgetId]: widget}},
+            widgetInstallSources: {[widgetId]: {relays: ["wss://freelance-quicklink.example"]}},
+          }),
+        )
+      },
+      {viewer, widgetId, widget},
+    )
+    const indexer = "wss://purplepag.es/"
+    const relay = new MockRelay({
+      seedEvents: [definition, curators, widget, targeting, ...events],
+      seedEventsByRelay: {
+        [relayUrl]: [metadata(0, "Community Maker")],
+        [indexer]: [metadata(1, "Indexer Maker")],
+      },
+      responseLatencyByKind: {0: 350},
+    })
+    await relay.setup(page)
+    await context.route(/^https:\/\//, route => {
+      const url = new URL(route.request().url())
+      if (url.origin + url.pathname === appUrl)
+        return route.fulfill({status: 200, contentType: "text/html", body: bundle})
+      if (url.origin + url.pathname === iconUrl)
+        return route.fulfill({status: 200, contentType: "image/svg+xml", body: icon})
+      return route.fulfill({status: 503, body: "External service blocked by fixture"})
+    })
+    await page.goto(homePath)
+    const launcher = page
+      .locator('[data-perf="community-home"]')
+      .getByRole("button", {name: "Freelance", exact: true})
+    await expect(launcher).toBeVisible({timeout: 15000})
+    // This profile exists only in Budabit's shared cache, never on a fixture relay.
+    await receiveEvents(page, [metadata(3, "Cached Maker")])
+    await launcher.click()
+    const dialog = page.getByRole("dialog", {name: "Freelance", exact: true})
+    const frame = page.frameLocator('iframe[title="Community Freelance · SatShoot"]')
+    await frame.getByRole("button", {name: "Services", exact: true}).click()
+    const card = (title: string) =>
+      frame
+        .locator(".listing-card")
+        .filter({has: frame.getByRole("heading", {name: title, exact: true})})
+    await expect(card("Community profile service")).toContainText("Community Maker", {
+      timeout: 10000,
+    })
+    await expect(card("Indexer profile service")).toContainText("Indexer Maker", {timeout: 10000})
+    await expect(card("Cached profile service")).toContainText("Cached Maker")
+    const npub = nip19.npubEncode(missingAuthor)
+    await expect(card("Missing profile service")).toContainText(
+      `${npub.slice(0, 8)}…${npub.slice(-4)}`,
+      {timeout: 10000},
+    )
+    await expect(card("Community profile service").locator(".identity-avatar")).toHaveJSProperty(
+      "naturalWidth",
+      38,
+    )
+    const telemetry = await relay.getTelemetry()
+    const profileReads = telemetry.filter(
+      entry => entry.type === "req" && entry.filters?.some(filter => filter.kinds?.includes(0)),
+    )
+    expect(
+      profileReads.some(
+        entry =>
+          entry.relayUrl.replace(/\/$/, "") === relayUrl &&
+          entry.filters?.some(filter => filter.authors?.includes(communityAuthor)),
+      ),
+    ).toBe(true)
+    expect(
+      profileReads.some(
+        entry =>
+          entry.relayUrl.replace(/\/$/, "") === indexer.replace(/\/$/, "") &&
+          entry.filters?.some(filter => filter.authors?.includes(indexerAuthor)),
+      ),
+    ).toBe(true)
+    expect(
+      profileReads.some(entry =>
+        entry.filters?.some(filter => filter.authors?.includes(cachedAuthor)),
+      ),
+    ).toBe(false)
+    await card("Community profile service").screenshot({
+      path: info.outputPath("freelance-community-profile-card.png"),
+    })
+    await card("Indexer profile service").screenshot({
+      path: info.outputPath("freelance-indexer-profile-card.png"),
+    })
+    // A late profile updates the fallback through the shared store watch, without a refresh.
+    await receiveEvents(page, [metadata(2, "Late Client")])
+    await expect(card("Missing profile service")).toContainText("Late Client")
+    await card("Community profile service").click()
+    await expect(frame.locator(".detail > .section-heading .account-label")).toContainText(
+      "Community Maker",
+    )
+    await expect(frame.locator(".offer > .section-heading .account-label")).toContainText(
+      "Late Client",
+    )
+    await expect(frame.locator(".engagement-meta")).toContainText("Community Maker")
+    await expect(frame.locator(".engagement-meta")).toContainText("Late Client")
+    await expect(frame.locator(".reviews")).toContainText("Community Maker")
+    await expect(frame.locator(".reviews")).toContainText("Late Client")
+    await receiveEvents(page, [
+      metadata(0, "Updated Maker", "https://freelance-widget.example/broken.png", 11),
+    ])
+    await expect(frame.locator(".detail > .section-heading .account-label")).toContainText(
+      "Updated Maker",
+    )
+    await expect(frame.locator(".detail > .section-heading .account-label img")).toHaveCount(0)
+    await receiveEvents(page, [metadata(0, "Updated Maker", iconUrl, 12)])
+    await expect(frame.locator(".detail > .section-heading .account-label img")).toHaveJSProperty(
+      "naturalWidth",
+      38,
+    )
+    await frame.locator(".offer").scrollIntoViewIfNeeded()
+    await dialog.screenshot({path: info.outputPath("freelance-profile-detail.png")})
+    await frame.getByRole("button", {name: "Jobs", exact: true}).click()
+    await frame.getByLabel("Filter by status").selectOption("all")
+    await card("Profile job").click()
+    await expect(frame.locator(".detail > .section-heading .account-label")).toContainText(
+      "Indexer Maker",
+    )
+    await expect(frame.locator(".offer > .section-heading .account-label")).toContainText(
+      "Updated Maker",
+    )
+    const widgetFrame = page.frames().find(item => item.url().startsWith(appUrl))!
+    const widgetReads = await widgetFrame.evaluate(
+      () =>
+        (window as any).__mockRelayTelemetry as {
+          type: string
+          relayUrl: string
+          filters?: {kinds?: number[]}[]
+        }[],
+    )
+    expect(
+      widgetReads
+        .filter(entry => entry.type === "req")
+        .every(
+          entry =>
+            entry.relayUrl.replace(/\/$/, "") === relayUrl &&
+            !entry.filters?.some(filter => filter.kinds?.includes(0)),
+        ),
+    ).toBe(true)
+    await expect
+      .poll(() =>
+        frame.locator("html").evaluate(element => element.scrollWidth <= element.clientWidth),
+      )
+      .toBe(true)
+    await dialog.getByRole("button", {name: "Close widget", exact: true}).click()
+    expect(relay.getPublishedEvents()).toEqual([])
     expect(errors).toEqual([])
   })
 }

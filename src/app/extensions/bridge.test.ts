@@ -432,6 +432,24 @@ afterEach(() => {
 })
 
 describe("ExtensionBridge", () => {
+  it("requires the dedicated read-only profile permission before calling the profile adapter", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const payload = {requestId: "profiles", pubkeys: [communityPubkey]}
+    const denied = makeExtension({widget: {permissions: ["nostr:query"]}})
+    const deniedBridge = new ExtensionBridge(denied as any)
+    const deniedResolve = vi.spyOn(deniedBridge, "resolveProfiles")
+    expect(
+      await sendBridgeRequest(deniedBridge, denied, "profiles:resolve", payload),
+    ).toMatchObject({code: "CAPABILITY_NOT_AUTHORIZED"})
+    expect(deniedResolve).not.toHaveBeenCalled()
+    const allowed = makeExtension({widget: {permissions: ["profiles:resolve"]}})
+    const bridge = new ExtensionBridge(allowed as any)
+    const response = {status: "ok" as const, requestId: "profiles", revision: 0, profiles: []}
+    const resolve = vi.spyOn(bridge, "resolveProfiles").mockResolvedValue(response)
+    expect(await sendBridgeRequest(bridge, allowed, "profiles:resolve", payload)).toEqual(response)
+    expect(resolve).toHaveBeenCalledWith(payload)
+  })
+
   it("synchronizes only approved origins from the expected iframe and refuses detached messages", async () => {
     const {ExtensionBridge} = await import("./bridge")
     const extension = makeExtension({origin: "https://blossom.primal.net"})
