@@ -765,6 +765,86 @@ for (const mobile of [false, true]) {
         frame.locator("html").evaluate(element => element.scrollWidth <= element.clientWidth),
       )
       .toBe(true)
+    // Personal notifications exclude the unrelated viewer and update live on
+    // the widget's existing community subscription. Read receipts survive remount.
+    await expect(frame.getByRole("button", {name: "Notifications", exact: true})).not.toHaveClass(
+      /attention/,
+    )
+    await switchAccount(page, communityAuthor)
+    await expect(
+      frame.getByRole("button", {name: "Notifications, 3 unread", exact: true}),
+    ).toHaveClass(/attention/)
+    await expect(frame.getByRole("button", {name: "Jobs, 1 unread", exact: true})).toHaveClass(
+      /attention/,
+    )
+    await expect(frame.getByRole("button", {name: "Services, 2 unread", exact: true})).toHaveClass(
+      /attention/,
+    )
+    await frame.getByRole("button", {name: "Notifications, 3 unread", exact: true}).click()
+    await expect(frame.locator(".notification-item")).toHaveCount(3)
+    const liveOrder = signed(
+      3,
+      32766,
+      [
+        ["d", "new-notification-order"],
+        ["published_at", "20"],
+        ["a", serviceAddress],
+        ["s", "0"],
+        ["amount", "10000"],
+        ["pricing", "0"],
+        ...scoped,
+      ],
+      "New order for your service",
+      20,
+    )
+    await relay.injectEvents([liveOrder], widgetFrame)
+    await expect(
+      frame.getByRole("button", {name: "Notifications, 4 unread", exact: true}),
+    ).toHaveClass(/attention/)
+    await expect(frame.locator(".notification-item").first()).toContainText("New order")
+    await expect(frame.getByRole("button", {name: "My work, 4 unread", exact: true})).toHaveClass(
+      /attention/,
+    )
+    await frame
+      .getByRole("button", {name: "Mark read: New order · Community profile service", exact: true})
+      .click()
+    await expect(
+      frame.getByRole("button", {name: "Notifications, 3 unread", exact: true}),
+    ).toBeVisible()
+    await dialog.screenshot({path: info.outputPath("freelance-notifications.png")})
+    await frame.getByRole("button", {name: "Mark all read", exact: true}).click()
+    await expect(frame.getByRole("button", {name: "Notifications", exact: true})).not.toHaveClass(
+      /attention/,
+    )
+    await expect(frame.locator(".notification-item.unread")).toHaveCount(0)
+    await dialog.getByRole("button", {name: "Close widget", exact: true}).click()
+    await expect(page.locator('iframe[title="Community Freelance · SatShoot"]')).toHaveCount(0)
+    await launcher.click()
+    await frame.getByRole("button", {name: "Notifications", exact: true}).click()
+    await expect(frame.locator(".notification-item")).toHaveCount(3)
+    await expect(frame.locator(".notification-item.unread")).toHaveCount(0)
+    await expect(frame.getByRole("button", {name: "Mark all read", exact: true})).toBeDisabled()
+    await switchAccount(page, missingAuthor)
+    await expect(
+      frame.getByRole("button", {name: "Notifications, 1 unread", exact: true}),
+    ).toBeVisible()
+    await frame.getByRole("button", {name: "Notifications, 1 unread", exact: true}).click()
+    await expect(frame.locator(".notification-item")).toHaveCount(1)
+    await frame.locator(".notification-open").click()
+    await expect(frame.locator(".detail h2")).toHaveText("Community profile service")
+    await expect(frame.getByRole("button", {name: "Notifications", exact: true})).not.toHaveClass(
+      /attention/,
+    )
+    await switchAccount(page, "")
+    await frame.getByRole("button", {name: "Notifications", exact: true}).click()
+    await expect(
+      frame.getByRole("heading", {name: "Sign in to see your notifications", exact: true}),
+    ).toBeVisible()
+    await expect
+      .poll(() =>
+        frame.locator("html").evaluate(element => element.scrollWidth <= element.clientWidth),
+      )
+      .toBe(true)
     await dialog.getByRole("button", {name: "Close widget", exact: true}).click()
     // Ordinary host profile modals keep their existing same-tab navigation.
     await page.evaluate(async pubkey => {

@@ -41,7 +41,7 @@
  * })
  * ```
  */
-import type {Page} from "@playwright/test"
+import type {Frame, Page} from "@playwright/test"
 
 /**
  * Nostr event structure following NIP-01
@@ -753,12 +753,13 @@ export class MockRelay {
    * This allows simulating real-time events being received from the relay.
    * The events will be sent to any active subscriptions that match the event.
    */
-  async injectEvents(events: NostrEvent[]): Promise<void> {
-    if (!this.page) {
+  async injectEvents(events: NostrEvent[], target?: Page | Frame): Promise<void> {
+    const page = target || this.page
+    if (!page) {
       throw new Error("MockRelay not set up. Call setup(page) first.")
     }
 
-    await this.page.evaluate(
+    await page.evaluate(
       ({events, latency}) => {
         const connections = (
           window as unknown as {
