@@ -3,6 +3,7 @@
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import {preventDefault} from "@lib/html"
+  import {closeTopModal} from "@app/util/modal"
 
   type Props = {
     title: string
@@ -12,6 +13,7 @@
     keepLabel?: string
     onReset: () => void
     onKeep?: () => void
+    destructive?: boolean
   }
 
   const {
@@ -22,20 +24,21 @@
     keepLabel = "Keep change",
     onReset,
     onKeep,
+    destructive = false,
   }: Props = $props()
 
   const reset = () => {
     onReset()
-    history.back()
+    closeTopModal()
   }
 
   const keep = () => {
     onKeep?.()
-    history.back()
+    closeTopModal()
   }
 </script>
 
-<form class="column gap-4" onsubmit={preventDefault(reset)}>
+<form class="column gap-4" onsubmit={preventDefault(keep)}>
   <ModalHeader>
     {#snippet title()}<div>{modalTitle}</div>{/snippet}
     {#snippet info()}<div>{description}</div>{/snippet}
@@ -50,7 +53,11 @@
   {/if}
 
   <ModalFooter>
-    <Button class="btn btn-ghost" onclick={keep}>{keepLabel}</Button>
-    <Button class="btn btn-primary" type="submit">{resetLabel}</Button>
+    <Button
+      class="btn {destructive ? 'btn-ghost' : 'btn-primary'}"
+      type="submit"
+      data-modal-initial-focus>{keepLabel}</Button>
+    <Button class="btn {destructive ? 'btn-error' : 'btn-ghost'}" onclick={reset}
+      >{resetLabel}</Button>
   </ModalFooter>
 </form>

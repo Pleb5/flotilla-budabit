@@ -3433,7 +3433,10 @@ const ensureCompletedCommunityPermissionHydration = (
   session: ExactCommunitySession,
   bootstrap: CommunityBootstrap,
 ) => {
-  const definition = bootstrap.definition
+  // A live replacement can be newer than the completed bootstrap. Hydrating
+  // the cached revision leaves authority readiness stuck on the old event ID.
+  const definition =
+    readCachedCommunityDefinition(getExactCommunitySessionPointer(session)) || bootstrap.definition
   if (!definition) return
 
   const relays = definition.relays.length

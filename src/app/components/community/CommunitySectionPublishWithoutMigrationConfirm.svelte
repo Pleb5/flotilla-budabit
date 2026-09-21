@@ -3,7 +3,7 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {preventDefault} from "@lib/html"
-  import {clearModals} from "@app/util/modal"
+  import {clearModals, closeTopModal} from "@app/util/modal"
 
   type Props = {
     onPublish: (setStatus: (message: string) => void) => Promise<void>
@@ -55,7 +55,8 @@
   <div class="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
     <Button
       class="btn btn-ghost w-full sm:w-auto"
-      onclick={() => history.back()}
+      onclick={closeTopModal}
+      data-modal-initial-focus
       disabled={loading}>
       Go back
     </Button>

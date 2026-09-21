@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {tick} from "svelte"
+  import {tick, untrack} from "svelte"
   import {browser} from "$app/environment"
   import {goto} from "$app/navigation"
   import {randomId} from "@welshman/lib"
@@ -129,6 +129,7 @@
   type Props = {
     mode?: Mode
     definition?: CommunityDefinition
+    permissionsReady?: boolean
     profile?: OwnerProfile
     embedded?: boolean
     operationId?: string
@@ -259,12 +260,17 @@
 
   const {
     mode = "create",
-    definition,
+    definition: incomingDefinition,
+    permissionsReady = true,
     embedded = false,
     operationId: communityCreateOperationId = "",
   }: Props = $props()
 
   const SECTION_NAME_RE = /^[A-Za-z-]{1,50}$/
+  const SECTION_NAME_HINT =
+    "Use letters and dashes only, up to 50 characters. Names must be unique (ignoring case)."
+  const STALE_DRAFT_MESSAGE =
+    "Newer community settings are available. Your draft is preserved. Close this review and load the latest settings before publishing."
   const CUSTOM_KIND_VALUE = "custom"
   const KIND_DIGITS_RE = /^\d+$/
   const SUBTYPE_RE = /^[a-z-]{0,20}$/
@@ -949,10 +955,8 @@
     )
   }
 
-  const validateSectionNames = (drafts = sectionDrafts) => {
-    const nextErrors = Object.fromEntries(
-      Object.entries(errors).filter(([key]) => !key.match(/^section-\d+-name$/)),
-    )
+  const getSectionNameErrors = (drafts: SectionDraft[]): FieldErrors => {
+    const nextErrors: FieldErrors = {}
     const seenNames = new Map<string, number>()
 
     for (const [sectionIndex, section] of drafts.entries()) {
@@ -975,7 +979,16 @@
       seenNames.set(nameKey, sectionIndex)
     }
 
-    errors = nextErrors
+    return nextErrors
+  }
+
+  const validateSectionNames = (drafts = sectionDrafts) => {
+    errors = {
+      ...Object.fromEntries(
+        Object.entries(errors).filter(([key]) => !key.match(/^section-\d+-name$/)),
+      ),
+      ...getSectionNameErrors(drafts),
+    }
   }
 
   const validateSectionKinds = (drafts = sectionDrafts) => {
@@ -1208,7 +1221,7 @@
 
   const normalizeSectionDrafts = (nextErrors: FieldErrors) => {
     const sections: CommunityDefinitionSectionInput[] = []
-    const seenNames = new Map<string, number>()
+    Object.assign(nextErrors, getSectionNameErrors(sectionDrafts))
     const seenKinds = new Map<
       string,
       {sectionIndex: number; kindIndex: number; sectionName: string; label: string}
@@ -1218,18 +1231,7 @@
 
     for (const [sectionIndex, section] of sectionDrafts.entries()) {
       const name = section.name.trim()
-      const nameKey = getSectionNameKey(name)
       const kinds: CommunityDefinitionSectionKind[] = []
-
-      if (!SECTION_NAME_RE.test(name)) {
-        nextErrors[sectionNameField(sectionIndex)] =
-          "Use only A-Z letters and dashes, with a maximum of 50 characters."
-      } else if (seenNames.has(nameKey)) {
-        nextErrors[sectionNameField(sectionIndex)] = "Section names must be unique."
-        nextErrors[sectionNameField(seenNames.get(nameKey)!)] = "Section names must be unique."
-      } else {
-        seenNames.set(nameKey, sectionIndex)
-      }
 
       if (section.kinds.length === 0) {
         nextErrors[sectionKindsField(sectionIndex)] = "Add at least one event kind."
@@ -1845,13 +1847,17 @@
     validated,
     migrate,
     summary,
+    expectedDefinitionId,
     setStatus = () => undefined,
   }: {
     validated: ValidatedSetup
     migrate: boolean
     summary: SectionMigrationSummary
+    expectedDefinitionId?: string
     setStatus?: CommunityPublishStatusUpdate
   }) => {
+    // The definition can change while a publication review is open.
+    assertDraftRevisionCurrent(expectedDefinitionId)
     loading = true
     publishStatus = ""
 
@@ -1997,6 +2003,8 @@
             ),
           )
         : []
+      // Signing is asynchronous; check again before sending any events.
+      assertDraftRevisionCurrent(expectedDefinitionId)
       const rootRelays = getCommunityRootPublishRelays(validated.relays, validated.community.pubkey)
       const preDefinitionEvents = migrate ? [...signedProfileLists, ...signedMigrationEvents] : []
       const postDefinitionEvents = migrate ? [] : signedProfileLists
@@ -2013,6 +2021,7 @@
         )
       }
 
+      assertDraftRevisionCurrent(expectedDefinitionId)
       const verifiedDefinition = await publishAndVerifyCommunityEvent({
         event: signedDefinition,
         relays: rootRelays,
@@ -2053,15 +2062,18 @@
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       console.error("Community settings publication failed", error)
-      const friendlyMessage = /signer|sign\b/i.test(message)
-        ? "The community owner could not sign the update. Check the active signer and try again."
-        : /accepted but|verified relay|readback|replacement event/i.test(message)
-          ? "The update was sent but could not be confirmed on the primary relay. Try again or check that relay."
-          : !publishStatus
-            ? "The community settings could not be prepared for publication. Review the settings and try again."
-            : /invalid|valid normalized|format/i.test(message)
-              ? "One or more settings have an incorrect format. Review the highlighted fields and try again."
-              : "The primary relay did not accept or confirm the update. Check its availability and your access, then try again."
+      const friendlyMessage =
+        message === STALE_DRAFT_MESSAGE
+          ? message
+          : /signer|sign\b/i.test(message)
+            ? "The community owner could not sign the update. Check the active signer and try again."
+            : /accepted but|verified relay|readback|replacement event/i.test(message)
+              ? "The update was sent but could not be confirmed on the primary relay. Try again or check that relay."
+              : !publishStatus
+                ? "The community settings could not be prepared for publication. Review the settings and try again."
+                : /invalid|valid normalized|format/i.test(message)
+                  ? "One or more settings have an incorrect format. Review the highlighted fields and try again."
+                  : "The primary relay did not accept or confirm the update. Check its availability and your access, then try again."
       publishStatus = friendlyMessage
       pushToast({
         theme: "error",
@@ -2120,6 +2132,48 @@
     keptImmediateWarningKeys = []
   }
 
+  const loadDraftDefinition = (next: CommunityDefinition) => {
+    draftDefinition = next
+    originalDraftState = makeOriginalDraftState(next)
+    applyOriginalDraftState()
+    publishStatus = ""
+  }
+
+  const requestLatestSettings = () => {
+    if (!pendingDefinition || loading) return
+
+    if (!hasUnsavedChanges) {
+      loadDraftDefinition(pendingDefinition)
+      return
+    }
+
+    showDestructiveConfirm({
+      title: "Load latest community settings?",
+      description: "This replaces your unsaved draft with the latest published settings.",
+      details: incomingChangeDetails,
+      confirmLabel: "Discard draft and load latest",
+      onConfirm: () => {
+        if (pendingDefinition) loadDraftDefinition(pendingDefinition)
+      },
+    })
+  }
+
+  const assertDraftRevisionCurrent = (expectedId?: string) => {
+    if (
+      isEdit &&
+      (!expectedId ||
+        definition?.event.id !== expectedId ||
+        $activeExactCommunityDefinition?.event.id !== expectedId)
+    ) {
+      throw new Error(STALE_DRAFT_MESSAGE)
+    }
+    if (isEdit && !permissionsReady) {
+      throw new Error(
+        "Community permissions are refreshing. Your draft is preserved. Try again when permissions have loaded.",
+      )
+    }
+  }
+
   const keepImmediateWarning = (key: string) => {
     keptImmediateWarningKeys = Array.from(new Set([...keptImmediateWarningKeys, key]))
   }
@@ -2141,14 +2195,18 @@
   }) => {
     if (!isEdit || keptImmediateWarningKeys.includes(key)) return
 
-    pushModal(CommunitySectionChangeWarning, {
-      title,
-      description,
-      details,
-      resetLabel,
-      onReset,
-      onKeep: () => keepImmediateWarning(key),
-    })
+    pushModal(
+      CommunitySectionChangeWarning,
+      {
+        title,
+        description,
+        details,
+        resetLabel,
+        onReset,
+        onKeep: () => keepImmediateWarning(key),
+      },
+      {trapFocus: true, ariaLabel: title},
+    )
   }
 
   const showDestructiveConfirm = ({
@@ -2164,54 +2222,30 @@
     confirmLabel: string
     onConfirm: () => void
   }) => {
-    pushModal(CommunitySectionChangeWarning, {
-      title,
-      description,
-      details,
-      resetLabel: confirmLabel,
-      keepLabel: "Cancel",
-      onReset: onConfirm,
-    })
-  }
-
-  const shouldDeferRenameWarning = (event: FocusEvent, sectionIndex: number) => {
-    const target = event.relatedTarget
-    if (!(target instanceof HTMLElement)) return false
-    if (target.closest("button")) return true
-
-    return Boolean(target.closest(`[data-section-accordion="${sectionIndex}"]`))
-  }
-
-  const maybeWarnSectionRename = (sectionIndex: number, event: FocusEvent) => {
-    if (!definition) return
-    if (shouldDeferRenameWarning(event, sectionIndex)) return
-
-    const draft = sectionDrafts[sectionIndex]
-    const originalSection = getOriginalSectionByKey(draft?.originalNameKey)
-    if (!originalSection || !draft) return
-
-    const draftKey = draft.draftKey
-    const originalName = originalSection.name
-    const nextName = draft.name.trim()
-    if (!SECTION_NAME_RE.test(nextName)) return
-    if (getSectionNameKey(originalName) === getSectionNameKey(nextName)) return
-
-    showImmediateWarning({
-      key: `rename:${getSectionNameKey(originalName)}>${getSectionNameKey(nextName)}`,
-      title: "Rename section?",
-      description: `Renaming ${originalName} to ${nextName} changes who can publish there until permissions are migrated.`,
-      details: [
-        "Existing member lists are tied to the old section name.",
-        "You can keep the rename and review the migration summary before publishing.",
-      ],
-      resetLabel: "Reset rename",
-      onReset: () => {
-        sectionDrafts = sectionDrafts.map(section =>
-          section.draftKey === draftKey ? {...section, name: originalName} : section,
-        )
-        validateSectionNames()
+    pushModal(
+      CommunitySectionChangeWarning,
+      {
+        title,
+        description,
+        details,
+        resetLabel: confirmLabel,
+        keepLabel: "Cancel",
+        destructive: true,
+        onReset: onConfirm,
       },
+      {trapFocus: true, ariaLabel: title},
+    )
+  }
+
+  const undoSectionRename = async (draftKey: string) => {
+    sectionDrafts = sectionDrafts.map(section => {
+      const original = getOriginalSectionByKey(section.originalNameKey)
+      return section.draftKey === draftKey && original ? {...section, name: original.name} : section
     })
+    validateSectionNames()
+    await tick()
+    const index = sectionDrafts.findIndex(section => section.draftKey === draftKey)
+    document.getElementById(controlId(sectionNameField(index)))?.focus({preventScroll: true})
   }
 
   const parseDraftKindKey = (draft: SectionKindDraft) => {
@@ -2329,6 +2363,18 @@
   const focusFirstError = () => focusError(Object.keys(errors)[0] || "")
 
   const submitCommunitySettings = async () => {
+    if (isEdit && !permissionsReady && !pendingDefinition) {
+      pushToast({
+        theme: "error",
+        message: "Wait for community permissions to finish loading before publishing.",
+      })
+      return
+    }
+    if (pendingDefinition) {
+      document.getElementById("community-settings-update")?.focus({preventScroll: true})
+      pushToast({theme: "error", message: STALE_DRAFT_MESSAGE})
+      return
+    }
     const validated = validateForm()
     if (!validated) {
       await focusFirstError()
@@ -2352,22 +2398,28 @@
     geohash = validated.geohash
 
     const summary = buildSectionMigrationSummary(makeSectionInputsFromDrafts(sectionDrafts))
+    const expectedDefinitionId = definition?.event.id
     const publishWithMode = (migrate: boolean, setStatus?: CommunityPublishStatusUpdate) =>
       performCommunitySettingsPublish({
         validated,
         migrate,
         summary,
+        expectedDefinitionId,
         setStatus,
       })
 
     if (isEdit && summary.changes.length > 0) {
-      pushModal(CommunitySectionPublishConfirm, {
-        sections: makePublishSummarySections(summary),
-        onPublishAndMigrate: (setStatus: CommunityPublishStatusUpdate) =>
-          publishWithMode(true, setStatus),
-        onPublishWithoutMigration: (setStatus: CommunityPublishStatusUpdate) =>
-          publishWithMode(false, setStatus),
-      })
+      pushModal(
+        CommunitySectionPublishConfirm,
+        {
+          sections: makePublishSummarySections(summary),
+          onPublishAndMigrate: (setStatus: CommunityPublishStatusUpdate) =>
+            publishWithMode(true, setStatus),
+          onPublishWithoutMigration: (setStatus: CommunityPublishStatusUpdate) =>
+            publishWithMode(false, setStatus),
+        },
+        {trapFocus: true, ariaLabel: "Publish community changes?"},
+      )
       return
     }
 
@@ -2736,15 +2788,77 @@
   let errorSummaryElement = $state<HTMLElement>()
   let originalDraftState = $state<OriginalDraftState | undefined>()
   let keptImmediateWarningKeys = $state<string[]>([])
-
   const isEdit = $derived(mode === "edit")
+  const pictureUploading = $derived(!["idle", "ready", "failed"].includes(pictureUploadStage))
+  // Keep the draft and its migration baseline together. Relay replacements are
+  // offered explicitly instead of reinitializing an editor the owner is using.
+  let draftDefinition = $state.raw<CommunityDefinition>()
+  const definition = $derived(draftDefinition || incomingDefinition)
+  const pendingDefinition = $derived(
+    isEdit &&
+      draftDefinition &&
+      incomingDefinition &&
+      draftDefinition.pointer.address === incomingDefinition.pointer.address &&
+      draftDefinition.event.id !== incomingDefinition.event.id
+      ? incomingDefinition
+      : undefined,
+  )
+  const currentDraftState = $derived<OriginalDraftState>({
+    name,
+    description,
+    website,
+    picture,
+    primaryRelay,
+    extraRelays,
+    blossomServers,
+    graspServers,
+    emailDigestServicePubkey,
+    emailDigestRequestRelay,
+    emailDigestHandlerAddress,
+    emailDigestHandlerRelay,
+    additionalEmailDigestServices,
+    communityAlertServicePubkey,
+    communityAlertRequestRelay,
+    communityAlertHandlerAddress,
+    communityAlertHandlerRelay,
+    additionalCommunityAlertServices,
+    mints,
+    tosRef,
+    tosRelay,
+    location,
+    geohash,
+    sectionDrafts,
+  })
+  const hasUnsavedChanges = $derived(
+    Boolean(
+      originalDraftState &&
+      (JSON.stringify(currentDraftState) !== JSON.stringify(originalDraftState) ||
+        bootstrapGrantDrafts.length > 0 ||
+        pictureUploading),
+    ),
+  )
+  const incomingChangeDetails = $derived.by(() => {
+    if (!pendingDefinition || !originalDraftState) return []
+    const latest = makeOriginalDraftState(pendingDefinition)
+    const details = (Object.keys(latest) as Array<keyof OriginalDraftState>)
+      .filter(key => JSON.stringify(latest[key]) !== JSON.stringify(originalDraftState![key]))
+      .map(key => {
+        if (key === "sectionDrafts") {
+          return `Content sections changed. Published sections: ${latest.sectionDrafts.map(section => section.name).join(", ")}.`
+        }
+        if (key === "additionalEmailDigestServices") return "Repository digest services changed."
+        if (key === "additionalCommunityAlertServices") return "Community digest services changed."
+        return `${getErrorLabel(key)} changed.`
+      })
+    return details.length ? details : ["Other community definition fields changed."]
+  })
+
   const disabled = $derived(loading ? true : undefined)
   const actionLabel = $derived(isEdit ? "Update" : "Create")
   const title = $derived(isEdit ? "Edit community settings." : "Create a BudaBit community.")
   const eyebrow = $derived(isEdit ? "Community Admin" : "Community Setup")
   const activeCommunityPubkey = $derived(definition?.ownerPubkey || $pubkey || "")
   const login = () => pushModal(LogIn)
-  const pictureUploading = $derived(!["idle", "ready", "failed"].includes(pictureUploadStage))
   const activeCommunityRelays = $derived.by(() =>
     normalizeDefinitionRelays([primaryRelay, ...splitLines(extraRelays)]),
   )
@@ -2802,21 +2916,21 @@
   $effect(() => {
     const activePubkey = $pubkey || ""
     const nextKey = isEdit
-      ? `edit:${$activeExactCommunityDefinition?.event.id || ""}`
+      ? `edit:${incomingDefinition?.pointer.address || ""}`
       : `create:${activePubkey}`
 
     if (!nextKey || initializedKey === nextKey) return
-    if (isEdit && (!definition || !$activeExactCommunityDefinition)) return
+    if (isEdit && (!incomingDefinition || !$activeExactCommunityDefinition)) return
 
     initializedKey = nextKey
     errors = {}
 
-    if (isEdit && definition) {
-      originalDraftState = makeOriginalDraftState(definition)
-      applyOriginalDraftState()
+    if (isEdit && incomingDefinition) {
+      untrack(() => loadDraftDefinition(incomingDefinition))
       return
     }
 
+    draftDefinition = undefined
     name = ""
     description = ""
     website = ""
@@ -2876,6 +2990,26 @@
   novalidate
   onsubmit={preventDefault(submitCommunitySettings)}>
   <div class={embedded ? "col-4" : "mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 lg:py-10"}>
+    {#if pendingDefinition}
+      <section
+        id="community-settings-update"
+        tabindex="-1"
+        class="space-y-3 rounded-box border border-warning/30 bg-warning/10 p-4"
+        aria-label="Newer community settings"
+        aria-live="polite">
+        <strong>Newer community settings are available.</strong>
+        <p>
+          Your draft has been preserved. Load the latest settings before publishing to avoid
+          overwriting another update.
+        </p>
+        <ul class="list-inside list-disc text-sm">
+          {#each incomingChangeDetails as detail}<li>{detail}</li>{/each}
+        </ul>
+        <Button class="btn btn-outline btn-sm" onclick={requestLatestSettings} {disabled}>
+          Load latest settings
+        </Button>
+      </section>
+    {/if}
     <section
       class="relative isolate overflow-hidden rounded-[2rem] border border-base-300 bg-base-100 p-6 shadow-sm sm:p-8 lg:p-10">
       <div class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_380px] lg:items-end">
@@ -3083,7 +3217,7 @@
             <div>
               <strong class="text-lg">Content sections</strong>
               <p class="mt-1 text-sm opacity-65">
-                Section names may use only A-Z letters and must be 50 characters or fewer.
+                {SECTION_NAME_HINT}
               </p>
               <p class="mt-1 text-sm opacity-65">
                 Defaults include Freelance jobs, services, proposals, orders, and reviews for a
@@ -3128,6 +3262,9 @@
           <div class="space-y-4">
             {#each sectionDrafts as section, sectionIndex (section.draftKey)}
               {@const isExpanded = expandedSectionIndex === sectionIndex}
+              {@const originalSection = getOriginalSectionByKey(section.originalNameKey)}
+              {@const renamed =
+                isEdit && originalSection && section.name.trim() !== originalSection.name}
               <div
                 class="scroll-mt-24 overflow-hidden rounded-2xl border border-base-300 bg-base-200/60"
                 data-section-accordion={sectionIndex}>
@@ -3142,6 +3279,8 @@
                         >{section.name || `Section ${sectionIndex + 1}`}</strong>
                       {#if errors[sectionNameField(sectionIndex)] || errors[sectionKindsField(sectionIndex)]}
                         <span class="badge badge-error badge-sm">Needs review</span>
+                      {:else if renamed}
+                        <span class="badge badge-outline badge-sm">Unpublished rename</span>
                       {/if}
                     </div>
                     <p class="mt-1 text-sm opacity-65">
@@ -3157,9 +3296,10 @@
 
                 {#if isExpanded}
                   <div class="space-y-5 border-t border-base-300 p-4">
-                    <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
+                    <div
+                      class="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start">
                       <Field
-                        class="flex-1"
+                        class="min-w-0 flex-1"
                         for={controlId(sectionNameField(sectionIndex))}
                         error={errors[sectionNameField(sectionIndex)]}>
                         {#snippet label()}<p>Section name</p>{/snippet}
@@ -3167,7 +3307,7 @@
                             id={controlId(sectionNameField(sectionIndex))}
                             value={section.name}
                             maxlength="50"
-                            class="input input-bordered w-full {errors[
+                            class="input input-bordered w-full min-w-0 {errors[
                               sectionNameField(sectionIndex)
                             ]
                               ? 'input-error'
@@ -3176,15 +3316,17 @@
                               updateSection(sectionIndex, {
                                 name: (event.currentTarget as HTMLInputElement).value,
                               })}
-                            onblur={event => {
-                              validateSectionNames()
-                              maybeWarnSectionRename(sectionIndex, event)
+                            onblur={() => validateSectionNames()}
+                            onkeydown={event => {
+                              if (event.key === "Enter" && !event.isComposing) {
+                                event.preventDefault()
+                                validateSectionNames()
+                              }
                             }}
                             aria-invalid={Boolean(errors[sectionNameField(sectionIndex)])}
                             aria-describedby={describedBy(sectionNameField(sectionIndex), true)}
                             type="text" />{/snippet}
-                        {#snippet info()}Use letters and dashes only, up to 50 characters. Names
-                          must be unique.{/snippet}
+                        {#snippet info()}{SECTION_NAME_HINT}{/snippet}
                       </Field>
                       <Button
                         class="btn btn-outline btn-error btn-sm w-full sm:mt-8 sm:w-auto"
@@ -3193,6 +3335,36 @@
                         Remove section
                       </Button>
                     </div>
+
+                    {#if renamed && originalSection}
+                      <div
+                        data-section-rename
+                        class="space-y-2 rounded-box border border-info/25 bg-info/10 p-3 text-sm">
+                        <p class="break-words" aria-live="polite">
+                          <strong
+                            >{originalSection.name} → {section.name.trim() ||
+                              "Unnamed section"}</strong> — unpublished
+                        </p>
+                        {#if errors[sectionNameField(sectionIndex)]}
+                          <p>Choose a valid, unique name before publishing.</p>
+                        {:else if getSectionNameKey(section.name) !== getSectionNameKey(originalSection.name)}
+                          <p>
+                            Permissions change only when you publish. Review the permission
+                            migration when you select Update.
+                          </p>
+                        {:else}
+                          <p>
+                            This changes capitalization only. Publishing permissions stay the same.
+                          </p>
+                        {/if}
+                        <Button
+                          class="btn btn-ghost btn-sm"
+                          onclick={() => undoSectionRename(section.draftKey)}
+                          {disabled}>
+                          Undo rename
+                        </Button>
+                      </div>
+                    {/if}
 
                     <div
                       id={controlId(sectionKindsField(sectionIndex))}
@@ -3211,15 +3383,15 @@
                       {#each section.kinds as kindDraft, kindIndex}
                         <div
                           data-section-kind-row={`${sectionIndex}-${kindIndex}`}
-                          class="grid gap-2 rounded-2xl border border-base-300 bg-base-100/75 p-3 text-sm shadow-sm sm:grid-cols-2 sm:gap-3 sm:p-4 sm:text-base lg:grid-cols-[minmax(220px,2fr)_minmax(100px,1fr)_minmax(170px,1fr)_auto] lg:items-start">
+                          class="grid min-w-0 grid-cols-1 gap-2 rounded-2xl border border-base-300 bg-base-100/75 p-3 text-sm shadow-sm sm:grid-cols-2 sm:gap-3 sm:p-4 sm:text-base lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.5fr)_auto] lg:items-start">
                           <Field
-                            class="sm:col-span-2 lg:col-span-1"
+                            class="min-w-0 sm:col-span-2 lg:col-span-1"
                             for={`known-kind-${sectionIndex}-${kindIndex}`}>
                             {#snippet label()}<p>Known kind</p>{/snippet}
-                            {#snippet input()}<div class="flex items-center gap-2">
+                            {#snippet input()}<div class="flex min-w-0 items-center gap-2">
                                 <select
                                   id={`known-kind-${sectionIndex}-${kindIndex}`}
-                                  class="select select-bordered select-sm min-w-0 flex-1 text-sm sm:select-md sm:text-base"
+                                  class="select select-bordered select-sm w-full min-w-0 flex-1 text-sm sm:select-md sm:text-base"
                                   value={kindDraftOptionValue(kindDraft)}
                                   onchange={event =>
                                     setKnownKind(
@@ -3254,13 +3426,14 @@
                               manually.{/snippet}
                           </Field>
                           <Field
+                            class="min-w-0"
                             for={controlId(sectionKindField(sectionIndex, kindIndex))}
                             error={errors[sectionKindField(sectionIndex, kindIndex)]}>
                             {#snippet label()}<p>Kind</p>{/snippet}
                             {#snippet input()}<input
                                 id={controlId(sectionKindField(sectionIndex, kindIndex))}
                                 value={kindDraft.kind}
-                                class="input input-sm input-bordered w-full text-sm sm:input-md sm:text-base {errors[
+                                class="input input-sm input-bordered w-full min-w-0 text-sm sm:input-md sm:text-base {errors[
                                   sectionKindField(sectionIndex, kindIndex)
                                 ]
                                   ? 'input-error'
@@ -3281,6 +3454,7 @@
                             {#snippet info()}Nostr event kind number from 0 to 39,999.{/snippet}
                           </Field>
                           <Field
+                            class="min-w-0"
                             for={controlId(sectionSubtypeField(sectionIndex, kindIndex))}
                             error={errors[sectionSubtypeField(sectionIndex, kindIndex)]}>
                             {#snippet label()}
@@ -3298,7 +3472,7 @@
                                 id={controlId(sectionSubtypeField(sectionIndex, kindIndex))}
                                 value={kindDraft.subtype}
                                 maxlength="20"
-                                class="input input-sm input-bordered w-full text-sm sm:input-md sm:text-base {errors[
+                                class="input input-sm input-bordered w-full min-w-0 text-sm sm:input-md sm:text-base {errors[
                                   sectionSubtypeField(sectionIndex, kindIndex)
                                 ]
                                   ? 'input-error'
@@ -3799,7 +3973,22 @@
           </div>
         {/if}
 
-        <div class="flex gap-2">
+        {#if pendingDefinition}
+          <p class="text-sm">
+            Your draft is preserved. <button
+              type="button"
+              class="link"
+              onclick={requestLatestSettings}
+              {disabled}>Load latest settings</button> before publishing.
+          </p>
+        {/if}
+        {#if isEdit && !permissionsReady}
+          <p class="text-sm" role="status">
+            Community permissions are refreshing. Your draft is preserved; publishing will be
+            available when permissions have loaded.
+          </p>
+        {/if}
+        <div class="flex flex-wrap gap-2">
           <Button class="btn btn-ghost flex-1" onclick={cancel} {disabled}>Cancel</Button>
           {#if isEdit && originalDraftState}
             <Button class="btn btn-outline flex-1" onclick={applyOriginalDraftState} {disabled}>
@@ -3809,7 +3998,10 @@
           <Button
             class="btn btn-primary flex-1"
             type="submit"
-            disabled={disabled || pictureUploading}>
+            disabled={disabled ||
+              pictureUploading ||
+              Boolean(pendingDefinition) ||
+              (isEdit && !permissionsReady)}>
             {#if loading}<span class="loading loading-spinner mr-2"></span>{/if}
             {actionLabel}
           </Button>

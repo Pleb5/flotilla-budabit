@@ -3,7 +3,7 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
   import {preventDefault} from "@lib/html"
-  import {pushModal} from "@app/util/modal"
+  import {pushModal, closeTopModal, clearModals} from "@app/util/modal"
   import CommunitySectionPublishWithoutMigrationConfirm from "@app/components/community/CommunitySectionPublishWithoutMigrationConfirm.svelte"
 
   type SummarySection = {
@@ -41,7 +41,7 @@
 
       await onPublishAndMigrate(setStatus)
 
-      history.back()
+      clearModals()
     } catch (error) {
       status = error instanceof Error ? error.message : String(error)
     } finally {
@@ -52,9 +52,13 @@
   const confirmPublishWithoutMigration = () => {
     if (loading) return
 
-    pushModal(CommunitySectionPublishWithoutMigrationConfirm, {
-      onPublish: onPublishWithoutMigration,
-    })
+    pushModal(
+      CommunitySectionPublishWithoutMigrationConfirm,
+      {
+        onPublish: onPublishWithoutMigration,
+      },
+      {trapFocus: true, ariaLabel: "Publish without migration?"},
+    )
   }
 </script>
 
@@ -97,7 +101,8 @@
     </Button>
     <Button
       class="btn btn-ghost w-full text-center lg:w-auto"
-      onclick={() => history.back()}
+      onclick={closeTopModal}
+      data-modal-initial-focus
       disabled={loading}>
       Cancel
     </Button>

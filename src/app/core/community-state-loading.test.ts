@@ -1671,6 +1671,60 @@ describe("community relay loading", () => {
     })
   })
 
+  it("hydrates the live replacement instead of the completed bootstrap's old revision", async () => {
+    const pointer = makeCommunityPointer({
+      ownerPubkey: communityPubkey,
+      communityId: getPublicKey(new Uint8Array(32).fill(29)),
+      relayHints: [relayA],
+    })!
+    const session = makeExactCommunitySession(pointer)
+    const initial = makeEvent({
+      ...singleRelayDefinitionEvent,
+      id: "completed-bootstrap-before-live-replacement",
+      tags: singleRelayDefinitionEvent.tags.map(tag =>
+        tag.map(value => value.replaceAll(communityId, pointer.communityId)),
+      ),
+    })
+    const scopedProfileList = makeEvent({
+      ...profileListEvent,
+      id: "live-replacement-profile-list",
+      tags: profileListEvent.tags.map(tag =>
+        tag.map(value => value.replaceAll(communityId, pointer.communityId)),
+      ),
+    })
+    const replacement = makeEvent({
+      ...initial,
+      id: "live-definition-after-completed-bootstrap",
+      created_at: initial.created_at + 1,
+    })
+    setActiveExactCommunityPointer(pointer)
+    repository.publish(initial)
+    loadMock.mockImplementation(({filters}: {filters: Filter[]}) => {
+      if (hasKind(filters, COMMUNITY_DEFINITION_KIND)) {
+        return Promise.resolve([initial])
+      }
+      if (hasKind(filters, PROFILE_LIST_KIND)) return Promise.resolve([scopedProfileList])
+      return Promise.resolve([])
+    })
+    try {
+      await ensureCommunityBootstrap(session)
+      await flushPromises()
+      expect(get(activeCommunityPermissionStatus)).toMatchObject({complete: true})
+
+      repository.publish(replacement)
+      await ensureCommunityBootstrap(session, {updateStatus: false})
+      await flushPromises()
+      expect(get(activeCommunityPermissionStatus).key).toContain(`:${replacement.id}:`)
+      expect(get(activeCommunityPermissionStatus)).toMatchObject({complete: true, loading: false})
+      expect(get(activeCommunityAdmissionFormStatus).key).toContain(`:${replacement.id}:`)
+    } finally {
+      clearCommunityBootstrapCache(pointer.address)
+      repository.removeEvent(initial.id)
+      repository.removeEvent(replacement.id)
+      repository.removeEvent(scopedProfileList.id)
+    }
+  })
+
   it("refreshes incomplete admission forms after authority completes", async () => {
     const session = communitySession
     let admissionFormLoadCount = 0

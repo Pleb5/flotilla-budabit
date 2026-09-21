@@ -158,6 +158,23 @@
       normalizePubkey($pubkey) === normalizePubkey($activeExactCommunityDefinition.ownerPubkey),
     ),
   )
+  const settingsScopeKey = $derived(`${communityAddress}:${$pubkey || ""}`)
+  let mountedSettingsScope = $state("")
+  $effect(() => {
+    if (
+      canEditCommunity &&
+      !communityAdminLoading &&
+      !communityAdminUnavailable &&
+      adminTab === "settings"
+    ) {
+      mountedSettingsScope = settingsScopeKey
+    }
+  })
+  // A replacement definition temporarily reloads permissions. Keep an already
+  // opened owner editor mounted so this refresh cannot discard its draft.
+  const keepSettingsEditor = $derived(
+    adminTab === "settings" && canEditCommunity && mountedSettingsScope === settingsScopeKey,
+  )
   const moderatorRequestFilters = $derived(
     communityBootstrapReady && $activeExactCommunityDefinition
       ? makeCommunityModeratorRequestFilters($activeExactCommunityDefinition)
@@ -727,11 +744,11 @@
 </PageBar>
 
 <PageContent class="mx-auto flex w-full max-w-7xl flex-col gap-4 p-4 md:p-8">
-  {#if communityAdminLoading}
+  {#if communityAdminLoading && !keepSettingsEditor}
     <p class="flex h-10 items-center justify-center py-20 text-center">
       <Spinner loading>Loading Community Admin...</Spinner>
     </p>
-  {:else if communityAdminUnavailable || !communityBootstrapReady || !$activeExactCommunityDefinition}
+  {:else if (communityAdminUnavailable && !keepSettingsEditor) || !communityBootstrapReady || !$activeExactCommunityDefinition}
     <div class="flex flex-col items-center gap-3 py-8 text-center opacity-70">
       <p>Community Admin unavailable.</p>
       <Button class="btn btn-neutral btn-sm" onclick={retryCommunityAdmin}>Retry</Button>
@@ -767,6 +784,7 @@
       <CommunityCreate
         mode="edit"
         definition={$activeExactCommunityDefinition}
+        permissionsReady={!communityAdminLoading && !communityAdminUnavailable}
         profile={ownerProfile}
         embedded />
     {:else if adminTab === "requests"}

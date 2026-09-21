@@ -9,12 +9,16 @@
   } from "@app/core/private-community-scope"
 
   const {children}: {children?: Snippet} = $props()
-  let resolved = $state<{url: URL; scope?: PrivateCommunityScope}>()
+  // Modal hashes are UI state, not a new community scope. Comparing URL objects
+  // briefly hid and remounted the whole editor on every modal open/close, losing
+  // unsaved drafts and the PageContent scroll position.
+  const scopeKey = $derived($page.url.pathname + $page.url.search)
+  let resolved = $state<{key: string; scope?: PrivateCommunityScope}>()
   $effect.pre(() => {
-    const url = $page.url
+    const key = scopeKey
     // Register consent before loaders on initial and client-side navigation.
     untrack(() => {
-      resolved = {url, scope: resolvePrivateCommunityScope(url)}
+      resolved = {key, scope: resolvePrivateCommunityScope($page.url)}
     })
   })
   const scope = $derived(resolved?.scope)
@@ -23,7 +27,7 @@
   )
 </script>
 
-{#if resolved?.url === $page.url}
+{#if resolved?.key === scopeKey}
   {#if invalidInvite}
     <section class="p-6" role="alert">
       Invalid private invitation. Ask the owner for a complete community invitation.
