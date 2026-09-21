@@ -100,6 +100,7 @@
   let widgetTargetLoadKey = ""
   let widgetTargetDeleteLoadKey = ""
   let refreshingWidgetUpdates = $state<Record<string, boolean>>({})
+  const installingCommunityWidgets = $state<Record<string, boolean>>({})
   let trustedInstallInProgress = $state(false)
   let trustedSectionElement = $state<HTMLElement | null>(null)
   let highlightTrustedSection = $state(false)
@@ -163,6 +164,9 @@
   )
   const trustedWidgetsToInstall = $derived(
     trustedCuratedWidgets.filter(widget => !installedWidgetIds.has(getWidgetLineId(widget))),
+  )
+  const trustedWidgetInstallInProgress = $derived(
+    trustedCuratedWidgets.some(widget => installingCommunityWidgets[getWidgetLineId(widget)]),
   )
   const requestedCommunity = $derived.by(() => {
     try {
@@ -550,11 +554,24 @@
     return () => controller.abort()
   })
 
-  const onInstallWidget = async (widget: SmartWidgetEvent) => {
+  const installCommunityWidget = async (widget: SmartWidgetEvent) => {
+    const widgetId = getWidgetLineId(widget)
+    installingCommunityWidgets[widgetId] = true
+
     try {
-      await installWidgetFromEvent(widget as any, {
+      return await installWidgetFromEvent(widget as any, {
         relays: getWidgetInstallSourceRelays(widget),
       })
+    } finally {
+      delete installingCommunityWidgets[widgetId]
+    }
+  }
+
+  const onInstallWidget = async (widget: SmartWidgetEvent) => {
+    if (installingCommunityWidgets[getWidgetLineId(widget)]) return
+
+    try {
+      await installCommunityWidget(widget)
       clearCommunityWidgetSlotCache()
       pushToast({
         theme: "success",
@@ -566,7 +583,12 @@
   }
 
   const onInstallTrustedWidgets = async () => {
-    if (trustedInstallInProgress || trustedWidgetsToEnable.length === 0) return
+    if (
+      trustedInstallInProgress ||
+      trustedWidgetInstallInProgress ||
+      trustedWidgetsToEnable.length === 0
+    )
+      return
 
     const widgets = trustedWidgetsToEnable
     const installedIds = new Set(installedWidgetIds)
@@ -577,9 +599,7 @@
         const widgetId = getWidgetLineId(widget)
 
         if (!installedIds.has(widgetId)) {
-          const installedWidget = await installWidgetFromEvent(widget as any, {
-            relays: getWidgetInstallSourceRelays(widget),
-          })
+          const installedWidget = await installCommunityWidget(widget)
           const installedWidgetId = getWidgetLineId(installedWidget)
           installedIds.add(installedWidgetId)
           installedCount += 1
@@ -641,6 +661,8 @@
   {@const widgetId = getWidgetLineId(widget)}
   {@const installedWidget = installedWidgetIds.has(widgetId)}
   {@const isDefaultWidget = defaultIds.has(widgetId)}
+  {@const installing = Boolean(installingCommunityWidgets[widgetId])}
+  {@const queued = trusted && trustedInstallInProgress && !installedWidget && !installing}
   <div class="card2 flex flex-col gap-3 p-3 sm:flex-row sm:items-start sm:justify-between">
     <div class="flex min-w-0 flex-1 items-start gap-3">
       {#if widget.iconUrl || widget.imageUrl}
@@ -691,18 +713,30 @@
       </div>
     </div>
     <div class="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end">
-      {#if installedWidget}
+      {#if installedWidget && !installing}
         <label class="flex shrink-0 items-center gap-2 whitespace-nowrap text-sm">
           <input
             type="checkbox"
             class="toggle toggle-primary toggle-sm"
             checked={enabledIds.includes(widgetId)}
+            disabled={trusted && trustedInstallInProgress}
             onchange={e => toggle(widgetId, (e.currentTarget as HTMLInputElement).checked)} />
           <span class="opacity-70">Enabled</span>
         </label>
       {:else}
-        <Button class="btn btn-primary btn-sm" onclick={() => onInstallWidget(widget)}>
-          Install
+        <Button
+          class="btn btn-primary btn-sm"
+          disabled={installing || queued}
+          aria-busy={installing}
+          onclick={() => onInstallWidget(widget)}>
+          {#if installing}
+            <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
+            Installing...
+          {:else if queued}
+            Queued...
+          {:else}
+            Install
+          {/if}
         </Button>
       {/if}
     </div>
@@ -811,9 +845,13 @@
           </div>
           <Button
             class="btn btn-primary btn-sm"
-            disabled={trustedWidgetsToEnable.length === 0 || trustedInstallInProgress}
+            disabled={trustedWidgetsToEnable.length === 0 ||
+              trustedInstallInProgress ||
+              trustedWidgetInstallInProgress}
+            aria-busy={trustedInstallInProgress}
             onclick={onInstallTrustedWidgets}>
             {#if trustedInstallInProgress}
+              <span class="loading loading-spinner loading-xs" aria-hidden="true"></span>
               Installing...
             {:else if trustedWidgetsToEnable.length === 0}
               All trusted enabled
