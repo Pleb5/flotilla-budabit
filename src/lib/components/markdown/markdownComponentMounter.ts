@@ -51,7 +51,9 @@ function mountCashuPlaceholders(
   container: HTMLElement,
   mountedComponents: MountedComponent[],
 ): void {
-  const cashuPlaceholders = container.querySelectorAll(".markdown-cashu-placeholder")
+  const cashuPlaceholders = container.querySelectorAll(
+    ".markdown-cashu-placeholder, .markdown-invoice-placeholder",
+  )
   cashuPlaceholders.forEach(placeholder => {
     const encodedToken = placeholder.getAttribute("data-token")
     if (!encodedToken) return

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {cashuTokenHistory} from "@app/core/cashu"
+  import {cashuTokenHistory, cancelCashuInvoicePayment} from "@app/core/cashu"
   import type {TokenHistoryEntry} from "@app/core/cashu"
   import {formatCashuSats} from "@app/util/cashu-format"
   import Button from "@lib/components/Button.svelte"
@@ -14,6 +14,21 @@
   const history = $derived($cashuTokenHistory)
   let showAll = $state(false)
   let copiedId = $state<string | null>(null)
+  let releasing = $state("")
+  let releaseError = $state("")
+
+  const releaseQuote = async (entry: TokenHistoryEntry) => {
+    if (!entry.paymentOperationId || releasing) return
+    releasing = entry.id
+    releaseError = ""
+    try {
+      await cancelCashuInvoicePayment(entry.paymentOperationId)
+    } catch (e) {
+      releaseError = e instanceof Error ? e.message : "Could not release the fee quote."
+    } finally {
+      releasing = ""
+    }
+  }
 
   const displayed = $derived(limit > 0 && !showAll ? history.slice(0, limit) : history)
 
@@ -47,6 +62,7 @@
 </script>
 
 <div class="flex min-w-0 flex-col gap-2">
+  {#if releaseError}<p role="alert" class="text-sm text-error">{releaseError}</p>{/if}
   {#if history.length === 0}
     <p class="py-4 text-center text-sm opacity-50">No transaction history yet.</p>
   {:else}
@@ -71,7 +87,12 @@
           <div class="text-xs opacity-70"><TimestampDetails value={entry.createdAt} /></div>
           {#if entry.error}<p class="break-words text-xs text-error">{entry.error}</p>{/if}
         </div>
-        {#if entry.direction === "sent" && entry.token}
+        {#if entry.paymentOperationId && entry.state === "prepared"}
+          <Button
+            class="btn btn-ghost btn-xs justify-center"
+            onclick={() => releaseQuote(entry)}
+            disabled={Boolean(releasing)}>Release unpaid quote</Button>
+        {:else if entry.direction === "sent" && entry.token}
           <Button
             class="btn btn-ghost btn-xs inline-flex w-full justify-center sm:w-auto"
             onclick={() => copyToken(entry)}

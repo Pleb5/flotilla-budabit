@@ -11,6 +11,7 @@ import {parseCommunityLink} from "@app/util/community-links"
 import type {CommunityPointer} from "@app/core/community"
 import {getCashuTokenInfo} from "@app/util/cashu-token"
 import {entityLink} from "@app/util/nostr-links"
+import {getLightningInvoiceInfo} from "@app/util/lightning-invoice"
 
 export interface RendererOptions {
   event?: TrustedEvent
@@ -135,6 +136,11 @@ export function createRenderers(options: RendererOptions = {}): Partial<Renderer
 
     link(token: Tokens.Link): string {
       const {href, text} = token
+
+      const invoice = getLightningInvoiceInfo(href)
+      if (invoice) {
+        return `<span class="markdown-invoice-placeholder" data-token="${encodeURIComponent(invoice.invoice)}"></span>`
+      }
 
       const cashu = getCashuTokenInfo(href)
       if (cashu) {

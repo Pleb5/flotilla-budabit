@@ -229,6 +229,7 @@
     createNostrTokenizer,
     createEmailTokenizer,
     createCashuTokenizer,
+    createInvoiceTokenizer,
   } from "./markdown/markdownTokenizers.js"
   import {createTokenWalker} from "./markdown/markdownTokenWalker.js"
   import {createRenderers} from "./markdown/markdownRenderers.js"
@@ -309,7 +310,12 @@
     }
 
     return new Marked({
-      extensions: [createCashuTokenizer(), createNostrTokenizer(options), createEmailTokenizer()],
+      extensions: [
+        createCashuTokenizer(),
+        createInvoiceTokenizer(),
+        createNostrTokenizer(options),
+        createEmailTokenizer(),
+      ],
       async: true,
       breaks: true,
       walkTokens: createTokenWalker({defaultRelays: defaultRelays}),

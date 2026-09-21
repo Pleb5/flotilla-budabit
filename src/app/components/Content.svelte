@@ -39,6 +39,7 @@
   import {isArticleKind} from "@app/util/articles"
   import {entityLink, userSettingsValues} from "@app/core/state"
   import {replaceCashuTokens} from "@app/util/cashu-token"
+  import {replaceLightningInvoices} from "@app/util/lightning-invoice"
   import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
   import {Template, isKnownUnknown, EventRenderer, isKnownEventKind} from "@nostr-git/ui"
   import {getEventShareRelayHints} from "@app/util/event-share"
@@ -69,7 +70,7 @@
     communitySectionName = "",
   }: Props = $props()
 
-  const fullContent = $derived(replaceCashuTokens(parse(event)))
+  const fullContent = $derived(replaceLightningInvoices(replaceCashuTokens(parse(event))))
 
   const expand = () => {
     showEntire = true

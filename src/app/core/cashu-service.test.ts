@@ -5,6 +5,7 @@ import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import {Amount, getEncodedToken} from "@cashu/cashu-ts"
 import {CashuTestMint} from "../../../tests/helpers/cashu-mint"
 import {legacyCashuWallet} from "../../../tests/helpers/cashu-idb-fixture"
+import {makeInvoice} from "../../../tests/helpers/lightning-invoice"
 
 vi.mock("@lib/util", () => ({
   deleteIndexedDB: (name: string) =>
@@ -52,6 +53,11 @@ import {
   createCashuToken,
   receiveCashuToken,
   refreshCashuTopUps,
+  prepareCashuInvoicePayment,
+  executeCashuInvoicePayment,
+  cancelCashuInvoicePayment,
+  checkCashuInvoicePayment,
+  cashuSpendableByMint,
 } from "./cashu"
 
 beforeEach(() => {
@@ -65,6 +71,100 @@ afterEach(async () => {
 })
 
 describe("Cashu app service", () => {
+  const fundedMint = async (amount = 16, feePpk = 0) => {
+    const mint = new CashuTestMint({feePpk})
+    vi.stubGlobal("fetch", mint.fetch)
+    await initializeCashuWallet()
+    await addCashuMint(mint.url)
+    const topUp = await requestMintQuote(mint.url, amount)
+    mint.pay(topUp.quote)
+    await mintTokensFromQuote(mint.url, topUp.quote, amount)
+    return mint
+  }
+
+  it("quotes without paying, releases cancelled reservations, then pays and recovers change", async () => {
+    const mint = await fundedMint()
+    const invoice = makeInvoice()
+    const first = await prepareCashuInvoicePayment(mint.url, invoice)
+    expect(first).toMatchObject({amount: 7, feeReserve: 1, mintFees: 0, maxTotal: 8})
+    expect(mint.meltAttempts).toBe(0)
+    expect(get(cashuSpendableByMint).get(mint.url)).toBeLessThan(16)
+    await cancelCashuInvoicePayment(first.operationId)
+    expect(get(cashuSpendableByMint).get(mint.url)).toBe(16)
+    const payment = await prepareCashuInvoicePayment(mint.url, invoice)
+    mint.meltState = "PAID"
+    expect(await executeCashuInvoicePayment(payment)).toMatchObject({state: "paid"})
+    expect(get(cashuTotalBalance)).toBe(9)
+    expect(mint.meltAttempts).toBe(1)
+    expect(await executeCashuInvoicePayment(payment)).toMatchObject({state: "paid"})
+    expect(mint.meltAttempts).toBe(1)
+  })
+
+  it("keeps a lost melt response pending and reconciles after reload without paying twice", async () => {
+    const mint = await fundedMint(8)
+    const payment = await prepareCashuInvoicePayment(mint.url, makeInvoice())
+    mint.meltState = "PAID"
+    mint.dropNextMeltResponse = true
+    const result = await executeCashuInvoicePayment(payment)
+    expect(["pending", "paid"]).toContain(result.state)
+    await reloadCashuWallet()
+    expect(await checkCashuInvoicePayment(payment.operationId)).toMatchObject({state: "paid"})
+    expect(get(cashuTotalBalance)).toBe(1)
+    expect(mint.meltAttempts).toBe(1)
+  })
+
+  it("rejects mismatched/expired quotes and insufficient balance before submitting a melt", async () => {
+    const mint = await fundedMint(4)
+    await expect(prepareCashuInvoicePayment(mint.url, makeInvoice())).rejects.toThrow()
+    const payment = await prepareCashuInvoicePayment(mint.url, makeInvoice({amountMsats: 2000}))
+    await expect(executeCashuInvoicePayment({...payment, invoice: makeInvoice()})).rejects.toThrow(
+      "does not match",
+    )
+    expect(await executeCashuInvoicePayment({...payment, expiresAt: 0})).toMatchObject({
+      state: "failed",
+    })
+    expect(mint.meltAttempts).toBe(0)
+    expect(get(cashuSpendableByMint).get(mint.url)).toBe(4)
+  })
+
+  it.each([16, 64])(
+    "accounts for mint input fees and change from a %i-sat balance",
+    async amount => {
+      const mint = await fundedMint(amount, 1000)
+      const payment = await prepareCashuInvoicePayment(mint.url, makeInvoice())
+      expect(payment.mintFees).toBeGreaterThan(0)
+      expect(payment.maxTotal).toBe(payment.amount + payment.feeReserve + payment.mintFees)
+      mint.meltState = "PAID"
+      expect(await executeCashuInvoicePayment(payment)).toMatchObject({state: "paid"})
+      expect(get(cashuTotalBalance)).toBe(amount - payment.amount - payment.mintFees)
+    },
+  )
+
+  it("keeps an abandoned prepared quote discoverable and releasable after reload", async () => {
+    const mint = await fundedMint()
+    const payment = await prepareCashuInvoicePayment(mint.url, makeInvoice())
+    await reloadCashuWallet()
+    expect(get(cashuTokenHistory)).toContainEqual(
+      expect.objectContaining({paymentOperationId: payment.operationId, state: "prepared"}),
+    )
+    await cancelCashuInvoicePayment(payment.operationId)
+    expect(get(cashuSpendableByMint).get(mint.url)).toBe(16)
+    expect(mint.meltAttempts).toBe(0)
+  })
+
+  it("passes amountless amounts in msats to the mint and handles pending then failed payments", async () => {
+    const mint = await fundedMint()
+    const payment = await prepareCashuInvoicePayment(mint.url, makeInvoice({amountMsats: 0}), 7)
+    expect(mint.calls.find(call => call.path === "/v1/melt/quote/bolt11")?.body.options).toEqual({
+      amountless: {amount_msat: 7000},
+    })
+    expect(await executeCashuInvoicePayment(payment)).toMatchObject({state: "pending"})
+    mint.meltState = "UNPAID"
+    expect(await checkCashuInvoicePayment(payment.operationId)).toMatchObject({state: "failed"})
+    expect(get(cashuTotalBalance)).toBe(16)
+    expect(mint.meltAttempts).toBe(1)
+  })
+
   it("persists an invoice before returning it and resumes it exactly once after reload", async () => {
     const mint = new CashuTestMint()
     vi.stubGlobal("fetch", mint.fetch)

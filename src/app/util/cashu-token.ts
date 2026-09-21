@@ -10,8 +10,8 @@ export type CashuTokenInfo = {
   memo?: string
 }
 
-const CASHU_TOKEN_CANDIDATE_RE = /(?:cashu:)?cashu[ab][A-Za-z0-9_-]{20,50000}/gi
-const CASHU_TOKEN_START_RE = /^(?:cashu:)?cashu[ab][A-Za-z0-9_-]{20,50000}/i
+const CASHU_TOKEN_CANDIDATE_RE = /(?:cashu:)?cashu[ab][A-Za-z0-9_-]{20,50000}={0,2}/gi
+const CASHU_TOKEN_START_RE = /^(?:cashu:)?cashu[ab][A-Za-z0-9_-]{20,50000}={0,2}/i
 
 const ALLOWED_BOUNDARY_BEFORE = new Set([
   "",

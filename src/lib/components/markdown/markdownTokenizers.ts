@@ -10,6 +10,22 @@ import {findCommunityLinkStart, getCommunityLinkAtStart} from "@app/util/communi
 import type {CommunityPointer} from "@app/core/community"
 import {findCashuTokenStart, getCashuTokenAtStart} from "@app/util/cashu-token"
 import {entityLink} from "@app/util/nostr-links"
+import {findLightningInvoices} from "@app/util/lightning-invoice"
+
+export function createInvoiceTokenizer(): TokenizerAndRendererExtension {
+  return {
+    name: "lightning-invoice",
+    level: "inline",
+    start: src => findLightningInvoices(src)[0]?.index ?? -1,
+    tokenizer(src) {
+      const match = findLightningInvoices(src)[0]
+      if (!match || match.index !== 0) return
+      return {type: "lightning-invoice", raw: match.raw, invoice: match.info.invoice}
+    },
+    renderer: token =>
+      `<span class="markdown-invoice-placeholder" data-token="${encodeURIComponent(token.invoice)}"></span>`,
+  }
+}
 
 export interface NostrTokenizerOptions {
   event?: TrustedEvent

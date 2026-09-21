@@ -4,6 +4,7 @@ import {nip19} from "nostr-tools"
 import {naddrEncode} from "nostr-tools/nip19"
 import {Marked} from "marked"
 import {Amount, getEncodedToken} from "@cashu/cashu-ts"
+import {makeInvoice} from "../../../../tests/helpers/lightning-invoice"
 
 vi.mock("nostr-tools", () => ({
   nip19: {
@@ -112,6 +113,17 @@ describe("markdownRenderers", () => {
 
       expect(html).toContain("markdown-cashu-placeholder")
       expect(html).toContain(`data-token="${encodeURIComponent(token)}"`)
+    })
+
+    it("renders linked Lightning invoices as cards without turning LNURL into BOLT11", async () => {
+      const invoice = makeInvoice()
+      const marked = new Marked({renderer: createRenderers()})
+      expect(await marked.parse(`[Pay](lightning:${invoice})`)).toContain(
+        "markdown-invoice-placeholder",
+      )
+      expect(await marked.parse("[Pay](lightning:lnurl1example)")).not.toContain(
+        "markdown-invoice-placeholder",
+      )
     })
 
     it("shortens standalone URL display when text matches href", () => {

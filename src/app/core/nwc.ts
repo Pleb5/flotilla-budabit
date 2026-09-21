@@ -97,5 +97,15 @@ export const payNwcInvoice = async (options: NwcClientOptions, request: NwcPayIn
   }
 }
 
+export const lookupNwcInvoice = async (options: NwcClientOptions, paymentHash: string) => {
+  const client = createNwcClient(options)
+  try {
+    await getNwcWalletServiceInfo(client)
+    return await client.lookupInvoice({payment_hash: paymentHash})
+  } finally {
+    client.close()
+  }
+}
+
 export const getNwcErrorMessage = (error: unknown, fallback = "Wallet request failed") =>
   error instanceof Error ? error.message : fallback

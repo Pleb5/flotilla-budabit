@@ -18,6 +18,7 @@ class MockNWCClient {
   _encryptionType = ""
   getInfoCalls = 0
   payInvoiceParams: unknown
+  lookupInvoiceParams: unknown
   closed = false
 
   constructor(options: Record<string, any>) {
@@ -69,6 +70,12 @@ class MockNWCClient {
     this.payInvoiceParams = params
 
     return mocks.payResponse
+  }
+
+  async lookupInvoice(params: unknown) {
+    this.selectEncryptionType()
+    this.lookupInvoiceParams = params
+    return {payment_hash: "test-hash", preimage: "preimage", state: "settled"}
   }
 
   close() {
@@ -152,6 +159,15 @@ describe("NWC helpers", () => {
       payNwcInvoice({nostrWalletConnectUrl: "nwc://wallet"} as any, {invoice: "lnbc1invoice"}),
     ).resolves.toEqual(mocks.payResponse)
     expect(mocks.instances[0]._encryptionType).toBe("nip04")
+    expect(mocks.instances[0].closed).toBe(true)
+  })
+
+  it("looks up the original payment hash and closes the client", async () => {
+    const {lookupNwcInvoice} = await import("./nwc")
+    expect(
+      await lookupNwcInvoice({nostrWalletConnectUrl: "nwc://wallet"}, "test-hash"),
+    ).toMatchObject({state: "settled"})
+    expect(mocks.instances[0].lookupInvoiceParams).toEqual({payment_hash: "test-hash"})
     expect(mocks.instances[0].closed).toBe(true)
   })
 })

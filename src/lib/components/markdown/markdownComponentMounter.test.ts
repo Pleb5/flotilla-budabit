@@ -121,10 +121,10 @@ describe("markdownComponentMounter", () => {
       expect(result).toEqual([])
     })
 
-    it("mounts Cashu token placeholders", () => {
+    it.each(["cashu", "invoice"])("mounts %s payment placeholders", type => {
       const token = "cashuBo2FtdGh0dHBzOi8vbWludC5leGFtcGxlYXVjc2F0YXSA"
       const container = document.createElement("div")
-      container.innerHTML = `<span class="markdown-cashu-placeholder" data-token="${encodeURIComponent(token)}"></span>`
+      container.innerHTML = `<span class="markdown-${type}-placeholder" data-token="${encodeURIComponent(token)}"></span>`
 
       const result = mountPlaceholderComponents(container, {})
 
@@ -135,7 +135,7 @@ describe("markdownComponentMounter", () => {
         }),
       )
       expect(result.length).toBe(1)
-      expect(container.querySelector(".markdown-cashu-placeholder")).toBeNull()
+      expect(container.querySelector(`.markdown-${type}-placeholder`)).toBeNull()
     })
 
     it("mounts link block placeholder when event provided and eventId matches", () => {

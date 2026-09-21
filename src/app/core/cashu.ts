@@ -2,6 +2,7 @@ import {writable, get} from "svelte/store"
 import type {Writable} from "svelte/store"
 import {Manager, initializeCoco, getEncodedToken, getTokenMetadata} from "@cashu/coco-core"
 import type {HistoryEntry, MintQuote, MintOperation, Bolt11MintQuote} from "@cashu/coco-core"
+import type {MeltOperation} from "@cashu/coco-core"
 import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import * as bip39 from "@scure/bip39"
 import {wordlist} from "@scure/bip39/wordlists/english"
@@ -16,6 +17,7 @@ import type {CashuBackupData, CashuEncryptedPayload} from "@app/util/cashu-backu
 import {cashuPositiveSats, cashuSatsNumber} from "@app/util/cashu-amount"
 import {cashuSnapshotDatabaseName, prepareCashuStorageUpgrade} from "./cashu-storage-migration"
 import {enforceCashuKeysetPolicy} from "./cashu-keyset-policy"
+import {getLightningInvoiceInfo, getInvoicePaymentAmount} from "@app/util/lightning-invoice"
 
 const KEY_MNEMONIC = "budabit_cashu_mnemonic"
 const KEY_MNEMONIC_ENCRYPTED = "budabit_cashu_mnemonic_encrypted"
@@ -34,12 +36,14 @@ export interface TokenHistoryEntry {
   createdAt: number
   state: string
   error?: string
+  paymentOperationId?: string
 }
 
 export const cashuInitialized: Writable<boolean> = writable(false)
 export const cashuBackupConfirmed: Writable<boolean> = writable(false)
 export const cashuTotalBalance: Writable<number> = writable(0)
 export const cashuBalancesByMint: Writable<Map<string, number>> = writable(new Map())
+export const cashuSpendableByMint: Writable<Map<string, number>> = writable(new Map())
 export const cashuMints: Writable<string[]> = writable([])
 export const cashuTokenHistory: Writable<TokenHistoryEntry[]> = writable([])
 export const cashuAutoPayWhitelist: Writable<string[]> = writable([])
@@ -115,6 +119,7 @@ const resetManagerRuntime = async () => {
   cashuInitialized.set(false)
   cashuTotalBalance.set(0)
   cashuBalancesByMint.set(new Map())
+  cashuSpendableByMint.set(new Map())
   cashuMints.set([])
   cashuTokenHistory.set([])
   cashuTopUps.set([])
@@ -554,6 +559,9 @@ const refreshCashuBalancesStrict = async (): Promise<number> => {
   const sats = cashuSatsNumber(total)
   if (manager !== active) throw new Error("Wallet session changed")
   cashuBalancesByMint.set(map)
+  cashuSpendableByMint.set(
+    new Map(Object.entries(byMint).map(([url, snap]) => [url, cashuSatsNumber(snap.spendable)])),
+  )
   cashuTotalBalance.set(sats)
   return sats
 }
@@ -603,6 +611,167 @@ export const createCashuToken = async (amount: number, mintUrl: string): Promise
   await refreshCashuBalancesStrict()
   await refreshCashuHistoryStrict()
   return getEncodedToken(tokenData)
+}
+
+// ─── Lightning payments ──────────────────────────────────────────────────────
+
+export type CashuInvoicePayment = {
+  operationId: string
+  mintUrl: string
+  invoice: string
+  amount: number
+  feeReserve: number
+  mintFees: number
+  maxTotal: number
+  expiresAt: number
+}
+
+export type CashuInvoicePaymentResult = {
+  state: "pending" | "paid" | "failed"
+  error?: string
+}
+
+const meltResult = (operation: MeltOperation): CashuInvoicePaymentResult => ({
+  state:
+    operation.state === "finalized"
+      ? "paid"
+      : operation.state === "failed" || operation.state === "rolled_back"
+        ? "failed"
+        : "pending",
+  error: operation.error,
+})
+
+/** Preparing reserves proofs and persists deterministic change; it does not pay. */
+export const prepareCashuInvoicePayment = async (
+  mintUrl: string,
+  raw: string,
+  amount?: number,
+): Promise<CashuInvoicePayment> => {
+  const invoice = getLightningInvoiceInfo(raw)
+  if (!invoice) throw new Error("Invalid Lightning invoice")
+  const {sats} = getInvoicePaymentAmount(invoice, amount)
+  if (invoice.network !== "bitcoin")
+    throw new Error("The Cashu wallet supports mainnet invoices only.")
+  if (!invoice.amount) cashuPositiveSats(sats)
+  await ensureManagerReady()
+  if (!manager || !repo) throw new Error("Wallet not initialized")
+  if (!get(cashuBackupConfirmed)) throw new Error("Back up your Cashu wallet before paying.")
+  if (get(cashuRecoveryInProgress)) throw new Error("Wait for Cashu wallet recovery to finish.")
+  const active = manager
+  const repository = repo
+  if (!(await active.mint.isTrustedMint(mintUrl))) throw new UntrustedMintError(mintUrl)
+  const quote = await active.quotes.melt.create({
+    mintUrl,
+    method: "bolt11",
+    unit: "sat",
+    methodData: {invoice: invoice.invoice, ...(!invoice.amount ? {amountSats: sats} : {})},
+  })
+  if (
+    quote.unit !== "sat" ||
+    quote.request.toLowerCase() !== invoice.invoice ||
+    !quote.amount.equals(Math.ceil(sats)) ||
+    quote.state !== "UNPAID" ||
+    quote.expiry * 1000 <= Date.now()
+  )
+    throw new Error("The mint returned an unexpected or expired payment quote.")
+  if (manager !== active) throw new Error("Wallet session changed")
+  const operation = await active.ops.melt.prepare({quote})
+  try {
+    // Include NUT-02 input fees as well as the Lightning fee reserve and any pre-swap fee.
+    const inputs = operation.needsSwap
+      ? operation.swapOutputData!.send.map(output => output.blindedMessage)
+      : await repository.proofRepository.getProofsByOperationId(mintUrl, operation.id)
+    const keysets = await repository.keysetRepository.getKeysetsByMintUrl(mintUrl)
+    const feePpk = inputs.reduce((sum, input) => {
+      const keyset = keysets.find(keyset => keyset.id === input.id)
+      if (!keyset) throw new Error("Could not determine mint input fees")
+      return sum + keyset.feePpk
+    }, 0)
+    const mintFees = cashuSatsNumber(operation.swap_fee) + Math.ceil(feePpk / 1000)
+    const quotedAmount = cashuSatsNumber(operation.amount)
+    const feeReserve = cashuSatsNumber(operation.fee_reserve)
+    const maxTotal = cashuSatsNumber(cashuPositiveSats(quotedAmount + feeReserve + mintFees))
+    if (manager !== active) throw new Error("Wallet session changed")
+    await refreshCashuBalances()
+    return {
+      operationId: operation.id,
+      mintUrl,
+      invoice: invoice.invoice,
+      amount: quotedAmount,
+      feeReserve,
+      mintFees,
+      maxTotal,
+      expiresAt: Math.min(invoice.expiresAt, quote.expiry * 1000),
+    }
+  } catch (error) {
+    await active.ops.melt.cancel(operation.id)
+    throw error
+  }
+}
+
+export const cancelCashuInvoicePayment = async (operationId: string): Promise<void> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  const active = manager
+  const operation = await active.ops.melt.get(operationId)
+  if (operation?.state === "prepared") await active.ops.melt.cancel(operationId)
+  await Promise.all([refreshCashuBalances(), refreshCashuHistory()])
+}
+
+export const executeCashuInvoicePayment = async (
+  payment: CashuInvoicePayment,
+): Promise<CashuInvoicePaymentResult> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  if (!get(cashuBackupConfirmed)) throw new Error("Back up your Cashu wallet before paying.")
+  const active = manager
+  const operation = await active.ops.melt.get(payment.operationId)
+  if (
+    !operation ||
+    operation.method !== "bolt11" ||
+    !("invoice" in operation.methodData) ||
+    operation.methodData.invoice !== payment.invoice ||
+    operation.mintUrl !== payment.mintUrl
+  )
+    throw new Error("Payment operation does not match this invoice")
+  if (operation.state !== "prepared") return meltResult(operation)
+  if (payment.expiresAt <= Date.now()) {
+    await active.ops.melt.cancel(operation.id)
+    return {state: "failed", error: "The payment quote has expired. Get a new fee quote."}
+  }
+  try {
+    return meltResult(await active.ops.melt.execute(operation.id))
+  } catch (error) {
+    // The mint may have accepted the payment before a response was lost. Only
+    // persisted terminal states establish failure; otherwise keep it pending.
+    const latest = await active.ops.melt.get(operation.id)
+    if (latest)
+      return {
+        ...meltResult(latest),
+        error: error instanceof Error ? error.message : "Payment status unknown",
+      }
+    throw error
+  } finally {
+    if (manager === active) await Promise.all([refreshCashuBalances(), refreshCashuHistory()])
+  }
+}
+
+export const checkCashuInvoicePayment = async (
+  operationId: string,
+): Promise<CashuInvoicePaymentResult> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  const active = manager
+  const operation = await active.ops.melt.refresh(operationId)
+  // A prepared operation has never entered execution. This also recovers a
+  // reload between persisting the app's attempt and submitting the payment.
+  if (operation.state === "prepared") {
+    await active.ops.melt.cancel(operation.id)
+    await refreshCashuBalances()
+    return {state: "failed", error: "Payment was not submitted. You can try again."}
+  }
+  await Promise.all([refreshCashuBalances(), refreshCashuHistory()])
+  return meltResult(operation)
 }
 
 // ─── Lightning Top-up ─────────────────────────────────────────────────────────
@@ -900,7 +1069,11 @@ const mapHistoryEntry = (entry: HistoryEntry): TokenHistoryEntry | null => {
     case "mint":
       return {...base, direction: "minted"}
     case "melt":
-      return {...base, direction: "sent"}
+      return {
+        ...base,
+        direction: "sent",
+        paymentOperationId: "operationId" in entry ? entry.operationId : undefined,
+      }
     default:
       return null
   }

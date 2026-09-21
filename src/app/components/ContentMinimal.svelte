@@ -33,6 +33,7 @@
   import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
   import {entityLink, userSettingsValues} from "@app/core/state"
   import {replaceCashuTokens} from "@app/util/cashu-token"
+  import {replaceLightningInvoices} from "@app/util/lightning-invoice"
   import {isCommunityLinkToken, replaceCommunityLinks} from "@app/util/community-links"
   import {getArticleDetails, isArticleKind} from "@app/util/articles"
 
@@ -44,7 +45,7 @@
 
   const {event, trimParent = false, url}: Props = $props()
 
-  const fullContent = $derived(replaceCashuTokens(parse(event)))
+  const fullContent = $derived(replaceLightningInvoices(replaceCashuTokens(parse(event))))
   const article = $derived(isArticleKind(event.kind) ? getArticleDetails(event) : undefined)
   const contentWarning = $derived(
     $userSettingsValues.hide_sensitive &&

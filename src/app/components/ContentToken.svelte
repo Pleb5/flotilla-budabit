@@ -1,94 +1,246 @@
+<style>
+  .payment-card {
+    container-type: inline-size;
+  }
+  .payment-card :global(.payment-primary) {
+    flex: 1 0 100%;
+  }
+  .payment-card :global(.payment-secondary) {
+    flex: 1 1 0;
+  }
+  @container (min-width: 350px) {
+    .payment-card :global(.payment-primary) {
+      flex: 1 1 auto;
+    }
+    .payment-card :global(.payment-secondary) {
+      flex: 0 0 auto;
+    }
+  }
+</style>
+
 <script lang="ts">
-  import Bolt from "@assets/icons/bolt.svg?dataurl"
-  import Icon from "@lib/components/Icon.svelte"
+  import {onDestroy} from "svelte"
+  import {Check, Copy, ExternalLink, QrCode, Wallet, Zap, Coins} from "@lucide/svelte"
   import Button from "@lib/components/Button.svelte"
+  import PaymentQRCode from "@app/components/PaymentQRCode.svelte"
+  import WalletPay from "@app/components/WalletPay.svelte"
   import CashuTokenRedeemFlow from "@app/components/CashuTokenRedeemFlow.svelte"
-  import {formatCashuSats} from "@app/util/cashu-format"
   import {
     getCashuMintDisplayName,
     getCashuTokenInfo,
     shortenCashuToken,
   } from "@app/util/cashu-token"
+  import {getLightningInvoiceInfo, formatInvoiceSats} from "@app/util/lightning-invoice"
+  import {invoicePayments, loadInvoicePayment} from "@app/core/invoice-payments"
   import {pushModal} from "@app/util/modal"
-  import {clip} from "@app/util/toast"
+  import {copyToClipboard} from "@lib/html"
   import {CASHU_WALLET_ENABLED} from "@app/core/feature-flags"
 
-  interface Props {
-    value: string
-  }
-
-  const {value}: Props = $props()
-
+  const {value}: {value: string} = $props()
+  const uid = $props.id()
+  let now = $state(Date.now())
   const cashu = $derived(getCashuTokenInfo(value))
-  const amountLabel = $derived.by(() => {
-    if (!cashu) return ""
-    if (cashu.amount <= 0) return "Cashu token"
-    return `${formatCashuSats(cashu.amount)} ${cashu.unit === "sat" ? "sats" : cashu.unit}`
+  const invoice = $derived(getLightningInvoiceInfo(value))
+  const payload = $derived(cashu ? cashu.token.replace(/^cashu:/i, "") : invoice?.invoice || value)
+  const payment = $derived(invoice ? $invoicePayments[invoice.paymentHash] : undefined)
+  const paid = $derived(payment?.state === "paid")
+  const pending = $derived(payment?.state === "pending")
+  const expired = $derived(Boolean(invoice && invoice.expiresAt <= now))
+  const expiryLabel = $derived.by(() => {
+    if (!invoice) return ""
+    const minutes = Math.ceil((invoice.expiresAt - now) / 60000)
+    return minutes <= 0
+      ? "Expired"
+      : minutes < 60
+        ? `Expires in ${minutes}m`
+        : minutes < 1440
+          ? `Expires in ${Math.ceil(minutes / 60)}h`
+          : `Expires ${new Date(invoice.expiresAt).toLocaleDateString()}`
   })
-  const mintLabel = $derived(cashu ? getCashuMintDisplayName(cashu.mintUrl) : "")
-  const tokenLabel = $derived(cashu ? shortenCashuToken(cashu.token) : value.slice(0, 16) + "...")
 
+  let showQR = $state(false)
+  let copied = $state(false)
   let received = $state<number | null>(null)
+  let copyError = $state("")
+  let copyTimer: ReturnType<typeof setTimeout> | undefined
+  onDestroy(() => clearTimeout(copyTimer))
 
-  const stop = (event?: Event) => {
-    event?.preventDefault()
-    event?.stopPropagation()
+  $effect(() => {
+    void value
+    showQR = false
+    copied = false
+    received = null
+    copyError = ""
+  })
+  $effect(() => {
+    if (!invoice) return
+    try {
+      loadInvoicePayment(invoice.paymentHash)
+    } catch {
+      /* The payment sheet surfaces storage errors. */
+    }
+    now = Date.now()
+    const timer = setInterval(() => {
+      now = Date.now()
+    }, 15000)
+    return () => clearInterval(timer)
+  })
+
+  const stop = (event: Event) => {
+    event.preventDefault()
+    event.stopPropagation()
   }
-
-  const copy = (event?: Event) => {
+  const copy = async (event: Event) => {
     stop(event)
-    clip(value)
+    copyError = ""
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(payload)
+      else if (!copyToClipboard(payload)) throw new Error("Copy failed")
+      copied = true
+      clearTimeout(copyTimer)
+      copyTimer = setTimeout(() => {
+        copied = false
+      }, 2000)
+    } catch {
+      copyError = "Could not copy automatically. Select and copy the text below."
+    }
   }
-
-  const redeem = (event?: Event) => {
+  const pay = (event: Event) => {
+    stop(event)
+    if (invoice) pushModal(WalletPay, {paymentRequest: invoice.invoice})
+  }
+  const receive = (event: Event) => {
     stop(event)
     if (!cashu) return
-
+    const original = value
     pushModal(CashuTokenRedeemFlow, {
       token: cashu.token,
-      onredeemed: ({amount}: {amount: number; mintUrl: string}) => {
-        received = amount
+      onredeemed: ({amount}: {amount: number}) => {
+        if (value === original) received = amount
       },
     })
   }
 </script>
 
-{#if cashu}
+{#if cashu || invoice}
   <span
-    class="my-1 inline-flex w-full max-w-full flex-col gap-2 rounded-box border border-base-300 bg-base-100/90 p-2 align-middle text-sm shadow-sm sm:w-auto sm:min-w-80"
-    data-stop-tap>
-    <span class="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-      <span class="flex min-w-0 items-center gap-2">
-        <Icon icon={Bolt} size={4} class="shrink-0 text-warning" />
-        <span class="min-w-0">
-          <span class="block font-semibold leading-tight">{amountLabel}</span>
-          <span class="block max-w-full truncate text-[11px] opacity-60" title={cashu.mintUrl}>
-            {mintLabel} - {tokenLabel}
-          </span>
+    role="group"
+    aria-label={cashu ? "Cashu token" : "Lightning invoice"}
+    data-payment-card={cashu ? "cashu" : "lightning"}
+    data-stop-tap
+    class="payment-card my-2 inline-flex w-full max-w-[26rem] flex-col gap-4 overflow-hidden rounded-2xl border border-base-content/10 bg-base-100 p-4 text-left align-top text-sm leading-normal shadow-sm">
+    <span class="flex items-center justify-between gap-2">
+      <span class="flex items-center gap-2 text-xs font-medium text-base-content/70">
+        <span
+          class="flex size-8 shrink-0 items-center justify-center rounded-xl bg-warning/10 text-warning">
+          {#if cashu}<Coins size={17} />{:else}<Zap size={17} />{/if}
         </span>
+        {cashu ? "Cashu token" : "Lightning invoice"}
       </span>
-      <span class="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:justify-end">
-        <Button class="btn btn-ghost btn-xs inline-flex justify-center" onclick={copy}>Copy</Button>
-        {#if CASHU_WALLET_ENABLED}
-          <Button
-            class="btn btn-primary btn-xs inline-flex justify-center"
-            onclick={redeem}
-            disabled={received !== null}>
-            {received === null ? "Redeem" : "Received"}
-          </Button>
-        {/if}
-      </span>
+      {#if received !== null || paid}
+        <span
+          class="inline-flex items-center gap-1 rounded-full bg-success/10 px-2 py-1 text-xs font-medium text-success"
+          ><Check size={12} />{cashu ? "Received" : "Paid"}</span>
+      {:else if pending}
+        <span class="rounded-full bg-warning/10 px-2 py-1 text-xs text-warning">Pending</span>
+      {:else if invoice}
+        <span
+          class={`text-right text-[11px] ${expired ? "text-error" : "text-base-content/50"}`}
+          title={new Date(invoice.expiresAt).toLocaleString()}>{expiryLabel}</span>
+      {/if}
     </span>
 
-    {#if received !== null}
-      <span class="rounded-lg bg-success/10 px-2 py-1 text-xs text-success">
-        +{formatCashuSats(received)} sats received.
+    <span class="flex min-w-0 flex-col gap-1">
+      <span
+        class="inline-flex items-baseline gap-1 text-2xl font-semibold tabular-nums tracking-tight">
+        {#if cashu || invoice?.amount}
+          {formatInvoiceSats(cashu?.amount ?? invoice!.amount)}
+          <span class="text-sm font-normal tracking-normal text-base-content/55"
+            >{cashu && cashu.unit !== "sat" ? cashu.unit : "sats"}</span>
+        {:else}Choose amount{/if}
+      </span>
+      {#if cashu}
+        <span class="truncate text-xs text-base-content/60" title={cashu.mintUrl}
+          >{getCashuMintDisplayName(cashu.mintUrl)}</span>
+        {#if cashu.memo}<span class="line-clamp-2 break-words text-sm text-base-content/75"
+            >{cashu.memo}</span
+          >{/if}
+      {:else if invoice?.description}
+        <span
+          class="line-clamp-2 break-words text-sm text-base-content/75"
+          title={invoice.description}>{invoice.description}</span>
+      {/if}
+      {#if invoice && invoice.network !== "bitcoin"}<span class="text-xs text-warning"
+          >{invoice.network} invoice</span
+        >{/if}
+    </span>
+
+    <span class="flex flex-wrap items-center gap-2">
+      {#if cashu && CASHU_WALLET_ENABLED && cashu.unit === "sat"}
+        <Button
+          class="payment-primary btn btn-primary btn-sm min-h-10 grow justify-center gap-2"
+          onclick={receive}
+          disabled={received !== null}>
+          {#if received !== null}<Check size={15} />Received{:else}<Wallet size={15} />Receive in
+            Cashu{/if}
+        </Button>
+      {:else if invoice}
+        <Button
+          class="payment-primary btn btn-primary btn-sm min-h-10 grow justify-center gap-2"
+          onclick={pay}
+          disabled={paid || (expired && !pending)}>
+          {#if paid}<Check size={15} />Paid{:else}<Wallet size={15} />{pending
+              ? "Check payment"
+              : "Pay with wallet"}{/if}
+        </Button>
+      {/if}
+      <Button
+        class="payment-secondary btn btn-ghost btn-sm min-h-10 justify-center gap-1.5"
+        onclick={copy}
+        aria-label={cashu ? "Copy Cashu token" : "Copy Lightning invoice"}>
+        {#if copied}<Check size={14} />{:else}<Copy size={14} />{/if}{copied ? "Copied" : "Copy"}
+      </Button>
+      <Button
+        class="payment-secondary btn btn-ghost btn-sm min-h-10 justify-center gap-1.5"
+        aria-expanded={showQR}
+        aria-controls={uid + "-qr"}
+        onclick={event => {
+          stop(event)
+          showQR = !showQR
+        }}>
+        <QrCode size={14} />{showQR ? "Hide QR" : "Show QR"}
+      </Button>
+    </span>
+
+    {#if showQR}
+      <span id={uid + "-qr"}>
+        {#key payload}<PaymentQRCode
+            value={invoice ? payload.toUpperCase() : payload}
+            label={cashu ? "Cashu token QR code" : "Lightning invoice QR code"} />{/key}
       </span>
     {/if}
+    {#if received !== null}<span class="text-xs text-success" role="status"
+        >+{formatInvoiceSats(received)} sats received</span
+      >{/if}
+    {#if copyError}
+      <span role="status" class="text-xs text-error">{copyError}</span>
+      <span class="max-h-28 select-all overflow-auto break-all font-mono text-xs">{payload}</span>
+    {/if}
+    <span
+      class="flex min-w-0 items-center justify-between gap-3 border-t border-base-content/5 pt-2 text-[11px] text-base-content/45">
+      <span class="min-w-0 truncate font-mono"
+        >{cashu
+          ? shortenCashuToken(payload)
+          : `${payload.slice(0, 12)}…${payload.slice(-8)}`}</span>
+      {#if invoice && !paid && !pending && !expired}
+        <a
+          class="inline-flex shrink-0 items-center gap-1 text-base-content/65 hover:text-primary"
+          href={`lightning:${invoice.invoice}`}
+          onclick={event => event.stopPropagation()}><ExternalLink size={12} />Open in wallet</a>
+      {:else if cashu}<span class="shrink-0">Ecash</span>{/if}
+    </span>
   </span>
 {:else}
-  <Button onclick={copy} class="link-content">
-    <Icon icon={Bolt} size={3} class="inline-block translate-y-px" />
-    {tokenLabel}
-  </Button>
+  <Button onclick={copy} class="link-content inline-flex items-center gap-1"
+    ><Zap size={13} />{copied ? "Copied" : value.slice(0, 16) + "…"}</Button>
 {/if}

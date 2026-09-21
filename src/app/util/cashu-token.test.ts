@@ -65,6 +65,24 @@ describe("cashu-token utilities", () => {
     expect(info).toMatchObject({token, mintUrl: MINT, amount: 2, unit: "sat"})
   })
 
+  it("renders legacy Cashu A tokens with optional base64 padding", () => {
+    const raw = JSON.stringify({
+      unit: "sat",
+      token: [
+        {
+          mint: MINT,
+          proofs: [
+            {id: "009a1f293253e41e", amount: 2, secret: "public-test", C: `02${"a".repeat(64)}`},
+          ],
+        },
+      ],
+    })
+    const token =
+      "cashuA" + Buffer.from(raw).toString("base64").replaceAll("+", "-").replaceAll("/", "_")
+    expect(getCashuTokenInfo(token)).toMatchObject({token, amount: 2, mintUrl: MINT})
+    expect(getCashuTokenAtStart(`${token}.`)?.token).toBe(token)
+  })
+
   it("reads metadata from cashu-prefixed tokens", () => {
     const token = `cashu:${makeToken()}`
 

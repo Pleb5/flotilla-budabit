@@ -9,6 +9,8 @@ import {
 } from "@cashu/cashu-ts"
 import {schnorr, secp256k1} from "@noble/curves/secp256k1"
 import {sha256} from "@noble/hashes/sha2.js"
+import {bytesToHex, hexToBytes} from "@noble/hashes/utils.js"
+import {decodeInvoice} from "@getalby/lightning-tools/bolt11"
 
 type Output = {id: string; amount: number | string; B_: string}
 type Quote = {
@@ -29,11 +31,15 @@ export class CashuTestMint {
   readonly keys: Record<string, string>
   readonly id: string
   readonly expiry?: number
+  readonly feePpk: number
   readonly signatureMode: "current" | "legacy"
   readonly calls: {path: string; body: any}[] = []
   readonly quotes = new Map<string, Quote>()
   readonly signatures = new Map<string, any>()
   readonly spent = new Set<string>()
+  readonly melts = new Map<string, any>()
+  dropNextMeltResponse = false
+  meltAttempts = 0
   dropNextMintResponse = false
   mintAttempts = 0
   meltState: "PENDING" | "PAID" | "UNPAID" = "PENDING"
@@ -45,10 +51,12 @@ export class CashuTestMint {
       signatureMode?: "current" | "legacy"
       url?: string
       amounts?: number[]
+      feePpk?: number
     } = {},
   ) {
     this.url = options.url ?? "https://cashu-test.invalid"
     this.expiry = options.expiry
+    this.feePpk = options.feePpk ?? 0
     this.signatureMode = options.signatureMode ?? "current"
     this.keys = Object.fromEntries(
       (options.amounts ?? [1, 2, 4, 8, 16, 32, 64, 128]).map((amount, i) => [
@@ -60,6 +68,7 @@ export class CashuTestMint {
       unit: "sat",
       versionByte: options.version ?? 1,
       expiry: this.expiry,
+      input_fee_ppk: this.feePpk,
     })
   }
 
@@ -74,14 +83,14 @@ export class CashuTestMint {
 
   private sign(output: Output) {
     const scalar = BigInt(Math.log2(Number(output.amount)) + 1)
-    const key = Uint8Array.from(Buffer.from(scalar.toString(16).padStart(64, "0"), "hex"))
+    const key = hexToBytes(scalar.toString(16).padStart(64, "0"))
     const B = pointFromHex(output.B_)
     const dleq = createDLEQProof(B, key)
     const signature = {
       id: this.id,
       amount: Number(output.amount),
       C_: createBlindSignature(B, key, this.id).C_.toHex(true),
-      dleq: {e: Buffer.from(dleq.e).toString("hex"), s: Buffer.from(dleq.s).toString("hex")},
+      dleq: {e: bytesToHex(dleq.e), s: bytesToHex(dleq.s)},
     }
     this.signatures.set(output.B_, signature)
     return signature
@@ -101,7 +110,7 @@ export class CashuTestMint {
       id: this.id,
       unit: "sat",
       active: true,
-      input_fee_ppk: 0,
+      input_fee_ppk: this.feePpk,
       ...(this.expiry !== undefined ? {final_expiry: this.expiry} : {}),
     }
     if (path === "/v1/info")
@@ -113,7 +122,10 @@ export class CashuTestMint {
             methods: [{method: "bolt11", unit: "sat", min_amount: 1, max_amount: 128}],
             disabled: false,
           },
-          "5": {methods: [{method: "bolt11", unit: "sat"}], disabled: false},
+          "5": {
+            methods: [{method: "bolt11", unit: "sat", options: {amountless: true}}],
+            disabled: false,
+          },
           "7": {supported: true},
           "9": {supported: true},
           "12": {supported: true},
@@ -183,7 +195,54 @@ export class CashuTestMint {
       return respond({
         states: body.Ys.map((Y: string) => ({Y, state: this.spent.has(Y) ? "SPENT" : "UNSPENT"})),
       })
-    if (path.startsWith("/v1/melt/quote/bolt11/"))
+    if (path === "/v1/melt/quote/bolt11") {
+      const invoice = decodeInvoice(body.request)
+      const quote = {
+        quote: `m-${this.melts.size + 1}`,
+        request: body.request,
+        unit: "sat",
+        amount: Math.ceil(invoice?.satoshi || Number(body.options?.amountless?.amount_msat) / 1000),
+        fee_reserve: 1,
+        expiry: 4102444800,
+        state: "UNPAID",
+        change: [],
+      }
+      this.melts.set(quote.quote, quote)
+      return respond(quote)
+    }
+    if (path === "/v1/melt/bolt11") {
+      this.meltAttempts++
+      const quote = this.melts.get(body.quote)!
+      quote.state = this.meltState
+      if (quote.state === "PAID") {
+        quote.payment_preimage = "11".repeat(32)
+        for (const proof of body.inputs)
+          this.spent.add(hashToCurve(new TextEncoder().encode(proof.secret)).toHex(true))
+        let change =
+          body.inputs.reduce((sum: number, p: any) => sum + Number(p.amount), 0) -
+          quote.amount -
+          Math.ceil((body.inputs.length * this.feePpk) / 1000)
+        const outputs: Output[] = []
+        for (let bit = 1; change > 0; bit *= 2) {
+          if (change % 2) outputs.push({...body.outputs[outputs.length], amount: bit})
+          change = Math.floor(change / 2)
+        }
+        quote.change = outputs.map(output => this.sign(output))
+      }
+      if (this.dropNextMeltResponse) {
+        this.dropNextMeltResponse = false
+        throw new TypeError("Simulated lost melt response")
+      }
+      return respond(quote)
+    }
+    if (path.startsWith("/v1/melt/quote/bolt11/")) {
+      const saved = this.melts.get(path.split("/").at(-1)!)
+      if (saved)
+        return respond({
+          ...saved,
+          state: this.meltState,
+          ...(this.meltState === "PAID" ? {payment_preimage: "11".repeat(32)} : {}),
+        })
       return respond({
         quote: path.split("/").at(-1),
         state: this.meltState,
@@ -194,6 +253,7 @@ export class CashuTestMint {
         request: "lnbc-fixture-melt",
         ...(this.meltState === "PAID" ? {payment_preimage: "11".repeat(32), change: []} : {}),
       })
+    }
     if (path === "/v1/swap") {
       for (const proof of body.inputs) {
         const Y = hashToCurve(new TextEncoder().encode(proof.secret))

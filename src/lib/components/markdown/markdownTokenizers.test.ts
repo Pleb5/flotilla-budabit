@@ -1,12 +1,15 @@
 import {describe, expect, it, vi, beforeEach} from "vitest"
 import {
   createCashuTokenizer,
+  createInvoiceTokenizer,
   createEmailTokenizer,
   createNostrTokenizer,
 } from "./markdownTokenizers"
 import {nip19} from "nostr-tools"
 import {naddrEncode} from "nostr-tools/nip19"
 import {Amount, getEncodedToken} from "@cashu/cashu-ts"
+import {Marked} from "marked"
+import {makeInvoice} from "../../../../tests/helpers/lightning-invoice"
 
 vi.mock("nostr-tools", () => ({
   nip19: {
@@ -23,6 +26,17 @@ interface InlineTokenizerExtension {
 }
 
 describe("markdownTokenizers", () => {
+  it("renders bare and URI BOLT11s while preserving Markdown code and ordinary URLs", async () => {
+    const invoice = makeInvoice()
+    const marked = new Marked({extensions: [createInvoiceTokenizer()]})
+    const html = await marked.parse(
+      `Pay (${invoice}), or lightning:${invoice}!\n\n\`${invoice}\`\n\nhttps://example.com/${invoice}\n\n\`\`\`\n${invoice}\n\`\`\``,
+    )
+    expect(html.match(/markdown-invoice-placeholder/g)).toHaveLength(2)
+    expect(html).toContain(`<code>${invoice}</code>`)
+    expect(html).toContain(`href="https://example.com/${invoice}"`)
+  })
+
   const makeCashuToken = () =>
     getEncodedToken({
       mint: "https://mint.example",
