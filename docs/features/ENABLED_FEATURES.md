@@ -26,9 +26,9 @@ NIP-34 pull request support is always part of Budabit. Terminal UI has been remo
 
 ## Default Community Sections
 
-New communities and **Restore defaults** include General, Room-creator, Thread-creator, Calendar-event-creator, Fundraiser-goals-creator, Code-curator, Widget-curator, and **Freelance**. The Freelance section declares services `32765`, orders `32766`, jobs `32767`, proposals `32768`, and QTS reviews `1986`.
+New communities and **Restore defaults** include General, Room-creator, Thread-creator, Calendar-event-creator, Fundraiser-goals-creator, Code-curator, Widget-curator, and **Marketplace**. Marketplace combines services `32765`, orders `32766`, jobs `32767`, proposals `32768`, QTS reviews `1986`, and NIP-99 classified listings `30402` in one section.
 
-This is section configuration, not a build-time feature flag or bundled widget. Existing communities need an owner-published definition update; **Add Freelance** adds the preset without resetting other sections. See [Community Freelance](freelance.md) for grants, widget targeting, workflows, and media setup.
+This is section configuration, not a build-time feature flag or bundled widget. Existing communities need an owner-published definition update; **Add Marketplace** adds the preset without resetting other sections when its kinds are unassigned. An existing Freelance section can be renamed to Marketplace and extended with `30402`. See [Community Marketplace and Freelance](freelance.md) for grants, widget targeting, workflows, and media setup.
 
 ## Default Community Extensions
 

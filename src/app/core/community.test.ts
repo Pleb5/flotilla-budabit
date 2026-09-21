@@ -5,7 +5,7 @@ import {
   COMMUNITY_DEFINITION_KIND,
   COMMUNITY_SECTION_CALENDAR,
   COMMUNITY_SECTION_GENERAL,
-  COMMUNITY_SECTION_FREELANCE,
+  COMMUNITY_SECTION_MARKETPLACE,
   DEFAULT_COMMUNITY_SECTION_NAMES,
   COMMUNITY_SECTION_REPO_CURATOR,
   COMMUNITY_SUBTYPE_ROOM_MESSAGE,
@@ -91,24 +91,30 @@ describe("community shared helpers", () => {
     expect(canWriteFromProfileList(profileList, pubkeyA)).toBe(true)
   })
 
-  it("round-trips the default sections with Freelance workflow kinds and its grants", () => {
-    const grant = `30000:${pubkeyA}:${"a".repeat(64)}-freelance`
+  it("round-trips one Marketplace section with freelance and NIP-99 kinds sharing grants", () => {
+    const grant = `30000:${pubkeyA}:${"a".repeat(64)}-marketplace`
     const template = buildCommunityDefinition({
       communityId: "a".repeat(64),
-      name: "Freelance test",
+      name: "Marketplace test",
       relays: ["wss://relay.example"],
       sections: DEFAULT_COMMUNITY_SECTION_NAMES.map(name => ({
         name,
         kinds: getDefaultCommunitySectionKinds(name),
-        profileLists: name === COMMUNITY_SECTION_FREELANCE ? [{address: grant}] : [],
+        profileLists: name === COMMUNITY_SECTION_MARKETPLACE ? [{address: grant}] : [],
       })),
     })
     const definition = parseCommunityDefinition(makeEvent(template))!
-    const freelance = definition.sections.find(
-      section => section.name === COMMUNITY_SECTION_FREELANCE,
+    const marketplace = definition.sections.find(
+      section => section.name === COMMUNITY_SECTION_MARKETPLACE,
     )!
-    expect(freelance.kinds.map(item => item.kind)).toEqual([32765, 32766, 32767, 32768, 1986])
-    expect(freelance.profileLists[0].address).toBe(grant)
+    expect(marketplace.kinds.map(item => item.kind)).toEqual([
+      32765, 32766, 32767, 32768, 1986, 30402,
+    ])
+    expect(marketplace.kinds.every(item => item.subtype === undefined)).toBe(true)
+    expect(marketplace.profileLists[0].address).toBe(grant)
+    expect(
+      definition.sections.some(section => ["Freelance", "Classifieds"].includes(section.name)),
+    ).toBe(false)
     expect(getDuplicateCommunitySectionKindAssignments(definition.sections)).toEqual([])
   })
 

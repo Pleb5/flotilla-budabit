@@ -187,13 +187,14 @@ Example target shape:
     ["a", "30000:<list-pubkey>:<community-id>-widget-curator", "wss://main.community.relay"],
     ["badge", "30009:<issuer-pubkey>:widget-curator"],
 
-    ["content", "Freelance"],
+    ["content", "Marketplace"],
     ["k", "32765"],
     ["k", "32766"],
     ["k", "32767"],
     ["k", "32768"],
     ["k", "1986"],
-    ["a", "30000:<list-pubkey>:<community-id>-freelance", "wss://main.community.relay"]
+    ["k", "30402"],
+    ["a", "30000:<list-pubkey>:<community-id>-marketplace", "wss://main.community.relay"]
   ],
   "content": ""
 }
@@ -213,7 +214,7 @@ The third value in a `k` tag is a Budabit subtype convention. It is needed when 
 
 Each exact `(kind, subtype)` pair should appear in only one section per community definition. Empty subtype is exact and does not match non-empty subtypes. This lets publish gates, application forms, and member grants resolve to one section without fallback or wildcard behavior.
 
-Budabit's new-community and restored defaults are **General**, **Room-creator**, **Thread-creator**, **Calendar-event-creator**, **Fundraiser-goals-creator**, **Code-curator**, **Widget-curator**, and **Freelance**. The Freelance section groups SatShoot services (`32765`), orders (`32766`), jobs (`32767`), proposals (`32768`), and QTS reviews (`1986`), all without a subtype. It uses the same profile-list grant model as other sections. The workspace comes from a community-targeted Smart Widget; section defaults do not install widget code. Existing definitions require an explicit owner edit, with **Add Freelance** available to add only that preset. See [Community Freelance](../features/freelance.md).
+Budabit's new-community and restored defaults are **General**, **Room-creator**, **Thread-creator**, **Calendar-event-creator**, **Fundraiser-goals-creator**, **Code-curator**, **Widget-curator**, and **Marketplace**. Marketplace groups SatShoot services (`32765`), orders (`32766`), jobs (`32767`), proposals (`32768`), QTS reviews (`1986`), and NIP-99 classified listings (`30402`), all without a subtype. These kinds share the section's profile-list grants. Workspaces come from community-targeted Freelance and Classifieds Smart Widgets; section defaults do not install widget code. Existing definitions require an explicit owner edit: use **Add Marketplace** when its kinds are unassigned, or rename the existing Freelance section and add `30402`. See [Community Marketplace and Freelance](../features/freelance.md).
 
 Section names and their profile-list references are part of the permission lifecycle. Admin edits that rename a section, move a `(kind, subtype)` pair, or remove a section should be treated as dangerous changes. Budabit warns immediately while editing, then summarizes migration effects before publishing.
 

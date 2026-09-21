@@ -53,7 +53,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - `VITE_DEFAULT_COMMUNITY` provides the recommended starting community on `/explore`.
   - `VITE_INDEXER_RELAYS` are discovery/bootstrap relays before the community definition relays are known.
   - The active `kind:32222` definition at `32222:<owner>:<communityId>` provides community metadata, relays, sections, profile-list references, and Blossom refs. Community-native data uses stable `h=<communityId>` and authority-sensitive workflows additionally mark that exact definition address with `a` marker `community`.
-  - `src/app/core/community.ts` defines the new/restored section defaults, including **Freelance**: services `32765`, orders `32766`, jobs `32767`, proposals `32768`, and QTS reviews `1986`. Existing definitions add this section through an owner edit; app updates do not rewrite signed state.
+  - `src/app/core/community.ts` defines the new/restored section defaults, including **Marketplace**: services `32765`, orders `32766`, jobs `32767`, proposals `32768`, QTS reviews `1986`, and NIP-99 classified listings `30402`. Existing definitions adopt this section through an owner edit; app updates do not rewrite signed state.
 - Router/Context:
   - `routerContext.getIndexerRelays` is wired to env-configured relays.
   - `appContext.dufflepudUrl` is currently hard-coded to `https://dufflepud.onrender.com`.
@@ -78,7 +78,7 @@ This document summarizes how the Budabit client is structured and how the main p
 - `src/app/extensions/bridge.ts` and `provider.svelte` host extensions in iframes and expose a permissioned host bridge.
 - Extension slots are rendered through `src/app/extensions/components/SlotRenderer.svelte`; repo-tab extensions are mounted under `/git/[id]/extensions/[extId]` and surfaced from the Git repo layout.
 - Community widget routes live at `/c/[community]/widgets`; generic widget launching is handled through declared widget slots and settings preview actions.
-- [Community Freelance](features/freelance.md) is a separately published SatShoot-compatible widget using community context, descriptor write capabilities, host signing, and its own community-only relay pool. The default Freelance section configures workflow kinds/grants; it does not bundle the widget or add a native Freelance route.
+- [Community Freelance](features/freelance.md) is a separately published SatShoot-compatible widget using community context, descriptor write capabilities, host signing, and its own community-only relay pool. The default Marketplace section configures shared freelance/classifieds kinds and grants; it does not bundle the widgets or add native marketplace routes.
 
 ## Configuration and Environment
 

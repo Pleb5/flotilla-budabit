@@ -44,7 +44,7 @@
   import {
     DEFAULT_COMMUNITY_SECTION_NAMES,
     COMMUNITY_DEFINITION_KIND,
-    COMMUNITY_SECTION_FREELANCE,
+    COMMUNITY_SECTION_MARKETPLACE,
     FORM_RESPONSE_KIND,
     buildCommunityDefinition,
     getCommunitySectionKindAssignments,
@@ -309,6 +309,7 @@
     {label: "Freelance Jobs", kind: 32767},
     {label: "Freelance Proposals", kind: 32768},
     {label: "Freelance Reviews", kind: 1986},
+    {label: "Classified Listings (NIP-99)", kind: 30402},
   ] satisfies Array<{label: string; kind: number; subtype?: string}>
 
   const kindOptionValue = (kind: number, subtype = "") => `${kind}:${subtype}`
@@ -2483,10 +2484,11 @@
     scrollToSection(nextSectionIndex)
   }
 
-  const addFreelanceSection = () => {
-    const kinds = getDefaultCommunitySectionKinds(COMMUNITY_SECTION_FREELANCE)
+  const addMarketplaceSection = () => {
+    const kinds = getDefaultCommunitySectionKinds(COMMUNITY_SECTION_MARKETPLACE)
     const existingIndex = sectionDrafts.findIndex(
-      section => getSectionNameKey(section.name) === getSectionNameKey(COMMUNITY_SECTION_FREELANCE),
+      section =>
+        getSectionNameKey(section.name) === getSectionNameKey(COMMUNITY_SECTION_MARKETPLACE),
     )
     if (existingIndex >= 0) {
       scrollToSection(existingIndex)
@@ -2498,7 +2500,7 @@
     if (assigned) {
       errors = {
         ...errors,
-        sections: `Freelance publish types are already assigned to ${assigned.name}. Edit the existing section to avoid duplicate assignments.`,
+        sections: `Marketplace publish types are already assigned to ${assigned.name}. Edit the existing section to avoid duplicate assignments.`,
       }
       return
     }
@@ -2507,7 +2509,7 @@
       ...sectionDrafts,
       {
         ...makeEmptySectionDraft(),
-        name: COMMUNITY_SECTION_FREELANCE,
+        name: COMMUNITY_SECTION_MARKETPLACE,
         kinds: kinds.map(toKindDraft),
       },
     ]
@@ -2776,9 +2778,10 @@
   let geohash = $state("")
   let pictureUploadStage = $state<BlossomUploadStage>("idle")
   let sectionDrafts = $state<SectionDraft[]>(makeDefaultSectionDrafts())
-  const hasFreelanceSection = $derived(
+  const hasMarketplaceSection = $derived(
     sectionDrafts.some(
-      section => getSectionNameKey(section.name) === getSectionNameKey(COMMUNITY_SECTION_FREELANCE),
+      section =>
+        getSectionNameKey(section.name) === getSectionNameKey(COMMUNITY_SECTION_MARKETPLACE),
     ),
   )
   let bootstrapGrantDrafts = $state<CommunityBootstrapGrantDraft[]>([])
@@ -3220,8 +3223,8 @@
                 {SECTION_NAME_HINT}
               </p>
               <p class="mt-1 text-sm opacity-65">
-                Defaults include Freelance jobs, services, proposals, orders, and reviews for a
-                community-targeted Smart Widget.
+                Marketplace defaults group freelance jobs, services, proposals, orders, reviews, and
+                NIP-99 classified listings in one section for community-targeted Smart Widgets.
               </p>
             </div>
             <div
@@ -3246,12 +3249,12 @@
                 {disabled}>
                 Add section
               </Button>
-              {#if !hasFreelanceSection}
+              {#if !hasMarketplaceSection}
                 <Button
                   class="btn btn-outline btn-sm w-full sm:w-auto"
-                  onclick={addFreelanceSection}
+                  onclick={addMarketplaceSection}
                   {disabled}>
-                  Add Freelance
+                  Add Marketplace
                 </Button>
               {/if}
             </div>

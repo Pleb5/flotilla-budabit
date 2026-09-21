@@ -26,7 +26,7 @@
   } from "@lucide/svelte"
   import {
     COMMUNITY_SECTION_CALENDAR,
-    COMMUNITY_SECTION_FREELANCE,
+    COMMUNITY_SECTION_MARKETPLACE,
     COMMUNITY_SECTION_GENERAL,
     COMMUNITY_SECTION_GOALS,
     COMMUNITY_SECTION_REPO_CURATOR,
@@ -54,7 +54,10 @@
     {label: COMMUNITY_SECTION_GOALS, detail: "Who can publish fundraiser goals"},
     {label: COMMUNITY_SECTION_REPO_CURATOR, detail: "Repos and permalink curation"},
     {label: COMMUNITY_SECTION_WIDGETS, detail: "Smart widget curation"},
-    {label: COMMUNITY_SECTION_FREELANCE, detail: "Jobs, services, proposals, orders, and reviews"},
+    {
+      label: COMMUNITY_SECTION_MARKETPLACE,
+      detail: "Jobs, services, proposals, orders, reviews, and classifieds",
+    },
   ]
 
   const alternativeSections = [
@@ -62,7 +65,7 @@
     {label: "Conversation-creator", detail: "Room creators and thread creators together"},
     {label: "Events-and-goals", detail: "Calendar events and fundraiser goals together"},
     {label: "Code-and-widget-curator", detail: "Repo, permalink, and widget curation together"},
-    {label: "Work", detail: "Freelance listings, agreements, and reviews together"},
+    {label: "Trade", detail: "Freelance work and classified listings together"},
   ]
 
   const {showStartCommunityCta = false}: {showStartCommunityCta?: boolean} = $props()
@@ -272,12 +275,13 @@
     <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
       <div class="flex items-center gap-3 text-success">
         <BriefcaseBusiness size={28} />
-        <h2 class="text-2xl font-bold">Freelance work in your community</h2>
+        <h2 class="text-2xl font-bold">A marketplace for your community</h2>
       </div>
       <p class="mt-3 max-w-4xl text-sm leading-relaxed opacity-75 sm:text-base">
-        The default Freelance section lets members post jobs, offer services, agree on work, and
-        review concluded engagements through a community-targeted SatShoot-compatible Smart Widget.
-        Section grants control who can publish each of these event types.
+        The default Marketplace section brings freelance work and classified listings together.
+        Members can post jobs, offer services, agree on work, review concluded engagements, and sell
+        or give away items through community-targeted Smart Widgets. Section grants control who can
+        publish these event types.
       </p>
       <div class="mt-5 grid gap-3 sm:grid-cols-2">
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
@@ -295,12 +299,21 @@
           </p>
           <p class="mt-3 text-xs opacity-65">Services: 32765 · Orders: 32766 · Reviews: 1986</p>
         </div>
+        <div class="rounded-2xl border border-base-300 bg-base-200 p-4 sm:col-span-2">
+          <strong>Sell or give away an item</strong>
+          <p class="mt-2 text-sm opacity-75">
+            Post a listing → contact the seller → arrange payment and handoff → mark it sold or
+            given away.
+          </p>
+          <p class="mt-3 text-xs opacity-65">NIP-99 classified listings: 30402</p>
+        </div>
       </div>
       <p class="mt-4 text-sm leading-relaxed opacity-75">
         New communities include the section automatically. For an existing community, the owner can
-        choose <strong>Add Freelance</strong> in the community editor, configure publishing access, and
-        publish the definition. A widget curator targets the Freelance widget to that exact community.
-        Payments and private messaging are handled separately from the widget.
+        choose <strong>Add Marketplace</strong> if its kinds are not already assigned, or rename an existing
+        Freelance section and add kind 30402. Configure publishing access and publish the definition.
+        A widget curator targets the Freelance and Classifieds widgets to that exact community. Payment
+        and handoff are arranged directly between participants.
       </p>
     </section>
 

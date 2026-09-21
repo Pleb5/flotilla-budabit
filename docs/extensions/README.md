@@ -67,7 +67,7 @@ Runtime parsing extracts the widget `identifier`, `widgetType`, `buttons`, `appU
 
 ### Freelance workflow example
 
-Budabit's default **Freelance** section declares services `32765`, orders `32766`, jobs `32767`, proposals `32768`, and reviews `1986`. Its workflow grants are separate from **Widget-curator** access for publishing/targeting the widget. Existing communities can add the section with **Add Freelance** in the definition editor.
+Budabit's default **Marketplace** section declares services `32765`, orders `32766`, jobs `32767`, proposals `32768`, reviews `1986`, and NIP-99 classified listings `30402`. Its shared workflow grants are separate from **Widget-curator** access for publishing/targeting widgets. Existing communities can use **Add Marketplace** when those kinds are unassigned, or rename their Freelance section and add `30402` in the definition editor.
 
 The separately published Community Freelance widget uses `community:checkWriteCapabilities`, `nostr:sign`, `storage:get`, `storage:set`, `ui:resize`, and `ui:navigate`, with a `community-home-quicklinks` slot. Version 0.5.0 adds the read-only [`profiles:resolve`](profiles.md) API to reuse Budabit's profile resolver and shared cache for all displayed accounts. It owns community-relay workflow reads/publication and Blossom uploads; its signing declaration also includes `5`, `22242`, and `24242`. The host's bridge checks do not automatically govern a widget's direct network requests. See [Community Freelance](../features/freelance.md) for configuration and implementation boundaries.
 
