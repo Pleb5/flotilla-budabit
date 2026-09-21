@@ -305,6 +305,17 @@ for (const mobile of [false, true]) {
     await receiveEvents(page, [grant(4, true)])
     await expect(frame.getByRole("button", {name: "Publish", exact: true})).toBeEnabled()
     await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Keep my community draft")
+    // No autosave delay: switching tabs must preserve the last keystroke.
+    await frame.getByLabel("Title", {exact: true}).evaluate((element: HTMLInputElement) => {
+      element.value = "Immediate tab-switch draft"
+      element.dispatchEvent(new Event("input", {bubbles: true}))
+    })
+    await frame
+      .getByRole("button", {name: "Services", exact: true})
+      .evaluate(element => element.click())
+    await frame.getByRole("button", {name: "Jobs", exact: true}).click()
+    await frame.getByRole("button", {name: "Post a job", exact: true}).click()
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Immediate tab-switch draft")
     await frame.getByRole("button", {name: "Cancel", exact: true}).click()
     await frame.getByLabel("Search freelance listings").fill("nothing here")
     await expect(
@@ -400,6 +411,26 @@ for (const mobile of [false, true]) {
     expect(bundleRequests).toBe(1)
     await launcher.click()
     await expect(frame.getByRole("button", {name: "Access options", exact: true})).toBeVisible()
+    // The real host removes the iframe on dismissal. Its synchronous local journal
+    // must preserve a just-entered value even before a host storage reply arrives.
+    await receiveEvents(page, [grant(6, true)])
+    await frame.getByRole("button", {name: "Post a job", exact: true}).click()
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Immediate tab-switch draft")
+    await frame.getByLabel("Title", {exact: true}).evaluate((element: HTMLInputElement) => {
+      element.value = "Immediate host-dismissal draft"
+      element.dispatchEvent(new Event("input", {bubbles: true}))
+    })
+    await dialog
+      .getByRole("button", {name: "Close widget", exact: true})
+      .evaluate(element => element.click())
+    await expect(iframe).toHaveCount(0)
+    await launcher.click()
+    await frame.getByRole("button", {name: "Post a job", exact: true}).click()
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue(
+      "Immediate host-dismissal draft",
+    )
+    await frame.getByRole("button", {name: "Cancel", exact: true}).click()
+    await receiveEvents(page, [grant(7, false)])
     await frame.getByRole("button", {name: "Access options", exact: true}).click()
     await expect(page).toHaveURL(/\/access\?section=Freelance&kind=32767$/)
     await expect(page.getByRole("region", {name: "Freelance publishing access"})).toContainText(
@@ -586,10 +617,9 @@ for (const mobile of [false, true]) {
       `${npub.slice(0, 8)}…${npub.slice(-4)}`,
       {timeout: 10000},
     )
-    await expect(card("Community profile service").locator(".identity-avatar")).toHaveJSProperty(
-      "naturalWidth",
-      38,
-    )
+    await expect(
+      card("Community profile service").locator(".card-footer .identity-avatar"),
+    ).toHaveJSProperty("naturalWidth", 38)
     const telemetry = await relay.getTelemetry()
     const profileReads = telemetry.filter(
       entry => entry.type === "req" && entry.filters?.some(filter => filter.kinds?.includes(0)),
@@ -706,8 +736,12 @@ for (const mobile of [false, true]) {
     await frame.getByRole("button", {name: "Services", exact: true}).click()
 
     // A late profile updates the fallback through the shared store watch, without a refresh.
+    await frame.getByLabel("Search freelance listings").fill("Late Client")
+    await expect(frame.locator(".listing-card")).toHaveCount(0)
     await receiveEvents(page, [metadata(2, "Late Client")])
     await expect(card("Missing profile service")).toContainText("Late Client")
+    await expect(frame.locator(".listing-card")).toHaveCount(1)
+    await frame.getByLabel("Search freelance listings").fill("")
     await card("Community profile service").click()
     await expect(frame.locator(".detail > .section-heading .account-label")).toContainText(
       "Community Maker",
@@ -765,23 +799,26 @@ for (const mobile of [false, true]) {
         frame.locator("html").evaluate(element => element.scrollWidth <= element.clientWidth),
       )
       .toBe(true)
-    // Personal notifications exclude the unrelated viewer and update live on
-    // the widget's existing community subscription. Read receipts survive remount.
-    await expect(frame.getByRole("button", {name: "Notifications", exact: true})).not.toHaveClass(
+    // Community listing alerts remain separate from personal workflow attention.
+    // Both update on the existing subscription and receipts survive remount.
+    await expect(frame.getByRole("button", {name: "My work", exact: true})).not.toHaveClass(
       /attention/,
     )
     await switchAccount(page, communityAuthor)
     await expect(
-      frame.getByRole("button", {name: "Notifications, 3 unread", exact: true}),
+      frame.getByRole("button", {name: "Notifications, 6 unread", exact: true}),
     ).toHaveClass(/attention/)
     await expect(frame.getByRole("button", {name: "Jobs, 1 unread", exact: true})).toHaveClass(
       /attention/,
     )
-    await expect(frame.getByRole("button", {name: "Services, 2 unread", exact: true})).toHaveClass(
+    await expect(frame.getByRole("button", {name: "Services, 5 unread", exact: true})).toHaveClass(
       /attention/,
     )
-    await frame.getByRole("button", {name: "Notifications, 3 unread", exact: true}).click()
-    await expect(frame.locator(".notification-item")).toHaveCount(3)
+    await expect(frame.getByRole("button", {name: "My work, 3 unread", exact: true})).toHaveClass(
+      /attention/,
+    )
+    await frame.getByRole("button", {name: "Notifications, 6 unread", exact: true}).click()
+    await expect(frame.locator(".notification-item")).toHaveCount(6)
     const liveOrder = signed(
       3,
       32766,
@@ -799,7 +836,7 @@ for (const mobile of [false, true]) {
     )
     await relay.injectEvents([liveOrder], widgetFrame)
     await expect(
-      frame.getByRole("button", {name: "Notifications, 4 unread", exact: true}),
+      frame.getByRole("button", {name: "Notifications, 7 unread", exact: true}),
     ).toHaveClass(/attention/)
     await expect(frame.locator(".notification-item").first()).toContainText("New order")
     await expect(frame.getByRole("button", {name: "My work, 4 unread", exact: true})).toHaveClass(
@@ -809,7 +846,7 @@ for (const mobile of [false, true]) {
       .getByRole("button", {name: "Mark read: New order · Community profile service", exact: true})
       .click()
     await expect(
-      frame.getByRole("button", {name: "Notifications, 3 unread", exact: true}),
+      frame.getByRole("button", {name: "Notifications, 6 unread", exact: true}),
     ).toBeVisible()
     await dialog.screenshot({path: info.outputPath("freelance-notifications.png")})
     await frame.getByRole("button", {name: "Mark all read", exact: true}).click()
@@ -821,18 +858,22 @@ for (const mobile of [false, true]) {
     await expect(page.locator('iframe[title="Community Freelance · SatShoot"]')).toHaveCount(0)
     await launcher.click()
     await frame.getByRole("button", {name: "Notifications", exact: true}).click()
-    await expect(frame.locator(".notification-item")).toHaveCount(3)
+    await expect(frame.locator(".notification-item")).toHaveCount(6)
     await expect(frame.locator(".notification-item.unread")).toHaveCount(0)
     await expect(frame.getByRole("button", {name: "Mark all read", exact: true})).toBeDisabled()
     await switchAccount(page, missingAuthor)
     await expect(
-      frame.getByRole("button", {name: "Notifications, 1 unread", exact: true}),
+      frame.getByRole("button", {name: "Notifications, 3 unread", exact: true}),
     ).toBeVisible()
-    await frame.getByRole("button", {name: "Notifications, 1 unread", exact: true}).click()
-    await expect(frame.locator(".notification-item")).toHaveCount(1)
-    await frame.locator(".notification-open").click()
+    await frame.getByRole("button", {name: "Notifications, 3 unread", exact: true}).click()
+    await expect(frame.locator(".notification-item")).toHaveCount(3)
+    await frame
+      .locator(".notification-item")
+      .filter({hasText: "New review from your counterparty"})
+      .locator(".notification-open")
+      .click()
     await expect(frame.locator(".detail h2")).toHaveText("Community profile service")
-    await expect(frame.getByRole("button", {name: "Notifications", exact: true})).not.toHaveClass(
+    await expect(frame.getByRole("button", {name: "My work", exact: true})).not.toHaveClass(
       /attention/,
     )
     await switchAccount(page, "")
