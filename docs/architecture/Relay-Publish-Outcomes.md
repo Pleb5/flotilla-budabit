@@ -50,7 +50,11 @@ events, connection failures and timeouts do not establish a kind restriction.
 NIP-11 and empty reads are not evidence of write support.
 
 The cache is keyed by normalized relay URL and outgoing event kind, bounded to 512
-entries, and persisted under `relay.writeCapabilities.v1` in browser localStorage.
+entries, and persisted as individual `relay.writeCapabilities.v2:` keys in browser
+localStorage. Each decision reads that relay/kind's current key, so additions and
+acceptance-driven removals in other tabs are visible immediately, without waiting
+for a storage event. Writes update only the observed pair, never a tab's stale
+snapshot. The old v1 snapshot is not imported, to avoid resurrecting cleared evidence.
 Evidence expires after 24 hours; expiry permits the next real publication or
 explicit retry. A later OK-true response clears the restriction. Denied or corrupt
 storage falls back to memory. The policy performs no network preflight, background
@@ -63,6 +67,12 @@ operation cannot succeed. Shared feedback separates attempted and skipped counts
 for example `Accepted by 3/3 attempted relays; 1 skipped (kind unsupported).`
 The original rejection remains a failed attempt; subsequent skips retain its
 reason in delivery reports. Retries go through the same centralized policy.
+
+Peer disconnect/error teardown preserves queued `OK` and `CLOSED` frames in wire
+order, including terminal frames in an already-popped receive batch. Matching
+publication ACKs therefore reach both the publisher and capability observer before
+the transport is reset. Local cancellation still discards queued work, and a bare
+disconnect without a matching ACK retains the ordinary publication timeout.
 
 ## Protected-kind deletions
 

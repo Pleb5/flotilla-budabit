@@ -71,7 +71,7 @@ class ReadReplay {
             read.waiting = true
             read.closed = message
             socket._recvQueue.remove(message)
-            socket._pendingClosed.delete(message)
+            socket._pendingTerminal.delete(message)
           } else this.reads.delete(message[1])
         }
         // A consented coordinator may be resuming its challenge probe promise.

@@ -518,22 +518,16 @@ export const deriveSocketStatus = (url: string) =>
         return {theme: "warning", title: "Authenticating"}
       }
 
-      if ($socket.auth.status === AuthStatus.DeniedSignature) {
-        return {theme: "error", title: "Failed to Authenticate"}
-      }
-
       if ($socket.auth.status === AuthStatus.PendingResponse) {
         return {theme: "warning", title: "Authenticating"}
       }
 
-      if ($socket.auth.status === AuthStatus.Forbidden) {
+      if ($relaysMostlyRestricted[$socket.url]) {
         return {theme: "error", title: "Access Denied"}
       }
 
-      if ($relaysMostlyRestricted[url]) {
-        return {theme: "error", title: "Access Denied"}
-      }
-
+      // A failed optional AUTH handshake does not close the connection or deny
+      // ordinary reads. Required operations report their own AUTH/read failure.
       return {theme: "success", title: "Connected"}
     }),
   )
@@ -553,19 +547,10 @@ export const shouldIgnoreError = (error: string) => {
   return isIgnored || isAborted
 }
 
-export const deriveRelayAuthError = (url: string) => {
-  const stripPrefix = (m: string) => m.replace(/^\w+: /, "")
-
-  return derived(
-    [relaysMostlyRestricted, deriveSocket(url)],
-    ([$relaysMostlyRestricted, $socket]) => {
-      if ($socket.auth.status === AuthStatus.Forbidden && $socket.auth.details) {
-        return stripPrefix($socket.auth.details)
-      }
-
-      if ($relaysMostlyRestricted[url]) {
-        return stripPrefix($relaysMostlyRestricted[url])
-      }
-    },
-  )
+// Only rejected application requests establish an access issue. A shared
+// socket's AUTH rejection (e.g. "AUTH disabled") is handshake diagnostics, not
+// evidence that this community's public requests failed.
+export const deriveRelayAccessError = (url: string) => {
+  const relay = normalizeRelayUrl(url)
+  return derived(relaysMostlyRestricted, $restricted => $restricted[relay]?.replace(/^\w+: /, ""))
 }

@@ -30,7 +30,7 @@
   import {pushToast} from "@app/util/toast"
   import {pushDrawer} from "@app/util/modal"
   import {checked, ensureCommunityNotificationBaseline, setCheckedAt} from "@app/util/notifications"
-  import {deriveRelayAuthError} from "@app/core/state"
+  import {deriveRelayAccessError} from "@app/core/state"
   import {makeCanonicalExactCommunityUrl, parseExactCommunityRouteParam} from "@app/util/routes"
   import {
     activeCommunityAdmissionForms,
@@ -150,9 +150,9 @@
     ),
   )
 
-  let authRelayUrl = $state("")
-  let relayAuthError = $state("")
-  let shownAuthErrorKey = $state("")
+  let accessRelayUrl = $state("")
+  let relayAccessError = $state("")
+  let shownAccessErrorKey = $state("")
   let communityBootstrapInputKey = ""
   let communityDefinitionPermissionRefreshKey = ""
   // Per-relay subscriptions so the community live stream expands additively
@@ -421,23 +421,23 @@
   $effect(() => {
     const url = $activeExactCommunityDefinition?.relays[0] || $activeExactCommunityRelays[0] || ""
 
-    authRelayUrl = url
-    relayAuthError = ""
+    accessRelayUrl = url
+    relayAccessError = ""
 
     if (!$pubkey || !url) return
 
-    const authError = deriveRelayAuthError(url)
-    const unsubscribe = authError.subscribe(error => {
-      if (authRelayUrl !== url) return
+    const accessError = deriveRelayAccessError(url)
+    const unsubscribe = accessError.subscribe(error => {
+      if (accessRelayUrl !== url) return
 
-      relayAuthError = error || ""
+      relayAccessError = error || ""
 
       if (!error) return
 
       const key = `${url}:${error}`
 
-      if (shownAuthErrorKey === key) return
-      shownAuthErrorKey = key
+      if (shownAccessErrorKey === key) return
+      shownAccessErrorKey = key
       pushToast({theme: "error", message: `Access issue on ${displayRelayUrl(url)}: ${error}`})
     })
 
@@ -924,11 +924,11 @@
         <p>Use a valid community link.</p>
       </div>
     {:else}
-      {#if relayAuthError && authRelayUrl}
+      {#if relayAccessError && accessRelayUrl}
         <div class="card2 m-2 border border-error/30 bg-error/10 p-4 text-sm">
           <strong>Community relay access issue</strong>
           <p class="mt-1 opacity-80">
-            {displayRelayUrl(authRelayUrl)} reported: {relayAuthError}
+            {displayRelayUrl(accessRelayUrl)} reported: {relayAccessError}
           </p>
         </div>
       {/if}

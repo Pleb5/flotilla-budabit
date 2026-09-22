@@ -13,6 +13,22 @@ const relay = "wss://relay.example/"
 const other = "wss://other.example/"
 const denial = "blocked: kind 32222 is not allowed"
 const event = (kind = 32222) => ({kind}) as SignedEvent
+const makeStorage = () => {
+  const values = new Map<string, string>()
+  return {
+    get length() {
+      return values.size
+    },
+    key: (index: number) => [...values.keys()][index] ?? null,
+    getItem: vi.fn((key: string) => values.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      values.set(key, value)
+    }),
+    removeItem: vi.fn((key: string) => {
+      values.delete(key)
+    }),
+  }
+}
 const restores: Array<() => void> = []
 afterEach(() => {
   restores.splice(0).forEach(restore => restore())
@@ -20,6 +36,41 @@ afterEach(() => {
 })
 
 describe("learned relay write capabilities", () => {
+  it("merges interleaved observations from independent tabs without losing either relay", () => {
+    const storage = makeStorage()
+    const first = createRelayWriteCapabilityPolicy({storage})
+    const second = createRelayWriteCapabilityPolicy({storage})
+    first.observeAck(relay, event(), false, denial)
+    second.observeAck(other, event(), false, denial)
+    const reloaded = createRelayWriteCapabilityPolicy({storage})
+    expect(reloaded.check(relay, event())).toEqual({detail: denial})
+    expect(reloaded.check(other, event())).toEqual({detail: denial})
+    expect(first.check(other, event())).toEqual({detail: denial})
+    expect(second.check(relay, event())).toEqual({detail: denial})
+  })
+
+  it("propagates acceptance to another open tab and never resurrects a cleared restriction", () => {
+    const storage = makeStorage()
+    const first = createRelayWriteCapabilityPolicy({storage})
+    first.observeAck(relay, event(), false, denial)
+    const second = createRelayWriteCapabilityPolicy({storage})
+    expect(second.check(relay, event())).toBeDefined()
+    first.observeAck(relay, event(), true, "stored")
+    second.observeAck(other, event(), false, denial)
+    expect(second.check(relay, event())).toBeUndefined()
+    expect(createRelayWriteCapabilityPolicy({storage}).check(relay, event())).toBeUndefined()
+  })
+
+  it("clears shared evidence even when the accepting tab never had a local observation", () => {
+    const storage = makeStorage()
+    const first = createRelayWriteCapabilityPolicy({storage})
+    const second = createRelayWriteCapabilityPolicy({storage})
+    first.observeAck(relay, event(), false, denial)
+    second.observeAck(relay, event(), true, "stored")
+    expect(first.check(relay, event())).toBeUndefined()
+    expect(createRelayWriteCapabilityPolicy({storage}).check(relay, event())).toBeUndefined()
+  })
+
   it("learns only an explicit matching kind denial, scoped to the canonical relay and kind", () => {
     const policy = createRelayWriteCapabilityPolicy()
     expect(policy.check(relay, event())).toBeUndefined()
@@ -70,37 +121,57 @@ describe("learned relay write capabilities", () => {
   })
 
   it("persists bounded evidence across reloads and rejects stale or invalid storage", () => {
-    let raw = "[]"
     let time = 10_000
-    const storage = {
-      getItem: vi.fn(() => raw),
-      setItem: vi.fn((_key, value) => {
-        raw = value
-      }),
-    }
+    const storage = makeStorage()
+    storage.setItem("unrelated-preference", "keep")
     const create = () => createRelayWriteCapabilityPolicy({storage, now: () => time})
     const policy = create()
     for (let index = 0; index < 520; index++) {
+      time++
       policy.observeAck(`wss://relay-${index}.example`, event(), false, denial)
     }
-    expect(JSON.parse(raw)).toHaveLength(512)
+    expect(storage.length).toBe(513)
+    expect(storage.getItem("unrelated-preference")).toBe("keep")
     expect(create().check("wss://relay-519.example/", event())).toBeDefined()
-    expect(storage.getItem).toHaveBeenCalledWith(RELAY_WRITE_CAPABILITY_STORAGE_KEY)
+    expect(create().check("wss://relay-0.example/", event())).toBeUndefined()
     time += RELAY_WRITE_CAPABILITY_TTL
     expect(create().check("wss://relay-519.example/", event())).toBeUndefined()
-    raw = JSON.stringify([{relay, kind: 32222, detail: denial, observedAt: time + 1}])
+    const key = RELAY_WRITE_CAPABILITY_STORAGE_KEY + JSON.stringify([relay, 32222])
+    storage.setItem(key, JSON.stringify({relay, kind: 32222, detail: denial, observedAt: time + 1}))
     expect(create().check(relay, event())).toBeUndefined()
-    raw = "invalid json"
+    storage.setItem(key, "invalid json")
     expect(create().check(relay, event())).toBeUndefined()
+    storage.setItem(
+      key,
+      JSON.stringify({relay: other, kind: 32222, detail: denial, observedAt: time}),
+    )
+    expect(create().check(relay, event())).toBeUndefined()
+    policy.observeAck(other, event(), false, denial)
+    expect(storage.length).toBe(2) // Expired/invalid evidence pruned, unrelated data retained.
   })
 
   it("keeps working when browser storage is denied", () => {
     const fail = () => {
       throw new Error("storage denied")
     }
-    const policy = createRelayWriteCapabilityPolicy({storage: {getItem: fail, setItem: fail}})
+    const policy = createRelayWriteCapabilityPolicy({
+      storage: {...makeStorage(), getItem: fail, setItem: fail},
+    })
     policy.observeAck(relay, event(), false, denial)
     expect(policy.check(relay, event())).toEqual({detail: denial})
+  })
+
+  it("retains in-memory ACK learning if reads work but persistence fails", () => {
+    const storage = makeStorage()
+    storage.setItem.mockImplementation(() => {
+      throw new Error("quota exceeded")
+    })
+    const policy = createRelayWriteCapabilityPolicy({storage})
+    expect(policy.check(relay, event())).toBeUndefined()
+    policy.observeAck(relay, event(), false, denial)
+    expect(policy.check(relay, event())).toEqual({detail: denial})
+    policy.observeAck(relay, event(), true, "stored")
+    expect(policy.check(relay, event())).toBeUndefined()
   })
 })
 

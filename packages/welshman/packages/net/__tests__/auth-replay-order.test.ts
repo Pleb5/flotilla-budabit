@@ -102,7 +102,7 @@ describe("AUTH and read-replay wire ordering", () => {
     receive(["AUTH", "challenge"])
     receive(["CLOSED", "history", "auth-required: authenticate"])
     await vi.advanceTimersByTimeAsync(200)
-    expect(socket._pendingClosed.size).toBe(0)
+    expect(socket._pendingTerminal.size).toBe(0)
     receive(["OK", socket.auth.request!, true, ""])
     await vi.advanceTimersByTimeAsync(200)
     socket._ws!.onclose?.({} as any)

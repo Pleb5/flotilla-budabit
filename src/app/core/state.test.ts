@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import {load} from "@welshman/net"
+import {load, Pool, AuthStatus, SocketStatus, SocketEvent} from "@welshman/net"
+import {get} from "svelte/store"
 import {describe, expect, it, vi} from "vitest"
 
 vi.mock("@welshman/net", async importOriginal => ({
@@ -9,6 +10,39 @@ vi.mock("@welshman/net", async importOriginal => ({
 }))
 
 describe("state", () => {
+  it.each([AuthStatus.Forbidden, AuthStatus.DeniedSignature])(
+    "keeps an open connection usable after %s while exposing actual request restrictions",
+    async authStatus => {
+      vi.useFakeTimers()
+      const {deriveSocketStatus, deriveRelayAccessError, relaysMostlyRestricted} =
+        await import("./state")
+      const relay = "wss://optional-auth.example/"
+      const socket = Pool.get().get(relay)
+      socket.emit(SocketEvent.Status, SocketStatus.Open, relay)
+      socket.auth.details = "error: AUTH disabled"
+      socket.auth.setStatus(authStatus)
+      const alias = "WSS://OPTIONAL-AUTH.EXAMPLE"
+      const status = deriveSocketStatus(alias)
+      const unsubscribe = status.subscribe(() => {})
+      try {
+        await vi.advanceTimersByTimeAsync(801)
+        expect(get(status)).toEqual({theme: "success", title: "Connected"})
+        expect(get(deriveRelayAccessError(relay))).toBeUndefined()
+        expect(socket.auth.details).toBe("error: AUTH disabled")
+        expect(socket.auth.status).toBe(authStatus)
+        relaysMostlyRestricted.set({[relay]: "restricted: read access denied"})
+        await vi.advanceTimersByTimeAsync(801)
+        expect(get(status)).toEqual({theme: "error", title: "Access Denied"})
+        expect(get(deriveRelayAccessError(alias))).toBe("read access denied")
+      } finally {
+        unsubscribe()
+        relaysMostlyRestricted.set({})
+        Pool.get().remove(relay)
+        vi.useRealTimers()
+      }
+    },
+  )
+
   it("only loads derived events when relay hints are provided", async () => {
     const {deriveEvent} = await import("./state")
     const eventId = "a".repeat(64)

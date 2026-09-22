@@ -103,6 +103,20 @@ describe("terminal relay frames at disconnect", () => {
     expect(received.mock.calls.map(([message]) => message)).toEqual(messages)
   })
 
+  it("flushes ACKs and closures in wire order without delivering them twice", async () => {
+    const received = vi.fn()
+    socket.on(SocketEvent.Receive, received)
+    const messages = [
+      ["OK", "first", false, "blocked: kind 32222 is not allowed"],
+      ["CLOSED", "read", "restricted: read access denied"],
+      ["OK", "second", true, "stored"],
+    ]
+    messages.forEach(message => receive(socket, message))
+    socket._ws!.onclose?.({} as any)
+    await vi.runAllTimersAsync()
+    expect(received.mock.calls.map(([message]) => message)).toEqual(messages)
+  })
+
   it("does not flush an auth-required closure held by the replay policy", async () => {
     socket.auth.setStatus(AuthStatus.PendingSignature)
     socket.send(["REQ", "one", {}])
@@ -122,6 +136,7 @@ describe("terminal relay frames at disconnect", () => {
       socket.on(SocketEvent.Receive, received)
       const ws = socket._ws!
       receive(socket, ["CLOSED", "one", "restricted: read access denied"])
+      receive(socket, ["OK", "event", false, "blocked: kind 32222 is not allowed"])
       socket[cancellation]()
       ws.onclose?.({} as any)
       await vi.runAllTimersAsync()

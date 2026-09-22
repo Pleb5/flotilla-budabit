@@ -80,6 +80,13 @@ trust. The coordinator retains verified
 proof checks, matching ACK handling and separate signing/ACK time budgets. Normal
 transport recovery is shared by all reads; publishes are not implicitly replayed.
 
+An unsuccessful socket AUTH handshake alone is not a community-access denial.
+The shared access toast/banner uses actual restricted application requests, not
+`AuthStatus.Forbidden` or signer refusal. An open socket remains connected for
+ordinary public reads; required authentication/read operations retain their own
+failure reporting. The original handshake status and reason remain available for
+diagnostics.
+
 ## Signed metadata and publication
 
 Editors preserve top-level `['read-access', 'members']` and unknown extension tags.

@@ -1085,20 +1085,26 @@ describe("community relay loading", () => {
     expect(socketByRelay.has(publicRelay)).toBe(false)
   })
 
-  it("derives relay auth errors without starting authentication", async () => {
+  it("does not turn an AUTH handshake rejection into community access denial", async () => {
     const socket = getRelaySocket(requiredRelay)
     const attemptAuth = vi.spyOn(socket.auth, "attemptAuth")
-    const {deriveRelayAuthError} = await import("./state")
+    const {deriveRelayAccessError, relaysMostlyRestricted} = await import("./state")
     let authError: string | undefined
-    const unsubscribe = deriveRelayAuthError(requiredRelay).subscribe(error => {
+    const unsubscribe = deriveRelayAccessError(requiredRelay).subscribe(error => {
       authError = error
     })
 
-    socket.auth.details = "restricted: denied"
+    socket.auth.details = "error: AUTH disabled"
     socket.auth.setStatus(AuthStatus.Forbidden)
     await flushPromises()
 
-    expect(authError).toBe("denied")
+    expect(authError).toBeUndefined()
+    // Actual rejected requests still produce an access issue, independently of
+    // whether the relay accepts or rejects the optional handshake.
+    relaysMostlyRestricted.set({[requiredRelay]: "restricted: read access denied"})
+    expect(authError).toBe("read access denied")
+    relaysMostlyRestricted.set({})
+    expect(authError).toBeUndefined()
     expect(attemptAuth).not.toHaveBeenCalled()
     unsubscribe()
   })
