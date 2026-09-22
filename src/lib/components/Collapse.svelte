@@ -3,13 +3,14 @@
   import AltArrowDown from "@assets/icons/alt-arrow-down.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   interface Props {
+    isOpen?: boolean
     title?: import("svelte").Snippet
     description?: import("svelte").Snippet
     children?: import("svelte").Snippet
     [key: string]: any
   }
 
-  const {...props}: Props = $props()
+  let {isOpen = $bindable(false), ...props}: Props = $props()
 
   const toggle = () => {
     isOpen = !isOpen
@@ -21,11 +22,9 @@
     event.preventDefault()
     toggle()
   }
-
-  let isOpen = $state(false)
 </script>
 
-<div class="relative flex flex-col gap-4 {props.class}">
+<div id={props.id} class="relative flex flex-col gap-4 {props.class}">
   <div
     role="button"
     tabindex="0"
@@ -42,7 +41,7 @@
     </div>
   </div>
   {#if isOpen}
-    <div transition:slide>
+    <div transition:slide onintroend={props.onintroend}>
       {@render props.children?.()}
     </div>
   {/if}

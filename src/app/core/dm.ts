@@ -3,6 +3,8 @@ import {chunk} from "@welshman/lib"
 import {makeLoader} from "@welshman/net"
 import {
   getFollows,
+  forceLoadMessagingRelayList,
+  getMessagingRelayList,
   getMutes,
   getPlaintext,
   pubkey,
@@ -46,6 +48,7 @@ export type DmRelayRecommendationSource = {
   communityPubkey?: string
   communityAddress?: string
   relays: string[]
+  primaryRelay?: string
   starredAt?: number
   createdAt?: number
   isStarred?: boolean
@@ -55,6 +58,7 @@ export type DmRelayRecommendationSource = {
 
 export type DmRelayRecommendationEvidence = {
   source: DmRelayRecommendationSourceKind
+  isPrimary: boolean
   pubkey?: string
   communityPubkey?: string
   communityAddress?: string
@@ -144,6 +148,7 @@ const DM_RELAY_DIRECT_FOLLOW_AUTHOR_LIMIT = 250
 const DM_RELAY_AUTHOR_BATCH_SIZE = 80
 
 const dmRelayRecommendationLoad = makeLoader({delay: 200, timeout: 6000, threshold: 0.5})
+const dmInboxCheckLoad = makeLoader({delay: 0, timeout: 6000, threshold: 1})
 
 const defaultDmRelayRecommendationState: DmRelayRecommendationState = {
   status: "idle",
@@ -332,14 +337,17 @@ const addUniqueSource = (
 }
 
 const getDmRelayRecommendationPriority = (recommendation: DmRelayRecommendation) => {
+  // Community definitions are authoritative for community relay choices. Personal
+  // inbox lists (even an owner's) must not promote a legacy relay above them.
+  const active = recommendation.evidence.filter(item => item.source === "active_community_relay")
+  if (active.length) return active.some(item => item.isPrimary) ? 7 : 6
+  const starred = recommendation.evidence.filter(item => item.source === "starred_community_relay")
+  if (starred.length) return starred.some(item => item.isPrimary) ? 5 : 4
+
   if (
     recommendation.evidence.some(evidence => DM_RELAY_STRONG_COMMUNITY_SOURCES.has(evidence.source))
   ) {
     return 3
-  }
-
-  if (recommendation.evidence.some(evidence => evidence.source === "starred_community_relay")) {
-    return 2
   }
 
   if (recommendation.evidence.some(evidence => evidence.source === "follow_messaging")) {
@@ -413,6 +421,9 @@ export const getDmRelayRecommendations = (
       }
       const evidence: DmRelayRecommendationEvidence = {
         source: sourceKind,
+        isPrimary:
+          supportsLegacyCommunityRoleBonus(sourceKind) &&
+          normalizeRelayUrls([source.primaryRelay || ""])[0] === url,
         pubkey: source.pubkey,
         communityPubkey: source.communityPubkey,
         communityAddress: source.communityAddress,
@@ -575,18 +586,20 @@ const getCommunityMessagingSourceKind = ({
 }
 
 const getActiveCommunityRelaySources = (communityRefs: ActiveUserCommunityRef[] = []) =>
-  communityRefs.flatMap(ref => {
-    if (ref.definition.relays.length === 0) return []
+  getDefinitionsFromRefs(communityRefs).flatMap(definition => {
+    if (definition.relays.length === 0) return []
+    const refs = communityRefs.filter(ref => ref.community.address === definition.pointer.address)
 
     return [
       {
         source: "active_community_relay" as const,
-        communityPubkey: ref.community.ownerPubkey,
-        communityAddress: ref.community.address,
-        relays: ref.definition.relays,
+        communityPubkey: definition.ownerPubkey,
+        communityAddress: definition.pointer.address,
+        relays: definition.relays,
+        primaryRelay: definition.relays[0],
         isStarred: false,
-        isModerator: ref.roles.includes("moderator"),
-        isAdmin: ref.roles.includes("admin"),
+        isModerator: refs.some(ref => ref.roles.includes("moderator")),
+        isAdmin: refs.some(ref => ref.roles.includes("admin")),
       },
     ]
   })
@@ -783,6 +796,8 @@ const loadMessagingRelayListEvents = async (authors: string[], relays: string[])
   return loaded
 }
 
+let dmRelayRecommendationLoadId = 0
+
 export const loadDmRelayRecommendations = async ({
   currentRelays = [],
   communityRefs = [],
@@ -792,6 +807,8 @@ export const loadDmRelayRecommendations = async ({
   starredCommunityPubkeys = [],
 }: LoadDmRelayRecommendationsInput = {}) => {
   const viewer = pubkey.get() || ""
+  const loadId = ++dmRelayRecommendationLoadId
+  const isCurrent = () => loadId === dmRelayRecommendationLoadId && (pubkey.get() || "") === viewer
   const follows = viewer ? getFollows(viewer) : []
   const mutes = viewer ? getMutes(viewer) : []
   const authors = getDmRelayRecommendationAuthors({
@@ -802,6 +819,23 @@ export const loadDmRelayRecommendations = async ({
     starredCommunityPubkeys,
   })
   const relays = getDmRelayRecommendationRelays(authors, communityRefs)
+  const buildRecommendations = () =>
+    buildDmRelayRecommendations({
+      viewerPubkey: viewer,
+      currentRelays,
+      communityRefs,
+      profileListEvents,
+      reportStates,
+      follows,
+      mutes,
+      messagingRelayListEvents: authors.length
+        ? (repository.query([{kinds: [MESSAGING_RELAYS], authors}]) as TrustedEvent[])
+        : [],
+      extraSources,
+    })
+
+  // Show the current community choices immediately, while enriching their evidence.
+  dmRelayRecommendations.set(buildRecommendations())
 
   dmRelayRecommendationState.set({
     ...defaultDmRelayRecommendationState,
@@ -818,17 +852,8 @@ export const loadDmRelayRecommendations = async ({
       authors.length > 0
         ? (repository.query([{kinds: [MESSAGING_RELAYS], authors}]) as TrustedEvent[])
         : []
-    const recommendations = buildDmRelayRecommendations({
-      viewerPubkey: viewer,
-      currentRelays,
-      communityRefs,
-      profileListEvents,
-      reportStates,
-      follows,
-      mutes,
-      messagingRelayListEvents,
-      extraSources,
-    })
+    const recommendations = buildRecommendations()
+    if (!isCurrent()) return recommendations
 
     dmRelayRecommendations.set(recommendations)
     dmRelayRecommendationState.set({
@@ -840,22 +865,49 @@ export const loadDmRelayRecommendations = async ({
 
     return recommendations
   } catch (error) {
-    dmRelayRecommendations.set([])
+    if (!isCurrent()) return []
+    const recommendations = buildRecommendations()
+    dmRelayRecommendations.set(recommendations)
     dmRelayRecommendationState.set({
       status: "error",
       authorCount: authors.length,
       eventCount: 0,
-      recommendationCount: 0,
+      recommendationCount: recommendations.length,
       error: error instanceof Error ? error.message : "Failed to load DM relay recommendations.",
     })
 
-    return []
+    return recommendations
   }
 }
 
 export const getDmRelayRecommendationsSnapshot = () => get(dmRelayRecommendations)
 
 export const hasDmInbox = (list?: List) => getDmRelayUrls(list).length > 0
+
+export const checkDmInboxRelayList = async (author: string, hints: string[]) => {
+  await forceLoadMessagingRelayList(author, hints)
+  if (hasDmInbox(getMessagingRelayList(author))) return true
+
+  // Discovery can finish before batched startup requests deliver the inbox list.
+  // Confirm absence with an isolated request; a timeout/disconnect is not absence.
+  let receivedEose = false
+  const relays = normalizeRelayUrls([...hints, ...Router.get().FromPubkeys([author]).getUrls()])
+  const events = await dmInboxCheckLoad({
+    relays,
+    filters: [{kinds: [MESSAGING_RELAYS], authors: [author], limit: 1}],
+    onEose: () => {
+      receivedEose = true
+    },
+  })
+  const stored = getMessagingRelayList(author)
+  const latest = getLatestMessagingRelayListEventsByPubkey([
+    ...events,
+    ...(stored ? [stored.event] : []),
+  ])[0]
+  if (latest && getDmRelayUrlsFromEvent(latest).length > 0) return true
+  if (!receivedEose && !latest) throw new Error("Could not check DM inbox relays.")
+  return false
+}
 
 export const getMessagingRelayHints = () => {
   const hints: string[] = [...INDEXER_RELAYS]

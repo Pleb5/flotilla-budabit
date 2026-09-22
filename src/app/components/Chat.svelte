@@ -12,10 +12,15 @@
     retryThunk,
     signer,
     waitForAnyRelayAck,
-    forceLoadMessagingRelayList,
     messagingRelayListsByPubkey,
   } from "@welshman/app"
-  import {DM_KIND, getDmPublishRelays, getDmRelayUrls, getMessagingRelayHints} from "@app/core/dm"
+  import {
+    DM_KIND,
+    checkDmInboxRelayList,
+    getDmPublishRelays,
+    getDmRelayUrls,
+    getMessagingRelayHints,
+  } from "@app/core/dm"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
@@ -29,13 +34,14 @@
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ChatMessage from "@app/components/ChatMessage.svelte"
   import ChatCompose from "@app/components/ChatCompose.svelte"
+  import DmInboxSetup from "@app/components/DmInboxSetup.svelte"
+  import {DM_RELAY_SETTINGS_URL} from "@app/core/dm-inbox-setup"
   import ThunkToast from "@app/components/ThunkToast.svelte"
   import {userSettingsValues, deriveChat} from "@app/core/state"
   import {signEventForPublication} from "@app/core/publication"
   import {pushModal} from "@app/util/modal"
   import {popToast, pushToast} from "@app/util/toast"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
-  import {goto} from "$app/navigation"
 
   type Props = {
     pubkeys: string[]
@@ -69,14 +75,17 @@
   let relayChecks = $state<Record<string, boolean>>({})
   let relayHintKeys = $state<Record<string, string>>({})
   let relayLoads = $state<Record<string, boolean>>({})
+  let relayErrors = $state<Record<string, boolean>>({})
+  let confirmedMissingRelays = $state<Record<string, boolean>>({})
   const relayTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
+  const relayCheckRequests = new Map<string, symbol>()
 
   const updateRecord = <T,>(record: Record<string, T>, key: string, value: T) => {
     if (record[key] === value) return record
     return {...record, [key]: value}
   }
 
-  const markRelayChecked = (key: string) => {
+  const markRelayChecked = (key: string, success = true) => {
     const timeout = relayTimeouts.get(key)
     if (timeout) {
       clearTimeout(timeout)
@@ -85,6 +94,7 @@
 
     relayChecks = updateRecord(relayChecks, key, true)
     relayLoads = updateRecord(relayLoads, key, false)
+    relayErrors = updateRecord(relayErrors, key, !success)
   }
 
   const relayCheckPending = $derived.by(() => {
@@ -94,7 +104,15 @@
     return false
   })
 
+  const relayCheckFailed = $derived(
+    Boolean(
+      (!hasSelfInbox && relayErrors[$pubkey!]) ||
+      (!hasRecipientInbox && recipientPubkey && relayErrors[recipientPubkey]),
+    ),
+  )
+
   const dmBlockedMessage = $derived.by(() => {
+    if (relayCheckFailed) return "Could not check DM inbox relays. Please retry."
     if (!hasSelfInbox && !hasRecipientInbox) {
       return "Both you and the recipient must configure a DM inbox relay before you can send messages."
     }
@@ -133,13 +151,7 @@
 
     const sendRelays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
 
-    if (sendRelays.length === 0) {
-      pushToast({
-        theme: "error",
-        message: "Recipient DM inbox relays are missing. Message not sent.",
-      })
-      return false
-    }
+    if (sendRelays.length === 0) return false
 
     const publishKey = JSON.stringify({
       sender: $pubkey,
@@ -205,7 +217,23 @@
   let compose: ChatCompose | undefined = $state()
   let chatCompose: HTMLElement | undefined = $state()
   let dynamicPadding: HTMLElement | undefined = $state()
-  let lastToastKey = $state("")
+  let promptedInboxPubkey = $state("")
+
+  const openInboxSetup = () => {
+    if (!$pubkey) return
+    promptedInboxPubkey = $pubkey
+    pushModal(DmInboxSetup, {expectedPubkey: $pubkey}, {ariaLabel: "Set up your DM inbox"})
+  }
+
+  const retryRelayChecks = () => {
+    for (const timeout of relayTimeouts.values()) clearTimeout(timeout)
+    relayTimeouts.clear()
+    relayCheckRequests.clear()
+    relayChecks = {}
+    relayLoads = {}
+    relayErrors = {}
+    confirmedMissingRelays = {}
+  }
   let visibleMessageCount = $state(INITIAL_MESSAGE_COUNT)
   let olderMessagesLoading = $state(false)
   let olderMessagesExhausted = $state(false)
@@ -443,42 +471,8 @@
   })
 
   $effect(() => {
-    if (relayCheckPending) return
-
-    const key = [hasSelfInbox, hasRecipientInbox].join(":")
-    if (key === lastToastKey) return
-    lastToastKey = key
-
-    if (!hasSelfInbox && !hasRecipientInbox) {
-      pushToast({
-        theme: "error",
-        message: "Both you and the recipient must configure a DM inbox relay before using DMs.",
-        action: {
-          message: "Relay settings",
-          onclick: () => goto("/settings/relays"),
-        },
-      })
-      return
-    }
-
-    if (!hasSelfInbox) {
-      pushToast({
-        theme: "error",
-        message: "You must configure a DM inbox relay before sending messages.",
-        action: {
-          message: "Relay settings",
-          onclick: () => goto("/settings/relays"),
-        },
-      })
-      return
-    }
-
-    if (!hasRecipientInbox) {
-      pushToast({
-        theme: "error",
-        message: "Recipient must have a DM inbox relay configured to receive messages.",
-      })
-    }
+    if (!$pubkey || !confirmedMissingRelays[$pubkey] || relayErrors[$pubkey] || hasSelfInbox) return
+    if (promptedInboxPubkey !== $pubkey) openInboxSetup()
   })
 
   $effect(() => {
@@ -502,19 +496,30 @@
       nextRelayHintKeys = updateRecord(nextRelayHintKeys, key, hintKey)
       nextRelayChecks = updateRecord(nextRelayChecks, key, false)
       nextRelayLoads = updateRecord(nextRelayLoads, key, true)
+      const request = Symbol(key)
+      relayCheckRequests.set(key, request)
 
       if (!relayTimeouts.has(key)) {
         relayTimeouts.set(
           key,
           setTimeout(() => {
-            markRelayChecked(key)
-          }, 2500),
+            markRelayChecked(key, false)
+          }, 8000),
         )
       }
 
-      forceLoadMessagingRelayList(key, relayHints).finally(() => {
-        markRelayChecked(key)
-      })
+      checkDmInboxRelayList(key, relayHints).then(
+        async hasInbox => {
+          // Let derived relay stores settle before treating a completed check as missing.
+          await tick()
+          if (relayCheckRequests.get(key) !== request) return
+          confirmedMissingRelays = updateRecord(confirmedMissingRelays, key, !hasInbox)
+          markRelayChecked(key)
+        },
+        () => {
+          if (relayCheckRequests.get(key) === request) markRelayChecked(key, false)
+        },
+      )
     }
 
     if (nextRelayChecks !== relayChecks) relayChecks = nextRelayChecks
@@ -523,11 +528,11 @@
   })
 
   $effect(() => {
-    if ($pubkey && selfRelayList) {
+    if ($pubkey && hasSelfInbox) {
       markRelayChecked($pubkey)
     }
 
-    if (recipientPubkey && recipientRelayList) {
+    if (recipientPubkey && hasRecipientInbox) {
       markRelayChecked(recipientPubkey)
     }
   })
@@ -543,6 +548,9 @@
     observer.observe(dynamicPadding!)
 
     return () => {
+      for (const timeout of relayTimeouts.values()) clearTimeout(timeout)
+      relayTimeouts.clear()
+      relayCheckRequests.clear()
       hashTargetLoadController?.abort()
       observer.unobserve(chatCompose!)
       observer.unobserve(dynamicPadding!)
@@ -605,18 +613,26 @@
           <p>Checking DM inbox relays...</p>
         {:else}
           <p>
-            {#if !hasSelfInbox && !hasRecipientInbox}
-              You must <Link class="link" href="/settings/relays">configure</Link> a DM inbox relay, and
-              the recipient must do the same.
+            {#if relayCheckFailed}
+              {dmBlockedMessage}
+            {:else if !hasSelfInbox && !hasRecipientInbox}
+              You must <Link class="link" href={DM_RELAY_SETTINGS_URL}>configure</Link> a DM inbox relay,
+              and the recipient must do the same.
             {:else if !hasSelfInbox}
-              You must <Link class="link" href="/settings/relays">configure</Link> a DM inbox relay before
-              you can send messages.
+              You must <Link class="link" href={DM_RELAY_SETTINGS_URL}>configure</Link> a DM inbox relay
+              before you can send messages.
             {:else if !hasRecipientInbox}
               Recipient must configure a DM inbox relay before they can receive messages.
             {:else}
               {dmBlockedMessage}
             {/if}
           </p>
+          {#if relayCheckFailed}
+            <Button class="btn btn-outline btn-sm" onclick={retryRelayChecks}
+              >Retry relay checks</Button>
+          {:else if !hasSelfInbox}
+            <Button class="btn btn-primary btn-sm" onclick={openInboxSetup}>Set up DM inbox</Button>
+          {/if}
         {/if}
       </div>
     </div>

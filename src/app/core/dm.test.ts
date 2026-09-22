@@ -453,19 +453,80 @@ describe("dm", () => {
       const urls = recommendations.map(recommendation => recommendation.url)
 
       expect(urls).toEqual([
-        "wss://community-list.relay.example.com/",
         "wss://active.relay.example.com/",
+        "wss://star.relay.example.com/",
+        "wss://community-list.relay.example.com/",
         "wss://moderator-list.relay.example.com/",
         "wss://member-list.relay.example.com/",
-        "wss://star.relay.example.com/",
         "wss://follow-list.relay.example.com/",
       ])
       expect(urls).not.toContain("wss://muted-list.relay.example.com/")
-      expect(recommendations[0].evidence[0]).toMatchObject({source: "community_messaging"})
-      expect(recommendations[2].evidence[0]).toMatchObject({source: "moderator_messaging"})
-      expect(recommendations[3].evidence[0]).toMatchObject({source: "member_messaging"})
-      expect(recommendations[4].evidence[0]).toMatchObject({source: "starred_community_relay"})
+      expect(recommendations[0].evidence[0]).toMatchObject({
+        source: "active_community_relay",
+        isPrimary: true,
+      })
+      expect(recommendations[1].evidence[0]).toMatchObject({source: "starred_community_relay"})
+      expect(recommendations[2].evidence[0]).toMatchObject({source: "community_messaging"})
+      expect(recommendations[3].evidence[0]).toMatchObject({source: "moderator_messaging"})
+      expect(recommendations[4].evidence[0]).toMatchObject({source: "member_messaging"})
       expect(recommendations[5].evidence[0]).toMatchObject({source: "follow_messaging"})
+    })
+
+    it("prefers the latest community primary over legacy personal inboxes and secondary relays", () => {
+      const community = testPubkey(2)
+      const moderator = testPubkey(3)
+      const legacy = "wss://budabit.nostr1.com"
+      const primary = "wss://relay.budabit.club"
+      const oldRef = makeCommunityRef({
+        communityPubkey: community,
+        moderatorPubkey: moderator,
+        relay: legacy,
+      })
+      const currentRef = makeCommunityRef({
+        communityPubkey: community,
+        moderatorPubkey: moderator,
+        relay: primary,
+      })
+      currentRef.definition.event.created_at = 2
+      currentRef.definition.relays.push("wss://aaa-secondary.example")
+      const recommendations = buildDmRelayRecommendations({
+        communityRefs: [oldRef, currentRef],
+        messagingRelayListEvents: [
+          makeMessagingRelayList({
+            pubkey: community,
+            relays: [legacy, "wss://aaa-secondary.example"],
+          }),
+        ],
+      })
+
+      expect(recommendations.map(item => item.url)).toEqual([
+        `${primary}/`,
+        "wss://aaa-secondary.example/",
+        `${legacy}/`,
+      ])
+      expect(recommendations[2].evidence.map(item => item.source)).toEqual(["community_messaging"])
+      expect(recommendations[0].evidence[0].isPrimary).toBe(true)
+    })
+
+    it("respects primary relay order for starred communities despite accumulated messaging evidence", () => {
+      const primary = "wss://relay.budabit.club"
+      const secondary = "wss://aaa-secondary.example"
+      const recommendations = getDmRelayRecommendations([
+        {
+          source: "starred_community_relay",
+          communityAddress: "first",
+          communityPubkey: "a",
+          relays: [primary, secondary],
+          primaryRelay: primary,
+        },
+        ...Array.from({length: 20}, (_, index) => ({
+          source: "member_messaging" as const,
+          pubkey: `${index}`,
+          relays: [secondary],
+        })),
+      ])
+      expect(recommendations.map(item => item.url)).toEqual([`${primary}/`, `${secondary}/`])
+      expect(recommendations[0].score).toBeLessThan(recommendations[1].score)
     })
 
     it("keeps same-owner sibling messaging evidence on exact addresses", () => {
