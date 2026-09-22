@@ -40,6 +40,8 @@
     onResizeRequest?: (request: WidgetResizeRequest) => void
     onLoad?: () => void
     autoHeight?: boolean
+    /** Fixed-height surfaces keep scrolling inside the iframe. */
+    resizable?: boolean
     onState?: (state: WidgetFrameState) => void
     communityRuntimeContextProvider?: () => CommunityWidgetRuntimeContext | undefined
     communityRuntimeContextStore?: Readable<CommunityWidgetRuntimeContext | undefined>
@@ -55,6 +57,7 @@
     onResizeRequest,
     onLoad,
     autoHeight = false,
+    resizable = true,
     onState,
     communityRuntimeContextProvider,
     communityRuntimeContextStore,
@@ -459,7 +462,7 @@
       hostVersion: "1.0.0",
       capabilities: getHostCapabilitySnapshot({
         widget,
-        resize: true,
+        resize: resizable,
         media: true,
         visibility: deferredVisibility,
         slot:
@@ -574,7 +577,7 @@
               return runtime?.authorityEvidenceSettled === false ? undefined : runtime
             }
           : communityRuntimeContextProvider,
-        onResizeRequest: handleResizeRequest,
+        onResizeRequest: resizable ? handleResizeRequest : undefined,
         ...(deferredVisibility ? {onVisibilityRequest: handleVisibilityRequest} : {}),
       }
       bridgeExtension = ext

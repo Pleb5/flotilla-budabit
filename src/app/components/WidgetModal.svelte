@@ -45,13 +45,14 @@
     </button>
   </div>
 
-  <div class={`relative min-h-0 flex-1 ${wide ? "overflow-y-auto" : "overflow-hidden"}`}>
+  <div class="relative min-h-0 flex-1 overflow-hidden">
     <WidgetFrame
       {widget}
       {context}
       {communityRuntimeContextProvider}
       {communityRuntimeContextStore}
       class="h-full"
-      minHeight={500} />
+      minHeight={0}
+      resizable={false} />
   </div>
 </div>
