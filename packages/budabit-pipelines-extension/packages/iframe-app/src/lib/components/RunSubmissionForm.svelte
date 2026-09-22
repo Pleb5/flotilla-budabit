@@ -1,6 +1,7 @@
 <script lang="ts">
   import {Lock} from '@lucide/svelte'
   import {isFreeWorker} from '../submission'
+  import {freelistListrUrl} from '../workflows'
   import type {LoomWorker, RerunDraft, WorkflowDefinition} from '../types'
 
   interface Props {
@@ -105,6 +106,14 @@
   // membership (and therefore whether the run is free) is unknown — block
   // submission until it resolves.
   const freelistFetching = $derived(!!selectedWorker?.freelistPending)
+
+  // Link to the selected worker's advertised freelist on listr.lol, shown
+  // next to the "run unpaid" checkbox so users can inspect the list.
+  const freelistListUrl = $derived(
+    selectedWorker
+      ? freelistListrUrl(selectedWorker.pubkey, selectedWorker.freelistEventAddress)
+      : undefined,
+  )
 
   // Payment is waived when the worker is free, or the user opted into an
   // unpaid run on a priced worker (worker-side pubkey allowlist).
@@ -555,6 +564,13 @@
               <span class="block text-[11px] text-muted-foreground">
                 Submit without payment.
               </span>
+              {#if freelistListUrl}
+                <a
+                  class="mt-1 block text-[11px] text-primary hover:underline"
+                  href={freelistListUrl}
+                  target="_blank"
+                  rel="noreferrer">View this worker's freelist</a>
+              {/if}
               {#if unpaidRun && !selectedWorker.freeForUser}
                 <span class="mt-1 block text-[11px] text-red-300">
                   You are not on the freelist of this worker.

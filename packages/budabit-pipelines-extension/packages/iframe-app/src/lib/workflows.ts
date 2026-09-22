@@ -430,6 +430,29 @@ function parseFreelistAddress(address: string): FreelistPointer | null {
 }
 
 /**
+ * listr.lol URL for a worker's advertised freelist event —
+ * `https://listr.lol/<worker_npub>/<freelist_kind>/<naddr>`. Only
+ * available when the advertised address is an naddr (used as-is) or the raw
+ * `kind:pubkey[:d_tag]` form (encoded to an naddr); nevent pointers carry no
+ * address and can't be expressed as an naddr.
+ */
+export function freelistListrUrl(workerPubkey: string, address?: string): string | undefined {
+  const value = (address || '').trim();
+  if (!workerPubkey || !value) return undefined;
+  const pointer = parseFreelistAddress(value);
+  if (!pointer || pointer.type !== 'address') return undefined;
+  const naddr = value.startsWith('naddr1')
+    ? value
+    : nip19.naddrEncode({
+        kind: pointer.kind,
+        pubkey: pointer.pubkey,
+        identifier: pointer.identifier ?? '',
+        relays: pointer.relays ?? [],
+      });
+  return `https://listr.lol/${nip19.npubEncode(workerPubkey)}/${pointer.kind}/${naddr}`;
+}
+
+/**
  * One-shot fetch of a worker's advertised freelist — a NIP-51 pubkey list
  * event. Returns the p-tag pubkeys of the newest version found across the
  * target relays (empty set when the address is invalid or nothing comes
