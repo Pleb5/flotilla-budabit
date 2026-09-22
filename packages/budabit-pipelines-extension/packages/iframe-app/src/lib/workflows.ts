@@ -10,8 +10,9 @@ import type {
 } from './types';
 import { toRepoNostrUrl } from './nip07';
 import { buildRepoEvents, buildWorkerEvents, eventStore, pool, WORKER_ONLINE_WINDOW_MS } from './nostr';
+import { onlyEvents } from 'applesauce-relay';
 import { nip19 } from 'nostr-tools';
-import { interval, merge as mergeRx } from 'rxjs';
+import { interval, map, merge as mergeRx } from 'rxjs';
 import {
   BehaviorSubject,
   lastValueFrom,
@@ -31,6 +32,8 @@ export const KIND_LOOM_JOB = 5100;
 export const KIND_LOOM_RESULT = 5101;
 export const KIND_LOOM_STATUS = 30100;
 export const KIND_LOOM_WORKER = 10100;
+/** Repo-scoped workflow job runner list (addressable; d-tag = repo announcement d-tag). */
+export const KIND_REPO_JOB_RUNNERS = 30728;
 
 function dedupe(values: string[]): string[] {
   return Array.from(
@@ -594,6 +597,64 @@ export function repoWorkerRelays(repo: RepoContextNormalized): string[] {
   return dedupe([...repo.repoRelays, ...FALLBACK_RELAYS]);
 }
 
+/**
+ * Live view of the repo's workflow job runners list event (kind 30728, d-tag =
+ * repo announcement d-tag, authored by the repo owner). Emits the newest
+ * version seen, or null while nothing has loaded. Cached per repo coordinate
+ * so remounts don't resubscribe.
+ */
+const jobRunnersCache = new Map<string, BehaviorSubject<NostrEvent | null>>();
+
+export function repoJobRunnersEvent$(repo: RepoContextNormalized): Observable<NostrEvent | null> {
+  const key = `${repo.repoPubkey}:${repo.repoName}`;
+  const existing = jobRunnersCache.get(key);
+  if (existing) return existing;
+
+  const subject = new BehaviorSubject<NostrEvent | null>(null);
+  const relays = dedupe([...repo.repoRelays, ...FALLBACK_RELAYS]);
+
+  pool
+    .subscription(relays, {
+      kinds: [KIND_REPO_JOB_RUNNERS],
+      authors: [repo.repoPubkey],
+      '#d': [repo.repoName],
+    })
+    .pipe(onlyEvents())
+    .subscribe((event) => {
+      // Addressable/replaceable event — only the newest version counts.
+      const current = subject.getValue();
+      if (current && event.created_at < current.created_at) return;
+      subject.next(event);
+    });
+
+  jobRunnersCache.set(key, subject);
+  return subject;
+}
+
+/**
+ * The p-tag hex pubkeys of the repo's job runners list — starts with an empty
+ * list while nothing has loaded.
+ */
+export function repoJobRunners$(repo: RepoContextNormalized): Observable<string[]> {
+  return repoJobRunnersEvent$(repo).pipe(
+    map((event) => (event ? dedupe(eventTagValues(event, 'p')) : [])),
+  );
+}
+
+/**
+ * listr.lol URL for the repo's job runners list event —
+ * `https://listr.lol/<owner_npub>/30728/<naddr>`.
+ */
+export function jobRunnersListrUrl(repo: RepoContextNormalized): string {
+  const naddr = nip19.naddrEncode({
+    kind: KIND_REPO_JOB_RUNNERS,
+    pubkey: repo.repoPubkey,
+    identifier: repo.repoName,
+    relays: repoWorkerRelays(repo),
+  });
+  return `https://listr.lol/${nip19.npubEncode(repo.repoPubkey)}/${KIND_REPO_JOB_RUNNERS}/${naddr}`;
+}
+
 export function statusLabel(status: WorkflowStatus): string {
   switch (status) {
     case 'in_progress':
@@ -847,13 +908,14 @@ function updateRunByERefs(
 // current state immediately. Keyed by repoAddress + the trusted-author set (+
 // viewer) — NOT repoAddress alone: a stream built before maintainers arrived in
 // context would otherwise be reused with an owner-only author filter, hiding
-// runs authored by maintainers. Relays are intentionally excluded from the key
-// because they expand dynamically inside buildRepoEvents.
+// runs authored by maintainers. A null trusted-author set (no job runners
+// list — every run is shown) keys as '*'. Relays are intentionally excluded
+// from the key because they expand dynamically inside buildRepoEvents.
 const repoEventsCache = new Map<string, Observable<NostrEvent>>();
 const repoRunsCache = new Map<string, BehaviorSubject<WorkflowRun[]>>();
 
-function repoStreamKey(repoAddress: string, trustedAuthors: string[], viewerPubkey?: string): string {
-  const authors = [...new Set(trustedAuthors)].sort().join(',');
+function repoStreamKey(repoAddress: string, trustedAuthors: string[] | null, viewerPubkey?: string): string {
+  const authors = trustedAuthors === null ? '*' : [...new Set(trustedAuthors)].sort().join(',');
   return `${repoAddress}|${authors}|${viewerPubkey ?? ''}`;
 }
 
@@ -861,7 +923,7 @@ function repoStreamKey(repoAddress: string, trustedAuthors: string[], viewerPubk
 export function repoEvents$(
   repoAddress: string,
   relays: string[],
-  trustedAuthors: string[],
+  trustedAuthors: string[] | null,
   viewerPubkey?: string,
 ): Observable<NostrEvent> {
   const key = repoStreamKey(repoAddress, trustedAuthors, viewerPubkey);
@@ -882,7 +944,7 @@ export function repoEvents$(
 export function repoRuns$(
   repoAddress: string,
   relays: string[],
-  trustedAuthors: string[],
+  trustedAuthors: string[] | null,
   viewerPubkey?: string,
 ): Observable<WorkflowRun[]> {
   const key = repoStreamKey(repoAddress, trustedAuthors, viewerPubkey);

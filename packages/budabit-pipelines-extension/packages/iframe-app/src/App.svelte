@@ -66,7 +66,7 @@
     createOpeningDetailSessionState,
   } from './lib/detail-session'
   import {setupWidgetLifecycle} from './lib/widget-lifecycle'
-  import {repoEvents$, repoRuns$, repoWorkerRelays, workers$} from './lib/workflows'
+  import {repoEvents$, repoJobRunners$, repoJobRunnersEvent$, jobRunnersListrUrl, repoRuns$, repoWorkerRelays, workers$} from './lib/workflows'
   import {
     generatePaymentTokenViewModel,
     refreshWalletViewModel,
@@ -109,6 +109,12 @@
   let loading = $state(false)
   let error = $state<string | null>(null)
   let workflowRuns = $state<WorkflowRun[]>([])
+  // Workflow job runners (kind 30728 p-tags): profiles whose runs are listed
+  // alongside the repo owner's and maintainers'.
+  let workflowJobRunners = $state<string[]>([])
+  // listr.lol URL for the repo's job runners list event — set once the event
+  // has been seen on the relays.
+  let jobRunnersListUrl = $state<string | undefined>(undefined)
   // Relays actually queried for runs: base relays ∪ resolved NIP-65 outbox relays.
   let queriedRelays = $state<string[]>([])
 
@@ -1076,6 +1082,26 @@
     void refreshRepoMetadata()
   })
 
+  // Workflow job runners list (kind 30728, authored by the repo owner) — its
+  // p-tag profiles are trusted run authors alongside owner + maintainers.
+  $effect(() => {
+    if (!repo) {
+      workflowJobRunners = []
+      jobRunnersListUrl = undefined
+      return
+    }
+    const sub = repoJobRunners$(repo).subscribe(list => {
+      workflowJobRunners = list
+    })
+    const eventSub = repoJobRunnersEvent$(repo).subscribe(event => {
+      jobRunnersListUrl = event ? jobRunnersListrUrl(repo) : undefined
+    })
+    return () => {
+      sub.unsubscribe()
+      eventSub.unsubscribe()
+    }
+  })
+
   // Runs list comes from a module-scoped BehaviorSubject keyed by repoAddress.
   // On HMR the subject persists, so remounted subscribers get the current list
   // immediately instead of starting empty.
@@ -1084,14 +1110,19 @@
 
     const repoAddress = repo.repoAddress
     const relays = [...new Set([...repo.repoRelays, ...FALLBACK_RELAYS, ...LOOM_WORKER_RELAYS])]
-    const trustedAuthors = [...new Set([repo.repoPubkey, ...(repo.maintainers ?? [])])]
+    // Without a non-empty job runners list there is no trusted-author filter:
+    // every run for the repo is shown. Once the list resolves with members,
+    // restrict to runs by the owner, maintainers and list members.
+    const trustedAuthors = workflowJobRunners.length > 0
+      ? [...new Set([repo.repoPubkey, ...(repo.maintainers ?? []), ...workflowJobRunners])]
+      : null
     const viewerPubkey = repo.userPubkey
 
     // Surface the relays actually queried — base relays plus the NIP-65 outbox
     // relays resolved for the trusted authors + viewer — so the debug panel
     // reflects the expanded set, not just the repo-declared relays.
     queriedRelays = relays
-    const relayPubkeys = viewerPubkey ? [...trustedAuthors, viewerPubkey] : trustedAuthors
+    const relayPubkeys = viewerPubkey ? [...(trustedAuthors ?? []), viewerPubkey] : (trustedAuthors ?? [])
     const relaysSub = outboxRelays$(relayPubkeys).subscribe(extra => {
       queriedRelays = [...new Set([...relays, ...extra])]
     })
@@ -1524,6 +1555,14 @@
               bind:value={searchTerm}
               type="text"
               placeholder="Search runs, commits, branches, actors…" />
+            {#if jobRunnersListUrl}
+              <a
+                class="shrink-0 text-xs text-primary hover:underline"
+                href={jobRunnersListUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Show job runs only by the owner, the maintainers, or the profiles in this list">Job runners</a>
+            {/if}
             <div class="flex items-center gap-1">
               <FilterDropdown
                 label="Workflow"
