@@ -519,6 +519,7 @@ export class ExtensionBridge {
   private readonly entrypointOrigin: string
   private detached = false
   private profiles?: import("./profiles").ExtensionProfileResolver
+  private messaging?: import("./messaging").ExtensionMessaging
 
   constructor(private extension: LoadedExtension) {
     this.entrypointOrigin = extension.origin
@@ -546,6 +547,7 @@ export class ExtensionBridge {
       this.extension.communityContext = communityContext || undefined
       this.extension.communityRuntimeContext = communityRuntimeContext || undefined
       this.profiles?.contextChanged()
+      this.messaging?.contextChanged()
     }
   }
 
@@ -554,6 +556,7 @@ export class ExtensionBridge {
     if (this.listener) window.removeEventListener("message", this.listener)
     cleanupExtensionSubscriptions(this.extension.id)
     this.profiles?.close()
+    this.messaging?.close()
     this.pending.clear()
     this.targetWindow = null
   }
@@ -564,6 +567,7 @@ export class ExtensionBridge {
       action.startsWith("storage:") ||
       action.startsWith("community:") ||
       action.startsWith("profiles:") ||
+      action.startsWith("messaging:") ||
       action === "repo:listFiles" ||
       action === "repo:getFile" ||
       action === "ui:openProfile" ||
@@ -670,6 +674,21 @@ export class ExtensionBridge {
       ...new Set([...(context?.relays || []), ...(context?.relayHints || [])]),
     ])
     return {status: "ok" as const}
+  }
+
+  async messagingRequest(
+    action: "check" | "useCommunityRelay",
+    payload: import("./types").MessagingUseCommunityRelayRequest,
+  ) {
+    const {ExtensionMessaging} = await import("./messaging")
+    if (this.detached) throw new Error("Widget has closed")
+    this.messaging ||= new ExtensionMessaging(
+      () => this.extension.communityContext,
+      () => getExtensionCommunityRuntimeContext(this.extension),
+    )
+    return action === "check"
+      ? this.messaging.check(payload)
+      : this.messaging.useCommunityRelay(payload)
   }
 
   /** Synchronize redirect origin only from this iframe's window and a known deployment origin. */
@@ -2433,6 +2452,16 @@ registerBridgeHandler("ui:navigate", async (payload, ext) => {
 registerBridgeHandler("ui:openProfile", (payload, _ext, bridge) => {
   if (!bridge) throw new Error("Opening a profile requires an attached widget bridge")
   return bridge.openProfile(payload)
+})
+
+registerBridgeHandler("messaging:check", (payload, _ext, bridge) => {
+  if (!bridge) throw new Error("Messaging checks require an attached widget bridge")
+  return bridge.messagingRequest("check", payload)
+})
+
+registerBridgeHandler("messaging:useCommunityRelay", (payload, _ext, bridge) => {
+  if (!bridge) throw new Error("Messaging setup requires an attached widget bridge")
+  return bridge.messagingRequest("useCommunityRelay", payload)
 })
 
 registerBridgeHandler("ui:resize", (payload, ext) => {

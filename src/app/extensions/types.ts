@@ -148,6 +148,31 @@ export type WidgetOpenProfileRequest = {
   contextVersion?: number
 }
 
+export type MessagingCheckRequest = {
+  expectedPubkey: string
+  contextSessionId: string
+  contextVersion: number
+  recipient?: string
+  refresh?: boolean
+}
+
+export type MessagingRelayStatus = {
+  pubkey: string
+  status: "ready" | "missing" | "unavailable"
+  relays: string[]
+}
+
+export type MessagingCheckResponse = {
+  status: "ok"
+  self: MessagingRelayStatus
+  recipient?: MessagingRelayStatus
+  communityRelays: string[]
+  contextSessionId: string
+  contextVersion: number
+}
+
+export type MessagingUseCommunityRelayRequest = MessagingCheckRequest & {relay: string}
+
 export type WidgetProfileResult = {
   pubkey: string
   status: "loading" | "ready" | "unavailable"

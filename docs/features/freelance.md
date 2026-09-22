@@ -29,6 +29,7 @@ Updating the app does not rewrite already published community definitions. **Res
 ## Workflows
 
 - **Classifieds:** offer an item for sale or free, contact the seller through existing Budabit chat, arrange payment/handoff directly, then mark it sold/given away. The Classifieds widget supports photos, local drafts, edits, and removal requests.
+- **Classifieds DM setup:** publishing requires the seller to have a DM relay list. Contacting a seller checks both participants before opening Chat. The widget preloads settings, offers **Use community relay for DMs** inline, or opens **Settings → Relays → Messaging Relays** with that accordion expanded. Inline setup resumes the pending action only after a relay acknowledgement. See the [messaging bridge contract](../extensions/messaging.md).
 - **Jobs:** a client publishes a job; a freelancer sends a proposal; the client accepts, then records completion or failure. The counterparties can review the concluded engagement.
 - **Services:** a freelancer publishes a service; a client places an order; the freelancer accepts; the client records fulfillment or failure. The counterparties can then review the engagement.
 - **Thumbnails:** the widget supports upload, preview, replacement and removal. Upload destinations are the exact definition's Blossom servers first, followed by personal and widget-build defaults. The existing bridge does not expose Budabit's personal/default Blossom settings; the widget uses a personal URL field or a signed kind-10063 list found on community relays, plus its own deployment default.

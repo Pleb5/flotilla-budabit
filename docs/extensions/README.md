@@ -86,7 +86,8 @@ Smart Widgets declare privileges with repeatable `permission` tags:
 
 Budabit enforces these rules:
 
-- Privileged bridge actions under `nostr:*`, `storage:*`, `community:*`, and `profiles:*` require an exact matching permission tag.
+- Privileged bridge actions under `nostr:*`, `storage:*`, `community:*`, `profiles:*`, and `messaging:*` require an exact matching permission tag.
+- [`messaging:check` and `messaging:useCommunityRelay`](messaging.md) let Classifieds preload DM readiness and offer inline community-relay setup before publishing or opening Chat.
 - UI actions such as `ui:toast` and `ui:navigate` are not privileged by the bridge policy, but handlers still validate payload shape and host constraints.
 - `action` and `tool` widgets run in iframes with `allow-scripts allow-same-origin` only.
 - The bridge checks that incoming messages originate from the registered widget origin.

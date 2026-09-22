@@ -435,6 +435,19 @@ afterEach(() => {
 })
 
 describe("ExtensionBridge", () => {
+  it.each(["messaging:check", "messaging:useCommunityRelay"])(
+    "requires an explicit permission for %s",
+    async action => {
+      const {ExtensionBridge} = await import("./bridge")
+      const denied = makeExtension({widget: {permissions: ["nostr:sign", "ui:navigate"]}})
+      const bridge = new ExtensionBridge(denied as any)
+      const request = vi.spyOn(bridge, "messagingRequest")
+      expect(await sendBridgeRequest(bridge, denied, action, {})).toMatchObject({
+        code: "CAPABILITY_NOT_AUTHORIZED",
+      })
+      expect(request).not.toHaveBeenCalled()
+    },
+  )
   it("requires profile-modal permission and derives relay hints from the widget context", async () => {
     const {ExtensionBridge} = await import("./bridge")
     const context = {
