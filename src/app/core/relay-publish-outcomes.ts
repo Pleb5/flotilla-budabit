@@ -1,4 +1,5 @@
 import {PublishStatus, type PublishResultsByRelay} from "@welshman/net"
+import {getUnsupportedRelayKind} from "./relay-write-capabilities"
 
 type RelayPublishResults = Record<string, {relay?: string; status: string; detail?: string}>
 
@@ -12,6 +13,8 @@ export type RelayPublishReason =
   | "no_grant"
   | "person_banned"
   | "kind_not_enabled"
+  | "kind_not_supported"
+  | "skipped"
   | "blocked"
   | "invalid"
   | "rate_limited"
@@ -51,6 +54,14 @@ export const classifyRelayPublishOutcome = (
 
   // The OK boolean/status, not the message prefix, determines acceptance.
   if (status === PublishStatus.Success) return outcome("accepted", "Accepted")
+  if (status === PublishStatus.Skipped) {
+    return outcome(
+      "skipped",
+      "Skipped — kind unsupported",
+      "A previous explicit kind rejection is cached locally. Nothing was sent to this relay. The restriction expires after 24 hours; the next publication or retry can then try again.",
+      "later",
+    )
+  }
   if (status === PublishStatus.Pending || status === PublishStatus.Sending) {
     return outcome("pending", "Awaiting relay reply")
   }
@@ -79,6 +90,14 @@ export const classifyRelayPublishOutcome = (
     )
 
   const text = detail.trim()
+  if (getUnsupportedRelayKind(text) !== undefined) {
+    return outcome(
+      "kind_not_supported",
+      "Relay does not support this event kind",
+      "This relay explicitly rejected the event kind. Subsequent attempts can skip it until the cached restriction expires.",
+      "later",
+    )
+  }
   if (/^error:\s*relay policy is loading\b/i.test(text)) {
     return outcome(
       "warming_up",
@@ -208,6 +227,19 @@ export const canRetryRelayPublishResults = (results: RelayPublishResults) => {
   return failures.length === 0 || failures.some(outcome => outcome.retry !== "none")
 }
 
+export const summarizeRelayPublishResults = (
+  results: RelayPublishResults,
+  expectedRelays: readonly string[] = [],
+) => {
+  const outcomes = getRelayPublishOutcomes(results, expectedRelays)
+  const accepted = outcomes.filter(outcome => outcome.reason === "accepted").length
+  const skipped = outcomes.filter(outcome => outcome.reason === "skipped").length
+  const attempted = outcomes.length - skipped
+  if (skipped === 0) return `Accepted by ${accepted}/${attempted} relays.`
+  if (attempted === 0) return `No relay accepted the event; ${skipped} skipped (kind unsupported).`
+  return `Accepted by ${accepted}/${attempted} attempted relays; ${skipped} skipped (kind unsupported).`
+}
+
 export const formatRelayPublishFailure = (
   results: RelayPublishResults,
   {
@@ -226,9 +258,11 @@ export const formatRelayPublishFailure = (
   const accepted = outcomes.filter(outcome => outcome.reason === "accepted")
   const heading = requiredRelay
     ? `Required relay ${requiredRelay} did not accept the event.`
-    : accepted.length
-      ? `Accepted by ${accepted.length}/${outcomes.length} relays; delivery is incomplete.`
-      : "No relay accepted the event."
+    : outcomes.some(outcome => outcome.reason === "skipped")
+      ? summarizeRelayPublishResults(results, expectedRelays)
+      : accepted.length
+        ? `Accepted by ${accepted.length}/${outcomes.length} relays; delivery is incomplete.`
+        : "No relay accepted the event."
   return [
     heading,
     ...failures.map(

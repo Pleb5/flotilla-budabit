@@ -1,5 +1,5 @@
 import {get} from "svelte/store"
-import {MockAdapter, PublishStatus, LOCAL_RELAY_URL} from "@welshman/net"
+import {MockAdapter, PublishStatus, LOCAL_RELAY_URL, setPublishPolicy} from "@welshman/net"
 import {Nip01Signer} from "@welshman/signer"
 import {NOTE, DIRECT_MESSAGE, WRAP, makeEvent, getPubkey, makeSecret, prep} from "@welshman/util"
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
@@ -16,6 +16,7 @@ import {
   thunkQueue,
   flattenThunks,
   waitForAnyRelayAck,
+  getThunkError,
 } from "../src/thunk"
 
 const secret = makeSecret()
@@ -51,6 +52,63 @@ describe("thunk", () => {
   })
 
   describe("MergedThunk", () => {
+    it("settles all-skipped publications and never supplies a required ACK", async () => {
+      const restore = setPublishPolicy({
+        check: () => ({detail: "blocked: kind 32222 is not allowed"}),
+        observeAck: vi.fn(),
+      })
+      try {
+        const getAdapter = vi.fn()
+        const thunk = new Thunk({
+          ...mockRequest,
+          event: makeEvent(32222),
+          relays: [relay1],
+          context: {getAdapter},
+        })
+        const onSkipped = vi.fn()
+        thunk.subscribe(value => onSkipped(value.results[relay1]?.status))
+        await thunk.publish()
+        await thunk.complete
+        expect(thunk.results[relay1].status).toBe(PublishStatus.Skipped)
+        expect(onSkipped).toHaveBeenCalledWith(PublishStatus.Skipped)
+        expect(getAdapter).not.toHaveBeenCalled()
+        expect(getThunkError(thunk)).toBe("blocked: kind 32222 is not allowed")
+        await expect(waitForAnyRelayAck(thunk)).rejects.toThrow("No target relay acknowledged")
+        const merged = new MergedThunk([thunk])
+        expect(merged.results[relay1].status).toBe(PublishStatus.Skipped)
+      } finally {
+        restore()
+      }
+    })
+
+    it("preserves a successful destination when a skipped destination is retried", async () => {
+      const restore = setPublishPolicy({
+        check: relay =>
+          relay === relay1 ? {detail: "blocked: kind 30222 is not allowed"} : undefined,
+        observeAck: vi.fn(),
+      })
+      try {
+        const thunk = new Thunk({...mockRequest, event: makeEvent(30222), relays: [relay1, relay2]})
+        thunk.results[relay1] = {
+          relay: relay1,
+          status: PublishStatus.Skipped,
+          detail: "kind unsupported",
+        }
+        thunk.results[relay2] = {relay: relay2, status: PublishStatus.Success, detail: "stored"}
+        const retry = retryThunk(thunk, {failedOnly: true}) as Thunk
+        await vi.runAllTimersAsync()
+        expect(retry.results[relay1].status).toBe(PublishStatus.Skipped)
+        expect(retry.results[relay2].status).toBe(PublishStatus.Success)
+        expect(getThunkError(retry)).toBe("")
+        await expect(waitForAnyRelayAck(retry, [relay1])).rejects.toThrow("skipped")
+        await expect(waitForAnyRelayAck(retry, [relay2])).resolves.toMatchObject({
+          status: PublishStatus.Success,
+        })
+      } finally {
+        restore()
+      }
+    })
+
     it("should abort all thunks when merged controller aborts", () => {
       const thunk1 = publishThunk(mockRequest)
       const thunk2 = publishThunk(mockRequest)

@@ -4,6 +4,7 @@ import {
   classifyRelayPublishOutcome,
   formatRelayPublishFailure,
   RelayPublishError,
+  summarizeRelayPublishResults,
 } from "./relay-publish-outcomes"
 
 const relay = "wss://relay.example/"
@@ -20,6 +21,7 @@ describe("relay publish outcomes", () => {
     ],
     ["blocked: no current grant for kind 31922 in cccccccc", "no_grant", "after-refresh"],
     ["blocked: author is moderated in this community", "person_banned", "after-change"],
+    ["blocked: kind 32222 is not allowed", "kind_not_supported", "later"],
     [
       "blocked: kind 11/threads is not enabled in community cccccccc",
       "kind_not_enabled",
@@ -55,6 +57,20 @@ describe("relay publish outcomes", () => {
       }).reason,
     ).toBe("accepted")
     expect(classify("duplicate: already have this").reason).not.toBe("accepted")
+  })
+  it("excludes skipped relays from attempted counts while retaining required-relay failure", () => {
+    const results = {
+      [relay]: {relay, status: PublishStatus.Skipped, detail: "blocked: kind 32222 is not allowed"},
+      good: {relay: "good", status: PublishStatus.Success, detail: "stored"},
+    }
+    expect(summarizeRelayPublishResults(results)).toBe(
+      "Accepted by 1/1 attempted relays; 1 skipped (kind unsupported).",
+    )
+    expect(classifyRelayPublishOutcome(relay, results[relay]).reason).toBe("skipped")
+    expect(formatRelayPublishFailure(results, {requiredRelay: relay})).toContain("Required relay")
+    expect(summarizeRelayPublishResults({[relay]: results[relay]})).toBe(
+      "No relay accepted the event; 1 skipped (kind unsupported).",
+    )
   })
   it("distinguishes absent results, timeout and cancellation from policy rejection", () => {
     expect(classifyRelayPublishOutcome(relay).reason).toBe("missing_result")

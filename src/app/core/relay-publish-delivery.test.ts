@@ -35,6 +35,15 @@ afterEach(() => {
 })
 
 describe("relay delivery recovery", () => {
+  it("retains skipped details and preserves them as skipped on retry rather than fabricating a timeout", async () => {
+    const skipped = result(bad, PublishStatus.Skipped, "blocked: kind 11 is not allowed")
+    recordRelayDelivery(event, {[good]: result(good, PublishStatus.Success), [bad]: skipped})
+    await retryRelayDelivery(event.id, owner, async () => ({[bad]: skipped}))
+    expect(get(relayDeliveryNotices).get(event.id)?.results).toEqual({
+      [good]: result(good, PublishStatus.Success),
+      [bad]: skipped,
+    })
+  })
   it("revalidates permissions before resending a confirmed operation's failed destinations", async () => {
     const validate = vi.fn(async () => {
       throw new Error("grant was revoked")

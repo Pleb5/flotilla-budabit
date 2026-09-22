@@ -255,6 +255,13 @@ export class Thunk {
     this._notify()
   }
 
+  _setSkipped = (result: PublishResult) => {
+    this.options.onSkipped?.(result)
+    this.results[result.relay] = result
+    this._observeResult(result)
+    this._notify()
+  }
+
   async _publish(event: SignedEvent) {
     // Wait if the thunk is to be delayed
     if (this.options.delay) {
@@ -281,6 +288,7 @@ export class Thunk {
         onPending: this._setPending,
         onTimeout: this._setTimeout,
         onAborted: this._setAborted,
+        onSkipped: this._setSkipped,
         onComplete: (result: PublishResult) => {
           this.options.onComplete?.(result)
           this._subs = []
@@ -421,7 +429,7 @@ export class MergedThunk {
   results: PublishResultsByRelay = {}
 
   constructor(readonly thunks: Thunk[]) {
-    const {Aborted, Failure, Timeout, Pending, Sending, Success} = PublishStatus
+    const {Skipped, Aborted, Failure, Timeout, Pending, Sending, Success} = PublishStatus
     const relays = new Set(
       thunks.flatMap(thunk => [...thunk.options.relays, ...Object.keys(thunk.results)]),
     )
@@ -431,7 +439,7 @@ export class MergedThunk {
         this.results = {}
 
         for (const relay of relays) {
-          for (const status of [Aborted, Failure, Timeout, Pending, Sending, Success]) {
+          for (const status of [Skipped, Aborted, Failure, Timeout, Pending, Sending, Success]) {
             const thunk = thunks.find(t => t.results[relay]?.status === status)
 
             if (thunk) {
@@ -516,6 +524,12 @@ export const getThunkError = (thunk: Thunk) => {
   }
 
   if (thunkIsComplete(thunk)) {
+    const skipped = Object.values(thunk.results).find(
+      result => result.status === PublishStatus.Skipped,
+    )
+    if (skipped && !thunkHasStatus(PublishStatus.Success, thunk)) {
+      return skipped.detail || "No relay accepted the event; publication destinations were skipped"
+    }
     return ""
   }
 }

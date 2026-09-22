@@ -9,6 +9,7 @@ import {parse as parseDotenv} from "dotenv"
 import {verifyEvent} from "nostr-tools"
 import * as nip19 from "nostr-tools/nip19"
 import {schnorr} from "@noble/curves/secp256k1"
+import {auditRelayWrites, parseWriteAuditEvents} from "./relay-write-audit.mjs"
 
 export const DEFAULT_SEED = "npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw"
 export const DEFAULT_BOOTSTRAP_RELAYS = ["wss://nos.lol/", "wss://purplepag.es/"]
@@ -65,9 +66,14 @@ Options:
   --table-file <path>          Recommendation Markdown path
   --progress <text|ndjson|none> Progress format on stderr (default: text)
   --strict                     Exit non-zero when discovery is partial
+  --write-audit-events <jsonl>  Opt in: replay signed 32222 and 30222 samples
+  --write-account <alias>      Active nak-account alias for the write audit
+  --write-relay <wss>          Restrict audit destinations (repeatable)
   --help                       Show this help
 
-The script is read-only on Nostr and never edits .env or application code.
+Read-only by default. The optional write audit publishes existing samples to
+configured and shortlisted indexer/Git/widget relays, including community relays.
+It never edits .env or application code. Signer-only relays are not write targets.
 `
 
 const unique = values => Array.from(new Set(values.filter(Boolean)))
@@ -217,6 +223,9 @@ export const parseCli = argv => {
       "table-file": {type: "string"},
       progress: {type: "string", default: "text"},
       strict: {type: "boolean"},
+      "write-audit-events": {type: "string"},
+      "write-account": {type: "string"},
+      "write-relay": {type: "string", multiple: true},
       help: {type: "boolean", short: "h"},
     },
   })
@@ -245,6 +254,16 @@ export const parseCli = argv => {
   }
 
   const outputDir = path.resolve(values["output-dir"])
+  if (Boolean(values["write-audit-events"]) !== Boolean(values["write-account"])) {
+    throw new Error("--write-audit-events and --write-account must be supplied together")
+  }
+  if (values["write-account"] && !/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(values["write-account"])) {
+    throw new Error("Invalid --write-account alias")
+  }
+  const writeRelays = (values["write-relay"] || []).map(normalizeRelayUrl)
+  if (writeRelays.some(relay => !relay) || (writeRelays.length && !values["write-audit-events"])) {
+    throw new Error("--write-relay requires valid relay URLs and --write-audit-events")
+  }
   return {
     help: Boolean(values.help),
     seeds: seeds.length ? seeds : [normalizePubkey(DEFAULT_SEED)],
@@ -266,6 +285,11 @@ export const parseCli = argv => {
     tableFile: path.resolve(values["table-file"] || path.join(outputDir, "recommendations.md")),
     progress: values.progress,
     strict: Boolean(values.strict),
+    writeAuditEvents: values["write-audit-events"]
+      ? path.resolve(values["write-audit-events"])
+      : undefined,
+    writeAccount: values["write-account"],
+    writeRelays: unique(writeRelays),
   }
 }
 
@@ -1384,7 +1408,7 @@ export const renderRecommendationTable = evidence => {
     )
   }
   lines.push(
-    "> Recommendations are read-only discovery results. Write acceptance is provisional unless explicitly verified.",
+    "> Discovery rankings describe relay roles. Write acceptance is provisional except for explicitly verified audit samples.",
     "",
   )
 
@@ -1412,6 +1436,38 @@ export const renderRecommendationTable = evidence => {
     lines.push("")
   }
 
+  if (evidence.writeAudit) {
+    lines.push(
+      "## Community write audit",
+      "",
+      `Checked: ${evidence.writeAudit.checkedAt}`,
+      "",
+      "Existing signed samples were replayed. Acceptance applies to these authors and payloads, not every event of the same kind.",
+      "",
+      "| Relay | Sources | Kind | ACK | Current readback | Detail |",
+      "|---|---|---:|---|---|---|",
+    )
+    for (const row of evidence.writeAudit.rows) {
+      const readback =
+        row.readback.status === "eose"
+          ? row.readback.currentEventId === row.eventId
+            ? "exact current event"
+            : row.readback.currentEventId
+              ? "different current event"
+              : "not found"
+          : row.readback.status
+      lines.push(
+        `| \`${escapeTable(row.relay)}\` | ${escapeTable(row.sources.join(", "))} | ${row.kind} | ${row.ack} | ${escapeTable(readback)} | ${escapeTable(row.detail)} |`,
+      )
+    }
+    lines.push("", "### Verified publication destinations by kind", "")
+    for (const [kind, relays] of Object.entries(evidence.writeAudit.verifiedRelaysByKind)) {
+      lines.push(
+        `- Kind ${kind}: ${relays.length ? relays.map(relay => `\`${relay}\``).join(", ") : "none verified"}`,
+      )
+    }
+    lines.push("")
+  }
   lines.push("## Suggested Environment", "", "```env")
   for (const [name, value] of Object.entries(evidence.suggestedEnv)) lines.push(`${name}=${value}`)
   lines.push(
@@ -1474,10 +1530,18 @@ const assignRanks = roles => {
 export const discoverRelayDefaults = async (cli, dependencies = {}) => {
   const progress = dependencies.progress || makeProgressLogger(cli.progress)
   const env = dependencies.env || (await readEnv(cli.envFile))
+  // Validate samples before discovery; malformed input must never reach a signer.
+  const writeEvents = cli.writeAuditEvents
+    ? parseWriteAuditEvents(await readFile(cli.writeAuditEvents, "utf8"))
+    : undefined
   const warnings = [
     "Encrypted mute entries and private renounced-community lists were not evaluated.",
     "Community stars and effective community moderation reports were not used as ranking evidence.",
-    "Relay write acceptance was not tested; write-capable recommendations remain provisional.",
+    ...(writeEvents
+      ? []
+      : [
+          "Relay write acceptance was not tested; write-capable recommendations remain provisional.",
+        ]),
   ]
   const defaultCommunity = cli.noDefaultCommunity
     ? undefined
@@ -1787,6 +1851,62 @@ export const discoverRelayDefaults = async (cli, dependencies = {}) => {
   }
 
   const roles = selectRoleResults(candidates, cli.maxCandidates)
+  let writeAudit
+  if (writeEvents) {
+    const destinations = new Map()
+    const add = (relay, source) => {
+      const normalized = normalizeRelayUrl(relay)
+      if (!normalized) return
+      const sources = destinations.get(normalized) || new Set()
+      sources.add(source)
+      destinations.set(normalized, sources)
+    }
+    if (cli.writeRelays?.length) {
+      for (const relay of cli.writeRelays) add(relay, "explicit audit destination")
+    } else {
+      for (const candidate of candidates.filter(candidate =>
+        ["indexer", "git", "widget"].includes(candidate.role),
+      )) {
+        add(candidate.url, `candidate:${candidate.role}`)
+      }
+      for (const role of ["indexer", "git", "widget"]) {
+        for (const relay of configured[role] || []) add(relay, `configured:${role}`)
+      }
+      for (const definition of activeDefinitions) {
+        for (const relay of definition.relays) add(relay, "community definition")
+      }
+      const writeLists = latestByKindAndAuthor(corpus, 10002)
+      for (const event of writeEvents) {
+        if (event.kind === COMMUNITY_DEFINITION_KIND) {
+          for (const tag of event.tags.filter(tag => tag[0] === "r"))
+            add(tag[1], "sample definition")
+        }
+        for (const tag of writeLists.get(event.pubkey)?.tags || []) {
+          if (tag[0] === "r" && (!tag[2] || tag[2] === "write")) add(tag[1], "sample author outbox")
+        }
+      }
+      if (!parseCsv(env.VITE_SMART_WIDGET_RELAYS).length) {
+        for (const relay of ["wss://relay.budabit.club", "wss://nos.lol"])
+          add(relay, "built-in widget default")
+      }
+    }
+    progress("write-audit", "replaying existing signed samples", {
+      relays: destinations.size,
+      kinds: writeEvents.map(event => event.kind),
+    })
+    writeAudit = await auditRelayWrites({
+      account: cli.writeAccount,
+      events: writeEvents,
+      destinations: Array.from(destinations, ([relay, sources]) => ({
+        relay,
+        sources: [...sources],
+      })),
+      timeoutMs: cli.timeoutMs,
+      concurrency: cli.concurrency,
+      queryRelay,
+      ...(dependencies.replayWriteEvents ? {replay: dependencies.replayWriteEvents} : {}),
+    })
+  }
   assignRanks(roles)
   const generatedAt = new Date().toISOString()
   const defaultDefinition = activeDefinitions.find(
@@ -1828,6 +1948,7 @@ export const discoverRelayDefaults = async (cli, dependencies = {}) => {
       relationships: Array.from(graph.relationships.values()).map(serializeRelationship),
     },
     configured,
+    ...(writeAudit ? {writeAudit} : {}),
     eventCorpus: {
       count: corpus.length,
       kinds: Object.fromEntries(
@@ -1851,7 +1972,7 @@ export const discoverRelayDefaults = async (cli, dependencies = {}) => {
       communityDefinitions: activeDefinitions.length,
       profileLists: latestByAddress(corpus, PROFILE_LIST_KIND).size,
       privateStateEvaluated: false,
-      writeProbesPerformed: false,
+      writeProbesPerformed: Boolean(writeAudit),
     },
   }
   return evidence

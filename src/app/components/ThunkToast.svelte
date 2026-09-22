@@ -22,6 +22,7 @@
   const isAborted = $derived(thunkHasStatus(Aborted, $thunk))
   const isFailure = $derived(thunkHasStatus([Timeout, Failure], $thunk))
   const isSuccess = $derived(thunkHasStatus(PublishStatus.Success, $thunk))
+  const isSkipped = $derived(thunkHasStatus(PublishStatus.Skipped, $thunk))
   const isComplete = $derived(thunkIsComplete($thunk))
 
   $effect(() => {
@@ -39,13 +40,13 @@
 {#if !isComplete}
   <ThunkPending {thunk} />
 {:else if isSuccess}
-  {#if isFailure}
+  {#if isFailure || isSkipped}
     <RelayPublishFeedback results={$thunk.results} />
     {#if retryable}<ThunkFailure {thunk} partial onRetry={retry => (thunk = retry)} />{/if}
   {:else}
     <p class="text-xs opacity-75">Message sent!</p>
   {/if}
-{:else if isFailure}
+{:else if isFailure || isSkipped}
   {#if retryable}
     <ThunkFailure {thunk} onRetry={retry => (thunk = retry)} />
   {:else}

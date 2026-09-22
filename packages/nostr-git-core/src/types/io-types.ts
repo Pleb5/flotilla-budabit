@@ -17,7 +17,7 @@ export type {NostrEvent, NostrFilter}
  */
 export type PublishRelayOutcome = {
   relay: string
-  status: "success" | "failure" | "timeout" | "aborted"
+  status: "success" | "failure" | "timeout" | "aborted" | "skipped"
   detail: string
 }
 

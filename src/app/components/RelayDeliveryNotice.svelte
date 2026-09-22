@@ -14,6 +14,9 @@
   const outcomes = $derived(getRelayPublishOutcomes(notice?.results || {}))
   const retryable = $derived(outcomes.some(outcome => outcome.retry !== "none"))
   const pending = $derived(outcomes.some(outcome => outcome.reason === "pending"))
+  const onlySkipped = $derived(
+    outcomes.every(outcome => ["accepted", "skipped"].includes(outcome.reason)),
+  )
   const accountMismatch = $derived($pubkey !== notice?.ownerPubkey)
   let retryError = $state("")
   const retry = async () => {
@@ -49,7 +52,11 @@
           class="btn btn-primary btn-xs"
           onclick={retry}
           disabled={notice.retrying || pending || accountMismatch}>
-          {notice.retrying ? "Retrying..." : "Retry failed relays"}
+          {notice.retrying
+            ? "Retrying..."
+            : onlySkipped
+              ? "Retry skipped relays"
+              : "Retry failed relays"}
         </Button>
       {/if}
       <Button

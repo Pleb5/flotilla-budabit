@@ -64,6 +64,35 @@ VITE_SMART_WIDGET_RELAYS=wss://relay.budabit.club,wss://nos.lol
 
 If this is empty, Budabit uses built-in widget relay defaults for direct widget lookups. Default extensions are loaded from the exact definition in `VITE_DEFAULT_COMMUNITY` and its `kind:30222` wrappers with adjacent stable community `h` and marked definition `a` tags. The targeted `kind:30033` widgets appear as installed and enabled. Users can disable those defaults but cannot uninstall them. Additional direct `naddr` installs live under Settings > Extensions > Advanced.
 
+### Auditing relay defaults
+
+`pnpm discover:relay-defaults` discovers and ranks community-first relay defaults
+and writes evidence plus suggested Vite settings. Discovery is read-only by
+default; its rankings do not establish write acceptance.
+
+To explicitly test community write compatibility, supply a JSONL file containing
+exactly one existing, signed `32222` event and one existing, signed `30222` event,
+plus an active `nak-account` alias:
+
+```sh
+pnpm discover:relay-defaults -- --write-audit-events /path/to/signed-community-samples.jsonl --write-account five
+```
+
+The audit replays those exact events, preserving their authors, timestamps and
+signatures. Its default destinations include shortlisted indexer/Git/widget
+candidates, configured defaults, built-in widget defaults, community definition
+relays, and discovered sample-author outboxes. Signer-only relays are excluded.
+Repeat `--write-relay wss://relay.example/` to explicitly restrict destinations.
+Start an inactive alias with `nak-account start <alias>` in a normal terminal.
+
+The evidence and Markdown report include per-kind ACK outcomes, rejection reasons,
+current-address readback of the exact event ID, and verified destinations by kind.
+Timeouts and connection failures are inconclusive, not unsupported-kind evidence.
+Acceptance applies to the sampled authors and payloads; it is not a guarantee for
+every event of that kind. A duplicate ACK also does not prove fresh-event admission.
+These explicit operator audits are separate from the application's local,
+[ACK-learned write policy](../architecture/Relay-Publish-Outcomes.md#learned-write-kind-restrictions).
+
 Optional trusted NIP-53 streaming providers:
 
 ```env

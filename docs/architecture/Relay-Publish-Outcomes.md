@@ -35,6 +35,35 @@ loop or relay-based relaxation of client admission was added.
 The shared feedback component renders relay text as text. Diagnostics retain
 classified reason codes, not arbitrary relay messages or signed payloads.
 
+## Learned write-kind restrictions
+
+All Welshman `publishOne`, `publish`, and `publishThunk` paths share the local
+publish-policy hook in `packages/welshman/packages/net/src/publish.ts`. Budabit
+installs `src/app/core/relay-write-capabilities.ts` once in the root layout.
+Publish sites continue supplying their ordinary destinations.
+
+Unknown relay/kind combinations are attempted normally. Only an actual matching
+OK-false reply with an unqualified kind-wide denial, such as
+`blocked: kind 32222 is not allowed`, records negative evidence. Community grants,
+author restrictions, repository references, payment/auth requirements, malformed
+events, connection failures and timeouts do not establish a kind restriction.
+NIP-11 and empty reads are not evidence of write support.
+
+The cache is keyed by normalized relay URL and outgoing event kind, bounded to 512
+entries, and persisted under `relay.writeCapabilities.v1` in browser localStorage.
+Evidence expires after 24 hours; expiry permits the next real publication or
+explicit retry. A later OK-true response clears the restriction. Denied or corrupt
+storage falls back to memory. The policy performs no network preflight, background
+probes, signing, or synthetic event publication. Attempted destinations retain
+their existing timeout and retry behavior.
+
+A fresh restriction produces terminal `skipped` status before acquiring an
+adapter. It is never an ACK, never satisfies a required relay, and an all-skipped
+operation cannot succeed. Shared feedback separates attempted and skipped counts,
+for example `Accepted by 3/3 attempted relays; 1 skipped (kind unsupported).`
+The original rejection remains a failed attempt; subsequent skips retain its
+reason in delivery reports. Retries go through the same centralized policy.
+
 ## Protected-kind deletions
 
 The active Budabit relay policy rejects any kind-5 request containing a `k` tag

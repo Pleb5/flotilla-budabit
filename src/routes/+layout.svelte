@@ -12,6 +12,7 @@
   import {call} from "@welshman/lib"
   import {authPolicy, trustPolicy, mostlyRestrictedPolicy} from "@app/util/policies"
   import {installRelayRequestPolicy, relayPolicyRefreshPolicy} from "@app/core/relay-policy"
+  import {installRelayWriteCapabilityPolicy} from "@app/core/relay-write-capabilities"
   import {installRelayDebugDiagnostics, installRelayDiagnostics} from "@app/core/relay-diagnostics"
   import {defaultSocketPolicies} from "@welshman/net"
   import {pubkey, sessions, signerLog, shouldUnwrap, userRelayList} from "@welshman/app"
@@ -133,6 +134,10 @@
 
   const policies = [relayPolicyRefreshPolicy, authPolicy, trustPolicy, mostlyRestrictedPolicy]
   const uninstallRelayRequestPolicy = installRelayRequestPolicy()
+  const uninstallRelayWriteCapabilityPolicy = browser
+    ? installRelayWriteCapabilityPolicy()
+    : () => {}
+  onDestroy(uninstallRelayWriteCapabilityPolicy)
   const uninstallRelayDiagnostics = installRelayDiagnostics({enabled: browser && dev})
   const uninstallRelayDebugDiagnostics = installRelayDebugDiagnostics({
     enabled: browser && DIAGNOSTICS_ENABLED,
@@ -1639,6 +1644,7 @@
     }
     uninstallSocketPolicies()
     uninstallRelayRequestPolicy()
+    uninstallRelayWriteCapabilityPolicy()
     uninstallRelayDiagnostics()
     uninstallRelayDebugDiagnostics()
     uninstallPublicationDebugDiagnostics()

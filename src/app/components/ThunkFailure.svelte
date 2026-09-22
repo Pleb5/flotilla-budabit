@@ -14,6 +14,7 @@
   import Tippy from "@lib/components/Tippy.svelte"
   import ThunkStatusDetail from "@app/components/ThunkStatusDetail.svelte"
   import {recoverActiveNip46Receiver} from "@app/util/nip46"
+  import {summarizeRelayPublishResults} from "@app/core/relay-publish-outcomes"
 
   interface Props {
     thunk: AbstractThunk
@@ -52,13 +53,14 @@
     }
   }
 
-  const failedUrls = $derived(getFailedThunkUrls($thunk))
+  const failedUrls = $derived([
+    ...getFailedThunkUrls($thunk),
+    ...getThunkUrlsWithStatus(PublishStatus.Skipped, $thunk),
+  ])
   const successUrls = $derived(getThunkUrlsWithStatus(PublishStatus.Success, $thunk))
   const relayCount = $derived(Object.keys($thunk.results).length)
   const showFailure = $derived(thunkIsComplete($thunk) && failedUrls.length > 0)
-  const label = $derived(
-    partial ? `Sent to ${successUrls.length}/${relayCount} relays` : "Failed to send!",
-  )
+  const label = $derived(partial ? summarizeRelayPublishResults($thunk.results) : "Failed to send!")
 </script>
 
 {#if showFailure}

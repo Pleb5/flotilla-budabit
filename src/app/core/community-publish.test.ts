@@ -40,6 +40,33 @@ const makeLoader = (handler: (relays: string[], filters: Filter[]) => TrustedEve
 describe("community publish verification", () => {
   afterEach(clearRelayDeliveries)
 
+  it("a skipped required relay still fails despite optional acceptance, and all-skipped is not success", async () => {
+    const event = makeSignedEvent({kind: COMMUNITY_DEFINITION_KIND})
+    const skipped = {
+      relay,
+      status: PublishStatus.Skipped,
+      detail: "blocked: kind 32222 is not allowed",
+    }
+    await expect(
+      publishRequiredCommunityEvent({
+        event,
+        relays: [relay, backupRelay],
+        requiredRelay: relay,
+        publishEvent: async () => ({
+          [relay]: skipped,
+          [backupRelay]: {relay: backupRelay, status: PublishStatus.Success, detail: "stored"},
+        }),
+      }),
+    ).rejects.toThrow(`Required relay ${relay}`)
+    await expect(
+      publishRequiredCommunityEvent({
+        event,
+        relays: [relay],
+        publishEvent: async () => ({[relay]: skipped}),
+      }),
+    ).rejects.toThrow("No relay accepted the event")
+  })
+
   it("retains required-relay policy denial despite success elsewhere", async () => {
     const event = makeSignedEvent({})
     const results = {

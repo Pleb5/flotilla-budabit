@@ -53,7 +53,8 @@ const isPublishStatus = (status: unknown): status is PublishRelayOutcome["status
     status === PublishStatus.Success ||
     status === PublishStatus.Failure ||
     status === PublishStatus.Timeout ||
-    status === PublishStatus.Aborted
+    status === PublishStatus.Aborted ||
+    status === PublishStatus.Skipped
   )
 }
 

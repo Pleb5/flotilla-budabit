@@ -15,8 +15,10 @@
   const isComplete = $derived(thunkIsComplete($thunk))
   const successUrls = $derived(getThunkUrlsWithStatus(PublishStatus.Success, $thunk))
   const failedUrls = $derived(getFailedThunkUrls($thunk))
-  const showFailure = $derived(isComplete && successUrls.length === 0 && failedUrls.length > 0)
-  const showPartialFailure = $derived(isComplete && successUrls.length > 0 && failedUrls.length > 0)
+  const skippedUrls = $derived(getThunkUrlsWithStatus(PublishStatus.Skipped, $thunk))
+  const hasDetails = $derived(failedUrls.length > 0 || skippedUrls.length > 0)
+  const showFailure = $derived(isComplete && successUrls.length === 0 && hasDetails)
+  const showPartialFailure = $derived(isComplete && successUrls.length > 0 && hasDetails)
   const showPending = $derived(!isComplete && successUrls.length === 0)
 </script>
 

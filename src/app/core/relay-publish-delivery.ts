@@ -172,6 +172,7 @@ export const retryRelayDelivery = async (
           PublishStatus.Failure,
           PublishStatus.Timeout,
           PublishStatus.Aborted,
+          PublishStatus.Skipped,
         ].includes(result.status)
           ? result
           : {

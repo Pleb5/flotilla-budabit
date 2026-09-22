@@ -10,12 +10,29 @@ export enum PublishStatus {
   Failure = "failure",
   Timeout = "timeout",
   Aborted = "aborted",
+  Skipped = "skipped",
 }
 
 export type PublishResult = {
   status: PublishStatus
   detail: string
   relay: string
+}
+
+/** Synchronous local policy only. Observations are actual, matching relay OK replies. */
+export type PublishPolicy = {
+  check: (relay: string, event: SignedEvent) => {detail: string} | undefined
+  observeAck: (relay: string, event: SignedEvent, ok: boolean, detail: string) => void
+}
+
+const publishPolicies: PublishPolicy[] = []
+
+export const setPublishPolicy = (policy: PublishPolicy) => {
+  publishPolicies.push(policy)
+  return () => {
+    const index = publishPolicies.lastIndexOf(policy)
+    if (index >= 0) publishPolicies.splice(index, 1)
+  }
 }
 
 export type PublishOneOptions = {
@@ -29,12 +46,27 @@ export type PublishOneOptions = {
   onPending?: (result: PublishResult) => void
   onTimeout?: (result: PublishResult) => void
   onAborted?: (result: PublishResult) => void
+  onSkipped?: (result: PublishResult) => void
   onComplete?: (result: PublishResult) => void
 }
 
 export const publishOne = (options: PublishOneOptions) =>
   new Promise<PublishResult>(resolve => {
     const relay = normalizeRelayUrl(options.relay)
+    const policy = publishPolicies.at(-1)
+    let skipped: {detail: string} | undefined
+    try {
+      if (!options.signal?.aborted) skipped = policy?.check(relay, options.event)
+    } catch {
+      // A broken local cache must not stop an ordinary publication.
+    }
+    if (skipped) {
+      const result = {relay, status: PublishStatus.Skipped, detail: skipped.detail}
+      options.onSkipped?.(result)
+      options.onComplete?.(result)
+      resolve(result)
+      return
+    }
     const adapter = getAdapter(relay, options.context)
 
     const result = {
@@ -71,6 +103,12 @@ export const publishOne = (options: PublishOneOptions) =>
         const [_, id, ok, detail] = message
 
         if (id !== options.event.id) return
+
+        try {
+          policy?.observeAck(relay, options.event, ok, detail)
+        } catch {
+          // Capability persistence must not change the ACK or publication lifecycle.
+        }
 
         if (ok) {
           result.status = PublishStatus.Success
@@ -119,6 +157,7 @@ export type PublishOptions = {
   onPending?: (result: PublishResult) => void
   onTimeout?: (result: PublishResult) => void
   onAborted?: (result: PublishResult) => void
+  onSkipped?: (result: PublishResult) => void
   onComplete?: (result: PublishResult) => void
 }
 
@@ -141,6 +180,7 @@ export const publish = async (options: PublishOptions): Promise<PublishResultsBy
           onPending: options.onPending,
           onTimeout: options.onTimeout,
           onAborted: options.onAborted,
+          onSkipped: options.onSkipped,
           onComplete: (result: PublishResult) => {
             completed.add(relay)
 

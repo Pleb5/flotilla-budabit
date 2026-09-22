@@ -4,7 +4,10 @@
   import Button from "@lib/components/Button.svelte"
   import type {PublishResultsByRelay} from "@welshman/net"
   import RelayPublishFeedback from "./RelayPublishFeedback.svelte"
-  import {canRetryRelayPublishResults} from "@app/core/relay-publish-outcomes"
+  import {
+    canRetryRelayPublishResults,
+    summarizeRelayPublishResults,
+  } from "@app/core/relay-publish-outcomes"
 
   interface Props {
     url: string
@@ -48,7 +51,9 @@
 <div class="card2 bg-alt col-2 shadow-lg">
   {#if partial}
     <p>
-      Published to {successCount}/{relayCount} relays. {displayRelayUrl(url)} did not confirm: {message}.
+      {results
+        ? summarizeRelayPublishResults(results)
+        : `Published to ${successCount}/${relayCount} relays.`}
     </p>
   {:else if signingFailed}
     <p>Failed to sign the event: {message}.</p>
