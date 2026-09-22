@@ -31,7 +31,7 @@ describe("repo-tab lifecycle payloads", () => {
         pubkey: owner,
         repoContext: repo,
         capabilities: expect.objectContaining({
-          surface: {kind: "widget", resize: false, slot: "repo-tab"},
+          surface: {kind: "widget", resize: false, visibility: false, slot: "repo-tab"},
           features: expect.objectContaining({"nostr.queryCompleteness": true}),
         }),
       }),

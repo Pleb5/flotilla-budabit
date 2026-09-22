@@ -232,6 +232,8 @@ export type SmartWidgetEvent = {
   version?: string
   changelog?: string
   slot?: WidgetSlotConfig
+  /** Defaults to host. Widget-controlled visibility gates inline community surfaces. */
+  visibility?: "host" | "widget"
 }
 
 /**
@@ -264,6 +266,21 @@ export type WidgetResizeRequest = {
   width?: number
 }
 
+export type WidgetVisibility = "pending" | "visible" | "hidden"
+
+export type WidgetVisibilityRequest = {
+  visibility: WidgetVisibility
+  contextSessionId: string
+  contextVersion: number
+}
+
+export type WidgetFrameState = {
+  visibility: WidgetVisibility
+  loaded: boolean
+  terminal: boolean
+  failed: boolean
+}
+
 export type LoadedWidgetExtension = {
   type: "widget"
   id: string
@@ -276,6 +293,7 @@ export type LoadedWidgetExtension = {
   communityRuntimeContextProvider?: () => CommunityWidgetRuntimeContext | undefined
   /** Internal host callback for SDK ui:resize requests. */
   onResizeRequest?: (request: WidgetResizeRequest) => void
+  onVisibilityRequest?: (request: WidgetVisibilityRequest) => void
   /** Repository context when loaded for a specific repository */
   repoContext?: RepoContext
 }

@@ -424,6 +424,9 @@ for (const mobile of [false, true]) {
       .getByRole("button", {name: "Close widget", exact: true})
       .evaluate(element => element.click())
     await expect(iframe).toHaveCount(0)
+    // Closing removes the dialog from the accessibility tree before its exit
+    // animation destroys the iframe. Wait for actual teardown before reopening.
+    await expect(page.locator('iframe[src*="freelance-widget.example"]')).toHaveCount(0)
     await launcher.click()
     await frame.getByRole("button", {name: "Post a job", exact: true}).click()
     await expect(frame.getByLabel("Title", {exact: true})).toHaveValue(

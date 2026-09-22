@@ -996,6 +996,48 @@ describe("ExtensionBridge", () => {
     expect(onResizeRequest).toHaveBeenCalledWith({height: 640, width: 320})
   })
 
+  it("accepts visibility only on opted-in surfaces with current settled authority", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const runtime = makePartialRuntimeContext(communityPubkey, true)
+    const payload = {
+      visibility: "visible",
+      contextSessionId: runtime.communityContext.contextSessionId,
+      contextVersion: runtime.communityContext.contextVersion,
+    }
+    const unsupported = makeExtension()
+    expect(
+      await sendBridgeRequest(
+        new ExtensionBridge(unsupported as any),
+        unsupported,
+        "ui:setVisibility",
+        payload,
+      ),
+    ).toMatchObject({code: "UNSUPPORTED_CAPABILITY"})
+    const onVisibilityRequest = vi.fn()
+    let liveRuntime: typeof runtime | undefined = runtime
+    const extension = makeExtension({
+      onVisibilityRequest,
+      communityRuntimeContext: runtime,
+      communityRuntimeContextProvider: () => liveRuntime,
+    })
+    const bridge = new ExtensionBridge(extension as any)
+    expect(await sendBridgeRequest(bridge, extension, "ui:setVisibility", payload)).toEqual({
+      status: "ok",
+    })
+    expect(onVisibilityRequest).toHaveBeenCalledTimes(1)
+    expect(
+      await sendBridgeRequest(bridge, extension, "ui:setVisibility", {
+        ...payload,
+        contextVersion: -1,
+      }),
+    ).toMatchObject({code: "STALE_WIDGET_CONTEXT"})
+    liveRuntime = undefined
+    expect(await sendBridgeRequest(bridge, extension, "ui:setVisibility", payload)).toMatchObject({
+      code: "COMMUNITY_CONTEXT_NOT_READY",
+    })
+    expect(onVisibilityRequest).toHaveBeenCalledTimes(1)
+  })
+
   it("rejects invalid ui:resize dimensions", async () => {
     const {ExtensionBridge} = await import("./bridge")
     const onResizeRequest = vi.fn()

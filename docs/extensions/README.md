@@ -96,6 +96,9 @@ Budabit enforces these rules:
 
 ## UI Slot Integration
 
+See [Visibility and loading](./visibility.md) for the manifest policy, gated
+placeholders, SDK lifecycle, context isolation, and older-host compatibility.
+
 Smart Widgets declare one supported slot with a `slot` tag in the `kind:30033` event. Current supported slots are:
 
 | Slot                               | Tag shape                                             | Rendering model                                         |

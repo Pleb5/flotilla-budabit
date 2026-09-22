@@ -1,7 +1,7 @@
 import type {Writable} from "svelte/store"
 import type {CommunitySharedConfigDescriptorAuthority} from "./community-shared-config"
 import type {SmartWidgetEvent} from "./types"
-import type {WidgetHomeSlotType} from "./types"
+import type {WidgetCommunitySlotType} from "./types"
 
 export type CommunityHomeWidgetRecoveryState = {
   communityAddress: string
@@ -16,7 +16,7 @@ export type CommunityHomeWidgetRecoveryState = {
 }
 
 export type CommunityHomeWidgetSlotInitialState = {
-  slotType: WidgetHomeSlotType
+  slotType: WidgetCommunitySlotType
   frameCount: number
   loadedCount: number
   resolvedCount: number

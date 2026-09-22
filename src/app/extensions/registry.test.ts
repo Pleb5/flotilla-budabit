@@ -20,6 +20,13 @@ afterEach(() => {
 })
 
 describe("extension registry", () => {
+  it("defaults legacy widgets to host visibility and preserves a signed widget policy", () => {
+    const event = makeWidgetEvent(["slot", "community-home-before-quicklinks", "Call"])
+    expect(parseSmartWidget(event).visibility).toBe("host")
+    expect(
+      parseSmartWidget({...event, tags: [...event.tags, ["visibility", "widget"]]}).visibility,
+    ).toBe("widget")
+  })
   it("rejects insecure remote smart widget app URLs", () => {
     expect(() =>
       parseSmartWidget({
@@ -204,7 +211,7 @@ describe("extension registry", () => {
             schemaVersion: 1,
             protocolVersion: 1,
             actions: expect.arrayContaining([action]),
-            surface: {kind: "widget", resize: false, slot: "global-menu"},
+            surface: {kind: "widget", resize: false, visibility: false, slot: "global-menu"},
           }),
         }),
       )

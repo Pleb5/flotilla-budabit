@@ -1,7 +1,7 @@
 <script lang="ts">
   import {getTagValue} from "@welshman/util"
   import {pubkey} from "@welshman/app"
-  import {onDestroy} from "svelte"
+  import {untrack} from "svelte"
   import WidgetFrame from "@app/components/WidgetFrame.svelte"
   import {normalizePubkey, type CommunityPointer} from "@app/core/community"
   import {measurePerformanceDiagnosticsWork} from "@app/core/performance-diagnostics"
@@ -18,16 +18,12 @@
   } from "@app/extensions/community-widget-slots"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
-  import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
+  import {hasWidgetControlledVisibility} from "@app/extensions/widget-visibility"
   import type {
     CommunityHomeWidgetRecoveryState,
     CommunityHomeWidgetSlotInitialState,
   } from "@app/extensions/community-home-widget-recovery"
-  import type {
-    SmartWidgetEvent,
-    WidgetHomeSlotType,
-    WidgetResizeRequest,
-  } from "@app/extensions/types"
+  import type {SmartWidgetEvent, WidgetHomeSlotType, WidgetFrameState} from "@app/extensions/types"
 
   type Props = {
     community: CommunityPointer
@@ -125,10 +121,7 @@
     }
   })
 
-  const initiallyResolvedWidgetLoads = $state<Record<string, true>>({})
-  const initiallyLoadedWidgetLoads = $state<Record<string, true>>({})
-  const initialWidgetResizeTimers = new Map<string, ReturnType<typeof setTimeout>>()
-  const INITIAL_WIDGET_RESIZE_TIMEOUT_MS = 15_000
+  const frameStates = $state<Record<string, WidgetFrameState>>({})
 
   const getWidgetTitle = (widget: SmartWidgetEvent) =>
     getTagValue("title", widget.tags) || widget.content || widget.identifier || "Widget"
@@ -143,10 +136,10 @@
       getWidgetLineId(widget),
       widget.appUrls?.join("|") || widget.appUrl || "",
     ].join(":")
-  const hasLoadableWidgetUrl = (widget: SmartWidgetEvent) =>
-    (widget.appUrls?.length ? widget.appUrls : widget.appUrl ? [widget.appUrl] : []).some(url =>
-      isSecureEmbeddableUrl(url),
-    )
+  const isWidgetVisible = (widget: SmartWidgetEvent) =>
+    (frameStates[getWidgetLoadKey(widget)]?.visibility ||
+      (hasWidgetControlledVisibility(widget) ? "pending" : "visible")) === "visible"
+  const hasVisibleWidgets = $derived(frameWidgets.some(isWidgetVisible))
   const makeWidgetContext = (widget: SmartWidgetEvent) => {
     if (!exactCommunity) return {}
     return {
@@ -162,42 +155,16 @@
       ...(communityRuntimeContext ? {communityRuntimeContext} : {}),
     }
   }
-  const resolveInitialWidgetHeight = (loadKey: string, request: WidgetResizeRequest) => {
-    if (request.height === undefined || initiallyResolvedWidgetLoads[loadKey]) return
-    const timer = initialWidgetResizeTimers.get(loadKey)
-    if (timer) clearTimeout(timer)
-    initialWidgetResizeTimers.delete(loadKey)
-    initiallyResolvedWidgetLoads[loadKey] = true
-  }
-  const markInitialWidgetLoaded = (loadKey: string) => {
-    initiallyLoadedWidgetLoads[loadKey] = true
+  const setFrameState = (key: string, state: WidgetFrameState) => {
+    if (JSON.stringify(untrack(() => frameStates[key])) !== JSON.stringify(state)) {
+      frameStates[key] = state
+    }
   }
 
   $effect(() => {
     const activeLoadKeys = new Set(frameWidgets.map(getWidgetLoadKey))
-    for (const loadKey of Object.keys(initiallyResolvedWidgetLoads)) {
-      if (!activeLoadKeys.has(loadKey)) delete initiallyResolvedWidgetLoads[loadKey]
-    }
-    for (const loadKey of Object.keys(initiallyLoadedWidgetLoads)) {
-      if (!activeLoadKeys.has(loadKey)) delete initiallyLoadedWidgetLoads[loadKey]
-    }
-    for (const [loadKey, timer] of initialWidgetResizeTimers) {
-      if (activeLoadKeys.has(loadKey) && !initiallyResolvedWidgetLoads[loadKey]) continue
-      clearTimeout(timer)
-      initialWidgetResizeTimers.delete(loadKey)
-    }
-    for (const widget of frameWidgets) {
-      const loadKey = getWidgetLoadKey(widget)
-      if (!hasLoadableWidgetUrl(widget)) {
-        initiallyResolvedWidgetLoads[loadKey] = true
-        continue
-      }
-      if (initiallyResolvedWidgetLoads[loadKey] || initialWidgetResizeTimers.has(loadKey)) continue
-      const timer = setTimeout(() => {
-        initialWidgetResizeTimers.delete(loadKey)
-        initiallyResolvedWidgetLoads[loadKey] = true
-      }, INITIAL_WIDGET_RESIZE_TIMEOUT_MS)
-      initialWidgetResizeTimers.set(loadKey, timer)
+    for (const key of Object.keys(frameStates)) {
+      if (!activeLoadKeys.has(key)) delete frameStates[key]
     }
   })
 
@@ -206,60 +173,41 @@
     const loadKeys = frameWidgets.map(getWidgetLoadKey)
     const catalogTerminal =
       recovery.curatedFirstAttemptTerminal && recovery.sharedConfigFirstAttemptTerminal
-    const resolvedCount = loadKeys.filter(key => initiallyResolvedWidgetLoads[key]).length
+    const resolvedCount = loadKeys.filter(key => frameStates[key]?.terminal).length
     onInitialState({
       slotType,
       frameCount: loadKeys.length,
-      loadedCount: loadKeys.filter(key => initiallyLoadedWidgetLoads[key]).length,
+      loadedCount: loadKeys.filter(key => frameStates[key]?.loaded).length,
       resolvedCount,
       terminal: catalogTerminal && resolvedCount === loadKeys.length,
     })
   })
-
-  onDestroy(() => {
-    for (const timer of initialWidgetResizeTimers.values()) clearTimeout(timer)
-    initialWidgetResizeTimers.clear()
-  })
 </script>
 
-{#if frameWidgets.length > 0}
-  <div class="flex flex-col gap-4 px-2 py-3 sm:px-4 sm:py-4">
+{#if frameWidgets.length > 0 && communityRuntimeContext}
+  <div
+    class={hasVisibleWidgets ? "relative flex flex-col" : "absolute inset-x-0"}
+    data-widget-slot={slotType}>
     {#each frameWidgets as widget (getWidgetLineId(widget))}
       {@const title = getWidgetTitle(widget)}
       {@const description = getWidgetDescription(widget)}
       {@const widgetLoadKey = getWidgetLoadKey(widget)}
-      {@const initialHeightResolved = Boolean(initiallyResolvedWidgetLoads[widgetLoadKey])}
+      {@const visible = isWidgetVisible(widget)}
       <section
-        class="overflow-visible"
+        class={visible ? "relative overflow-visible px-2 py-3 sm:px-4 sm:py-4" : "relative"}
         aria-label={widget.slot?.label || title}
-        aria-busy={!initialHeightResolved}
+        aria-hidden={!visible}
         title={description || undefined}>
-        <div
-          class={`relative ${initialHeightResolved ? "" : "min-h-[220px] overflow-hidden rounded-box"}`}>
-          <div inert={!initialHeightResolved} aria-hidden={!initialHeightResolved}>
-            <WidgetFrame
-              {widget}
-              context={makeWidgetContext(widget)}
-              class="w-full"
-              minHeight={1}
-              resizeMinHeight={1}
-              onLoad={() => markInitialWidgetLoaded(widgetLoadKey)}
-              onResizeRequest={request => resolveInitialWidgetHeight(widgetLoadKey, request)} />
-          </div>
-          {#if !initialHeightResolved}
-            <div
-              class="absolute inset-0 flex animate-pulse items-center justify-center border border-base-content/10 bg-base-200 p-6"
-              role="status"
-              aria-label="Loading community widget">
-              <div class="w-full max-w-lg space-y-4" aria-hidden="true">
-                <div class="h-5 w-2/5 rounded bg-base-content/25"></div>
-                <div class="h-4 w-full rounded bg-base-content/20"></div>
-                <div class="h-4 w-4/5 rounded bg-base-content/20"></div>
-                <div class="h-10 w-32 rounded-box bg-base-content/25"></div>
-              </div>
-            </div>
-          {/if}
-        </div>
+        {#key widgetLoadKey}
+          <WidgetFrame
+            {widget}
+            context={makeWidgetContext(widget)}
+            class="w-full"
+            minHeight={1}
+            resizeMinHeight={1}
+            autoHeight
+            onState={state => setFrameState(widgetLoadKey, state)} />
+        {/key}
       </section>
     {/each}
   </div>

@@ -12,6 +12,7 @@ import {getRepoAddress} from "./types"
 import {assertSecureEmbeddableUrl} from "./url-policy"
 import {getWidgetLineId} from "./widget-identity"
 import {getHostCapabilitySnapshot} from "./host-capabilities"
+import {isInlineWidgetSlot} from "./widget-visibility"
 
 const getTag = (tags: string[][], name: string) => tags.find(t => t[0] === name)
 const getTags = (tags: string[][], name: string) => tags.filter(t => t[0] === name)
@@ -145,6 +146,13 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
     slot = {type: slotTag[1], label: slotTag[2] || event.content || identifier}
   }
 
+  const visibility = getTag(tags, "visibility")?.[1] || "host"
+  if (visibility !== "host" && visibility !== "widget")
+    throw new Error("Invalid widget visibility policy")
+  if (visibility === "widget" && !isInlineWidgetSlot(slot?.type)) {
+    throw new Error("Widget-controlled visibility requires an inline community home slot")
+  }
+
   return {
     id: event.id,
     kind: 30033,
@@ -165,6 +173,7 @@ export const parseSmartWidget = (event: any): SmartWidgetEvent => {
     version,
     changelog,
     slot,
+    visibility,
   }
 }
 

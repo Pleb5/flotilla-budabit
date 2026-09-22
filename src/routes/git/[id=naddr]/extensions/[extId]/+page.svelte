@@ -262,10 +262,10 @@
 
   function handleIframeLoad(): void {
     error = null
-    loading = false
 
     if (!iframeEl?.contentWindow) {
       error = "Extension iframe not available."
+      loading = false
       return
     }
 
@@ -274,6 +274,7 @@
       const ext = createExtensionInstance()
       if (!ext) {
         error = "Extension has no app URL configured."
+        loading = false
         return
       }
       // Add iframe reference so bridge.post() can send messages
@@ -286,6 +287,7 @@
       ready = true
       retryCount = 0
       sendInit()
+      loading = false
       // Context will be sent reactively when repo data is available
     } catch (e) {
       error = `Failed to initialize extension: ${String(e)}`
@@ -297,6 +299,16 @@
     loading = false
     error = `Failed to load ${extName}. The extension server may be temporarily unavailable.`
   }
+
+  $effect(() => {
+    const src = iframeSrc
+    if (!src || !loading) return
+    const timer = setTimeout(() => {
+      loading = false
+      error = `${extName} is taking too long to load.`
+    }, 15_000)
+    return () => clearTimeout(timer)
+  })
 
   function retryLoad(): void {
     if (!hasRepoRelayAuthority) return

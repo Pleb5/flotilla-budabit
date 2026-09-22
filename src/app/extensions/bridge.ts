@@ -1,6 +1,6 @@
 import {pubkey as activeUserPubkey, publishThunk, repository, signer} from "@welshman/app"
 import {goto} from "$app/navigation"
-import {PublishStatus, load} from "@welshman/net"
+import {PublishStatus} from "@welshman/net"
 import {
   EVENT_DATE,
   EVENT_TIME,
@@ -66,6 +66,7 @@ import {queryExtensionRelays} from "./nostr-query"
 import {accessExtensionStorage} from "./storage-concurrency"
 import {isAllowedExtensionOrigin} from "./url-policy"
 import {BoundedRefreshCache} from "./bounded-refresh-cache"
+import {validateWidgetVisibilityRequest} from "./widget-visibility"
 import {
   getCommunitySharedConfigDescriptorKey,
   isAuthorizedCommunitySharedConfigEvent,
@@ -2444,6 +2445,25 @@ registerBridgeHandler("ui:resize", (payload, ext) => {
     console.error("Error in ui:resize bridge handler:", err)
     return {error: err.message}
   }
+})
+
+registerBridgeHandler("ui:setVisibility", (payload, ext) => {
+  if (!ext.onVisibilityRequest) {
+    throw Object.assign(new Error("This surface does not support widget-controlled visibility"), {
+      code: "UNSUPPORTED_CAPABILITY",
+    })
+  }
+  const runtime = ext.communityRuntimeContextProvider
+    ? ext.communityRuntimeContextProvider()
+    : ext.communityRuntimeContext
+  if (!runtime || runtime.authorityEvidenceSettled !== true) {
+    throw Object.assign(new Error("Community authority is not ready"), {
+      code: "COMMUNITY_CONTEXT_NOT_READY",
+    })
+  }
+  const request = validateWidgetVisibilityRequest(payload, runtime.communityContext)
+  ext.onVisibilityRequest(request)
+  return {status: "ok"}
 })
 
 // Storage handlers are scoped by encoded extension/widget line ID and optional repo address.

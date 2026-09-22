@@ -364,6 +364,7 @@
   const widgetSlotStates = $derived([
     widgetSlotInitialStates["community-home-before-quicklinks"],
     widgetSlotInitialStates["community-home-after-quicklinks"],
+    widgetSlotInitialStates["community-home-quicklinks"],
   ])
   const widgetInitialFrameCount = $derived(
     widgetSlotStates.reduce((total, state) => total + (state?.frameCount || 0), 0),
@@ -1094,6 +1095,8 @@
       {#key roomCatalogReadinessKey}
         <CommunityWidgetSlotLaunchers
           community={communityPointer}
+          recovery={$homeWidgetRecovery}
+          onInitialState={setWidgetSlotInitialState}
           slotType="community-home-quicklinks"
           variant="home-quicklinks" />
       {/key}

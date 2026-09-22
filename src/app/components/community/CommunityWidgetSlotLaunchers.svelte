@@ -14,11 +14,16 @@
   import {makeCommunityWidgetContext} from "@app/extensions/community-context"
   import {
     getCommunityWidgetCurationEvidenceKey,
+    getLastValidatedCommunityCuratedWidgets,
     getEnabledCommunitySlotWidgets,
     loadCachedCommunityCuratedWidgets,
     shouldPreserveCuratedWidgetView,
   } from "@app/extensions/community-widget-slots"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
+  import type {
+    CommunityHomeWidgetRecoveryState,
+    CommunityHomeWidgetSlotInitialState,
+  } from "@app/extensions/community-home-widget-recovery"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
   import type {
@@ -36,9 +41,18 @@
     slotType: WidgetActionSlotType
     variant?: LauncherVariant
     context?: Record<string, unknown>
+    recovery?: CommunityHomeWidgetRecoveryState
+    onInitialState?: (state: CommunityHomeWidgetSlotInitialState) => void
   }
 
-  const {community, slotType, variant = "message-actions", context = {}}: Props = $props()
+  const {
+    community,
+    slotType,
+    variant = "message-actions",
+    context = {},
+    recovery,
+    onInitialState,
+  }: Props = $props()
   const descriptor = $derived(
     $activeCommunityDescriptor?.community.address === community.address
       ? $activeCommunityDescriptor
@@ -55,13 +69,21 @@
   let loadRefreshNonce = $state(0)
   let forceNextLoad = false
   let lastForcedRefreshAt = 0
+  let loadTerminal = $state(false)
+  let loadController: AbortController | undefined
+  let retryTimer: ReturnType<typeof setTimeout> | undefined
+  let retryDelay = 1_000
   const FORCED_REFRESH_DEBOUNCE_MS = 1_000
 
   const installedWidgets = $derived($effectiveExtensionSettings.installed?.widget || {})
   const enabledWidgetIds = $derived(new Set($effectiveExtensionSettings.enabled || []))
   const slotWidgets = $derived(
     getEnabledCommunitySlotWidgets({
-      curatedWidgets,
+      curatedWidgets: recovery
+        ? recovery.communityAddress === community.address
+          ? recovery.curatedWidgets
+          : []
+        : curatedWidgets,
       installedWidgets,
       enabledIds: enabledWidgetIds,
       slotType,
@@ -197,6 +219,7 @@
   }
 
   $effect(() => {
+    if (recovery) return
     void loadRefreshNonce
     const input = exactCommunity ? makeExactCommunityInputValue(exactCommunity) : ""
     const evidence = curationEvidence
@@ -206,6 +229,10 @@
         : ""
 
     if (!key || !input) {
+      loadController?.abort()
+      if (retryTimer) clearTimeout(retryTimer)
+      retryTimer = undefined
+      loadTerminal = false
       curatedWidgets = []
       loadKey = ""
       curationContextKey = ""
@@ -218,18 +245,43 @@
     // Refresh in place on focus/visibility changes. Only a different community,
     // account, slot, or authority snapshot invalidates the displayed launchers.
     if (key !== curationContextKey) {
-      curatedWidgets = []
+      curatedWidgets = getLastValidatedCommunityCuratedWidgets(input, $pubkey || "", evidence.key)
+      loadTerminal = false
+      retryDelay = 1_000
       curationContextKey = key
     }
     const force = forceNextLoad
     forceNextLoad = false
     const requestId = ++loadRequestId
+    loadController?.abort()
+    const controller = new AbortController()
+    loadController = controller
+    if (retryTimer) clearTimeout(retryTimer)
+    retryTimer = undefined
+    const scheduleRetry = () => {
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined
+        refreshWidgets(true)
+      }, retryDelay)
+      retryDelay = Math.min(retryDelay * 2, 15_000)
+    }
 
     loadCachedCommunityCuratedWidgets(input, {
       evidenceKey: evidence.key,
       force,
       profileListEvents: evidence.profileListEvents,
       reportState: evidence.reportState,
+      signal: controller.signal,
+      onWidgets: widgets => {
+        if (
+          !controller.signal.aborted &&
+          requestId === loadRequestId &&
+          key === loadKey &&
+          widgets.length
+        ) {
+          curatedWidgets = widgets
+        }
+      },
     })
       .then(result => {
         if (requestId !== loadRequestId || key !== loadKey) {
@@ -247,6 +299,9 @@
         }
 
         const nextWidgets = result?.status === "community" ? result.widgets : []
+        loadTerminal = true
+        if (result?.complete === false) scheduleRetry()
+        else retryDelay = 1_000
         if (
           !shouldPreserveCuratedWidgetView(
             curatedWidgets,
@@ -260,13 +315,31 @@
       })
       .catch(error => {
         if (requestId !== loadRequestId || key !== loadKey) return
+        if (controller.signal.aborted) return
 
         console.warn("[community-widget-slots] Failed to load widgets", error)
+        loadTerminal = true
+        scheduleRetry()
         loadKey = ""
       })
   })
 
+  $effect(() => {
+    onInitialState?.({
+      slotType,
+      frameCount: 0,
+      loadedCount: 0,
+      resolvedCount: 0,
+      terminal:
+        communityReady &&
+        (recovery
+          ? recovery.communityAddress === community.address && recovery.curatedFirstAttemptTerminal
+          : loadTerminal),
+    })
+  })
+
   onMount(() => {
+    if (recovery) return
     const refresh = () => refreshWidgets(true)
 
     window.addEventListener("pageshow", refresh)
@@ -284,6 +357,8 @@
 
   onDestroy(() => {
     loadRequestId += 1
+    loadController?.abort()
+    if (retryTimer) clearTimeout(retryTimer)
   })
 </script>
 

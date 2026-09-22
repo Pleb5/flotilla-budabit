@@ -8,6 +8,8 @@
     LoadedWidgetExtension,
     SmartWidgetEvent,
     WidgetResizeRequest,
+    WidgetVisibilityRequest,
+    WidgetFrameState,
   } from "@app/extensions/types"
   import {ExtensionBridge} from "@app/extensions/bridge"
   import {
@@ -16,6 +18,11 @@
   } from "@app/extensions/host-capabilities"
   import {logCommunityWidgetDebug} from "@app/extensions/community-widget-debug"
   import {getWidgetLineId} from "@app/extensions/widget-identity"
+  import {
+    getWidgetVisibilityContextKey,
+    hasWidgetControlledVisibility,
+    validateWidgetVisibilityRequest,
+  } from "@app/extensions/widget-visibility"
   import {
     isAllowedExtensionOrigin,
     isSecureEmbeddableUrl,
@@ -32,6 +39,8 @@
     resizeMinHeight?: number
     onResizeRequest?: (request: WidgetResizeRequest) => void
     onLoad?: () => void
+    autoHeight?: boolean
+    onState?: (state: WidgetFrameState) => void
     communityRuntimeContextProvider?: () => CommunityWidgetRuntimeContext | undefined
     communityRuntimeContextStore?: Readable<CommunityWidgetRuntimeContext | undefined>
   }
@@ -45,6 +54,8 @@
     resizeMinHeight = minHeight,
     onResizeRequest,
     onLoad,
+    autoHeight = false,
+    onState,
     communityRuntimeContextProvider,
     communityRuntimeContextStore,
   }: Props = $props()
@@ -56,7 +67,7 @@
   let frameWrapperRef: HTMLDivElement | undefined = $state()
   let lastCommunityContextKey = ""
   let lastUserContextKey = ""
-  let initSent = false
+  let initSent = $state(false)
   let lastThemePosted = ""
   let lastThemeBackgroundPosted = ""
   let surfaceObserver: ResizeObserver | undefined
@@ -71,6 +82,28 @@
   let lastLifecycleRetryAt = 0
   let lastAppUrl = ""
   let requestedHeight: number | undefined = $state()
+  let visibilityDecision = $state<WidgetVisibilityRequest | undefined>()
+  let visibilityDecisionKey = $state("")
+  let presentationTimedOut = $state(false)
+  const deferredVisibility = $derived(autoHeight && hasWidgetControlledVisibility(widget))
+  const visibilityContextKey = $derived.by(() =>
+    getWidgetVisibilityContextKey(getCommunityContext()),
+  )
+  const visibility = $derived(
+    deferredVisibility
+      ? visibilityDecisionKey === visibilityContextKey && visibilityContextKey
+        ? visibilityDecision?.visibility || "pending"
+        : "pending"
+      : "visible",
+  )
+  const surfaceVisible = $derived(visibility === "visible")
+  const presentationReady = $derived(
+    loaded && initSent && (!autoHeight || requestedHeight !== undefined),
+  )
+  const presentationFailed = $derived.by(() => loadFailed || presentationTimedOut || !appUrl)
+  const widgetTitle = $derived(
+    widget.slot?.label || widget.content || widget.identifier || "Widget",
+  )
   const maxRequestedHeight = MAX_WIDGET_RESIZE_HEIGHT
   const iframeLoadTimeoutMs = 15_000
   const maxAutomaticRetries = 2
@@ -130,6 +163,9 @@
     initSent = false
     lastCommunityContextKey = ""
     readyOrigin = ""
+    visibilityDecision = undefined
+    visibilityDecisionKey = ""
+    presentationTimedOut = false
     detachBridge()
   }
 
@@ -250,6 +286,10 @@
   })
 
   const frameWrapperStyle = $derived.by(() => {
+    if (!surfaceVisible) return "height: 0; min-height: 0"
+    if (autoHeight && (!presentationReady || presentationFailed)) {
+      return `min-height: ${Math.max(minHeight, 220)}px`
+    }
     const minimumHeight = requestedHeight === undefined ? minHeight : resizeMinHeight
     const styles = [`min-height: ${minimumHeight}px`]
     if (frameHeight !== undefined) styles.push(`height: ${frameHeight}px`)
@@ -259,7 +299,18 @@
 
   const handleResizeRequest = (request: WidgetResizeRequest) => {
     if (request.height !== undefined) requestedHeight = request.height
+    if (presentationReady) presentationTimedOut = false
     onResizeRequest?.(request)
+  }
+
+  const handleVisibilityRequest = (request: WidgetVisibilityRequest) => {
+    // Check against the current reactive context too, not just the bridge's
+    // most recently posted context (which can lag by an effect).
+    validateWidgetVisibilityRequest(request, getCommunityContext())
+    if (request.visibility === "visible" && visibility !== "visible") requestedHeight = undefined
+    visibilityDecision = request
+    visibilityDecisionKey = getWidgetVisibilityContextKey(getCommunityContext())
+    presentationTimedOut = false
   }
 
   type RgbaColor = {r: number; g: number; b: number; a: number}
@@ -410,6 +461,7 @@
         widget,
         resize: true,
         media: true,
+        visibility: deferredVisibility,
         slot:
           publicContext.slot && typeof publicContext.slot === "object"
             ? String((publicContext.slot as any).type || "")
@@ -491,6 +543,9 @@
   const onIframeLoad = () => {
     clearLoadWatchdog()
     clearContextPostTimer()
+    visibilityDecision = undefined
+    visibilityDecisionKey = ""
+    presentationTimedOut = false
     loaded = true
     onLoad?.()
     loadFailed = false
@@ -520,6 +575,7 @@
             }
           : communityRuntimeContextProvider,
         onResizeRequest: handleResizeRequest,
+        ...(deferredVisibility ? {onVisibilityRequest: handleVisibilityRequest} : {}),
       }
       bridgeExtension = ext
       bridge = new ExtensionBridge(ext)
@@ -614,6 +670,25 @@
     if (currentAppUrl) resetFrameStateForLoad()
   })
 
+  $effect(() => {
+    void visibilityContextKey
+    presentationTimedOut = false
+    if (!loaded || !initSent || visibility === "hidden") return
+    if (presentationReady && visibility === "visible") return
+    const timer = setTimeout(() => (presentationTimedOut = true), iframeLoadTimeoutMs)
+    return () => clearTimeout(timer)
+  })
+
+  $effect(() => {
+    onState?.({
+      visibility,
+      loaded,
+      terminal:
+        presentationFailed || visibility === "hidden" || (surfaceVisible && presentationReady),
+      failed: presentationFailed,
+    })
+  })
+
   onMount(() => {
     window.addEventListener("message", handleMessage)
     window.addEventListener("pageshow", recoverWidgetFrame)
@@ -673,21 +748,46 @@
 <div
   bind:this={frameWrapperRef}
   class={`relative overflow-hidden bg-transparent ${className}`}
+  data-widget-visibility={visibility}
+  data-widget-state={presentationFailed ? "error" : presentationReady ? "ready" : "loading"}
+  aria-busy={surfaceVisible && !presentationReady && !presentationFailed}
   style={frameWrapperStyle}>
-  {#if !loaded}
+  {#if surfaceVisible && (!presentationReady || presentationFailed)}
     <div class="z-10 absolute inset-0 flex items-center justify-center bg-base-200">
-      {#if loadFailed}
+      {#if presentationFailed}
         <div class="flex max-w-sm flex-col items-center gap-3 p-4 text-center text-sm">
-          <p class="opacity-75">This widget is taking too long to load.</p>
-          <button
-            type="button"
-            class="btn btn-primary btn-sm"
-            onclick={() => retryIframeLoad(true)}>
-            Retry widget
-          </button>
+          <p role="status" class="opacity-75">
+            {appUrl
+              ? `${widgetTitle} is taking too long to load.`
+              : widget.appUrl
+                ? `This widget cannot be opened. ${SECURE_EMBED_URL_REQUIREMENT}`
+                : "This widget does not have an app URL."}
+          </p>
+          {#if appUrl}
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              onclick={() => retryIframeLoad(true)}>
+              Retry widget
+            </button>
+          {/if}
+        </div>
+      {:else if autoHeight}
+        <div
+          class="w-full max-w-lg space-y-4 p-6 motion-safe:animate-pulse"
+          role="status"
+          aria-label={`Loading ${widgetTitle}`}>
+          <span class="sr-only">Loading {widgetTitle}…</span>
+          <div aria-hidden="true" class="h-5 w-2/5 rounded bg-base-content/25"></div>
+          <div aria-hidden="true" class="h-4 w-full rounded bg-base-content/20"></div>
+          <div aria-hidden="true" class="h-4 w-4/5 rounded bg-base-content/20"></div>
+          <div aria-hidden="true" class="h-10 w-32 rounded-box bg-base-content/25"></div>
         </div>
       {:else}
-        <span class="loading loading-spinner loading-lg"></span>
+        <div role="status" class="flex flex-col items-center gap-3">
+          <span aria-hidden="true" class="loading loading-spinner loading-lg"></span>
+          <span class="text-sm opacity-75">Loading {widgetTitle}…</span>
+        </div>
       {/if}
     </div>
   {/if}
@@ -697,19 +797,13 @@
       src={frameSrc}
       title={widget.content || widget.identifier}
       class={frameClass}
-      style="background: transparent;"
+      style={`background: transparent; ${!surfaceVisible ? `height: ${Math.max(minHeight, 220)}px; visibility: hidden;` : ""}`}
+      inert={!surfaceVisible || !presentationReady || presentationFailed}
+      aria-hidden={!surfaceVisible || !presentationReady || presentationFailed}
       allow={frameAllow}
       allowtransparency={true}
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation"
       onload={onIframeLoad}
       onerror={onIframeError}></iframe>
-  {:else if widget.appUrl}
-    <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
-      This widget cannot be opened because its app URL is insecure. {SECURE_EMBED_URL_REQUIREMENT}
-    </div>
-  {:else}
-    <div class="flex h-full items-center justify-center p-6 text-center text-sm opacity-70">
-      This widget does not have an app URL.
-    </div>
   {/if}
 </div>

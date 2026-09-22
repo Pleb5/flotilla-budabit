@@ -69,6 +69,7 @@ const widget = {
       ["button", "Open", "app", appUrl],
       ["shared-config", "budabit-community-call", "active-call"],
       ["slot", "community-home-before-quicklinks", "Community call"],
+      ["visibility", "widget"],
       ...permissions.map(permission => ["permission", permission]),
     ],
     "Community Call",
@@ -214,7 +215,7 @@ for (const scenario of ["polls and form expansion", "offscreen width changes"]) 
     )
     await page.goto(homePath)
     const host = page.locator('[data-perf="community-home"]')
-    await expect(host).toHaveAttribute("data-perf-extensions-ready", "true")
+    await expect(host).toHaveAttribute("data-perf-extensions-ready", "true", {timeout: 15_000})
     const iframe = page.locator('iframe[title="Community Call"]')
     const idle = callFrame(page).getByRole("heading", {name: "No call in progress"})
     try {

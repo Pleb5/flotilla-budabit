@@ -328,3 +328,9 @@ type CommunitySlotTag = ["slot", WidgetHomeSlotType | WidgetActionSlotType, labe
 - [`XX.md`](./XX.md) - Smart Widget specification draft.
 
 _Last updated: 2026-06-27_
+# Visibility contract
+
+The normative [visibility and loading contract](./visibility.md) defines the
+`visibility` manifest tag and context-scoped `ui:setVisibility` request. Inline
+community surfaces advertise support through `capabilities.surface.visibility`;
+the SDK exposes `WidgetBridge.setVisibility`. Other slots remain host-determined.

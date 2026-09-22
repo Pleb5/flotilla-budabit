@@ -44,6 +44,7 @@ export type HostCapabilitySnapshot = {
   surface: {
     kind: "widget"
     resize: boolean
+    visibility: boolean
     slot?: string
   }
   media: {
@@ -57,11 +58,13 @@ export const getHostCapabilitySnapshot = ({
   widget,
   resize = false,
   media = false,
+  visibility = false,
   slot,
 }: {
   widget: SmartWidgetEvent
   resize?: boolean
   media?: boolean
+  visibility?: boolean
   slot?: string
 }): HostCapabilitySnapshot => {
   const permissions = new Set(widget.permissions || [])
@@ -80,6 +83,7 @@ export const getHostCapabilitySnapshot = ({
       "storage.compareAndSet": supportsAtomicStorage(),
       "community.sharedConfigRefresh": true,
       "widget.theme": true,
+      "widget.visibility": true,
     },
     limits: {
       nostrQueryEventsPerFilter: MAX_NOSTR_QUERY_LIMIT,
@@ -94,6 +98,7 @@ export const getHostCapabilitySnapshot = ({
     surface: {
       kind: "widget",
       resize,
+      visibility,
       ...(slot ? {slot} : {}),
     },
     media: {
