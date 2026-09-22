@@ -6,6 +6,7 @@ import {
   extractLabelEvents,
   mergeEffectiveLabels,
   GIT_REPO_ANNOUNCEMENT,
+  GIT_REPO_JOB_RUNNERS,
   GIT_ISSUE,
   parseRepoCommunityBinding,
   type RepoAnnouncementEvent,
@@ -178,6 +179,8 @@ export type RepoSettingsActions = {
   ) => Promise<Array<RepoProfileSummary & {pubkey: string}>>
   searchProfilesUpdateSignal: ProfileSearchUpdateSignal
   searchRelays: (query: string) => Promise<string[]>
+  workflowJobRunners: Readable<string[]>
+  workflowJobRunnersEventExists: Readable<boolean>
   readonly canEditAnnouncement: boolean
   readonly canDelete: boolean
 }
@@ -450,6 +453,39 @@ export const loadRepoAnnouncementByAddress = (repoAddr: string) => {
   const [, pubkey, ...repoIdParts] = parts
   const repoId = repoIdParts.join(":")
   return loadRepoAnnouncementsForPubkeys([pubkey], repoId)
+}
+
+// Workflow job runners (kind 30728): addressable event per repo, d-tag identical to
+// the repo announcement's d-tag, job runner profiles stored as hex pubkeys in p-tags.
+export const getRepoJobRunners = (event?: Pick<NostrEvent, "tags"> | null): string[] =>
+  Array.from(
+    new Set(
+      (event?.tags || [])
+        .filter(tag => tag[0] === "p")
+        .map(tag => normalizePubkey(tag[1] || ""))
+        .filter(Boolean),
+    ),
+  )
+
+export const loadRepoJobRunners = ({
+  pubkey,
+  identifier,
+  relays,
+  signal,
+}: {
+  pubkey: string
+  identifier: string
+  relays: string[]
+  signal?: AbortSignal
+}) => {
+  const targetRelays = relays.map(safeNormalizeRelayUrl).filter(isRelayUrl) as string[]
+  if (!pubkey || !identifier || targetRelays.length === 0) return
+
+  return load({
+    relays: targetRelays,
+    filters: [{kinds: [GIT_REPO_JOB_RUNNERS], authors: [pubkey], "#d": [identifier]}],
+    signal,
+  })
 }
 
 // ---------------------------------------------------------------------------

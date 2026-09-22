@@ -75,6 +75,7 @@
   import {
     GIT_REPO_ANNOUNCEMENT,
     GIT_REPO_STATE,
+    GIT_REPO_JOB_RUNNERS,
     GIT_PULL_REQUEST,
     GIT_PULL_REQUEST_UPDATE,
     GIT_LABEL,
@@ -151,6 +152,8 @@
     getRepoMaintainers,
     getVerifiedRepoMaintainers,
     groupStatusEventsByRoot,
+    getRepoJobRunners,
+    loadRepoJobRunners,
     type RepoFailedRelayRequest,
   } from "@app/core/git-state"
   import {getHiddenRepoEventIds} from "@app/core/git-moderation"
@@ -807,6 +810,13 @@
 
     return Array.from(extensionsMap.values())
   })
+
+  // The workflow job runners repo settings section only applies when a workflows extension is installed
+  const hasWorkflowsExtension = $derived(
+    Object.keys($effectiveExtensionSettings.installed?.widget ?? {}).some(id =>
+      id.includes("workflows"),
+    ),
+  )
 
   // Make activeTab reactive to avoid lag on navigation - memoize the calculation
   const activeTab = $derived.by(() => {
@@ -1600,6 +1610,25 @@
     ) as Readable<RepoAnnouncementEvent | undefined>
   }
 
+  function deriveRepoJobRunnersEvent(repoPubkey: string, repoName: string) {
+    return derived(
+      deriveEventsAsc(
+        deriveEventsById({
+          repository,
+          filters: [
+            {
+              authors: [repoPubkey],
+              kinds: [GIT_REPO_JOB_RUNNERS],
+              "#d": [repoName],
+            },
+          ],
+        }),
+      ),
+      (events: TrustedEvent[]) =>
+        (events.length > 0 ? events[events.length - 1] : undefined) as TrustedEvent | undefined,
+    ) as Readable<TrustedEvent | undefined>
+  }
+
   function deriveRepoStateEvents(repoName: string, owners: Readable<string[]>) {
     return readable<RepoStateEvent[]>([], set => {
       let previousKey = ""
@@ -2013,6 +2042,14 @@
   })
   const rootRepoRelaysStore = deriveRepoRelays(repoEventStore)
   const repoRelaysStore: Readable<string[]> = rootRepoRelaysStore
+  const repoJobRunnersEventStore = deriveRepoJobRunnersEvent(repoPubkey, repoName)
+  const repoJobRunnersStore: Readable<string[]> = derived(repoJobRunnersEventStore, $event =>
+    getRepoJobRunners($event || null),
+  )
+  const repoJobRunnersEventExistsStore: Readable<boolean> = derived(
+    repoJobRunnersEventStore,
+    $event => Boolean($event),
+  )
   const realIssuesStore = deriveIssues(repoAddressesStore)
   const realPullRequestsStore = derivePullRequests(repoAddressesStore)
   const realPullRequestUpdatesStore = derivePullRequestUpdates(repoAddressesStore)
@@ -2205,6 +2242,32 @@
   })
 
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
+
+  let repoJobRunnersLoadKey = ""
+
+  $effect(() => {
+    const relays = normalizeScopeValues(($repoRelaysStore || []).filter(Boolean))
+
+    if (relays.length === 0 || !repoPubkey || !repoName) {
+      repoJobRunnersLoadKey = ""
+      return
+    }
+
+    const key = `${repoPubkey}:${repoName}:${relays.slice().sort().join("|")}`
+    if (repoJobRunnersLoadKey === key) return
+
+    repoJobRunnersLoadKey = key
+
+    const controller = new AbortController()
+    void loadRepoJobRunners({
+      pubkey: repoPubkey,
+      identifier: repoName,
+      relays,
+      signal: controller.signal,
+    })?.catch(() => undefined)
+
+    return () => controller.abort()
+  })
 
   let repoLoadKey = ""
   let repoAnnouncementLoadKey = ""
@@ -2485,7 +2548,7 @@
   })
   setContext(REPO_SETTINGS_ACTIONS_KEY, {
     publishRepoEvent: async (
-      event: RepoAnnouncementEvent | RepoStateEvent,
+      event: RepoAnnouncementEvent | RepoStateEvent | NostrEvent,
       context?: {relays: string[]; additionalRelays?: string[]; assertCurrent?: () => void},
     ) => {
       if (!$pubkey || repoPubkey !== $pubkey) {
@@ -2512,6 +2575,8 @@
       searchRepoProfiles(query, context),
     searchProfilesUpdateSignal: peopleDiscoverySearch,
     searchRelays: (query: string) => searchRepoRelays(query),
+    workflowJobRunners: repoJobRunnersStore,
+    workflowJobRunnersEventExists: repoJobRunnersEventExistsStore,
     get canEditAnnouncement() {
       return !!$pubkey && repoPubkey === $pubkey
     },
@@ -3362,7 +3427,7 @@
   }
 
   async function publishRepoSettingsEventWithOutcomes(
-    event: RepoAnnouncementEvent | RepoStateEvent,
+    event: RepoAnnouncementEvent | RepoStateEvent | NostrEvent,
     requiredRelayUrls: string[],
     additionalRelayUrls: string[] = [],
     transport?: RepoPublishTransport,
@@ -3615,7 +3680,7 @@
       {
         repo: repoClass,
         onPublishEvent: async (
-          event: RepoAnnouncementEvent | RepoStateEvent,
+          event: RepoAnnouncementEvent | RepoStateEvent | NostrEvent,
           context?: {relays: string[]; additionalRelays?: string[]; assertCurrent?: () => void},
         ) => {
           const eventRelays = context?.relays?.length ? context.relays : relaysForPublish
@@ -3627,6 +3692,9 @@
             context?.assertCurrent,
           )
         },
+        showWorkflowJobRunners: hasWorkflowsExtension,
+        workflowJobRunners: getStore(repoJobRunnersStore),
+        workflowJobRunnersEventExists: getStore(repoJobRunnersEventExistsStore),
         onSaveComplete: async () => {
           disposePublishTransport()
           await refreshRepo({throwOnError: true})
