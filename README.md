@@ -130,6 +130,7 @@ Community, relay, and discovery defaults:
 - `VITE_SIGNER_RELAYS` - Comma-separated relays used for NIP-46 signer discovery
 - `VITE_DEFAULT_BLOSSOM_SERVERS` - Fallback Blossom media servers for uploads
 - `VITE_SMART_WIDGET_RELAYS` - Optional widget discovery relays; app defaults are used when empty
+- `VITE_DEFAULT_WIDGETS` - Optional comma-separated kind-30033 widget `naddr`s, added to community-owner defaults; works without a default community
 - `VITE_TRUSTED_LIVE_STREAM_PROVIDER_PUBKEYS` - Optional comma-separated provider pubkeys allowed to identify community moderators as NIP-53 stream hosts; defaults to providers trusted by zap.stream
 
 Git and optional services:

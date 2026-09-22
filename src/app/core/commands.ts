@@ -178,7 +178,7 @@ const preloadWidgetRuntime = async (widget: SmartWidgetEvent | undefined) => {
 
 export const uninstallExtension = async (id: string) => {
   if (isDefaultExtension(id)) {
-    throw new Error("Default community extensions can be disabled, but not uninstalled")
+    throw new Error("Default extensions can be disabled, but not uninstalled")
   }
 
   // Unload runtime if present

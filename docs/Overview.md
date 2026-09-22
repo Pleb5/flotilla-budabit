@@ -91,7 +91,7 @@ This document summarizes how the Budabit client is structured and how the main p
   - App metadata and theme: `VITE_APP_NAME`, `VITE_APP_URL`, `VITE_APP_LOGO`, `VITE_APP_ACCENT`, `VITE_APP_ACCENT_CONTENT`, `VITE_APP_SECONDARY`, `VITE_APP_SECONDARY_CONTENT`.
   - Media: `VITE_DEFAULT_BLOSSOM_SERVERS` for fallback Blossom upload targets; community Blossom servers come from active community definitions.
   - Services: `VITE_BURROW_URL`; email digest providers are discovered from verified community definitions rather than deployment environment variables.
-  - Widgets: `VITE_SMART_WIDGET_RELAYS` overrides default widget discovery relays.
+  - Widgets: `VITE_SMART_WIDGET_RELAYS` overrides default widget discovery relays. `VITE_DEFAULT_WIDGETS` adds comma-separated kind-30033 widget `naddr`s to community-owner defaults, including when no default community is configured.
   - Git HTTP fallback: `VITE_GIT_DEFAULT_CORS_PROXY`.
   - Development: `VITE_DEV_ALLOWED_HOSTS`, `VITE_DEV_HMR_*`, and `VITE_DEV_CHII_TARGET_URL` support reverse-proxied/mobile dev sessions.
 - Build-time constants are defined in `vite.config.ts`: `__GRASP__` is enabled unless `FEATURE_GRASP=0`, while `__CICD__` requires `FEATURE_CICD=1`. The alternative history importer (`__IMPORT_REPO__`) is always disabled, including in development.

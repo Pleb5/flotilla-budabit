@@ -172,14 +172,15 @@ Community branches are identified by exact `32222:<owner>:<communityId>` definit
 
 ## Extension Architecture
 
-Budabit does not bundle extension code. On startup, `src/app/extensions/builtin.ts` resolves the hardcoded exact definition `naddr` and treats `kind:30033` widgets targeted to that branch through stable `h` plus marked exact definition `a` pairs as default extensions.
+Budabit does not bundle extension code. On startup, `src/app/extensions/builtin.ts` combines two independent sources of default extensions: community-owner-authored `kind:30033` widgets targeted to the exact definition in `VITE_DEFAULT_COMMUNITY` through stable `h` plus marked definition `a` pairs, and the comma-separated widget `naddr`s in `VITE_DEFAULT_WIDGETS`. Explicit defaults can be authored by anyone and work without a default community. `src/app/extensions/configured-defaults.ts` resolves their relay hints with widget-discovery relay fallback. Each source contributes results as they arrive, and the settings layer deduplicates them by widget address.
 
-Default community extensions are overlaid into effective extension settings as installed and enabled. Users can disable them, which unloads the runtime and hides enabled surfaces, but they cannot uninstall them because they are not stored as user-installed extension records.
+Default extensions are overlaid into effective extension settings as installed and enabled, with enabled widget snapshots materialized locally. Users can disable them, which unloads the runtime and hides enabled surfaces. Disabled preferences survive reloads; defaults cannot be uninstalled while they remain configured or community-owner defaults.
 
 Budabit supports these install and discovery paths:
 
 - Community-curated Smart Widget `kind:30033` events targeted through `kind:30222` wrappers carrying adjacent `h=<communityId>` and `a=<definitionAddress>` with marker `community`; community association is not a `p` tag.
 - Direct Smart Widget `naddr` installs from Settings > Extensions > Advanced.
+- Deployment-configured default Smart Widget `naddr`s from `VITE_DEFAULT_WIDGETS`.
 
 Runtime pieces:
 

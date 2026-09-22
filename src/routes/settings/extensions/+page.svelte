@@ -704,7 +704,7 @@
             <span class="badge badge-secondary badge-sm">Global menu</span>
           {/if}
           {#if isDefaultWidget}
-            <span class="badge badge-primary badge-sm">Community default</span>
+            <span class="badge badge-primary badge-sm">Default</span>
           {/if}
         </div>
         <div class="truncate text-xs opacity-50" title={widget.appUrl || widget.imageUrl}>
@@ -761,7 +761,7 @@
         {/if}
         {#if defaultWidgets.length > 0}
           <span class="badge badge-primary badge-sm"
-            >{defaultWidgets.length} community default</span>
+            >{defaultWidgets.length} default{defaultWidgets.length === 1 ? "" : "s"}</span>
         {/if}
       </div>
     </div>
@@ -772,6 +772,7 @@
             widget={item.widget}
             enabled={enabledIds.includes(item.id)}
             isDefault={item.isDefault}
+            relays={settings.widgetInstallSources[item.id]?.relays || []}
             ontoggle={({enabled}) => toggle(item.id, enabled)}
             onuninstall={item.isDefault ? undefined : () => onUninstall(item.id)}
             widgetUpdate={widgetUpdates[item.id]}

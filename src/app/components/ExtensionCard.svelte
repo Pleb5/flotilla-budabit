@@ -1,4 +1,7 @@
 <script lang="ts">
+  import * as nip19 from "nostr-tools/nip19"
+  import ShareCircle from "@assets/icons/share-circle.svg?dataurl"
+  import Icon from "@lib/components/Icon.svelte"
   import ExtensionPermissions from "./ExtensionPermissions.svelte"
   import ExtensionIcon from "./ExtensionIcon.svelte"
   import ProfileCircle from "./ProfileCircle.svelte"
@@ -9,6 +12,9 @@
   import type {WidgetUpdate} from "@app/extensions/widget-updates"
   import type {WidgetCommunityOption} from "@app/extensions/widget-targeting"
   import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
+  import {SMART_WIDGET_RELAYS} from "@app/core/state"
+  import {getEventRelayHints} from "@app/util/event-links"
+  import {clip} from "@app/util/toast"
   import {RefreshCw} from "@lucide/svelte"
 
   type Props = {
@@ -17,6 +23,7 @@
     ontoggle?: (detail: {enabled: boolean}) => void
     onuninstall?: () => void
     isDefault?: boolean
+    relays?: string[]
     communityOptions?: WidgetCommunityOption[]
     targetedCommunityAddresses?: string[]
     previewCommunityOptions?: CommunityWidgetPreviewContextOption[]
@@ -33,6 +40,7 @@
     ontoggle,
     onuninstall,
     isDefault = false,
+    relays = [],
     communityOptions = [],
     targetedCommunityAddresses = [],
     previewCommunityOptions = [],
@@ -44,6 +52,27 @@
   }: Props = $props()
 
   const onToggle = (value: boolean) => ontoggle?.({enabled: value})
+
+  const widgetNaddr = $derived.by(() => {
+    if (!widget.pubkey) return ""
+
+    try {
+      return nip19.naddrEncode({
+        kind: widget.kind,
+        pubkey: widget.pubkey,
+        identifier: widget.identifier,
+        relays: getEventRelayHints(
+          {...widget, pubkey: widget.pubkey},
+          {relays, fallbackRelays: SMART_WIDGET_RELAYS},
+        ).slice(0, 3),
+      })
+    } catch {
+      return ""
+    }
+  })
+  const shareWidget = () => {
+    if (widgetNaddr) clip(widgetNaddr, "Widget nostr link copied!")
+  }
 
   const widgetAppUrls = $derived(
     (widget?.appUrls?.length ? widget.appUrls : widget?.appUrl ? [widget.appUrl] : []).filter(url =>
@@ -197,7 +226,7 @@
             </span>
           {/if}
           {#if isDefault}
-            <span class="badge badge-primary badge-sm min-w-0 max-w-full">Community default</span>
+            <span class="badge badge-primary badge-sm min-w-0 max-w-full">Default</span>
           {/if}
         </div>
       </div>
@@ -306,10 +335,32 @@
     {/if}
   {/if}
 
-  {#if (widget && communityOptions.length > 0 && onTargetedCommunitiesChange) || (permissions && permissions.length > 0)}
+  {#if widgetNaddr || (widget && communityOptions.length > 0 && onTargetedCommunitiesChange) || (permissions && permissions.length > 0)}
     <details class="mt-2 rounded-box border border-base-300 bg-base-200/20 p-3 text-sm">
       <summary class="cursor-pointer select-none font-medium">Details</summary>
       <div class="mt-3 flex flex-col gap-3">
+        {#if widgetNaddr}
+          <div class="flex min-w-0 flex-col gap-1">
+            <span class="text-xs font-medium">Widget event link (naddr)</span>
+            <div class="flex min-w-0 items-center gap-2">
+              <input
+                type="text"
+                class="input input-sm input-bordered min-w-0 flex-1 font-mono text-xs"
+                aria-label="Widget event link (naddr)"
+                value={widgetNaddr}
+                readonly
+                onclick={event => event.currentTarget.select()} />
+              <button
+                type="button"
+                class="btn btn-square btn-sm shrink-0"
+                aria-label="Share widget"
+                title="Share widget"
+                onclick={shareWidget}>
+                <Icon icon={ShareCircle} />
+              </button>
+            </div>
+          </div>
+        {/if}
         {#if widget && communityOptions.length > 0 && onTargetedCommunitiesChange}
           <div class="rounded-box border border-base-300 bg-base-200/30 p-3 text-sm">
             <div class="flex flex-wrap items-center justify-between gap-2">

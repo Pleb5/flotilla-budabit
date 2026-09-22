@@ -62,7 +62,21 @@ Optional widget discovery:
 VITE_SMART_WIDGET_RELAYS=wss://relay.budabit.club,wss://nos.lol
 ```
 
-If this is empty, Budabit uses built-in widget relay defaults for direct widget lookups. Default extensions are loaded from the exact definition in `VITE_DEFAULT_COMMUNITY` and its `kind:30222` wrappers with adjacent stable community `h` and marked definition `a` tags. The targeted `kind:30033` widgets appear as installed and enabled. Users can disable those defaults but cannot uninstall them. Additional direct `naddr` installs live under Settings > Extensions > Advanced.
+If this is empty, Budabit uses built-in widget relay defaults for direct widget lookups. Community defaults are loaded from the exact definition in `VITE_DEFAULT_COMMUNITY` and its `kind:30222` wrappers with adjacent stable community `h` and marked definition `a` tags. Only targeted `kind:30033` widgets authored by that community's owner become app-wide defaults.
+
+To explicitly add default widgets from any author, set a comma-separated list of kind-30033 `naddr`s:
+
+```env
+VITE_DEFAULT_WIDGETS=naddr1...,naddr1...
+```
+
+This list is additive to community-owner defaults and also works with an empty `VITE_DEFAULT_COMMUNITY` or when community discovery fails. Leave it empty to rely only on community-owner defaults. Whitespace and empty entries are ignored; an optional `nostr:` prefix is accepted. Invalid entries and unavailable widgets are reported in the browser console without preventing other defaults from loading. Duplicate widget addresses are merged, including duplicates discovered through the community.
+
+Explicit lookups try each address's relay hints first, then `VITE_SMART_WIDGET_RELAYS` (or the built-in relay defaults) if no usable widget is found. An `naddr` identifies a replaceable widget address, not a pinned release. Rebuild the deployment after changing this Vite variable; restart Vite for local development.
+
+Defaults appear as installed and enabled. Users can disable them, and that preference is preserved across reloads, but cannot uninstall them while they remain defaults. Additional user-managed direct `naddr` installs live under Settings > Extensions > Advanced.
+
+To find or share an installed widget's address, open **Settings > Extensions > Details** on its card. The **Widget event link (naddr)** field is selectable, and the share icon copies it with relay hints and displays **Widget nostr link copied!**.
 
 ### Auditing relay defaults
 
