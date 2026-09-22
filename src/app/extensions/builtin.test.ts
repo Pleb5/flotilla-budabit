@@ -88,6 +88,78 @@ describe("default extension startup", () => {
     vi.restoreAllMocks()
   })
 
+  it("enables a cached configured widget before relay discovery and after a failed reload", async () => {
+    mocks.communityInput = ""
+    let settings = await import("./settings")
+    await settings.extensionSettings.ready
+    settings.setDefaultExtensionWidgets([explicit])
+    const id = `30033:${externalAuthor}:explicit`
+    expect(settings.getEffectiveEnabledExtensionIds()).toContain(id)
+
+    // A new app instance has only the persisted widget snapshot. No network
+    // rediscovery should be required to recognize a configured default.
+    vi.resetModules()
+    settings = await import("./settings")
+    await settings.extensionSettings.ready
+    expect(settings.isDefaultExtension(id)).toBe(true)
+    expect(get(settings.defaultExtensionWidgets).map(widget => widget.identifier)).toEqual([
+      "explicit",
+    ])
+    expect(settings.getEffectiveEnabledExtensionIds()).toContain(id)
+    expect(mocks.load).not.toHaveBeenCalled()
+
+    mocks.load.mockRejectedValue(new Error("offline"))
+    const {installBuiltinExtensions} = await import("./builtin")
+    await installBuiltinExtensions()
+    expect(settings.getEffectiveEnabledExtensionIds()).toContain(id)
+    expect(settings.isDefaultExtension(id)).toBe(true)
+    expect(mocks.publish).not.toHaveBeenCalled()
+  })
+
+  it("recognizes configured defaults from remote settings without enabling an explicit opt-out", async () => {
+    const settings = await import("./settings")
+    await settings.extensionSettings.ready
+    const id = `30033:${externalAuthor}:explicit`
+    const remote = {
+      ...settings.defaultExtensionSettings,
+      installed: {widget: {[id]: explicit}},
+      enabled: [],
+      disabledDefaultIds: [],
+    }
+
+    settings.applyRemoteExtensionSettings(remote)
+    expect(settings.getEffectiveEnabledExtensionIds()).toContain(id)
+    expect(get(settings.defaultExtensionWidgets).map(widget => widget.identifier)).toEqual([
+      "explicit",
+    ])
+
+    settings.applyRemoteExtensionSettings({...remote, disabledDefaultIds: [id]})
+    expect(settings.getEffectiveEnabledExtensionIds()).not.toContain(id)
+    expect(settings.isDefaultExtension(id)).toBe(true)
+    expect(mocks.load).not.toHaveBeenCalled()
+    expect(mocks.publish).not.toHaveBeenCalled()
+  })
+
+  it("preserves a configured widget's disable preference across reload and can re-enable it offline", async () => {
+    let settings = await import("./settings")
+    await settings.extensionSettings.ready
+    const id = `30033:${externalAuthor}:explicit`
+    settings.setDefaultExtensionWidgets([explicit])
+    settings.disableDefaultExtension(id)
+
+    vi.resetModules()
+    settings = await import("./settings")
+    await settings.extensionSettings.ready
+    expect(settings.isDefaultExtension(id)).toBe(true)
+    expect(settings.getEffectiveEnabledExtensionIds()).not.toContain(id)
+
+    settings.enableDefaultExtension(id)
+    expect(settings.getEffectiveEnabledExtensionIds()).toContain(id)
+    expect(get(settings.extensionSettings).disabledDefaultIds).toEqual([])
+    expect(mocks.load).not.toHaveBeenCalled()
+    expect(mocks.publish).not.toHaveBeenCalled()
+  })
+
   it("loads explicit defaults without a community and preserves saved disable preferences", async () => {
     mocks.communityInput = ""
     const settings = await import("./settings")

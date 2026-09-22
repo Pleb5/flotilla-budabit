@@ -76,6 +76,8 @@ Explicit lookups try each address's relay hints first, then `VITE_SMART_WIDGET_R
 
 Defaults appear as installed and enabled. Users can disable them, and that preference is preserved across reloads, but cannot uninstall them while they remain defaults. Additional user-managed direct `naddr` installs live under Settings > Extensions > Advanced.
 
+Explicit default addresses are recognized directly from configuration. Once a widget snapshot is cached locally or restored from synced settings, it is enabled immediately unless explicitly disabled, even while relay discovery is pending or unavailable. A first-time install still needs a successful manifest lookup.
+
 To find or share an installed widget's address, open **Settings > Extensions > Details** on its card. The **Widget event link (naddr)** field is selectable, and the share icon copies it with relay hints and displays **Widget nostr link copied!**.
 
 ### Auditing relay defaults

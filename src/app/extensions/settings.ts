@@ -7,6 +7,7 @@ import {postExtensionSettings} from "@app/core/git-commands"
 import {EXTENSION_SETTINGS_DTAG} from "@app/core/git-requests"
 import type {SmartWidgetEvent} from "./types"
 import {getWidgetLineId} from "./widget-identity"
+import {configuredDefaultWidgetIds} from "./default-widget-config"
 
 export const EXTENSION_SETTINGS_KEY = "flotilla/extensions"
 
@@ -190,12 +191,15 @@ export const extensionSettings = synced({
   storage: localStorageProvider,
 })
 
-export const defaultExtensionWidgets = writable<SmartWidgetEvent[]>([])
+const discoveredDefaultWidgets = writable<SmartWidgetEvent[]>([])
 
-export const setDefaultExtensionWidgets = (widgets: SmartWidgetEvent[]): void => {
+const mergeDefaultWidgetSnapshots = (widgets: SmartWidgetEvent[], settings: ExtensionSettings) => {
   const byId = new Map<string, SmartWidgetEvent>()
+  const configuredSnapshots = Object.values(settings.installed?.widget || {}).filter(widget =>
+    configuredDefaultWidgetIds.has(getWidgetLineId(widget)),
+  )
 
-  for (const widget of widgets) {
+  for (const widget of [...configuredSnapshots, ...widgets]) {
     const id = getWidgetLineId(widget)
     const current = byId.get(id)
     if (!current || (widget.created_at || 0) > (current.created_at || 0)) {
@@ -203,17 +207,33 @@ export const setDefaultExtensionWidgets = (widgets: SmartWidgetEvent[]): void =>
     }
   }
 
-  const defaultWidgets = Array.from(byId.values())
-  defaultExtensionWidgets.set(defaultWidgets)
+  return Array.from(byId.values())
+}
+
+// Cached and remotely synced snapshots of explicit defaults are usable as soon
+// as settings hydrate, even before discovery starts or when relays are offline.
+export const defaultExtensionWidgets = derived(
+  [discoveredDefaultWidgets, extensionSettings],
+  ([$discoveredDefaultWidgets, $extensionSettings]) =>
+    mergeDefaultWidgetSnapshots($discoveredDefaultWidgets, $extensionSettings),
+)
+
+export const setDefaultExtensionWidgets = (widgets: SmartWidgetEvent[]): void => {
+  discoveredDefaultWidgets.set(widgets)
   extensionSettings.update(s => {
-    const result = normalizeExtensionSettingsWithDefaultSnapshots(s, defaultWidgets)
+    const result = normalizeExtensionSettingsWithDefaultSnapshots(
+      s,
+      mergeDefaultWidgetSnapshots(widgets, s),
+    )
 
     return result.settings
   })
 }
 
 export const getDefaultExtensionIds = (widgets = get(defaultExtensionWidgets)) =>
-  widgets.map(getWidgetLineId).filter(Boolean)
+  Array.from(
+    new Set([...configuredDefaultWidgetIds, ...widgets.map(getWidgetLineId).filter(Boolean)]),
+  )
 
 export const isDefaultExtension = (id: string): boolean => getDefaultExtensionIds().includes(id)
 

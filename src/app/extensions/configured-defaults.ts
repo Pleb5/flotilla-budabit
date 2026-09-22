@@ -1,4 +1,4 @@
-import * as nip19 from "nostr-tools/nip19"
+import type {AddressPointer} from "nostr-tools/nip19"
 import {repository} from "@welshman/app"
 import {matchFilters, type Filter, type TrustedEvent} from "@welshman/util"
 import {normalizeRelays} from "@app/core/community"
@@ -6,35 +6,11 @@ import {SMART_WIDGET_KIND} from "@app/core/community-feeds"
 import {loadCommunityEventsWithStatus} from "@app/core/community-state"
 import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 import {SMART_WIDGET_RELAYS} from "@app/core/state"
+import {parseDefaultWidgetNaddrs} from "./default-widget-config"
 import {parseSmartWidget} from "./registry"
 import type {SmartWidgetEvent} from "./types"
 
-export const parseDefaultWidgetNaddrs = (input: string): nip19.AddressPointer[] => {
-  const byAddress = new Map<string, nip19.AddressPointer>()
-
-  for (const entry of input
-    .split(",")
-    .map(value => value.trim())
-    .filter(Boolean)) {
-    try {
-      const decoded = nip19.decode(entry.replace(/^nostr:/i, ""))
-      if (decoded.type !== "naddr" || decoded.data.kind !== SMART_WIDGET_KIND) {
-        throw new Error("Expected a kind-30033 Smart Widget naddr")
-      }
-      const pointer = decoded.data
-      const address = `${pointer.kind}:${pointer.pubkey}:${pointer.identifier}`
-      const previous = byAddress.get(address)
-      byAddress.set(address, {
-        ...pointer,
-        relays: normalizeRelays([...(previous?.relays || []), ...(pointer.relays || [])]),
-      })
-    } catch (error) {
-      console.warn("[extensions] Invalid VITE_DEFAULT_WIDGETS entry", entry, error)
-    }
-  }
-
-  return Array.from(byAddress.values())
-}
+export {parseDefaultWidgetNaddrs}
 
 const selectWidget = (events: TrustedEvent[], filters: Filter[]) => {
   const candidates = events
@@ -52,7 +28,7 @@ const selectWidget = (events: TrustedEvent[], filters: Filter[]) => {
   return undefined
 }
 
-const loadConfiguredDefaultWidget = async (pointer: nip19.AddressPointer) => {
+const loadConfiguredDefaultWidget = async (pointer: AddressPointer) => {
   const filters: Filter[] = [
     {kinds: [SMART_WIDGET_KIND], authors: [pointer.pubkey], "#d": [pointer.identifier]},
   ]
