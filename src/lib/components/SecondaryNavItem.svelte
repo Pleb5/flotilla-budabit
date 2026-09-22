@@ -26,7 +26,7 @@
 
   const {children, href = "", notification = false, replaceState = false, ...restProps} = $props()
 
-  const active = $derived($page.url.pathname === href)
+  const active = $derived($page.url.pathname === href.split(/[?#]/)[0])
 </script>
 
 {#if href}
