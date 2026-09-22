@@ -14,6 +14,7 @@
     "deploy:test:built": "BUDABIT_SKIP_BUILD=1 ./scripts/deploy-test.sh",
     "screenshots:landing": "node scripts/capture-landing-screenshots.mjs",
     "build": "./build.sh",
+    "serve": "vite serve",
     "build-in-production": "./build-in-production.sh",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.check.json",
     "check:deploy-cache": "node scripts/check-deploy-cache.mjs",
