@@ -91,6 +91,8 @@
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import NoteCard from "@app/components/NoteCard.svelte"
   import EventFallback from "@app/components/EventFallback.svelte"
+  import TradeEventCard from "@app/components/TradeEventCard.svelte"
+  import {isTradeEventKind} from "@app/util/trade-events"
   import ArticleCard from "@app/components/ArticleCard.svelte"
   import {isArticleKind} from "@app/util/articles"
   import NoteContentMinimal from "@app/components/NoteContentMinimal.svelte"
@@ -1019,6 +1021,10 @@
         {url}
         {communitySectionName}
         compact />{/key}
+  </div>
+{:else if $quote && isTradeEventKind($quote.kind)}
+  <div class="my-2 min-w-0 max-w-full">
+    {#key $quote.id}<TradeEventCard event={$quote} relays={mergedRelays} compact />{/key}
   </div>
 {:else if $quote && ![MESSAGE, THREAD, EVENT_DATE, EVENT_TIME, ZAP_GOAL].includes($quote.kind)}
   <div class="my-2 min-w-0 max-w-full">

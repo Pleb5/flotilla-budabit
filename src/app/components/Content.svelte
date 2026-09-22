@@ -36,6 +36,8 @@
   import CommunityLinkCard from "@app/components/community/CommunityLinkCard.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
   import ArticleContent from "@app/components/ArticleContent.svelte"
+  import TradeEventContent from "@app/components/TradeEventContent.svelte"
+  import {isTradeEventKind} from "@app/util/trade-events"
   import {isArticleKind} from "@app/util/articles"
   import {entityLink, userSettingsValues} from "@app/core/state"
   import {replaceCashuTokens} from "@app/util/cashu-token"
@@ -149,7 +151,9 @@
   )
   const shortContent = $derived(replaceCommunityLinks(shortRawContent))
 
-  const hasEllipsis = $derived(!isArticleKind(event.kind) && shortRawContent.some(isEllipsis))
+  const hasEllipsis = $derived(
+    !isArticleKind(event.kind) && !isTradeEventKind(event.kind) && shortRawContent.some(isEllipsis),
+  )
   const expandInline = $derived(hasEllipsis && expandMode === "inline")
   const expandBlock = $derived(hasEllipsis && expandMode === "block")
 </script>
@@ -171,6 +175,13 @@
         {communitySectionName}
         {hideMediaAtDepth}
         {depth}
+        compact={minimalQuote}
+        relays={getEventShareRelayHints(event, {url})} />
+    {:else if isTradeEventKind(event.kind)}
+      <TradeEventContent
+        {event}
+        {depth}
+        {hideMediaAtDepth}
         compact={minimalQuote}
         relays={getEventShareRelayHints(event, {url})} />
     {:else if event.kind === MESSAGE || event.kind === COMMENT}

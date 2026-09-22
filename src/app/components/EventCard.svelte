@@ -20,7 +20,7 @@
     event: TrustedEvent
     relays?: string[]
     compact?: boolean
-    variant?: "generic" | "article"
+    variant?: "generic" | "article" | "trade"
     children: Snippet
     actions?: Snippet
   } = $props()
@@ -37,6 +37,7 @@
 <article
   data-generic-event={variant === "generic" ? "" : undefined}
   data-longform-article={variant === "article" ? "" : undefined}
+  data-trade-event={variant === "trade" ? "" : undefined}
   data-event={event.id}
   id={compact ? undefined : `event-${event.id}`}
   class="min-w-0 max-w-full rounded-xl border border-base-content/15 bg-base-100 p-4 text-left">
@@ -57,7 +58,11 @@
         {@render actions?.()}
         {#if compact}
           <a href={entityLink(entity)} class="link"
-            >{variant === "article" ? "Read article" : "Open event"}</a>
+            >{variant === "article"
+              ? "Read article"
+              : variant === "trade"
+                ? "View listing"
+                : "Open event"}</a>
         {/if}
         <Button
           class="link"

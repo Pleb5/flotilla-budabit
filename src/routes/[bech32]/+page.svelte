@@ -1,5 +1,5 @@
 <script lang="ts">
-  import {untrack} from "svelte"
+  import {tick, untrack} from "svelte"
   import * as nip19 from "nostr-tools/nip19"
   import type {TrustedEvent} from "@welshman/util"
   import {repository} from "@welshman/app"
@@ -13,6 +13,8 @@
   import PageContent from "@lib/components/PageContent.svelte"
   import EventFallback from "@app/components/EventFallback.svelte"
   import ArticleCard from "@app/components/ArticleCard.svelte"
+  import TradeEventCard from "@app/components/TradeEventCard.svelte"
+  import {isTradeEventKind, tradeEventLabel} from "@app/util/trade-events"
   import {isArticleKind} from "@app/util/articles"
   import {
     getDedicatedEventPath,
@@ -50,7 +52,9 @@
       ? event.kind === 30024
         ? "Article draft"
         : "Article"
-      : "Event",
+      : event && isTradeEventKind(event.kind)
+        ? tradeEventLabel(event.kind)
+        : "Event",
   )
 
   $effect(() => {
@@ -117,6 +121,10 @@
             pointer.kind === 30617 ? getRepoAnnouncementRelays(pointer.relays) : [],
             INDEXER_RELAYS,
           )
+          // A cache hit can resolve synchronously during the initial render.
+          // Finish mounting the loading branch before switching to the event card.
+          await tick()
+          if (!active || controller.signal.aborted) return
           const cached = repository.query(pointer.filters)[0] as TrustedEvent | undefined
           if (cached) acceptEvent(cached)
 
@@ -168,6 +176,8 @@
       {#key event.id}
         {#if isArticleKind(event.kind)}
           <ArticleCard {event} {relays} />
+        {:else if isTradeEventKind(event.kind)}
+          <TradeEventCard {event} {relays} />
         {:else}
           <EventFallback {event} {relays} />
         {/if}
