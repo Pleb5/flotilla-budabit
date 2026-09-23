@@ -7,7 +7,7 @@
     "dev": "pnpm run dev:full",
     "dev:app": "vite dev",
     "dev:workspace": "vite dev",
-    "dev:full": "pnpm --filter @nostr-git/core --filter @nostr-git/ui run build && pnpm --include-workspace-root --parallel --stream --filter flotilla-budabit --filter @nostr-git/core --filter @nostr-git/ui run dev:workspace",
+    "dev:full": "node scripts/check-dev-port.mjs && pnpm --filter @nostr-git/core --filter @nostr-git/ui run build && pnpm --include-workspace-root --parallel --stream --filter flotilla-budabit --filter @nostr-git/core --filter @nostr-git/ui run dev:workspace",
     "deploy:main": "./scripts/deploy-main.sh",
     "deploy:main:built": "BUDABIT_SKIP_BUILD=1 ./scripts/deploy-main.sh",
     "deploy:test": "./scripts/deploy-test.sh",

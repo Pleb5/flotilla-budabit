@@ -19,10 +19,11 @@
       "require": "./dist/utils/clipboard.js"
     },
     "./tailwind.preset.js": "./tailwind.preset.js",
-    "./index.css": "./dist/index.css"
+    "./index.css": "./styles/index.css"
   },
   "files": [
     "dist",
+    "styles/index.css",
     "tailwind.preset.js"
   ],
   "scripts": {
@@ -31,10 +32,10 @@
     "lint": "eslint .",
     "lint:fix": "pnpm lint --fix",
     "build": "pnpm run clean && svelte-package && pnpm run build:tailwind",
-    "build:tailwind": "mkdir -p dist && tailwindcss -i ./src/index.css -o ./dist/index.css --minify",
+    "build:tailwind": "node scripts/build-css.mjs",
     "watch": "node dev.mjs",
     "watch:lib": "svelte-package --watch --preserve-output",
-    "watch:tailwind": "tailwindcss -i ./src/index.css -o ./dist/index.css --minify --watch=always --verbose",
+    "watch:tailwind": "nodemon --watch src --watch tailwind.config.js --ext css,js,ts,svelte,html --delay 100ms --signal SIGTERM --exec \"node scripts/build-css.mjs\"",
     "dev:workspace": "pnpm run watch",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run --reporter=basic",

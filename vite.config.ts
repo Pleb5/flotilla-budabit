@@ -2,6 +2,7 @@ import {config} from "dotenv"
 import path from "path"
 import {fileURLToPath} from "url"
 import {defineConfig, type Plugin} from "vite"
+import {DEV_PORT} from "./scripts/check-dev-port.mjs"
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -63,7 +64,7 @@ const devHmr =
 
 export default defineConfig({
   server: {
-    port: 1847,
+    port: DEV_PORT,
     strictPort: true,
     allowedHosts: devAllowedHosts,
     hmr: devHmr,

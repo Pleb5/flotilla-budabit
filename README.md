@@ -77,6 +77,11 @@ pnpm dev
 
 The application will be available at `http://localhost:1847`. The dev server uses a strict port; stop the other process if port `1847` is already in use.
 
+`pnpm dev` checks that port before rebuilding workspace packages. The UI package
+generates its stylesheet in ignored `styles/index.css`, separately from Svelte's
+`dist` output, and replaces it atomically after successful compilation. Its CSS
+watcher uses the same build path for source and Tailwind configuration changes.
+
 Use `pnpm dev:app` when working only on application code and the local package build outputs are already current.
 
 ## Features

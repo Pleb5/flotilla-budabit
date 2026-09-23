@@ -8,6 +8,7 @@ node_modules/
 
 # Builds
 dist/
+/styles/
 /index.css
 build/
 .svelte-kit/
