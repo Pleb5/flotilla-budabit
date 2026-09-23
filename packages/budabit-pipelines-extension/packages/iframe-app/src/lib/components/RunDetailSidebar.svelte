@@ -1,7 +1,7 @@
 <script lang="ts">
   import {ChevronDown, Copy, ExternalLink, GitBranch, GitCommit, Server} from '@lucide/svelte'
   import {shortId} from '../presentation'
-  import {publicLinkForRun} from '../workflows'
+  import {isFreeRun, publicLinkForRun} from '../workflows'
   import ReclaimBadge from './ReclaimBadge.svelte'
   import type {WorkflowRun, LoomWorker, ReclaimUiState} from '../types'
 
@@ -11,8 +11,6 @@
     prepaidAmount: number | null
     changeAmount: number | null
     actualCost: number | null
-    prepaymentFee?: number | null
-    changeFee?: number | null
     reclaim?: ReclaimUiState | null
     copyText: (value: string | undefined, label: string) => void | Promise<void>
     onReclaim?: () => void
@@ -24,15 +22,13 @@
     prepaidAmount,
     changeAmount,
     actualCost,
-    prepaymentFee = 0,
-    changeFee = 0,
     reclaim = null,
     copyText,
     onReclaim,
   }: Props = $props()
 
   const fmt = (n: number | null | undefined, sign: '' | '+' | '−' = '') =>
-    n === null || n === undefined ? '—' : `${sign}₿ ${n.toLocaleString()}`
+    n === null || n === undefined ? '—' : `${sign}${n.toLocaleString()} sats`
 
   const plain = (n: number | null | undefined, sign: '' | '+' | '−' = '') =>
     n === null || n === undefined ? '—' : `${sign}${n.toLocaleString()}`
@@ -123,7 +119,11 @@
       <summary class="flex cursor-pointer select-none list-none items-center justify-between gap-2">
         <span class="text-xs font-semibold text-muted-foreground">Total cost</span>
         <span class="flex items-center gap-2">
-          <span class="font-mono font-semibold">{fmt(actualCost)}</span>
+          {#if isFreeRun(run)}
+            <span class="font-mono font-semibold text-green-400 group-open:hidden">free</span>
+          {:else}
+            <span class="font-mono font-semibold text-foreground group-open:hidden">{fmt(actualCost)}</span>
+          {/if}
           <ChevronDown class="h-3.5 w-3.5 text-muted-foreground transition-transform group-open:rotate-180" />
         </span>
       </summary>
@@ -133,23 +133,19 @@
           <span class="text-muted-foreground">Prepayment</span>
           <span class="font-mono text-red-400">{plain(prepaidAmount, '−')}</span>
         </div>
-        <div class="flex items-center justify-between pl-3 text-[11px]">
-          <span class="text-muted-foreground/80">Prepayment fees</span>
-          <span class="font-mono text-red-400/80">{plain(prepaymentFee ?? 0, '−')}</span>
-        </div>
 
         <div class="flex items-center justify-between text-xs">
           <span class="text-muted-foreground">Change</span>
           <span class="font-mono text-green-400">{plain(changeAmount, '+')}</span>
         </div>
-        <div class="flex items-center justify-between pl-3 text-[11px]">
-          <span class="text-muted-foreground/80">Change fees</span>
-          <span class="font-mono text-red-400/80">{plain(changeFee ?? 0, '−')}</span>
-        </div>
 
         <div class="flex items-center justify-between border-t border-border pt-2 text-sm">
           <span class="font-medium">Total cost</span>
-          <span class="font-mono font-semibold text-foreground">{fmt(actualCost)}</span>
+          {#if isFreeRun(run)}
+            <span class="font-mono font-semibold text-green-400">free</span>
+          {:else}
+            <span class="font-mono font-semibold text-foreground">{fmt(actualCost)}</span>
+          {/if}
         </div>
       </div>
     </details>

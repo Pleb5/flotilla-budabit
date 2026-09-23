@@ -77,7 +77,7 @@ if [ -n "$HIVE_CI_BRANCH" ]; then
   echo "Cloning branch: \${HIVE_CI_BRANCH}"
   CLONE_ARGS="--branch $HIVE_CI_BRANCH"
 fi
-if ! git clone $CLONE_ARGS "$HIVE_CI_REPOSITORY" 2>&1; then
+if ! git clone -q $CLONE_ARGS "$HIVE_CI_REPOSITORY" 2>&1; then
   echo "Error: Failed to clone repository"
   EXIT_CODE=1
 fi

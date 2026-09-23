@@ -17,6 +17,7 @@
   import {
     eventTagValue,
     externalUrlForEvent,
+    isFreeRun,
     mergeEventIntoDetail,
     publicLinkForRun,
     statusLabel,
@@ -65,7 +66,7 @@
     createOpeningDetailSessionState,
   } from './lib/detail-session'
   import {setupWidgetLifecycle} from './lib/widget-lifecycle'
-  import {repoEvents$, repoRuns$, repoWorkerRelays, workers$} from './lib/workflows'
+  import {repoEvents$, repoJobRunners$, repoJobRunnersEvent$, jobRunnersListrUrl, repoRuns$, repoWorkerRelays, workers$} from './lib/workflows'
   import {
     generatePaymentTokenViewModel,
     refreshWalletViewModel,
@@ -108,6 +109,12 @@
   let loading = $state(false)
   let error = $state<string | null>(null)
   let workflowRuns = $state<WorkflowRun[]>([])
+  // Workflow job runners (kind 30728 p-tags): profiles whose runs are listed
+  // alongside the repo owner's and maintainers'.
+  let workflowJobRunners = $state<string[]>([])
+  // listr.lol URL for the repo's job runners list event — set once the event
+  // has been seen on the relays.
+  let jobRunnersListUrl = $state<string | undefined>(undefined)
   // Relays actually queried for runs: base relays ∪ resolved NIP-65 outbox relays.
   let queriedRelays = $state<string[]>([])
 
@@ -247,7 +254,6 @@
   const parsedActJobs = $derived(parseActLog(actLogContent))
   const actJobByName = $derived(new Map(parsedActJobs.map(job => [job.name.toLowerCase(), job])))
   const jobGroups = $derived(getJobGroups(workflowJobs))
-  const actualCost = $derived(prepaidAmount !== null ? prepaidAmount - (changeAmount ?? 0) : null)
 
   // ─── Reclaim derivation + handlers ──────────────────────────────────────
   // Per-run UI state. Computed from the persisted redeemed log + transient
@@ -291,6 +297,21 @@
   const selectedReclaim = $derived(
     selectedRunDetail ? (reclaimByRunId[selectedRunDetail.run.id] ?? null) : null
   )
+
+  // Change shown in the cost breakdown: once the change token has been
+  // redeemed by this client, the reclaim log holds the amount actually
+  // credited to the wallet (net of the mint's redemption fee) — display that
+  // instead of the token's face value, blending the fee into the worker's
+  // effective cost. The same applies when the job was refunded in full (the
+  // original payment token reclaimed, kind 'original'): the refunded amount
+  // counts as change, bringing the effective cost to ~0.
+  // Falls back to the face value until/unless redeemed here.
+  const effectiveChange = $derived(
+    selectedReclaim?.status === 'redeemed' && typeof selectedReclaim.amount === 'number'
+      ? selectedReclaim.amount
+      : changeAmount
+  )
+  const actualCost = $derived(prepaidAmount !== null ? prepaidAmount - (effectiveChange ?? 0) : null)
 
   async function attemptReclaim(runId: string): Promise<void> {
     if (!bridge) return
@@ -1040,9 +1061,14 @@
     writeRunIdToUrl(selectedRunId)
   })
 
+  // Refresh the wallet once when the bridge becomes ready. untrack(): the
+  // refresh reads selectedMint in its sync prelude — without untracking, the
+  // effect would subscribe to selectedMint and every mint pick would trigger
+  // a refresh, whose applyWalletState write-back fights reconcileWalletSelection
+  // and loops forever (flickering refresh button).
   $effect(() => {
     if (!bridge) return
-    void refreshWallet()
+    untrack(() => void refreshWallet())
   })
 
   // Set signer pubkey from host-provided user pubkey
@@ -1056,6 +1082,26 @@
     void refreshRepoMetadata()
   })
 
+  // Workflow job runners list (kind 30728, authored by the repo owner) — its
+  // p-tag profiles are trusted run authors alongside owner + maintainers.
+  $effect(() => {
+    if (!repo) {
+      workflowJobRunners = []
+      jobRunnersListUrl = undefined
+      return
+    }
+    const sub = repoJobRunners$(repo).subscribe(list => {
+      workflowJobRunners = list
+    })
+    const eventSub = repoJobRunnersEvent$(repo).subscribe(event => {
+      jobRunnersListUrl = event ? jobRunnersListrUrl(repo) : undefined
+    })
+    return () => {
+      sub.unsubscribe()
+      eventSub.unsubscribe()
+    }
+  })
+
   // Runs list comes from a module-scoped BehaviorSubject keyed by repoAddress.
   // On HMR the subject persists, so remounted subscribers get the current list
   // immediately instead of starting empty.
@@ -1064,14 +1110,19 @@
 
     const repoAddress = repo.repoAddress
     const relays = [...new Set([...repo.repoRelays, ...FALLBACK_RELAYS, ...LOOM_WORKER_RELAYS])]
-    const trustedAuthors = [...new Set([repo.repoPubkey, ...(repo.maintainers ?? [])])]
+    // Without a non-empty job runners list there is no trusted-author filter:
+    // every run for the repo is shown. Once the list resolves with members,
+    // restrict to runs by the owner, maintainers and list members.
+    const trustedAuthors = workflowJobRunners.length > 0
+      ? [...new Set([repo.repoPubkey, ...(repo.maintainers ?? []), ...workflowJobRunners])]
+      : null
     const viewerPubkey = repo.userPubkey
 
     // Surface the relays actually queried — base relays plus the NIP-65 outbox
     // relays resolved for the trusted authors + viewer — so the debug panel
     // reflects the expanded set, not just the repo-declared relays.
     queriedRelays = relays
-    const relayPubkeys = viewerPubkey ? [...trustedAuthors, viewerPubkey] : trustedAuthors
+    const relayPubkeys = viewerPubkey ? [...(trustedAuthors ?? []), viewerPubkey] : (trustedAuthors ?? [])
     const relaysSub = outboxRelays$(relayPubkeys).subscribe(extra => {
       queriedRelays = [...new Set([...relays, ...extra])]
     })
@@ -1089,7 +1140,9 @@
     })
 
     // Worker discovery — kind 10100 stream, deduped by pubkey, latest wins.
-    const workersSub = workers$(repoWorkerRelays(repo)).subscribe(list => {
+    // The viewer pubkey lets the stream resolve advertised freelists and flag
+    // workers that run jobs for this user without payment.
+    const workersSub = workers$(repoWorkerRelays(repo), viewerPubkey).subscribe(list => {
       discoveredWorkers = list
     })
 
@@ -1464,6 +1517,30 @@
           onSubmit={() => void submitRerunRequest()}
         />
       </div>
+      {:else if !selectedRunId && repo && !repoMetadataError && !repoMetadataLoading && repoWorkflows.length === 0}
+        <section class="rounded-lg border border-primary/40 bg-primary/10 p-3 shadow-md">
+          <strong>No workflows defined in this repository</strong>
+          <div>Workflows enable you to run automatic tests, release jobs or deployment tasks. They are located in <code>.github/workflows/</code></div>
+          <p class="text-sm opacity-75">
+            <a
+              class="text-primary hover:underline"
+              href="https://www.workflows.guru/tutorials/github-workflows"
+              target="_blank"
+              rel="noreferrer">
+              Get started: read this tutorial
+            </a>
+          </p>
+          <br>
+          <p class="text-sm opacity-75">
+            <a
+              class="text-primary hover:underline"
+              href="https://budabit.club/git/naddr1qvzqqqrhnypzqg739mu828j7ufnlkc6p6lzph9p55xues60qyyhtxn2k4wmtzt52qy2hwumn8ghj7un9d3shjtnwva5hgtnyv4mz7qgnwaehxw309ankjarwdaehgu3wvdhk6tcqq3nxjurnv9dzke/extensions/workflows"
+              target="_blank"
+              rel="noreferrer">
+              See it in action in the FIPS repository
+            </a>
+          </p>
+        </section>
       {:else if !selectedRunId}
       <section class="space-y-4">
 
@@ -1478,6 +1555,14 @@
               bind:value={searchTerm}
               type="text"
               placeholder="Search runs, commits, branches, actors…" />
+            {#if jobRunnersListUrl}
+              <a
+                class="shrink-0 text-xs text-primary hover:underline"
+                href={jobRunnersListUrl}
+                target="_blank"
+                rel="noreferrer"
+                title="Show job runs only by the owner, the maintainers, or the profiles in this list">Job runners</a>
+            {/if}
             <div class="flex items-center gap-1">
               <FilterDropdown
                 label="Workflow"
@@ -1769,7 +1854,11 @@
                   <div class="space-y-1">
                     <div class="text-xs text-muted-foreground">Total cost</div>
                     <div class="text-sm font-medium">
-                      {actualCost !== null ? `₿ ${actualCost.toLocaleString()}` : '—'}
+                      {#if isFreeRun(run)}
+                        <span class="text-green-400">free</span>
+                      {:else}
+                        {actualCost !== null ? `${actualCost.toLocaleString()} sats` : '—'}
+                      {/if}
                     </div>
                   </div>
                 </div>
@@ -1889,7 +1978,7 @@
                 {run}
                 worker={selectedRunDetail.worker}
                 {prepaidAmount}
-                {changeAmount}
+                changeAmount={effectiveChange}
                 {actualCost}
                 reclaim={selectedReclaim}
                 onReclaim={() => void attemptReclaim(run.id)}

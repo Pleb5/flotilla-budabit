@@ -1,6 +1,7 @@
 <script lang="ts">
   import {cashuBalancesByMint, createCashuToken, addAutoPayWhitelist} from "@app/core/cashu"
   import {formatCashuSats} from "@app/util/cashu-format"
+  import {closeTopModal} from "@app/util/modal"
   import Button from "@lib/components/Button.svelte"
 
   interface Props {
@@ -29,6 +30,7 @@
       }
       const token = await createCashuToken(amount, mintUrl)
       onresult({token})
+      closeTopModal()
     } catch (e: any) {
       error = e?.message || "Failed to create token"
       onresult({error: error})
@@ -39,6 +41,7 @@
 
   const reject = () => {
     onresult({error: "user_rejected"})
+    closeTopModal()
   }
 </script>
 

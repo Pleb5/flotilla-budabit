@@ -8,6 +8,7 @@
     COMMUNITY_WRITE_TARGETS,
     communityWritableSectionsSupportTarget,
   } from "@app/core/community-permissions"
+  import {effectiveExtensionSettings} from "@app/extensions/settings"
 
   const repoClass = getContext<Repo>(REPO_KEY)
   const repoSettings = getContext<RepoSettingsActions | undefined>(REPO_SETTINGS_ACTIONS_KEY)
@@ -17,6 +18,13 @@
   }
 
   const canEditAnnouncement = $derived(repoSettings?.canEditAnnouncement ?? false)
+  const workflowJobRunnersStore = repoSettings?.workflowJobRunners
+  const workflowJobRunnersEventExistsStore = repoSettings?.workflowJobRunnersEventExists
+  const hasWorkflowsExtension = $derived(
+    Object.keys($effectiveExtensionSettings.installed?.widget ?? {}).some(id =>
+      id.includes("workflows"),
+    ),
+  )
 
   const getCommunityOptionLabel = (communityPubkey: string) => {
     const profile = $profilesByPubkey.get(communityPubkey)
@@ -63,6 +71,9 @@
       searchProfiles={repoSettings.searchProfiles}
       searchProfilesUpdateSignal={repoSettings.searchProfilesUpdateSignal}
       searchRelays={repoSettings.searchRelays}
+      showWorkflowJobRunners={hasWorkflowsExtension}
+      workflowJobRunners={$workflowJobRunnersStore}
+      workflowJobRunnersEventExists={$workflowJobRunnersEventExistsStore}
       communityOptions={repoCommunityOptions} />
   {:else}
     <Card class="p-4 sm:p-6">

@@ -89,6 +89,30 @@ export interface LoomWorker {
   maxDuration?: number;
   maxConcurrentJobs?: number;
   currentQueueDepth?: number;
+  /**
+   * Address of the worker's advertised NIP-51 freelist event
+   * (naddr / nevent / kind:pubkey[:d_tag]), when the operator opted into
+   * publishing it (`freelist_event` tag / content field on the kind:10100 ad).
+   */
+  freelistEventAddress?: string;
+  /**
+   * Max runtime (seconds) the worker allows for free jobs — the
+   * `freelist_timeout` tag on its kind:10100 ad, present when the operator
+   * enabled the freelist. Free jobs carry no payment, so this caps them.
+   */
+  freelistTimeout?: number;
+  /**
+   * True when the current user's pubkey is on this worker's freelist — runs
+   * execute without payment. Resolved live from the freelist event.
+   */
+  freeForUser?: boolean;
+  /**
+   * True while the worker's advertised freelist event is still being fetched
+   * from the network — `freeForUser` is not yet authoritative. UIs should
+   * block submission until this clears, since the result decides whether the
+   * run is free for the current user.
+   */
+  freelistPending?: boolean;
   online: boolean;
   lastSeen: number;
 }

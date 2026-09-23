@@ -3,3 +3,6 @@ packages:
   - 'packages/budabit-huddle-extension/packages/*'
   - 'packages/budabit-pipelines-extension'
   - 'packages/welshman/packages/*'
+allowBuilds:
+  cbor-extract: false
+  nostr-signer-capacitor-plugin: true

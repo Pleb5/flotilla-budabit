@@ -120,8 +120,9 @@ export function outboxRelays$(pubkeys: string[]): Observable<string[]> {
  * Subscription layers (each is its own `pool.subscription` so a single relay
  * can fail to index one kind without taking the rest down with it):
  *
- * - **Workflow runs (5401)**: scoped by repo `#a` and authored by maintainers.
- *   Anchors everything else.
+ * - **Workflow runs (5401)**: scoped by repo `#a` and authored by maintainers
+ *   (or unscoped by author when `trustedAuthors` is null). Anchors everything
+ *   else.
  * - **Loom jobs (5100)**: scoped by `#e: [...runIds]` once a workflow run is
  *   seen. Many relays don't index 5100 by `#a` (NIP-90 5xxx range is often
  *   treated as ephemeral or differently indexed), so fetching them by their
@@ -135,18 +136,22 @@ export function outboxRelays$(pubkeys: string[]): Observable<string[]> {
 export function buildRepoEvents(
   repoAddress: string,
   relays: string[],
-  trustedAuthors: string[],
+  trustedAuthors: string[] | null,
   viewerPubkey?: string,
 ): Observable<NostrEvent> {
-  const authors = [...new Set(trustedAuthors)];
-  if (authors.length === 0) return EMPTY;
+  // null trustedAuthors = no author filter — every run for the repo is shown
+  // (used when the repo has no non-empty job runners list). An empty list
+  // matches nothing.
+  const authors = trustedAuthors === null ? null : [...new Set(trustedAuthors)];
+  if (authors && authors.length === 0) return EMPTY;
 
   // Query the provided relays AND the NIP-65 outbox relays of the trusted
   // authors (repo owner + maintainers) plus the current viewer, resolved from
   // their pubkeys via applesauce. Start on the base relays immediately and
   // re-point the subscription graph as more outbox lists resolve; rxjs/the
-  // pool dedupe overlapping relays.
-  const relayPubkeys = viewerPubkey ? [...authors, viewerPubkey] : authors;
+  // pool dedupe overlapping relays. With no author filter there is no author
+  // set to expand — only the viewer's outbox relays get added.
+  const relayPubkeys = viewerPubkey ? [...(authors ?? []), viewerPubkey] : (authors ?? []);
   const baseRelays = [...new Set([...relays, ...LOOM_WORKER_RELAYS])];
   const relays$ = outboxRelays$(relayPubkeys).pipe(
     map(extra => [...new Set([...baseRelays, ...extra])]),
@@ -154,28 +159,35 @@ export function buildRepoEvents(
     distinctUntilChanged(sameRelaySet),
   );
 
+  // Show current user's runs in history.
+  const runAuthors = authors
+    ? viewerPubkey
+      ? [...new Set([...authors, viewerPubkey])]
+      : authors
+    : undefined;
+
   return relays$.pipe(
-    switchMap(activeRelays => buildRepoEventGraph(repoAddress, activeRelays, authors)),
+    switchMap(activeRelays => buildRepoEventGraph(repoAddress, activeRelays, runAuthors)),
   );
 }
 
 function buildRepoEventGraph(
   repoAddress: string,
   relays: string[],
-  authors: string[],
+  authors?: string[],
 ): Observable<NostrEvent> {
   const workflowRunFilter = {
     kinds: [KIND_WORKFLOW_RUN],
     // Match both the 30617 (announcement) and 30618 (repo-state) coordinates —
     // older runs reference the repo by its state address, newer by announcement.
     '#a': repoAddressVariants(repoAddress),
-    authors,
+    ...(authors ? {authors} : {}),
   };
   console.log('[workflows] workflow-run subscription', {
     relays,
     relayCount: relays.length,
     filter: workflowRunFilter,
-    authorCount: authors.length,
+    authorCount: authors ? authors.length : 'all',
   });
 
   const workflowRuns$ = pool

@@ -9,12 +9,17 @@ import type {
   WorkflowStatus,
 } from './types';
 import { toRepoNostrUrl } from './nip07';
-import { buildRepoEvents, buildWorkerEvents, eventStore, WORKER_ONLINE_WINDOW_MS } from './nostr';
-import { interval, merge as mergeRx } from 'rxjs';
+import { buildRepoEvents, buildWorkerEvents, eventStore, pool, WORKER_ONLINE_WINDOW_MS } from './nostr';
+import { onlyEvents } from 'applesauce-relay';
+import { nip19 } from 'nostr-tools';
+import { interval, map, merge as mergeRx } from 'rxjs';
 import {
   BehaviorSubject,
+  lastValueFrom,
+  reduce,
   shareReplay,
   tap,
+  timeout,
   type Observable,
 } from 'rxjs';
 
@@ -27,6 +32,8 @@ export const KIND_LOOM_JOB = 5100;
 export const KIND_LOOM_RESULT = 5101;
 export const KIND_LOOM_STATUS = 30100;
 export const KIND_LOOM_WORKER = 10100;
+/** Repo-scoped workflow job runner list (addressable; d-tag = repo announcement d-tag). */
+export const KIND_REPO_JOB_RUNNERS = 30728;
 
 function dedupe(values: string[]): string[] {
   return Array.from(
@@ -39,6 +46,16 @@ export function eventTagValue(
   name: string
 ): string | undefined {
   return event?.tags?.find((tag) => tag[0] === name)?.[1];
+}
+
+/**
+ * A run is free when its loom job (kind 5100) carries no payment tag —
+ * freelist and no-pricing submissions omit it by design. Returns false while
+ * the job event hasn't loaded (loomJobEvent undefined), so callers show the
+ * usual placeholder until we can tell.
+ */
+export function isFreeRun(run: WorkflowRun): boolean {
+  return !!run.loomJobEvent && !eventTagValue(run.loomJobEvent, 'payment');
 }
 
 /**
@@ -344,11 +361,143 @@ export function parseLoomWorker(event: NostrEvent): LoomWorker | null {
         Number.parseInt(String(content.max_concurrent_jobs || ''), 10) || undefined,
       currentQueueDepth:
         Number.parseInt(String(content.current_queue_depth || ''), 10) || undefined,
+      freelistEventAddress: freelistAddressFromEvent(event),
+      freelistTimeout: Number.parseInt(eventTagValue(event, 'freelist_timeout') || '', 10) || undefined,
       online: Date.now() - event.created_at * 1000 < 5 * 60 * 1000,
       lastSeen: event.created_at,
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * The advertised freelist address from a kind:10100 worker ad — the
+ * `freelist_event` tag first, the content JSON field as fallback. Only
+ * present when the operator enabled the freelist AND opted into advertising
+ * it (`freelist.advertise_event_id` in the loom-worker config).
+ */
+export function freelistAddressFromEvent(event: NostrEvent): string | undefined {
+  const tagValue = eventTagValue(event, 'freelist_event');
+  if (tagValue) return tagValue;
+  try {
+    const content = JSON.parse(event.content || '{}');
+    return typeof content?.freelist_event === 'string' && content.freelist_event
+      ? content.freelist_event
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Parsed pointer to a freelist event. Mirrors loom-worker's
+ * `subscribeToWhitelist` address handling: naddr / nevent bech32 entities,
+ * or the raw `kind:pubkey[:d_tag]` form.
+ */
+type FreelistPointer =
+  | { type: 'address'; kind: number; pubkey: string; identifier?: string; relays?: string[] }
+  | { type: 'id'; id: string; relays?: string[] };
+
+function parseFreelistAddress(address: string): FreelistPointer | null {
+  const value = address.trim();
+  if (!value) return null;
+
+  if (value.startsWith('naddr1') || value.startsWith('nevent1')) {
+    try {
+      const decoded = nip19.decode(value);
+      if (decoded.type === 'naddr') {
+        return {
+          type: 'address',
+          kind: decoded.data.kind,
+          pubkey: decoded.data.pubkey,
+          identifier: decoded.data.identifier,
+          relays: decoded.data.relays,
+        };
+      }
+      if (decoded.type === 'nevent') {
+        return { type: 'id', id: decoded.data.id, relays: decoded.data.relays };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  const parts = value.split(':');
+  if (parts.length < 2) return null;
+  const kind = Number.parseInt(parts[0] ?? '', 10);
+  const pubkey = parts[1];
+  if (!Number.isFinite(kind) || !pubkey) return null;
+  return { type: 'address', kind, pubkey, identifier: parts[2] || undefined };
+}
+
+/**
+ * listr.lol URL for a worker's advertised freelist event —
+ * `https://listr.lol/<worker_npub>/<freelist_kind>/<naddr>`. Only
+ * available when the advertised address is an naddr (used as-is) or the raw
+ * `kind:pubkey[:d_tag]` form (encoded to an naddr); nevent pointers carry no
+ * address and can't be expressed as an naddr.
+ */
+export function freelistListrUrl(workerPubkey: string, address?: string): string | undefined {
+  const value = (address || '').trim();
+  if (!workerPubkey || !value) return undefined;
+  const pointer = parseFreelistAddress(value);
+  if (!pointer || pointer.type !== 'address') return undefined;
+  const naddr = value.startsWith('naddr1')
+    ? value
+    : nip19.naddrEncode({
+        kind: pointer.kind,
+        pubkey: pointer.pubkey,
+        identifier: pointer.identifier ?? '',
+        relays: pointer.relays ?? [],
+      });
+  return `https://listr.lol/${nip19.npubEncode(workerPubkey)}/${pointer.kind}/${naddr}`;
+}
+
+/**
+ * One-shot fetch of a worker's advertised freelist — a NIP-51 pubkey list
+ * event. Returns the p-tag pubkeys of the newest version found across the
+ * target relays (empty set when the address is invalid or nothing comes
+ * back). Read once per address — the list is small and changes rarely, so
+ * no live subscription is kept open.
+ */
+async function fetchFreelistPubkeys(address: string, relays: string[]): Promise<Set<string>> {
+  const pointer = parseFreelistAddress(address);
+  if (!pointer) return new Set();
+
+  // Relay hints embedded in naddr/nevent are unioned with the worker relays —
+  // the list author may publish somewhere the worker ad never touched.
+  const targetRelays =
+    pointer.relays && pointer.relays.length > 0
+      ? [...new Set([...pointer.relays, ...relays])]
+      : relays;
+
+  const filter =
+    pointer.type === 'id'
+      ? { ids: [pointer.id] }
+      : {
+          kinds: [pointer.kind],
+          authors: [pointer.pubkey],
+          ...(pointer.identifier !== undefined ? { '#d': [pointer.identifier] } : {}),
+        };
+
+  try {
+    // pool.request emits matching events and completes when all relays EOSE.
+    const newest = await lastValueFrom(
+      pool.request(targetRelays, filter).pipe(
+        // Guard against relays that never EOSE.
+        timeout(10_000),
+        reduce<NostrEvent, NostrEvent | null>(
+          (acc, event) => (!acc || event.created_at > acc.created_at ? event : acc),
+          null
+        )
+      ),
+      { defaultValue: null }
+    );
+    return newest ? new Set(eventTagValues(newest, 'p')) : new Set();
+  } catch {
+    return new Set();
   }
 }
 
@@ -359,26 +508,62 @@ export function parseLoomWorker(event: NostrEvent): LoomWorker | null {
  * `LoomWorker`, and emits a sorted array of *online* workers (those whose
  * latest ad is still within the online window).
  *
+ * When `userPubkey` is given, workers that advertise a `freelist_event`
+ * address get their NIP-51 freelist fetched (once per address): each emitted
+ * worker carries `freeForUser: true` when the user is on that list (runs
+ * execute without payment).
+ *
  * A periodic ticker re-evaluates the list so workers whose ads age out of
  * the window drop off without needing a fresh subscription event. Cached
- * per relay-set so the subscription persists across remounts.
+ * per relay-set + user so the subscription persists across remounts.
  */
 const workersCache = new Map<string, BehaviorSubject<LoomWorker[]>>();
 
-export function workers$(relays: string[]): Observable<LoomWorker[]> {
-  const key = [...new Set(relays)].sort().join(',');
+export function workers$(relays: string[], userPubkey?: string): Observable<LoomWorker[]> {
+  const key = `${[...new Set(relays)].sort().join(',')}|${userPubkey ?? ''}`;
   const existing = workersCache.get(key);
   if (existing) return existing;
 
   const subject = new BehaviorSubject<LoomWorker[]>([]);
   const latestByPubkey = new Map<string, NostrEvent>();
+  // list address → member pubkeys. An empty set doubles as the in-flight
+  // marker so repeated ads for the same address don't refetch.
+  const freelistsByAddress = new Map<string, Set<string>>();
+  // Addresses whose freelist event fetch has not resolved yet — exposed on
+  // emitted workers as `freelistPending` so UIs can block submission until
+  // membership is known.
+  const freelistPendingAddresses = new Set<string>();
 
   const recompute = () => {
     const next = Array.from(latestByPubkey.values())
       .map(parseLoomWorker)
       .filter((worker): worker is LoomWorker => worker !== null && worker.online)
+      .map((worker) => ({
+        ...worker,
+        freeForUser:
+          !!userPubkey &&
+          !!worker.freelistEventAddress &&
+          (freelistsByAddress.get(worker.freelistEventAddress)?.has(userPubkey) ?? false),
+        freelistPending:
+          !!userPubkey &&
+          !!worker.freelistEventAddress &&
+          freelistPendingAddresses.has(worker.freelistEventAddress),
+      }))
       .sort((a, b) => (a.currentQueueDepth || 0) - (b.currentQueueDepth || 0));
     subject.next(next);
+  };
+
+  // Read the advertised freelist event once per address; recompute when it
+  // lands so the worker list reflects the user's membership.
+  const fetchFreelistOnce = (address: string) => {
+    if (!userPubkey || freelistsByAddress.has(address)) return;
+    freelistsByAddress.set(address, new Set());
+    freelistPendingAddresses.add(address);
+    void fetchFreelistPubkeys(address, relays).then((members) => {
+      freelistsByAddress.set(address, members);
+      freelistPendingAddresses.delete(address);
+      recompute();
+    });
   };
 
   const events$ = buildWorkerEvents(relays).pipe(
@@ -394,6 +579,8 @@ export function workers$(relays: string[]): Observable<LoomWorker[]> {
       const prior = latestByPubkey.get(event.pubkey);
       if (prior && prior.created_at >= event.created_at) return;
       latestByPubkey.set(event.pubkey, event);
+      const freelistAddress = freelistAddressFromEvent(event);
+      if (freelistAddress) fetchFreelistOnce(freelistAddress);
     }
     // Drop entries we already know are too old to ever be online again.
     const cutoff = (Date.now() - WORKER_ONLINE_WINDOW_MS) / 1000;
@@ -408,6 +595,64 @@ export function workers$(relays: string[]): Observable<LoomWorker[]> {
 
 export function repoWorkerRelays(repo: RepoContextNormalized): string[] {
   return dedupe([...repo.repoRelays, ...FALLBACK_RELAYS]);
+}
+
+/**
+ * Live view of the repo's workflow job runners list event (kind 30728, d-tag =
+ * repo announcement d-tag, authored by the repo owner). Emits the newest
+ * version seen, or null while nothing has loaded. Cached per repo coordinate
+ * so remounts don't resubscribe.
+ */
+const jobRunnersCache = new Map<string, BehaviorSubject<NostrEvent | null>>();
+
+export function repoJobRunnersEvent$(repo: RepoContextNormalized): Observable<NostrEvent | null> {
+  const key = `${repo.repoPubkey}:${repo.repoName}`;
+  const existing = jobRunnersCache.get(key);
+  if (existing) return existing;
+
+  const subject = new BehaviorSubject<NostrEvent | null>(null);
+  const relays = dedupe([...repo.repoRelays, ...FALLBACK_RELAYS]);
+
+  pool
+    .subscription(relays, {
+      kinds: [KIND_REPO_JOB_RUNNERS],
+      authors: [repo.repoPubkey],
+      '#d': [repo.repoName],
+    })
+    .pipe(onlyEvents())
+    .subscribe((event) => {
+      // Addressable/replaceable event — only the newest version counts.
+      const current = subject.getValue();
+      if (current && event.created_at < current.created_at) return;
+      subject.next(event);
+    });
+
+  jobRunnersCache.set(key, subject);
+  return subject;
+}
+
+/**
+ * The p-tag hex pubkeys of the repo's job runners list — starts with an empty
+ * list while nothing has loaded.
+ */
+export function repoJobRunners$(repo: RepoContextNormalized): Observable<string[]> {
+  return repoJobRunnersEvent$(repo).pipe(
+    map((event) => (event ? dedupe(eventTagValues(event, 'p')) : [])),
+  );
+}
+
+/**
+ * listr.lol URL for the repo's job runners list event —
+ * `https://listr.lol/<owner_npub>/30728/<naddr>`.
+ */
+export function jobRunnersListrUrl(repo: RepoContextNormalized): string {
+  const naddr = nip19.naddrEncode({
+    kind: KIND_REPO_JOB_RUNNERS,
+    pubkey: repo.repoPubkey,
+    identifier: repo.repoName,
+    relays: repoWorkerRelays(repo),
+  });
+  return `https://listr.lol/${nip19.npubEncode(repo.repoPubkey)}/${KIND_REPO_JOB_RUNNERS}/${naddr}`;
 }
 
 export function statusLabel(status: WorkflowStatus): string {
@@ -663,13 +908,14 @@ function updateRunByERefs(
 // current state immediately. Keyed by repoAddress + the trusted-author set (+
 // viewer) — NOT repoAddress alone: a stream built before maintainers arrived in
 // context would otherwise be reused with an owner-only author filter, hiding
-// runs authored by maintainers. Relays are intentionally excluded from the key
-// because they expand dynamically inside buildRepoEvents.
+// runs authored by maintainers. A null trusted-author set (no job runners
+// list — every run is shown) keys as '*'. Relays are intentionally excluded
+// from the key because they expand dynamically inside buildRepoEvents.
 const repoEventsCache = new Map<string, Observable<NostrEvent>>();
 const repoRunsCache = new Map<string, BehaviorSubject<WorkflowRun[]>>();
 
-function repoStreamKey(repoAddress: string, trustedAuthors: string[], viewerPubkey?: string): string {
-  const authors = [...new Set(trustedAuthors)].sort().join(',');
+function repoStreamKey(repoAddress: string, trustedAuthors: string[] | null, viewerPubkey?: string): string {
+  const authors = trustedAuthors === null ? '*' : [...new Set(trustedAuthors)].sort().join(',');
   return `${repoAddress}|${authors}|${viewerPubkey ?? ''}`;
 }
 
@@ -677,7 +923,7 @@ function repoStreamKey(repoAddress: string, trustedAuthors: string[], viewerPubk
 export function repoEvents$(
   repoAddress: string,
   relays: string[],
-  trustedAuthors: string[],
+  trustedAuthors: string[] | null,
   viewerPubkey?: string,
 ): Observable<NostrEvent> {
   const key = repoStreamKey(repoAddress, trustedAuthors, viewerPubkey);
@@ -698,7 +944,7 @@ export function repoEvents$(
 export function repoRuns$(
   repoAddress: string,
   relays: string[],
-  trustedAuthors: string[],
+  trustedAuthors: string[] | null,
   viewerPubkey?: string,
 ): Observable<WorkflowRun[]> {
   const key = repoStreamKey(repoAddress, trustedAuthors, viewerPubkey);

@@ -15,6 +15,7 @@ export type NostrTag = [string, ...string[]]
 // Repository events
 export const GIT_REPO_ANNOUNCEMENT = 30617
 export const GIT_REPO_STATE = 30618
+export const GIT_REPO_JOB_RUNNERS = 30728
 
 // Stacking & merge metadata events
 export const GIT_STACK = 30410

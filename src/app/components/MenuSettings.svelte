@@ -74,7 +74,7 @@
 
 <svelte:window onkeydown={dismissOnEscape} />
 
-<div class="column menu gap-2">
+<div class="column menu gap-1">
   <header class="flex shrink-0 items-center justify-between gap-3">
     <span class="w-11 shrink-0" aria-hidden="true"></span>
     <h1
@@ -92,9 +92,9 @@
   </header>
   {#if !$pubkey}
     <Button onclick={login}>
-      <CardButton class="btn-primary">
+      <CardButton compact class="btn-primary">
         {#snippet icon()}
-          <div><Icon icon={Key} size={7} /></div>
+          <div><Icon icon={Key} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Log in</div>
@@ -112,9 +112,9 @@
       aria-busy={pendingHref === profilePath}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, profilePath)}>
-      <CardButton class="btn-neutral" pending={pendingHref === profilePath}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === profilePath}>
         {#snippet icon()}
-          <div><Icon icon={UserRounded} size={7} /></div>
+          <div><Icon icon={UserRounded} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Profile</div>
@@ -130,9 +130,9 @@
       aria-busy={pendingHref === "/settings/git"}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, "/settings/git")}>
-      <CardButton class="btn-neutral" pending={pendingHref === "/settings/git"}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/git"}>
         {#snippet icon()}
-          <div><Icon icon={Git} size={7} /></div>
+          <div><Icon icon={Git} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Git</div>
@@ -148,9 +148,9 @@
       aria-busy={pendingHref === "/settings/notifications"}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, "/settings/notifications")}>
-      <CardButton class="btn-neutral" pending={pendingHref === "/settings/notifications"}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/notifications"}>
         {#snippet icon()}
-          <div><Icon icon={Bell} size={7} /></div>
+          <div><Icon icon={Bell} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Notifications</div>
@@ -166,9 +166,9 @@
       aria-busy={pendingHref === "/settings/wallet"}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, "/settings/wallet")}>
-      <CardButton class="btn-neutral" pending={pendingHref === "/settings/wallet"}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/wallet"}>
         {#snippet icon()}
-          <div><Icon icon={Wallet} size={7} /></div>
+          <div><Icon icon={Wallet} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Wallet</div>
@@ -184,9 +184,9 @@
       aria-busy={pendingHref === "/settings/relays"}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, "/settings/relays")}>
-      <CardButton class="btn-neutral" pending={pendingHref === "/settings/relays"}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/relays"}>
         {#snippet icon()}
-          <div><Icon icon={Server} size={7} /></div>
+          <div><Icon icon={Server} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Relays</div>
@@ -202,9 +202,9 @@
       aria-busy={pendingHref === "/settings/blossom"}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, "/settings/blossom")}>
-      <CardButton class="btn-neutral" pending={pendingHref === "/settings/blossom"}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/blossom"}>
         {#snippet icon()}
-          <div><Icon icon={Flower} size={7} /></div>
+          <div><Icon icon={Flower} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Blossom</div>
@@ -220,9 +220,9 @@
       aria-busy={pendingHref === "/settings/content"}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, "/settings/content")}>
-      <CardButton class="btn-neutral" pending={pendingHref === "/settings/content"}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/content"}>
         {#snippet icon()}
-          <div><Icon icon={Settings} size={7} /></div>
+          <div><Icon icon={Settings} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Content Settings</div>
@@ -238,9 +238,9 @@
       aria-busy={pendingHref === "/settings/extensions"}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, "/settings/extensions")}>
-      <CardButton class="btn-neutral" pending={pendingHref === "/settings/extensions"}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/extensions"}>
         {#snippet icon()}
-          <div><Icon icon={Plugins} size={7} /></div>
+          <div><Icon icon={Plugins} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Extensions</div>
@@ -258,9 +258,9 @@
       aria-busy={pendingHref === "/settings/performance"}
       aria-disabled={navigationPending}
       onclick={event => navigate(event, "/settings/performance")}>
-      <CardButton class="btn-neutral" pending={pendingHref === "/settings/performance"}>
+      <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/performance"}>
         {#snippet icon()}
-          <div><Icon icon={Chart} size={7} /></div>
+          <div><Icon icon={Chart} size={6} /></div>
         {/snippet}
         {#snippet title()}
           <div>Diagnostics</div>
@@ -272,9 +272,9 @@
     </a>
   {/if}
   <Button onclick={toggleTheme}>
-    <CardButton class="btn-neutral">
+    <CardButton compact class="btn-neutral">
       {#snippet icon()}
-        <div><Icon icon={Moon} size={7} /></div>
+        <div><Icon icon={Moon} size={6} /></div>
       {/snippet}
       {#snippet title()}
         <div>Theme</div>
@@ -290,9 +290,9 @@
     aria-busy={pendingHref === "/settings/about"}
     aria-disabled={navigationPending}
     onclick={event => navigate(event, "/settings/about")}>
-    <CardButton class="btn-neutral" pending={pendingHref === "/settings/about"}>
+    <CardButton compact class="btn-neutral" pending={pendingHref === "/settings/about"}>
       {#snippet icon()}
-        <div><Icon icon={Code2} size={7} /></div>
+        <div><Icon icon={Code2} size={6} /></div>
       {/snippet}
       {#snippet title()}
         <div>About</div>

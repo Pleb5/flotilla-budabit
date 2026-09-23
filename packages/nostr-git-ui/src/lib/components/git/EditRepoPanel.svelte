@@ -19,6 +19,7 @@
     GitCommit,
     CheckCircle2,
     Loader2,
+    Play,
   } from "@lucide/svelte";
   import { sanitizeRelays, validateRepoDisplayName } from "@nostr-git/core/utils";
   import {
@@ -26,6 +27,7 @@
     editRepoStateHead,
     getRepoUpstreamTags,
     validateRepoUpstream,
+    GIT_REPO_JOB_RUNNERS,
     type RepoAnnouncementChanges,
     type RepoUpstreamTag,
     type RepoAnnouncementEvent,
@@ -86,6 +88,7 @@
     earliestUniqueCommit: string;
     communityAddress: string;
     upstreams: RepoUpstreamTag[];
+    workflowJobRunners: string[];
   }
 
   interface SaveCompleteResult {
@@ -126,6 +129,9 @@
     searchProfilesUpdateSignal?: ProfileSearchUpdateSignal;
     searchRelays?: (query: string) => Promise<string[]>;
     communityOptions?: RepoCommunityOption[];
+    showWorkflowJobRunners?: boolean;
+    workflowJobRunners?: string[];
+    workflowJobRunnersEventExists?: boolean;
   }
 
   const {
@@ -144,6 +150,9 @@
     searchProfilesUpdateSignal,
     searchRelays,
     communityOptions = [],
+    showWorkflowJobRunners = false,
+    workflowJobRunners = [],
+    workflowJobRunnersEventExists = false,
   }: Props = $props();
 
   const isPage = $derived(variant === "page");
@@ -229,6 +238,7 @@
     cloneUrls: copyList(data.cloneUrls),
     hashtags: copyList(data.hashtags),
     upstreams: data.upstreams.map((tag) => [...tag] as RepoUpstreamTag),
+    workflowJobRunners: copyList(data.workflowJobRunners),
   });
 
   // Extract current values from repo
@@ -247,6 +257,7 @@
         earliestUniqueCommit: "",
         communityAddress: "",
         upstreams: [],
+        workflowJobRunners: copyList(workflowJobRunners),
       };
     }
 
@@ -276,6 +287,7 @@
       earliestUniqueCommit: repo.earliestUniqueCommit || "",
       communityAddress: repo.community?.address || "",
       upstreams: repo.repoEvent ? getRepoUpstreamTags(repo.repoEvent) : [],
+      workflowJobRunners: copyList(workflowJobRunners),
     };
   }
 
@@ -766,6 +778,20 @@
       errors.maintainers = "Maintainers must be npub or 64-char hex pubkeys";
     }
 
+    // Workflow job runners validation (accept npub or 64-char hex)
+    if (showWorkflowJobRunners) {
+      const invalidJobRunners = (
+        Array.isArray(formData.workflowJobRunners) ? formData.workflowJobRunners : []
+      ).filter((m) => {
+        const v = m?.trim?.();
+        if (!v) return false;
+        return !/^npub1[ac-hj-np-z02-9]{58}$/i.test(v) && !/^[a-fA-F0-9]{64}$/.test(v);
+      });
+      if (invalidJobRunners.length > 0) {
+        errors.workflowJobRunners = "Workflow job runners must be npub or 64-char hex pubkeys";
+      }
+    }
+
     // Relays validation (wss:// URLs)
     const invalidRelays = (Array.isArray(formData.relays) ? formData.relays : []).filter(
       (r) => r?.trim?.() && (!r.match(/^wss?:\/\/.+/) || sanitizeRelays([r.trim()]).length === 0)
@@ -922,25 +948,29 @@
         );
       }
       // Filter out empty strings from arrays
-      const cleanMaintainers = formData.maintainers.filter((m) => m.trim());
-      const normalizedMaintainers = Array.from(
-        new Set(
-          cleanMaintainers.map((m) => {
-            const v = m.trim();
-            if (/^npub1/i.test(v)) {
-              try {
-                const dec = nip19.decode(v);
-                if (dec.type === "npub" && typeof dec.data === "string") {
-                  return dec.data.toLowerCase();
+      const normalizePubkeyList = (values: string[]) =>
+        Array.from(
+          new Set(
+            values
+              .filter((m) => m.trim())
+              .map((m) => {
+                const v = m.trim();
+                if (/^npub1/i.test(v)) {
+                  try {
+                    const dec = nip19.decode(v);
+                    if (dec.type === "npub" && typeof dec.data === "string") {
+                      return dec.data.toLowerCase();
+                    }
+                  } catch {
+                    // Validation should have caught invalid npubs; keep original as a fallback.
+                  }
                 }
-              } catch {
-                // Validation should have caught invalid npubs; keep original as a fallback.
-              }
-            }
-            return v.toLowerCase();
-          })
-        )
-      );
+                return v.toLowerCase();
+              })
+          )
+        );
+      const normalizedMaintainers = normalizePubkeyList(formData.maintainers);
+      const normalizedJobRunners = normalizePubkeyList(formData.workflowJobRunners || []);
       const cleanList = (values: string[]) =>
         Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
       const cleanWebUrls = cleanList(formData.webUrls);
@@ -1086,6 +1116,27 @@
         },
       });
 
+      if (
+        showWorkflowJobRunners &&
+        (normalizedJobRunners.length > 0 || workflowJobRunnersEventExists)
+      ) {
+        localProgress = {
+          stage: "Publishing workflow job runners...",
+          percentage: 80,
+          isComplete: false,
+        };
+        const jobRunnersEvent = {
+          kind: GIT_REPO_JOB_RUNNERS,
+          created_at: replacementCreatedAt,
+          content: "",
+          tags: [["d", nextName], ...normalizedJobRunners.map((pubkey) => ["p", pubkey])],
+        };
+        await onPublishEvent(jobRunnersEvent as any, {
+          relays: Array.from(new Set([...cleanRelays, ...previousRelayUrls])),
+          stage: "final",
+        });
+      }
+
       const savedFormData: FormData = {
         ...formData,
         ...(changed("name") ? { name: nextName } : {}),
@@ -1098,6 +1149,7 @@
         ...(changed("earliestUniqueCommit")
           ? { earliestUniqueCommit: formData.earliestUniqueCommit.trim().toLowerCase() }
           : {}),
+        ...(changed("workflowJobRunners") ? { workflowJobRunners: normalizedJobRunners } : {}),
       };
       formData = cloneFormData(savedFormData);
       originalFormData = cloneFormData(savedFormData);
@@ -1227,7 +1279,10 @@
       JSON.stringify(norm(formData.webUrls)) !== JSON.stringify(norm(original.webUrls)) ||
       JSON.stringify(norm(formData.cloneUrls)) !== JSON.stringify(norm(original.cloneUrls)) ||
       JSON.stringify(norm(formData.hashtags)) !== JSON.stringify(norm(original.hashtags)) ||
-      JSON.stringify(formData.upstreams) !== JSON.stringify(original.upstreams);
+      JSON.stringify(formData.upstreams) !== JSON.stringify(original.upstreams) ||
+      (showWorkflowJobRunners &&
+        JSON.stringify(norm(formData.workflowJobRunners)) !==
+          JSON.stringify(norm(original.workflowJobRunners)));
 
     return basicChanged || arraysChanged;
   });
@@ -2032,6 +2087,61 @@
             The commit ID of the earliest unique commit to identify this repository among forks
           </p>
         </div>
+
+        <!-- Workflow job runners -->
+        {#if showWorkflowJobRunners}
+          <div>
+            <label class="block text-sm font-medium text-gray-300 mb-2">
+              <Play class="w-4 h-4 inline mr-1" />
+              Workflow job runners
+            </label>
+
+            <PeoplePicker
+              selected={formData.workflowJobRunners as any}
+              placeholder="Add job runner (npub or search)..."
+              disabled={isEditing}
+              maxSelections={50}
+              showAvatars={true}
+              showSuggestionsOnFocus={true}
+              compact={false}
+              getProfile={getProfile}
+              searchProfiles={searchProfiles ? searchMaintainerProfiles : undefined}
+              searchProfilesUpdateSignal={searchProfilesUpdateSignal}
+              searchProfilesContextKey={formData.communityAddress}
+              add={(pubkey: string) => {
+                if (!formData.workflowJobRunners.includes(pubkey)) {
+                  formData.workflowJobRunners = [...formData.workflowJobRunners, pubkey];
+                }
+              }}
+              {...{
+                remove: (pubkey: string) => {
+                  formData.workflowJobRunners = formData.workflowJobRunners.filter(
+                    (p) => p !== pubkey
+                  );
+                },
+              } as any}
+              onDeleteLabel={(evt) => {
+                const pubkey = evt.tags?.find((t) => t[0] === "p")?.[1];
+                if (pubkey) {
+                  formData.workflowJobRunners = formData.workflowJobRunners.filter(
+                    (p) => p !== pubkey
+                  );
+                }
+              }}
+            />
+
+            {#if validationErrors.workflowJobRunners}
+              <p
+                class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
+                role="alert"
+                aria-live="polite"
+              >
+                <AlertCircle class="w-4 h-4" />
+                <span>{validationErrors.workflowJobRunners}</span>
+              </p>
+            {/if}
+          </div>
+        {/if}
 
         {#if onRequestDelete}
           <div

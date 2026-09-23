@@ -1,5 +1,7 @@
 <script lang="ts">
+  import {Lock} from '@lucide/svelte'
   import {isFreeWorker} from '../submission'
+  import {freelistListrUrl} from '../workflows'
   import type {LoomWorker, RerunDraft, WorkflowDefinition} from '../types'
 
   interface Props {
@@ -100,6 +102,19 @@
   // token and only execute if the worker accepts unpaid jobs from this pubkey.
   const selectedWorkerIsFree = $derived(isFreeWorker(selectedWorker))
 
+  // While the selected worker's advertised freelist event is being fetched,
+  // membership (and therefore whether the run is free) is unknown — block
+  // submission until it resolves.
+  const freelistFetching = $derived(!!selectedWorker?.freelistPending)
+
+  // Link to the selected worker's advertised freelist on listr.lol, shown
+  // next to the "run unpaid" checkbox so users can inspect the list.
+  const freelistListUrl = $derived(
+    selectedWorker
+      ? freelistListrUrl(selectedWorker.pubkey, selectedWorker.freelistEventAddress)
+      : undefined,
+  )
+
   // Payment is waived when the worker is free, or the user opted into an
   // unpaid run on a priced worker (worker-side pubkey allowlist).
   const paymentWaived = $derived(selectedWorkerIsFree || unpaidRun)
@@ -147,15 +162,18 @@
     rerunDraft.envVars = next.length > 0 ? next : [{key: '', value: ''}]
   }
 
-  // Ranking for worker cards: online > price (cheaper first) > queue depth
+  // Ranking for worker cards: free for the current user (advertised freelist
+  // membership) > online > price (cheaper first) > queue depth
   const rankedWorkers = $derived.by(() => {
     if (!discoveredWorkers || discoveredWorkers.length === 0) return []
+    const free = (w: LoomWorker) => (w.freeForUser ? 0 : 1)
     const rate = (w: LoomWorker) => w.pricing?.perSecondRate ?? Number.POSITIVE_INFINITY
     const minDur = (w: LoomWorker) => w.minDuration ?? 0
     const queue = (w: LoomWorker) => w.currentQueueDepth ?? 0
     const online = (w: LoomWorker) => (w.online ? 0 : 1)
     const minCostOf = (w: LoomWorker) => rate(w) * minDur(w)
     return [...discoveredWorkers].sort((a, b) => {
+      if (free(a) !== free(b)) return free(a) - free(b)
       if (online(a) !== online(b)) return online(a) - online(b)
       if (minCostOf(a) !== minCostOf(b)) return minCostOf(a) - minCostOf(b)
       return queue(a) - queue(b)
@@ -182,15 +200,39 @@
     return min
   })
 
-  // Auto-select the top-ranked online worker when nothing valid is picked yet.
+  // Auto-select the top-ranked online worker. Until the user clicks a worker
+  // explicitly, a worker whose freelist membership resolves asynchronously
+  // (and is therefore free for the user) is promoted over the auto-picked
+  // paid worker. A deliberate user pick is never stomped — only replaced if
+  // it vanishes from the list.
+  let userPickedWorker = $state(false)
   $effect(() => {
     if (!rankedWorkers || rankedWorkers.length === 0) return
     const current = rankedWorkers.find(w => w.pubkey === rerunDraft.workerPubkey)
-    if (current) return
-    const pick = rankedWorkers.find(w => w.online) || rankedWorkers[0]
+    if (userPickedWorker && current) return
+    const freePick = rankedWorkers.find(w => w.online && w.freeForUser)
+    const pick = freePick ?? (current ? undefined : rankedWorkers.find(w => w.online) || rankedWorkers[0])
     if (pick && pick.pubkey !== rerunDraft.workerPubkey) {
       rerunDraft.workerPubkey = pick.pubkey
     }
+  })
+
+  // Keep "run unpaid" in sync with the selected worker's freelist status:
+  // selecting a free worker ticks it, selecting a paid-only worker unticks it
+  // — whether the selection comes from the initial auto-pick, the async
+  // freelist resolution, or a manual click. Keyed on worker pubkey + free
+  // status so re-emitted worker ads (new object identities) don't re-fire it,
+  // and a deliberate manual tick/untick afterwards is preserved. (Manually
+  // ticking a paid worker stays possible for off-band allowlisting, e.g. the
+  // worker's ALLOW_UNPAID_PUBKEYS.)
+  let unpaidSyncedFor = $state('')
+  $effect(() => {
+    const key = selectedWorker
+      ? `${selectedWorker.pubkey}|${selectedWorker.freeForUser ? 'free' : 'paid'}`
+      : ''
+    if (!key || unpaidSyncedFor === key) return
+    unpaidSyncedFor = key
+    unpaidRun = !!selectedWorker?.freeForUser
   })
 
   const stripScheme = (url: string) => (url || '').replace(/^https?:\/\//i, '').replace(/\/$/, '')
@@ -217,6 +259,20 @@
     return `${seconds}s`
   }
 
+  // Composite "1h 30m"-style formatter for the fixed freelist-timeout display —
+  // formatDuration above collapses to a single unit ("1.5h").
+  const formatFixedDuration = (seconds: number) => {
+    const total = Math.max(0, Math.floor(seconds))
+    const h = Math.floor(total / 3600)
+    const m = Math.floor((total % 3600) / 60)
+    const s = total % 60
+    const parts: string[] = []
+    if (h > 0) parts.push(`${h}h`)
+    if (m > 0) parts.push(`${m}m`)
+    if (s > 0) parts.push(`${s}s`)
+    return parts.length > 0 ? parts.join(' ') : '0s'
+  }
+
   // Hours / minutes / seconds breakdown for the custom-duration input. Edits to
   // any field recompose maxDuration in seconds; we only resync the local fields
   // from `maxDuration` when the change came from outside (preset buttons, parent
@@ -238,18 +294,6 @@
     const clamped = Math.max(customMinSeconds, total)
     lastSyncedFromMaxDuration = clamped
     maxDuration = clamped
-  }
-
-  const formatLastSeen = (ts?: number) => {
-    if (!ts) return ''
-    const sec = Math.max(0, Math.floor((Date.now() - ts * 1000) / 1000))
-    if (sec < 60) return `${sec}s ago`
-    const m = Math.floor(sec / 60)
-    if (m < 60) return `${m}m ago`
-    const h = Math.floor(m / 60)
-    if (h < 48) return `${h}h ago`
-    const d = Math.floor(h / 24)
-    return `${d}d ago`
   }
 </script>
 
@@ -315,12 +359,15 @@
             {@const isSelected = rerunDraft.workerPubkey === worker.pubkey}
             <button
               class="rounded-md border p-3 text-left text-sm {isSelected ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'}"
-              onclick={() => (rerunDraft.workerPubkey = worker.pubkey)}>
+              onclick={() => { userPickedWorker = true; rerunDraft.workerPubkey = worker.pubkey }}>
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0 flex-1">
                   <div class="flex flex-wrap items-center gap-2">
                     <span class="h-2 w-2 shrink-0 rounded-full {worker.online ? 'bg-green-400' : 'bg-zinc-500'}" title={worker.online ? 'Online' : 'Offline'}></span>
                     <span class="truncate font-medium">{worker.name}</span>
+                    {#if worker.freeForUser}
+                      <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">free</span>
+                    {/if}
                     {#if workerMinCost > 0 && workerMinCost === cheapestMinCost && rankedWorkers.length > 1}
                       <span class="rounded-full border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-300">cheapest</span>
                     {/if}
@@ -335,9 +382,6 @@
                     <span>{isFreeWorker(worker) ? 'no pricing' : `${rate || '?'} ${worker.pricing?.unit || 'sat'}/s`}</span>
                     <span>queue {queue}{worker.maxConcurrentJobs ? `/${worker.maxConcurrentJobs}` : ''}</span>
                     <span>{worker.architecture || 'unknown arch'}</span>
-                    {#if worker.lastSeen}
-                      <span>seen {formatLastSeen(worker.lastSeen)}</span>
-                    {/if}
                   </div>
                 </div>
               </div>
@@ -399,35 +443,6 @@
   </div>
 
   <aside class="space-y-3 rounded-lg border border-border bg-card p-4 xl:sticky xl:top-4 xl:self-start">
-    <!-- Mint -->
-    <div class="space-y-1">
-      <div class="flex items-center justify-between">
-        <span class="text-xs text-muted-foreground">Mint</span>
-        {#if walletAvailable}
-          <button class="text-xs text-primary hover:underline" onclick={onRefreshWallet}>{walletLoading ? '…' : 'refresh'}</button>
-        {/if}
-      </div>
-      {#if visibleMintOptions.length > 1}
-        <select
-          class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          bind:value={selectedMint}
-          disabled={!walletAvailable || walletLoading}>
-          {#each visibleMintOptions as mint}
-            <option value={mint}>{stripScheme(mint)} · {(walletBalancesByMint[mint] || 0).toLocaleString()} sats</option>
-          {/each}
-        </select>
-      {:else if selectedMint}
-        <div class="flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm">
-          <span class="truncate" title={selectedMint}>{stripScheme(selectedMint)}</span>
-          <span class="shrink-0 font-medium">{selectedMintBalance.toLocaleString()} sats</span>
-        </div>
-      {:else}
-        <div class="rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground">
-          {walletError ? `Wallet unavailable: ${walletError}` : 'No mint available'}
-        </div>
-      {/if}
-    </div>
-
     <!-- Worker -->
     <div class="space-y-1">
       <span class="text-xs text-muted-foreground">Worker</span>
@@ -439,42 +454,53 @@
     <!-- Max duration -->
     <div class="space-y-2">
       <span class="text-xs text-muted-foreground">Max duration</span>
-      <div class="flex flex-wrap gap-2">
-        {#each durationPresets as preset}
-          {@const belowMin = preset.seconds < customMinSeconds}
-          <button
-            class="rounded-md border px-3 py-1.5 text-sm {maxDuration === preset.seconds && !showCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'} {belowMin ? 'cursor-not-allowed opacity-40' : ''}"
-            disabled={belowMin}
-            title={belowMin ? `Worker requires at least ${formatDuration(customMinSeconds)}` : ''}
-            onclick={() => { showCustomDuration = false; maxDuration = preset.seconds }}>
-            {preset.label}
-          </button>
-        {/each}
-        <button
-          class="rounded-md border px-3 py-1.5 text-sm {isCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'}"
-          onclick={() => (showCustomDuration = !showCustomDuration || !isCustomDuration)}>
-          Custom
-        </button>
-      </div>
-      {#if isCustomDuration}
-        <div class="flex flex-wrap items-center gap-2 text-sm">
-          <label class="flex items-center gap-1">
-            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" step="1" bind:value={customHours} oninput={setCustomDuration} onchange={setCustomDuration} />
-            <span class="text-xs text-muted-foreground">h</span>
-          </label>
-          <label class="flex items-center gap-1">
-            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customMinutes} oninput={setCustomDuration} onchange={setCustomDuration} />
-            <span class="text-xs text-muted-foreground">m</span>
-          </label>
-          <label class="flex items-center gap-1">
-            <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customSeconds} oninput={setCustomDuration} onchange={setCustomDuration} />
-            <span class="text-xs text-muted-foreground">s</span>
-          </label>
-          <span class="text-xs text-muted-foreground">= {maxDuration}s</span>
+      {#if unpaidRun && selectedWorker?.freelistTimeout}
+        <!-- Free runs are capped at the worker's freelist timeout — show it as
+             a fixed value instead of the duration selector. -->
+        <div
+          class="flex w-fit cursor-not-allowed items-center gap-2 rounded-md border border-input bg-background px-3 py-1.5 text-sm text-muted-foreground"
+          title="Free runs are capped at the worker's freelist timeout">
+          <Lock class="h-3.5 w-3.5" />
+          {formatFixedDuration(selectedWorker.freelistTimeout)}
         </div>
-      {/if}
-      {#if minDurationSeconds && minDurationSeconds > 0}
-        <p class="text-[11px] text-muted-foreground">Worker minimum: {formatDuration(minDurationSeconds)}</p>
+      {:else}
+        <div class="flex flex-wrap gap-2">
+          {#each durationPresets as preset}
+            {@const belowMin = preset.seconds < customMinSeconds}
+            <button
+              class="rounded-md border px-3 py-1.5 text-sm {maxDuration === preset.seconds && !showCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'} {belowMin ? 'cursor-not-allowed opacity-40' : ''}"
+              disabled={belowMin}
+              title={belowMin ? `Worker requires at least ${formatDuration(customMinSeconds)}` : ''}
+              onclick={() => { showCustomDuration = false; maxDuration = preset.seconds }}>
+              {preset.label}
+            </button>
+          {/each}
+          <button
+            class="rounded-md border px-3 py-1.5 text-sm {isCustomDuration ? 'border-primary/40 bg-primary/10' : 'border-input hover:bg-accent'}"
+            onclick={() => (showCustomDuration = !showCustomDuration || !isCustomDuration)}>
+            Custom
+          </button>
+        </div>
+        {#if isCustomDuration}
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            <label class="flex items-center gap-1">
+              <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" step="1" bind:value={customHours} oninput={setCustomDuration} onchange={setCustomDuration} />
+              <span class="text-xs text-muted-foreground">h</span>
+            </label>
+            <label class="flex items-center gap-1">
+              <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customMinutes} oninput={setCustomDuration} onchange={setCustomDuration} />
+              <span class="text-xs text-muted-foreground">m</span>
+            </label>
+            <label class="flex items-center gap-1">
+              <input class="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm" type="number" min="0" max="59" step="1" bind:value={customSeconds} oninput={setCustomDuration} onchange={setCustomDuration} />
+              <span class="text-xs text-muted-foreground">s</span>
+            </label>
+            <span class="text-xs text-muted-foreground">= {maxDuration}s</span>
+          </div>
+        {/if}
+        {#if isCustomDuration && minDurationSeconds && minDurationSeconds > 0}
+          <p class="text-[11px] text-muted-foreground">Worker minimum: {formatDuration(minDurationSeconds)}</p>
+        {/if}
       {/if}
     </div>
 
@@ -499,23 +525,64 @@
             ? `${selectedWorker.pricing.perSecondRate} ${selectedWorker.pricing.unit || 'sat'}/s × ${formatDuration(maxDuration)}`
             : 'Pick a worker to compute prepayment'}
         </p>
+        <!-- Mint (dimmed with the rest of the payment UI when running unpaid) -->
+        <div class="mt-3 space-y-1 {unpaidRun ? 'opacity-40' : ''}">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-muted-foreground">Mint</span>
+            {#if walletAvailable}
+              <button
+                class="text-xs {unpaidRun ? 'cursor-default text-muted-foreground' : 'text-primary hover:underline'}"
+                disabled={unpaidRun}
+                onclick={onRefreshWallet}>{walletLoading ? '…' : 'refresh'}</button>
+            {/if}
+          </div>
+          {#if visibleMintOptions.length > 1}
+            <select
+              class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              bind:value={selectedMint}
+              disabled={!walletAvailable || walletLoading || unpaidRun}>
+              {#each visibleMintOptions as mint}
+                <option value={mint}>{stripScheme(mint)} · {(walletBalancesByMint[mint] || 0).toLocaleString()} sats</option>
+              {/each}
+            </select>
+          {:else if selectedMint}
+            <div class="flex items-center justify-between gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm">
+              <span class="truncate" title={selectedMint}>{stripScheme(selectedMint)}</span>
+              <span class="shrink-0 font-medium">{selectedMintBalance.toLocaleString()} sats</span>
+            </div>
+          {:else}
+            <div class="rounded-md border border-input bg-background px-3 py-2 text-sm text-muted-foreground">
+              {walletError ? `Wallet unavailable: ${walletError}` : 'No mint available'}
+            </div>
+          {/if}
+        </div>
         {#if selectedWorker}
           <label class="mt-3 flex cursor-pointer items-start gap-2">
             <input type="checkbox" class="mt-0.5" bind:checked={unpaidRun} />
             <span class="text-xs">
               <span class="font-medium">Run unpaid</span>
               <span class="block text-[11px] text-muted-foreground">
-                Submit without payment. Only works if this worker's operator has
-                allowlisted your pubkey for unpaid usage — otherwise the job is
-                ignored by the worker.
+                Submit without payment.
               </span>
+              {#if freelistListUrl}
+                <a
+                  class="mt-1 block text-[11px] text-primary hover:underline"
+                  href={freelistListUrl}
+                  target="_blank"
+                  rel="noreferrer">View this worker's freelist</a>
+              {/if}
+              {#if unpaidRun && !selectedWorker.freeForUser}
+                <span class="mt-1 block text-[11px] text-red-300">
+                  You are not on the freelist of this worker.
+                </span>
+              {/if}
             </span>
           </label>
         {/if}
       {/if}
     </div>
 
-    {#if selectedWorker && !paymentWaived && walletAvailable && compatibleMints.length === 0}
+    {#if selectedWorker && !paymentWaived && walletAvailable && compatibleMints.length === 0 && !freelistFetching}
       <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">No overlapping mints between your wallet and the selected worker.</div>
     {/if}
 
@@ -523,10 +590,16 @@
       <div class="rounded-md border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">Selected mint balance is lower than the prepayment.</div>
     {/if}
 
+    {#if freelistFetching}
+      <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">Fetching worker freelist</div>
+    {/if}
+
     <button
-      class="inline-flex w-full items-center justify-center gap-2 rounded-md border border-green-500/40 bg-green-500/20 px-3 py-2.5 text-sm font-semibold text-green-100 hover:bg-green-500/30 disabled:cursor-not-allowed disabled:opacity-50"
+      class="inline-flex w-full items-center justify-center gap-2 rounded-md border px-3 py-2.5 text-sm font-semibold {freelistFetching
+        ? 'cursor-not-allowed border-input bg-muted text-muted-foreground'
+        : 'border-green-500/40 bg-green-500/20 text-green-30 hover:bg-green-500/30 disabled:cursor-not-allowed disabled:opacity-50'}"
       onclick={onSubmit}
-      disabled={rerunSubmitting || generatingPaymentToken || !isFormValid}>
+      disabled={rerunSubmitting || generatingPaymentToken || !isFormValid || freelistFetching}>
       <span class="{rerunSubmitting || generatingPaymentToken ? 'animate-pulse' : ''}">▶</span>
       {rerunSubmitting
         ? 'Submitting…'
