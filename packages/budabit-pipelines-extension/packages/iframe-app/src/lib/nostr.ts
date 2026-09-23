@@ -63,6 +63,14 @@ export const LOOM_WORKER_RELAYS = [
 eventStore.eventLoader = createEventLoaderForStore(eventStore, pool, {
   lookupRelays: PROFILE_LOOKUP_RELAYS,
   bufferTime: 250,
+  // Never flush by size: applesauce-loaders@5.1.0's batchLoader flushes
+  // SYNCHRONOUSLY when the buffer hits bufferSize, and the pointer whose
+  // queue push trips the flush subscribes to the batch subject one statement
+  // too late — it waits on a batch that never contains its event and the
+  // profile/mailbox never resolves (the fetched event is dropped before it
+  // reaches the store). A cap that can't be reached keeps every flush on the
+  // 250ms timer, which is always async and therefore race-free.
+  bufferSize: Number.MAX_SAFE_INTEGER,
 });
 
 function setsEqual<T>(a: Set<T>, b: Set<T>): boolean {
