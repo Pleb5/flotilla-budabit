@@ -8,8 +8,10 @@ The current architecture is community-first. A deployment can point at a default
 
 ## Fast Path
 
+Use Node.js 22 (Jod) and pnpm 10.12.4, matching `.nvmrc` and `package.json`.
+
 ```sh
-git clone https://github.com/Pleb5/flotilla-budabit.git budabit
+git clone --recurse-submodules --branch master https://github.com/Pleb5/flotilla-budabit.git budabit
 cd budabit
 git submodule sync --recursive
 git submodule update --init --recursive
@@ -19,6 +21,11 @@ pnpm run build-in-production
 Upload the contents of `build/` to your host.
 
 That is enough for a basic deployment.
+
+The only submodule is `packages/flotilla-extension-template`. Core/UI, pipelines,
+and Welshman source are tracked in Budabit. Kanban lives in its
+[own repository](https://grasp.budabit.club/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/budabit-kanban-extension.git)
+and is not needed to clone, install, build, or test the host.
 
 ## Minimum `.env`
 
@@ -227,16 +234,20 @@ podman run -d --name budabit -e PORT=3000 -p 3000:3000 budabit
 
 ## Frequent Updates
 
-If this is your own instance and you update often, your normal cycle is:
+For a deployment checkout without local source commits (keep branding in `.env`):
 
 ```sh
-git pull --rebase
+git pull --ff-only
 git submodule sync --recursive
 git submodule update --init --recursive
 pnpm run build-in-production
 ```
 
 Then use the ordered deployment procedure below. Uploading `build/` as one parallel mirror does not preserve the atomic update contract.
+
+For local source commits or checkouts predating the submodule-to-directory
+migration, follow [Updating and Migrating Older Checkouts](../../CONTRIBUTING.md#updating-and-migrating-older-checkouts).
+Do not use recursive pull/rebase to reconcile locally committed template pointers.
 
 ## Deploying with SFTP/LFTP (Recommended Strategy)
 

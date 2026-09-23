@@ -5,7 +5,7 @@ Budabit is a community-first Nostr client for social Git collaboration.
 ## Prerequisites
 
 - **Node.js**: This project requires Node.js LTS (Jod) as specified in `.nvmrc`
-- **pnpm**: Package manager for Node.js
+- **pnpm**: Version **10.12.4**, pinned in `package.json`
 - **Git**: For cloning and submodule management
 
 ## Setup Instructions
@@ -36,8 +36,8 @@ node --version
 ### 2. Install pnpm
 
 ```bash
-# Install pnpm globally
-npm install -g pnpm
+# Install the version pinned by this repository
+npm install -g pnpm@10.12.4
 
 # Verify installation
 pnpm --version
@@ -46,26 +46,35 @@ pnpm --version
 ### 3. Clone the Repository
 
 ```bash
-# Clone the repository
-git clone https://github.com/Pleb5/flotilla-budabit.git budabit
+# Clone the development branch and its pinned template submodule
+git clone --recurse-submodules --branch dev https://github.com/Pleb5/flotilla-budabit.git budabit
 cd budabit
+# Create a branch for your contribution
+git switch -c my-feature
 ```
 
-### 4. Initialize Git Submodules
+### 4. Sync the Template Submodule
 
-This project includes multiple Git submodules (nostr-git core/ui and extension workspaces):
+The only Git submodule is `packages/flotilla-extension-template`. The recursive
+clone above initializes it. For an existing checkout or a nonrecursive clone:
 
 ```bash
-# Sync submodule remotes from .gitmodules and fetch pinned commits
+# Sync the template remote and fetch its pinned commit
 git submodule sync --recursive
 git submodule update --init --recursive
 ```
 
+`packages/nostr-git-core`, `packages/nostr-git-ui`,
+`packages/budabit-pipelines-extension`, and `packages/welshman` are tracked in
+this repository. Edit them here; they do not have submodule pointers to update.
+Kanban is maintained in its [standalone repository](https://grasp.budabit.club/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/budabit-kanban-extension.git)
+and is not part of Budabit's clone, workspace, or test setup.
+
 ### 5. Install Dependencies
 
 ```bash
-# Install all dependencies
-pnpm install
+# Install the committed dependency versions (also builds core/UI)
+pnpm install --frozen-lockfile
 ```
 
 ### 6. Start Development Server
@@ -191,14 +200,30 @@ node --version
 nvm use lts/jod
 ```
 
-**Submodule issues**: If submodules are in a broken local state:
+If Git reports `not our ref`, the configured remote cannot supply the pinned
+commit; reinstalling Node dependencies will not repair it. Check that you are on
+the current branch. Older revisions still reference the removed Kanban submodule.
+For checkouts predating the core/UI migration, follow the
+[migration and rebase guide](CONTRIBUTING.md#updating-and-migrating-older-checkouts).
+
+**Template checkout issues**: Inspect and save changes inside the template before
+deinitializing it. For a clean submodule:
 
 ```bash
-# Remove and reinitialize submodules
-git submodule deinit -f --all
+# Reinitialize only the template; deinit refuses to discard local modifications
+git submodule deinit -- packages/flotilla-extension-template
 git submodule sync --recursive
-git submodule update --init --recursive
+git submodule update --init --recursive -- packages/flotilla-extension-template
 ```
+
+**Sharp/libvips installation errors**: A system-installed libvips can trigger a
+Sharp source build and a missing `node-gyp` error. Use the prebuilt binaries:
+
+```bash
+SHARP_IGNORE_GLOBAL_LIBVIPS=1 pnpm install --frozen-lockfile
+```
+
+The production install script already sets this variable.
 
 ## Development
 
@@ -252,8 +277,8 @@ If you want the shortest path for running your own instance, read `docs/ops/self
 To run your own Budabit instance, it's as simple as:
 
 ```sh
-# Install dependencies (including submodules)
-git clone https://github.com/Pleb5/flotilla-budabit.git budabit
+# Clone production and its pinned template submodule
+git clone --recurse-submodules --branch master https://github.com/Pleb5/flotilla-budabit.git budabit
 cd budabit
 git submodule sync --recursive
 git submodule update --init --recursive
@@ -267,14 +292,17 @@ npx serve -s build
 
 `build-in-production.sh` wraps the full production flow, including dependency install and native rebuilds.
 
-For frequent self-hosted updates:
+For self-hosted updates without local source commits (branding can stay in `.env`):
 
 ```sh
-git pull --rebase
+git pull --ff-only
 git submodule sync --recursive
 git submodule update --init --recursive
 pnpm run build-in-production
 ```
+
+For deployments with local commits or an old submodule layout, use the
+[contributor update/migration procedure](CONTRIBUTING.md#updating-and-migrating-older-checkouts).
 
 Or, if you prefer to use a container, build and run the local Dockerfile. The runtime image exposes port `1847` and honors `PORT`:
 

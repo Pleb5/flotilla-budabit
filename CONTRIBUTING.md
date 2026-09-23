@@ -2,59 +2,70 @@
 
 ## Project Overview
 
-Flotilla Budabit is a fork of [Flotilla](https://github.com/coracle-social/flotilla) - a svelte/typescript/capacitor project that serves as an alternative to Discord for Nostr users. This fork adds budabit-specific features and integrates nostr-git for decentralized Git operations.
+Budabit is a community-first Nostr client for social Git collaboration, forked
+from [Flotilla](https://github.com/coracle-social/flotilla). It uses SvelteKit,
+Svelte 5, TypeScript, and in-tree nostr-git workspaces for decentralized Git operations.
 
 A high-quality UX is a priority, with an emphasis on well-tested, intuitive designs, and robust implementations.
 
 ## Getting Started
 
-Run `pnpm run dev` to get a dev server, and `pnpm run check:watch` to watch for typescript errors. When you're ready to commit, a pre-commit hook will run to lint and typecheck your work. To run the project on Android or iOS, use Android Studio or Xcode.
+Follow the [README setup](README.md#setup-instructions) with Node.js 22 (Jod) and
+pnpm 10.12.4. Work on a feature branch based on `origin/dev`:
 
-The `master` branch is intended to be automatically deployed to production, so always work on feature branches based on the `dev` branch.
-
-### Working with Submodules
-
-This project uses multiple **git submodules**, including:
-
-- `packages/nostr-git-core` (`https://github.com/Pleb5/nostr-git-fork.git`)
-- `packages/nostr-git-ui` (`https://github.com/Pleb5/nostr-git-ui.git`)
-
-When cloning or updating:
-
-```bash
-# Sync submodule remotes from .gitmodules and fetch pinned commits
-git submodule sync --recursive
-git submodule update --init --recursive
+```sh
+git clone --recurse-submodules --branch dev https://github.com/Pleb5/flotilla-budabit.git budabit
+cd budabit
+git switch -c my-feature origin/dev
+pnpm install --frozen-lockfile
+pnpm dev
 ```
 
-Changes to `packages/nostr-git-core` and `packages/nostr-git-ui` should be contributed to their own repositories, then pulled into this repo by updating submodule pointers.
+`pnpm dev` builds and watches core/UI as well as the app. Use `pnpm check:watch`
+for continuous typechecking. Before submitting, run `pnpm check`, `pnpm lint`,
+and the focused tests for your change; there is no repository-provided pre-commit
+hook that runs these checks automatically. Run app unit tests with `pnpm test:main`
+and see the README for Playwright setup.
+
+`master` is the production branch. Open feature PRs against `dev`. If contributing
+through a GitHub fork, keep `origin` pointing at Pleb5 and add your fork as a
+separate push remote:
+
+```sh
+git remote add fork https://github.com/YOUR_ACCOUNT/flotilla-budabit.git
+git push -u fork my-feature
+```
+
+### Workspace Packages and the Template Submodule
+
+Core (`packages/nostr-git-core`), UI (`packages/nostr-git-ui`), pipelines
+(`packages/budabit-pipelines-extension`), and Welshman (`packages/welshman`) are
+ordinary directories tracked by Budabit. Changes to their source belong in a
+Budabit commit and PR.
+
+The only submodule is `packages/flotilla-extension-template`. Its pinned checkout
+is required by the root Vitest project configuration, including selected app tests.
+Contribute template changes to [Pleb5/flotilla-extension-template](https://github.com/Pleb5/flotilla-extension-template),
+then update the gitlink here to the exact reviewed, publicly fetchable commit:
+
+```sh
+git -C packages/flotilla-extension-template fetch origin
+git -C packages/flotilla-extension-template checkout --detach REVIEWED_COMMIT
+git add packages/flotilla-extension-template
+git commit -m "chore(template): update reviewed template revision"
+```
+
+Kanban is an independent [repository on GRASP](https://grasp.budabit.club/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/budabit-kanban-extension.git).
+Clone it outside Budabit, install its own dependencies, and submit widget changes
+there. Budabit does not discover or test an optional local Kanban checkout.
 
 ### Working with Welshman
 
-This project may use unreleased versions of [welshman](https://welshman.coracle.social). To develop against a local copy, clone welshman to a parent directory and add `link:../welshman/packages/packagename` to the `pnpm.overrides` section of your `package.json`:
-
-```javascript
-#!/usr/bin/env node
-
-import fs from "fs"
-import path from "path"
-
-const packageJson = JSON.parse(fs.readFileSync("./package.json", "utf8"))
-
-packageJson.pnpm.overrides = Object.keys(packageJson.dependencies)
-  .filter(pkg => pkg.startsWith("@welshman/"))
-  .reduce((acc, pkg) => {
-    const packageName = pkg.split("/")[1]
-    acc[pkg] = `link:../welshman/packages/${packageName}`
-    return acc
-  }, {})
-
-fs.writeFileSync("./package.json", JSON.stringify(packageJson, null, 2) + "\n")
-
-console.log("Added welshman package overrides.")
-```
-
-**Important:** Avoid committing overrides to `package.json` or `pnpm-lock.yaml`. These overrides persist until another `pnpm install` command runs.
+Budabit owns a vendored Welshman fork under `packages/welshman`. The workspace
+packages resolve directly to TypeScript source; no sibling checkout or package
+overrides are needed. Edit that source here and run `pnpm test:welshman` and
+`pnpm check`. See [packages/welshman/FORK.md](packages/welshman/FORK.md) for the
+fork's intentional differences and the `git subtree` upstream-import procedure.
 
 ## File Structure
 
@@ -71,8 +82,10 @@ The main parts of the application are as follows:
 - `src/app/editor` - configuration for `@welshman/editor` for use in various app views.
 - `src/app/components` - reusable components that depend on other `app` stuff.
 - `src/routes` - file-based routing interpreted by sveltekit.
-- **`packages/nostr-git-core`** - **git submodule** containing nostr-git core protocol logic.
-- **`packages/nostr-git-ui`** - **git submodule** containing nostr-git UI and worker integration.
+- **`packages/nostr-git-core`** - in-tree workspace containing nostr-git core protocol logic.
+- **`packages/nostr-git-ui`** - in-tree workspace containing nostr-git UI and worker integration.
+- **`packages/welshman`** - vendored Welshman source and its workspace packages.
+- **`packages/flotilla-extension-template`** - the sole Git submodule.
 
 Application organization is based on an acyclic dependency graph:
 
@@ -86,7 +99,9 @@ The main stylistic/organizational rule when working in this project is that impo
 
 ## System Architecture
 
-Flotilla's architecture generally mirrors the file structure. State is stored using Svelte `store`s provided either by `@welshman/app` or by `app/core/state`, allowing for idiomatic svelte 4 usage (svelte 5 runes are [ghey](https://habla.news/u/hodlbod@coracle.social/1739830562159) and not allowed outside of UI components).
+The architecture generally mirrors the file structure. Shared state uses Svelte
+stores from `@welshman/app` or `app/core/state`. Keep shared application state in
+those stores; use Svelte 5 runes within UI components where appropriate.
 
 State is then synchronized to local storage or indexeddb using storage helpers provided by welshman in `routes/+layout.svelte`. Other top level synchronization logic generally belongs there.
 
@@ -136,21 +151,66 @@ If you find bugs or want to add features that would benefit **all Flotilla users
 2. Once merged upstream, we can pull those changes into this fork
 3. This ensures improvements benefit the entire Flotilla community
 
-#### 3. **Git Functionality → `nostr-git` Submodule**
+#### 3. **Git Functionality → In-Tree `nostr-git` Workspaces**
 
-The `packages/nostr-git-core` and `packages/nostr-git-ui` directories are **separate git repositories** managed as submodules. For changes to git-related functionality:
+Edit `packages/nostr-git-core` and `packages/nostr-git-ui` directly and include
+those files in the Budabit PR. They have been ordinary tracked directories since
+June 2026; changing a separate repository or running `git submodule update --remote`
+does not update them.
 
-1. Contribute to [Pleb5/nostr-git-fork](https://github.com/Pleb5/nostr-git-fork) and/or [Pleb5/nostr-git-ui](https://github.com/Pleb5/nostr-git-ui)
-2. Update the relevant submodule reference in this repository after changes are merged
-3. Do not mix unrelated app changes and submodule updates in the same commit unless they are tightly coupled
+Use `pnpm dev` to rebuild/watch both libraries with the app, or build explicitly:
 
 ```bash
-# To update submodules to tracked branch heads
-git submodule sync --recursive
-git submodule update --init --remote packages/nostr-git-core packages/nostr-git-ui
-git add packages/nostr-git-core packages/nostr-git-ui
-git commit -m "chore(submodules): update nostr-git core/ui"
+pnpm --filter @nostr-git/core --filter @nostr-git/ui run build
+pnpm check
 ```
+
+Run focused tests for the library being changed. Keep unrelated app and library
+changes separate; tightly coupled changes may share a commit. Coordinate any
+backport to an external upstream independently of the Budabit PR.
+
+### Updating and Migrating Older Checkouts
+
+For a clean feature branch using the current layout:
+
+```sh
+git fetch --no-recurse-submodules origin
+git -c submodule.recurse=false rebase origin/dev
+git submodule sync --recursive
+git submodule update --init --recursive
+pnpm install --frozen-lockfile
+```
+
+`clone --recurse-submodules` initializes the template; it does not set
+`submodule.recurse=true`. With that setting enabled, `git pull --rebase` can fail
+with `cannot rebase with locally recorded submodule modifications` when local
+commits change a gitlink. Fetch/rebase the parent separately as above, then update
+the template checkout. Publish template commits before referencing them in Budabit.
+
+**Pre-June-2026 core/UI/pipelines checkouts:** their initialized submodule files
+can block rebasing onto the conversion to ordinary directories, even when an
+app-only feature and the submodules are clean. Git reports `untracked working tree
+files would be overwritten by checkout` and `could not detach HEAD`.
+
+Before crossing that conversion, save any work/commits from the old package
+repositories in independent checkouts. While still on the old branch, deinitialize
+only paths that are still submodules there:
+
+```sh
+git submodule deinit -- packages/nostr-git-core packages/nostr-git-ui packages/budabit-pipelines-extension
+```
+
+Use the subset listed by that revision's `.gitmodules`; do not force deinit to
+discard changes. Then fetch/rebase as above. A feature commit that changes an old
+gitlink will still have a file/directory or modify/delete conflict: port its
+underlying package changes into the new tracked directory rather than blindly
+skipping the commit.
+
+**Removing the former Kanban submodule:** save any local widget work in its
+standalone repository first. On a revision that still registers it, run
+`git submodule deinit -- packages/budabit-kanban-extension` before updating
+Budabit. If an old checkout leaves that directory behind, move it outside Budabit;
+the current explicit workspace list and test configuration do not load it.
 
 ### Issues and Pull Requests
 
@@ -160,7 +220,8 @@ All PRs should be opened against the `dev` branch (unless for hotfixes). **Clear
 
 - Budabit-specific (changes in `src/app/core/git-*`, `src/app/components`, or `src/app/util`)
 - A potential upstream contribution (core Flotilla changes)
-- A submodule update (nostr-git)
+- An in-tree core/UI, pipelines, or Welshman change
+- A template submodule update
 
 ## Communication
 

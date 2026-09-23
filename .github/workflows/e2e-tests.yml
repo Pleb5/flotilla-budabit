@@ -2,9 +2,9 @@ name: E2E Tests
 
 on:
   push:
-    branches: [main, master]
+    branches: [dev, main, master]
   pull_request:
-    branches: [main, master]
+    branches: [dev, main, master]
   workflow_dispatch:
 
 jobs:
@@ -16,21 +16,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: false
-
-      # Kanban is optional and must not be fetched or tested in CI.
-      - name: Checkout CI submodules (excluding Kanban)
-        run: git submodule update --init --recursive -- packages/flotilla-extension-template
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 10.12.4
 
       - name: Get pnpm store directory
         shell: bash
@@ -46,7 +42,7 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
         run: pnpm e2e:install
@@ -88,24 +84,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          submodules: false
-
-      # Kanban is optional and must not be fetched or tested in CI.
-      - name: Checkout CI submodules (excluding Kanban)
-        run: git submodule update --init --recursive -- packages/flotilla-extension-template
+          submodules: recursive
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: latest
+          version: 10.12.4
 
       - name: Install dependencies
-        run: pnpm install
+        run: pnpm install --frozen-lockfile
 
       - name: Install Chromium
         run: pnpm exec playwright install --with-deps chromium

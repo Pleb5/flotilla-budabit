@@ -2,9 +2,11 @@
 trigger: always_on
 ---
 
-When being asked to fix a feature or a bug, make sure to run `pnpm build` in the diretory of any changed submodules (e.g. `flotilla-extensions/flotilla/packages/nostr-git-ui`) to ensure that the changes are reflected in the web app.
+Core and UI are in-tree workspace packages, not submodules. Use `pnpm dev` from
+the Budabit root to rebuild and watch them together with the app. For a one-off
+library build, run `pnpm --filter @nostr-git/core --filter @nostr-git/ui run build`.
 
-To preview the changes in the web app, run `pnpm run dev` in the root directory of the project (e.g. `flotilla-extensions/flotilla`).
+To preview changes, use that full development stack from the repository root.
 
 Then you can test the changes using the playwright mcp tools. Use the IP address and not the localhost address.
 

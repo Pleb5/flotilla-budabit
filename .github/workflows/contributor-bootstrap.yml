@@ -1,0 +1,39 @@
+name: Contributor bootstrap
+
+on:
+  push:
+    branches: [dev, main, master]
+  pull_request:
+    branches: [dev, main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Verify pinned submodule checkouts
+        run: |
+          git submodule foreach --recursive 'test "$(git rev-parse HEAD)" = "$sha1"'
+          git diff --exit-code --ignore-submodules=none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+      - run: pnpm install --frozen-lockfile
+        env:
+          SHARP_IGNORE_GLOBAL_LIBVIPS: '1'
+      - run: pnpm check
+      - run: pnpm exec vitest run --project=main tests/ci-extensions.test.ts
+      - run: pnpm build
+      - name: Verify bootstrap leaves tracked files clean
+        run: git diff --exit-code --ignore-submodules=none

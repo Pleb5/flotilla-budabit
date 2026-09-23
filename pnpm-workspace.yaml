@@ -1,7 +1,10 @@
+# Keep membership explicit: standalone widgets are developed outside Budabit.
 packages:
-  - 'packages/*'
-  - 'packages/budabit-huddle-extension/packages/*'
+  - 'packages/nostr-git-core'
+  - 'packages/nostr-git-ui'
+  - 'packages/flotilla-extension-template'
   - 'packages/budabit-pipelines-extension'
+  - 'packages/welshman'
   - 'packages/welshman/packages/*'
 allowBuilds:
   cbor-extract: false

@@ -1,4 +1,4 @@
-FROM node:20-slim AS build
+FROM node:22-slim AS build
 
 WORKDIR /app
 
@@ -14,10 +14,11 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 # Install pnpm
-RUN npm install -g pnpm@latest
+RUN npm install -g pnpm@10.12.4
 
 # Install deps (cache-friendly)
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY patches/ ./patches/
 RUN pnpm install --frozen-lockfile
 
 # Build
@@ -26,7 +27,7 @@ ENV NODE_OPTIONS=--max_old_space_size=16384
 RUN ./build-in-production.sh
 
 
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 
 WORKDIR /app
 
