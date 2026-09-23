@@ -30,6 +30,7 @@ import type {
   UserCommunityReportStates,
 } from "@app/core/community-membership"
 import {isCommunityPersonBanned} from "@app/core/community-reports"
+import {createDmDecryptionQueue} from "@app/core/dm-decryption-queue"
 export {DM_KIND}
 
 export type DmRelayRecommendationSourceKind =
@@ -950,27 +951,13 @@ const decryptDmContent = async (
   return decrypt($signer, counterparty, content)
 }
 
-const plaintextPromisesByKey = new Map<string, Promise<string | undefined>>()
-const MAX_CONCURRENT_DM_DECRYPTIONS = 6
-const pendingDmDecryptions: Array<() => void> = []
-let activeDmDecryptions = 0
+const decryptQueue = createDmDecryptionQueue<string>(2)
 
-const runDmDecryption = async <T>(fn: () => Promise<T>) => {
-  if (activeDmDecryptions >= MAX_CONCURRENT_DM_DECRYPTIONS) {
-    await new Promise<void>(resolve => pendingDmDecryptions.push(resolve))
-  }
-
-  activeDmDecryptions += 1
-
-  try {
-    return await fn()
-  } finally {
-    activeDmDecryptions -= 1
-    pendingDmDecryptions.shift()?.()
-  }
-}
-
-export const ensureDmPlaintext = async (event: TrustedEvent, selfPubkey: string) => {
+export const ensureDmPlaintext = async (
+  event: TrustedEvent,
+  selfPubkey: string,
+  options: {priority?: number; signal?: AbortSignal} = {},
+) => {
   const existing = getPlaintext(event)
 
   if (!event.content || existing !== undefined) {
@@ -978,38 +965,33 @@ export const ensureDmPlaintext = async (event: TrustedEvent, selfPubkey: string)
   }
 
   const promiseKey = `${selfPubkey}:${event.id}`
-  const existingPromise = plaintextPromisesByKey.get(promiseKey)
-  if (existingPromise) return existingPromise
+  const $signer = signer.get()
+  if (!$signer) return
+  return decryptQueue(
+    promiseKey,
+    async () => {
+      if (pubkey.get() !== selfPubkey || signer.get() !== $signer) return
 
-  const promise = (async () => {
-    const $signer = signer.get()
-    if (!$signer) return
+      const counterparty = getDmCounterparty(event, selfPubkey)
+      if (!counterparty) return
 
-    const counterparty = getDmCounterparty(event, selfPubkey)
-    if (!counterparty) return
+      let result: string | undefined
 
-    let result: string | undefined
-
-    try {
-      result = await runDmDecryption(() => decryptDmContent($signer, counterparty, event.content))
-    } catch (error: any) {
-      if (!String(error).match(/invalid base64/)) {
-        throw error
+      try {
+        result = await decryptDmContent($signer, counterparty, event.content)
+      } catch (error: any) {
+        if (!String(error).match(/invalid base64/)) {
+          throw error
+        }
       }
-    }
 
-    if (result !== undefined) {
-      setPlaintext(event, result)
-    }
+      if (pubkey.get() !== selfPubkey || signer.get() !== $signer) return
+      if (result !== undefined) {
+        setPlaintext(event, result)
+      }
 
-    return getPlaintext(event)
-  })()
-
-  plaintextPromisesByKey.set(promiseKey, promise)
-
-  try {
-    return await promise
-  } finally {
-    plaintextPromisesByKey.delete(promiseKey)
-  }
+      return getPlaintext(event)
+    },
+    options,
+  )
 }

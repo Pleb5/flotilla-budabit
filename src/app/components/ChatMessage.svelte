@@ -51,6 +51,7 @@
 
   $effect(() => {
     let cancelled = false
+    const controller = new AbortController()
     const eventId = event.id
     const existing = getPlaintext(event)
 
@@ -60,7 +61,7 @@
 
     if ($pubkey && existing === undefined && event.content) {
       decrypting = true
-      ensureDmPlaintext(event, $pubkey)
+      ensureDmPlaintext(event, $pubkey, {priority: 100, signal: controller.signal})
         .then(result => {
           if (cancelled) return
           if (event.id !== eventId) return
@@ -83,6 +84,7 @@
 
     return () => {
       cancelled = true
+      controller.abort()
     }
   })
 

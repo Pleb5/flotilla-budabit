@@ -2,7 +2,6 @@
   import type {Snippet} from "svelte"
   import {onMount} from "svelte"
   import {page} from "$app/stores"
-  import {sleep} from "@welshman/lib"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Magnifier from "@assets/icons/magnifier.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -23,8 +22,6 @@
   const openMenu = () => pushModal(ChatMenu)
 
   let term = $state("")
-
-  const promise = sleep(10000)
 
   onMount(() => {
     document.body.classList.add("chat-md-sidebar")
@@ -55,7 +52,7 @@
       placeholder="Search chats or people..." />
   </label>
   <div class="overflow-auto">
-    <ChatSearchResults {term} loadingPromise={promise} />
+    <ChatSearchResults {term} />
   </div>
 </SecondaryNav>
 <Page>

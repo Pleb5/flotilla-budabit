@@ -96,6 +96,8 @@ export interface MockRelayTelemetryEntry {
  * Options for configuring the mock relay
  */
 export interface MockRelayOptions {
+  /** Model NIP-01 history limits (including limit: 0 live-only reads). */
+  respectLimits?: boolean
   /** Challenge on connection and require AUTH before REQ on these test relays. */
   authRequiredRelays?: string[]
   /** Events to return when app queries (will be filtered by subscription filters) */
@@ -160,9 +162,11 @@ export class MockRelay {
     {resolve: (event: NostrEvent) => void; reject: (error: Error) => void}[]
   > = new Map()
   private isSetup: boolean = false
+  private respectLimits = false
   private page?: Page
 
   constructor(options?: MockRelayOptions) {
+    this.respectLimits = options?.respectLimits || false
     this.authRequiredRelays = options?.authRequiredRelays || []
     if (options?.seedEvents) {
       this.seedEventsList = [...options.seedEvents]
@@ -218,6 +222,7 @@ export class MockRelay {
    * Injects a mock WebSocket class that intercepts relay connections.
    */
   async setup(page: Page, options?: MockRelayOptions): Promise<void> {
+    if (options?.respectLimits !== undefined) this.respectLimits = options.respectLimits
     // Merge options if provided
     if (options?.seedEvents) {
       this.seedEventsList = [...this.seedEventsList, ...options.seedEvents]
@@ -304,6 +309,7 @@ export class MockRelay {
         publishResponsesByRelay,
         subscriptionOutcomesByRelay,
         authRequiredRelays,
+        respectLimits,
       }) => {
         // Store original WebSocket
         const OriginalWebSocket = window.WebSocket
@@ -499,9 +505,22 @@ export class MockRelay {
                 ...seedEvents,
                 ...(seedEventsByRelay[this.url] || seedEventsByRelay[configuredUrl] || []),
               ]
-              const matchingEvents = availableEvents.filter((event: NostrEvent) =>
-                this.eventMatchesFilters(event, filters),
-              )
+              const matchingEvents = respectLimits
+                ? Array.from(
+                    new Map(
+                      filters
+                        .flatMap(filter =>
+                          availableEvents
+                            .filter(event => this.eventMatchesFilters(event, [filter]))
+                            .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))
+                            .slice(0, filter.limit ?? Infinity),
+                        )
+                        .map(event => [event.id, event]),
+                    ).values(),
+                  )
+                : availableEvents.filter((event: NostrEvent) =>
+                    this.eventMatchesFilters(event, filters),
+                  )
 
               for (const event of matchingEvents) {
                 this.sendEvent(subId, event)
@@ -709,6 +728,7 @@ export class MockRelay {
         interceptUrls: this.interceptUrls,
         latency: this.latency,
         responseLatencyByKind: this.responseLatencyByKind,
+        respectLimits: this.respectLimits,
         publishResponsesByRelay: this.publishResponsesByRelay,
         subscriptionOutcomesByRelay: this.subscriptionOutcomesByRelay,
         authRequiredRelays: this.authRequiredRelays,

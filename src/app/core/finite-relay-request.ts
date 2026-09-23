@@ -29,6 +29,10 @@ export type FiniteRelayRequestOptions = {
   owner?: string
   maxEvents?: number
   onEvent?: (event: TrustedEvent, relay: string) => void
+  onPhase?: (phase: "queued" | "authenticating" | "loading") => void
+  /** AUTH has its own bounded deadline; signer approval must not consume the data deadline. */
+  subscribeAuth?: (listener: (waiting: boolean) => void) => () => void
+  authTimeoutMs?: number
 }
 
 type Timer = ReturnType<typeof setTimeout>
@@ -63,6 +67,9 @@ export const createFiniteRelayRequester = (dependencies: FiniteRelayRequestDepen
     let startedAt: number | undefined
     let timer: Timer | undefined
     let settled = false
+    let waitingForAuth = false
+    let authDeadline: number | undefined
+    let unsubscribeAuth: (() => void) | undefined
 
     return new Promise(resolve => {
       const startTimer = (delay: number, timeoutReason: string) => {
@@ -77,6 +84,7 @@ export const createFiniteRelayRequester = (dependencies: FiniteRelayRequestDepen
         reason ||= nextReason
 
         if (timer) clearTimer(timer)
+        unsubscribeAuth?.()
         options.signal?.removeEventListener("abort", onCallerAbort)
 
         resolve({
@@ -132,6 +140,36 @@ export const createFiniteRelayRequester = (dependencies: FiniteRelayRequestDepen
         Math.max(FINITE_RELAY_ADMISSION_TIMEOUT_MS, options.timeoutMs),
         "Request could not start because the relay subscription queue remained full",
       )
+      options.onPhase?.("queued")
+      const resumeDeadline = () => {
+        if (settled) return
+        if (waitingForAuth) {
+          authDeadline ??= now() + (options.authTimeoutMs ?? 100_000)
+          options.onPhase?.("authenticating")
+          startTimer(Math.max(1, authDeadline - now()), "Relay authentication timed out")
+        } else if (startedAt !== undefined) {
+          options.onPhase?.("loading")
+          startTimer(options.timeoutMs, `Request timed out after ${options.timeoutMs}ms`)
+        } else {
+          options.onPhase?.("queued")
+          startTimer(
+            Math.max(
+              1,
+              queuedAt + Math.max(FINITE_RELAY_ADMISSION_TIMEOUT_MS, options.timeoutMs) - now(),
+            ),
+            "Request could not start because the relay subscription queue remained full",
+          )
+        }
+      }
+      unsubscribeAuth = options.subscribeAuth?.(waiting => {
+        if (waiting === waitingForAuth || settled) return
+        waitingForAuth = waiting
+        resumeDeadline()
+      })
+      if (settled) {
+        unsubscribeAuth?.()
+        return
+      }
 
       const receiveEvent = (event: TrustedEvent, relay: string) => {
         if (settled) return
@@ -166,7 +204,7 @@ export const createFiniteRelayRequester = (dependencies: FiniteRelayRequestDepen
           onStart: () => {
             if (settled || startedAt !== undefined) return
             startedAt = now()
-            startTimer(options.timeoutMs, `Request timed out after ${options.timeoutMs}ms`)
+            resumeDeadline()
           },
           onEvent: receiveEvent,
           onDuplicate: receiveEvent,

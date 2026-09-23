@@ -1,10 +1,9 @@
 <script lang="ts">
-  import {onMount} from "svelte"
   import {page} from "$app/stores"
   import {remove, formatTimestamp} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {pubkey, forceLoadMessagingRelayList, getPlaintext} from "@welshman/app"
-  import {ensureDmPlaintext, getMessagingRelayHints} from "@app/core/dm"
+  import {pubkey, getPlaintext} from "@welshman/app"
+  import {ensureDmPlaintext} from "@app/core/dm"
   import NotificationDot from "@lib/components/NotificationDot.svelte"
   import Link from "@lib/components/Link.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
@@ -32,6 +31,7 @@
 
   $effect(() => {
     let cancelled = false
+    const controller = new AbortController()
     const message = latestMessage
 
     if (!message) {
@@ -48,7 +48,7 @@
 
     if ($pubkey && existing === undefined && message.content) {
       previewDecrypting = true
-      ensureDmPlaintext(message, $pubkey)
+      ensureDmPlaintext(message, $pubkey, {signal: controller.signal})
         .then(result => {
           if (cancelled) return
           if (latestMessage !== message) return
@@ -71,12 +71,7 @@
 
     return () => {
       cancelled = true
-    }
-  })
-
-  onMount(() => {
-    for (const pk of others) {
-      forceLoadMessagingRelayList(pk, getMessagingRelayHints())
+      controller.abort()
     }
   })
 </script>

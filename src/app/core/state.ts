@@ -60,6 +60,7 @@ import {
   makeUserData,
 } from "@welshman/app"
 import {COMMUNITY_ALERTS_SUBSCRIPTION_KIND} from "@app/core/community-alerts"
+import {DM_KIND, makeDmHistoryFilters} from "@app/core/dm-history"
 
 export const fromCsv = (s: string) => (s || "").split(",").filter(identity)
 
@@ -67,7 +68,7 @@ export const ROOM = "h"
 
 export const GENERAL = "_"
 
-export const DM_KIND = 4444
+export {DM_KIND}
 
 export const ENABLE_ZAPS = true
 
@@ -424,13 +425,70 @@ export const buildChatsById = (events: TrustedEvent[], selfPubkey?: string) => {
   return chatsById
 }
 
-export const chatsById = derived([pubkey, chatMessages], ([$pubkey, $chatMessages]) =>
-  buildChatsById($chatMessages, $pubkey),
+export const chatsById = derived(
+  pubkey,
+  ($pubkey, set) => {
+    const chats = new Map<string, Chat>()
+    set(chats)
+    if (!$pubkey) return
+    const eventsByChat = new Map<string, Map<string, TrustedEvent>>()
+    const chatByEvent = new Map<string, string>()
+    const update = ({added, removed}: {added: TrustedEvent[]; removed: Set<string>}) => {
+      const changed = new Set<string>()
+      for (const id of removed) {
+        const chatId = chatByEvent.get(id)
+        if (!chatId) continue
+        eventsByChat.get(chatId)?.delete(id)
+        chatByEvent.delete(id)
+        changed.add(chatId)
+      }
+      for (const event of added) {
+        if (event.kind !== DM_KIND || chatByEvent.has(event.id)) continue
+        const chatId = getDmCounterparty(event, $pubkey)
+        if (!chatId) continue
+        const events = eventsByChat.get(chatId) || new Map<string, TrustedEvent>()
+        events.set(event.id, event)
+        eventsByChat.set(chatId, events)
+        chatByEvent.set(event.id, chatId)
+        changed.add(chatId)
+      }
+      for (const id of changed) {
+        const chat = buildChatsById(Array.from(eventsByChat.get(id)?.values() || []), $pubkey).get(
+          id,
+        )
+        if (chat) chats.set(id, chat)
+        else {
+          chats.delete(id)
+          eventsByChat.delete(id)
+        }
+      }
+      if (changed.size) set(new Map(chats))
+    }
+    update({added: repository.query(makeDmHistoryFilters($pubkey)), removed: new Set()})
+    return repository.onRoutedUpdate({name: "dm-conversations"}, {kinds: [DM_KIND]}, update)
+  },
+  new Map<string, Chat>(),
 )
 
-export const chatSearch = derived(throttled(800, chatsById), $chatsById =>
+// Older-page intake must not rebuild the inbox search index or unrelated conversations.
+const chatSummaries = readable<Chat[]>([], set => {
+  let previous = new Map<string, Chat>()
+  return chatsById.subscribe($chats => {
+    if (
+      previous.size === $chats.size &&
+      Array.from($chats).every(
+        ([id, chat]) => previous.get(id)?.latestMessage?.id === chat.latestMessage?.id,
+      )
+    )
+      return
+    previous = $chats
+    set(Array.from($chats.values()))
+  })
+})
+
+export const chatSearch = derived(throttled(100, chatSummaries), $chats =>
   createSearch(
-    Array.from($chatsById.values()).sort((a, b) => b.last_activity - a.last_activity),
+    $chats.sort((a, b) => b.last_activity - a.last_activity),
     {
       getValue: (chat: Chat) => chat.id,
       fuseOptions: {keys: ["search_text"]},
@@ -439,24 +497,17 @@ export const chatSearch = derived(throttled(800, chatsById), $chatsById =>
 )
 
 export const deriveChat = (pubkeys: string[]) =>
-  derived(chatsById, $chatsById => {
-    const selfPubkey = get(pubkey)
-
-    if (!selfPubkey) {
-      return undefined
-    }
-
-    const recipients = uniq(pubkeys).filter(pk => pk !== selfPubkey)
-
-    if (recipients.length === 0) {
-      return $chatsById.get(makeChatId(selfPubkey))
-    }
-
-    if (recipients.length === 1) {
-      return $chatsById.get(makeChatId(recipients[0]))
-    }
-
-    return undefined
+  readable<Chat | undefined>(undefined, set => {
+    let previous: Chat | undefined
+    return chatsById.subscribe($chats => {
+      const self = get(pubkey)
+      const recipients = uniq(pubkeys).filter(pk => pk !== self)
+      const next = self && recipients.length <= 1 ? $chats.get(recipients[0] || self) : undefined
+      if (next !== previous) {
+        previous = next
+        set(next)
+      }
+    })
   })
 
 // Other utils

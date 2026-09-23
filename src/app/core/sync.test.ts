@@ -1,218 +1,84 @@
 import {beforeEach, describe, expect, it, vi} from "vitest"
 
 const mocks = vi.hoisted(() => {
-  const createStore = <T>(initial: T) => {
+  const store = <T>(initial: T) => {
     let value = initial
-    const subscribers = new Set<(value: T) => void>()
-
+    const listeners = new Set<(value: T) => void>()
     return {
       set(next: T) {
         value = next
-        subscribers.forEach(fn => fn(value))
+        listeners.forEach(fn => fn(value))
       },
-      get() {
-        return value
-      },
+      get: () => value,
       subscribe(fn: (value: T) => void) {
-        subscribers.add(fn)
+        listeners.add(fn)
         fn(value)
-
         return () => {
-          subscribers.delete(fn)
+          listeners.delete(fn)
         }
       },
     }
   }
-
-  const dmLoad = vi.fn().mockResolvedValue([])
-
   return {
-    page: createStore({url: {pathname: "/home"}, params: {} as Record<string, string>}),
-    pubkey: createStore<string | undefined>(undefined),
-    signer: createStore<object | undefined>(undefined),
-    userRelayList: createStore<any>(null),
-    userFollowList: createStore<any>(null),
-    userMessagingRelayList: createStore<any>(null),
-    request: vi.fn().mockResolvedValue([]),
-    load: vi.fn().mockResolvedValue([]),
-    pull: vi.fn().mockResolvedValue([]),
-    dmLoad,
-    makeLoader: vi.fn(() => dmLoad),
-    loadRelay: vi.fn(),
-    loadProfile: vi.fn().mockResolvedValue(undefined),
-    loadRelayList: vi.fn().mockResolvedValue(undefined),
-    loadUserRelayList: vi.fn().mockResolvedValue(undefined),
-    forceLoadUserMessagingRelayList: vi.fn().mockResolvedValue(undefined),
-    loadUserBlossomServerList: vi.fn().mockResolvedValue(undefined),
-    loadFollowList: vi.fn().mockResolvedValue(undefined),
-    loadUserFollowList: vi.fn().mockResolvedValue(undefined),
-    loadMuteList: vi.fn().mockResolvedValue(undefined),
-    loadUserMuteList: vi.fn().mockResolvedValue(undefined),
-    loadSettings: vi.fn().mockResolvedValue(undefined),
+    pubkey: store<string | undefined>(undefined),
+    signer: store<object | undefined>(undefined),
+    userRelayList: store<any>(null),
+    startDmSync: vi.fn(() => vi.fn()),
+    loadProfile: vi.fn(),
+    loadSettings: vi.fn(),
+    loadUserBlossomServerList: vi.fn(),
+    loadUserFollowList: vi.fn(),
+    loadUserMuteList: vi.fn(),
     hydrateEmailDigestSettings: vi.fn().mockResolvedValue(undefined),
     hydrateCommunityAlertSettings: vi.fn().mockResolvedValue(undefined),
-    hasNegentropy: vi.fn(() => false),
-    repositoryQuery: vi.fn(() => []),
-    trackerGetRelays: vi.fn(() => new Set<string>()),
-    trackerHasRelay: vi.fn(() => false),
+    loadRepoWatch: vi.fn(),
     loadGraspServers: vi.fn(),
     loadTokens: vi.fn(),
     loadExtensionSettings: vi.fn(),
-    setupGraspServersSync: vi.fn(() => () => {}),
-    setupTokensSync: vi.fn(() => () => {}),
+    setupGraspServersSync: vi.fn(() => vi.fn()),
+    setupTokensSync: vi.fn(() => vi.fn()),
+    setupExtensionSettingsSync: vi.fn(() => vi.fn()),
     clearSyncedGitAuthTokens: vi.fn(),
-    setupExtensionSettingsSync: vi.fn(() => () => {}),
     applyRemoteExtensionSettings: vi.fn(),
-    loadRepoWatch: vi.fn(),
-    startGraspServerRecommendationsSync: vi.fn(() => () => {}),
     gitRelays: [] as string[],
     routerUrls: [] as string[],
   }
 })
-
-vi.mock("$app/stores", () => ({
-  page: mocks.page,
-}))
-
-vi.mock("@welshman/lib", () => ({
-  partition: <T>(predicate: (value: T) => boolean, items: T[]) => [
-    items.filter(predicate),
-    items.filter(item => !predicate(item)),
-  ],
-  call: (fn: () => void) => fn(),
-  sortBy: <T>(selector: (value: T) => number, items: T[]) =>
-    [...items].sort((a, b) => selector(a) - selector(b)),
-  assoc: (key: string, value: unknown) => (obj: Record<string, unknown>) => ({
-    ...obj,
-    [key]: value,
-  }),
-  chunk: <T>(size: number, items: T[]) => {
-    const result: T[][] = []
-    for (let index = 0; index < items.length; index += size) {
-      result.push(items.slice(index, index + size))
-    }
-    return result
-  },
-  sleep: vi.fn().mockResolvedValue(undefined),
-  identity: <T>(value: T) => value,
-  WEEK: 60 * 60 * 24 * 7,
-  ago: (windowSeconds: number, multiplier = 1) =>
-    Math.floor(Date.now() / 1000) - windowSeconds * multiplier,
-}))
-
-vi.mock("@welshman/util", () => ({
-  getListTags: (list: any) => [
-    ...(list?.tags || []),
-    ...(list?.publicTags || []),
-    ...(list?.privateTags || []),
-  ],
-  getRelayTagValues: (tags: string[][]) =>
-    tags.flatMap(tag =>
-      ["r", "relay"].includes(tag[0]) && typeof tag[1] === "string" ? [tag[1]] : [],
-    ),
-  getTag: (tags: string[][], name: string) => tags.find(tag => tag[0] === name),
-  getTagValue: (name: string, tags: string[][]) => tags.find(tag => tag[0] === name)?.[1],
-  COMMENT: 1111,
-  DELETE: 5,
-  EVENT_DATE: 31922,
-  EVENT_TIME: 31923,
-  MESSAGE: 1111,
-  REACTION: 7,
-  REPORT: 1984,
-  THREAD: 11,
-  ZAP_GOAL: 9041,
-  isSignedEvent: (event: any) => Boolean(event),
-  unionFilters: (filters: any[]) => filters,
-  isRelayUrl: (url: string) => url.startsWith("ws://") || url.startsWith("wss://"),
-  normalizeRelayUrl: (url: string) => url.replace(/\/+$/, "") + "/",
-}))
-
-vi.mock("@welshman/net", () => ({
-  request: mocks.request,
-  load: mocks.load,
-  pull: mocks.pull,
-  makeLoader: mocks.makeLoader,
-}))
-
 vi.mock("@welshman/app", () => ({
   pubkey: mocks.pubkey,
   signer: mocks.signer,
-  loadRelay: mocks.loadRelay,
-  loadProfile: mocks.loadProfile,
-  tracker: {
-    getRelays: mocks.trackerGetRelays,
-    hasRelay: mocks.trackerHasRelay,
-  },
-  repository: {
-    query: mocks.repositoryQuery,
-  },
-  hasNegentropy: mocks.hasNegentropy,
   userRelayList: mocks.userRelayList,
-  userFollowList: mocks.userFollowList,
-  userMessagingRelayList: mocks.userMessagingRelayList,
-  loadRelayList: mocks.loadRelayList,
-  loadUserRelayList: mocks.loadUserRelayList,
-  forceLoadUserMessagingRelayList: mocks.forceLoadUserMessagingRelayList,
+  loadRelay: vi.fn(),
   loadUserBlossomServerList: mocks.loadUserBlossomServerList,
-  loadFollowList: mocks.loadFollowList,
   loadUserFollowList: mocks.loadUserFollowList,
-  loadMuteList: mocks.loadMuteList,
   loadUserMuteList: mocks.loadUserMuteList,
 }))
-
 vi.mock("@welshman/router", () => ({
-  Router: {
-    get: () => ({
-      FromUser: () => ({getUrls: () => mocks.routerUrls}),
-      ForUser: () => ({getUrls: () => []}),
-    }),
-  },
+  Router: {get: () => ({FromUser: () => ({getUrls: () => mocks.routerUrls})})},
 }))
-
-vi.mock("@app/core/state", () => ({
-  INDEXER_RELAYS: [],
-  loadSettings: mocks.loadSettings,
+vi.mock("@app/core/state", () => ({INDEXER_RELAYS: [], loadSettings: mocks.loadSettings}))
+vi.mock("@app/core/profile-resolver", () => ({loadBudabitProfile: mocks.loadProfile}))
+vi.mock("@app/core/dm-sync", () => ({
+  startDmSync: mocks.startDmSync,
+  isChatPath: (path: string) => path === "/chat" || path.startsWith("/chat/"),
 }))
-
-vi.mock("@app/core/profile-resolver", () => ({
-  loadBudabitProfile: mocks.loadProfile,
-}))
-
-vi.mock("@app/core/dm", () => ({
-  DM_KIND: 4444,
-  getMessagingRelayHints: () => ["wss://hint.relay.example.com/"],
-}))
-
-vi.mock("@app/core/git-state", () => ({
-  GIT_RELAYS: mocks.gitRelays,
-}))
-
-vi.mock("@app/core/grasp", () => ({
-  startGraspServerRecommendationsSync: mocks.startGraspServerRecommendationsSync,
-}))
-
+vi.mock("@app/core/git-state", () => ({GIT_RELAYS: mocks.gitRelays}))
 vi.mock("@app/core/git-requests", () => ({
   loadGraspServers: mocks.loadGraspServers,
   loadTokens: mocks.loadTokens,
   loadExtensionSettings: mocks.loadExtensionSettings,
   setupGraspServersSync: mocks.setupGraspServersSync,
   setupTokensSync: mocks.setupTokensSync,
-  clearSyncedGitAuthTokens: mocks.clearSyncedGitAuthTokens,
   setupExtensionSettingsSync: mocks.setupExtensionSettingsSync,
+  clearSyncedGitAuthTokens: mocks.clearSyncedGitAuthTokens,
 }))
-
 vi.mock("@app/extensions/settings", () => ({
   applyRemoteExtensionSettings: mocks.applyRemoteExtensionSettings,
 }))
-
-vi.mock("@app/core/repo-watch", () => ({
-  loadRepoWatch: mocks.loadRepoWatch,
-}))
-
+vi.mock("@app/core/repo-watch", () => ({loadRepoWatch: mocks.loadRepoWatch}))
 vi.mock("@app/core/email-digest-state", () => ({
   hydrateEmailDigestSettings: mocks.hydrateEmailDigestSettings,
 }))
-
 vi.mock("@app/core/community-alerts-state", () => ({
   hydrateCommunityAlertSettings: mocks.hydrateCommunityAlertSettings,
 }))
@@ -222,364 +88,83 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 describe("syncApplicationData", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.resetModules()
-    mocks.page.set({url: {pathname: "/home"}, params: {}})
     mocks.pubkey.set(undefined)
     mocks.signer.set(undefined)
     mocks.userRelayList.set(null)
-    mocks.userFollowList.set(null)
-    mocks.userMessagingRelayList.set(null)
-    mocks.repositoryQuery.mockReturnValue([])
-    mocks.trackerGetRelays.mockReturnValue(new Set<string>())
-    mocks.trackerHasRelay.mockReturnValue(false)
-    mocks.hasNegentropy.mockReturnValue(false)
     mocks.gitRelays.splice(0)
     mocks.routerUrls.splice(0)
+  })
+
+  it("owns and cleans up one shared DM synchronization lifecycle", async () => {
+    const {syncApplicationData} = await import("./sync")
+    const cleanup = syncApplicationData()
+    expect(mocks.startDmSync).toHaveBeenCalledTimes(1)
+    cleanup()
+    expect(mocks.startDmSync.mock.results[0].value).toHaveBeenCalledTimes(1)
   })
 
   it("lets Git sync setup own the initial fallback loads", async () => {
     mocks.gitRelays.push("wss://two.example.com", "wss://one.example.com")
     mocks.routerUrls.push("wss://one.example.com", "wss://two.example.com")
     mocks.pubkey.set("a".repeat(64))
-
     const {syncGitData} = await import("./sync")
     const cleanup = syncGitData()
     await flush()
-
     expect(mocks.setupGraspServersSync).toHaveBeenCalledTimes(1)
     expect(mocks.setupTokensSync).toHaveBeenCalledTimes(1)
     expect(mocks.setupExtensionSettingsSync).toHaveBeenCalledTimes(1)
     expect(mocks.loadGraspServers).not.toHaveBeenCalled()
     expect(mocks.loadTokens).not.toHaveBeenCalled()
     expect(mocks.loadExtensionSettings).not.toHaveBeenCalled()
-
     cleanup()
-  })
-
-  it("bootstraps older DMs without adding bootstrap filters to live subscriptions", async () => {
-    const userPubkey = "a".repeat(64)
-
-    mocks.pubkey.set(userPubkey)
-    mocks.userMessagingRelayList.set({tags: [["r", "wss://dm.relay.example.com"]]})
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-    await flush()
-
-    const dmCalls = mocks.dmLoad.mock.calls.map(call => call[0])
-    const recentCall = dmCalls.find(call =>
-      call.filters.every((filter: any) => filter.limit === 100),
-    )
-    const bootstrapCall = dmCalls.find(call =>
-      call.filters.every((filter: any) => filter.limit === 200),
-    )
-    const fullHistoryCall = dmCalls.find(call =>
-      call.filters.every((filter: any) => filter.limit === undefined && filter.since === undefined),
-    )
-
-    expect(recentCall).toBeTruthy()
-    expect(recentCall!.filters).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({kinds: [4444], "#p": [userPubkey], limit: 100}),
-        expect.objectContaining({kinds: [4444], authors: [userPubkey], limit: 100}),
-      ]),
-    )
-    expect(recentCall!.filters.every((filter: any) => typeof filter.since === "number")).toBe(true)
-
-    expect(bootstrapCall).toBeTruthy()
-    expect(bootstrapCall!.filters).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({kinds: [4444], "#p": [userPubkey], limit: 200}),
-        expect.objectContaining({kinds: [4444], authors: [userPubkey], limit: 200}),
-      ]),
-    )
-    expect(bootstrapCall!.filters.every((filter: any) => filter.since === undefined)).toBe(true)
-    expect(bootstrapCall!.filters.every((filter: any) => filter.until === undefined)).toBe(true)
-    expect(fullHistoryCall).toBeFalsy()
-
-    const liveCall = mocks.request.mock.calls.at(-1)?.[0]
-
-    expect(liveCall?.filters).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({kinds: [4444], "#p": [userPubkey], limit: 0}),
-        expect.objectContaining({kinds: [4444], authors: [userPubkey], limit: 0}),
-      ]),
-    )
-    expect(liveCall?.filters.every((filter: any) => typeof filter.since === "number")).toBe(true)
-    expect(liveCall?.filters.some((filter: any) => filter.limit === 200)).toBe(false)
-
-    mocks.dmLoad.mockClear()
-
-    mocks.page.set({url: {pathname: "/chat"}, params: {}})
-    await flush()
-
-    expect(mocks.forceLoadUserMessagingRelayList).toHaveBeenCalledTimes(2)
-    expect(mocks.dmLoad).not.toHaveBeenCalled()
-
-    cleanup()
-  })
-
-  it("does not fully backfill DMs when persisted messaging relays hydrate", async () => {
-    const userPubkey = "a".repeat(64)
-
-    mocks.pubkey.set(userPubkey)
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-    await flush()
-
-    mocks.dmLoad.mockClear()
-    mocks.request.mockClear()
-
-    mocks.userMessagingRelayList.set({
-      publicTags: [["relay", "wss://first-dm.relay.example.com"]],
-    })
-    await flush()
-
-    const dmCalls = mocks.dmLoad.mock.calls.map(call => call[0])
-    const fullHistoryCall = dmCalls.find(call =>
-      call.filters.every((filter: any) => filter.limit === undefined && filter.since === undefined),
-    )
-    const bootstrapCall = dmCalls.find(call =>
-      call.filters.every((filter: any) => filter.limit === 200),
-    )
-
-    expect(fullHistoryCall).toBeFalsy()
-    expect(bootstrapCall).toBeTruthy()
-
-    const liveCall = mocks.request.mock.calls.at(-1)?.[0]
-
-    expect(liveCall?.relays).toEqual(["wss://first-dm.relay.example.com/"])
-    expect(liveCall?.filters).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({kinds: [4444], "#p": [userPubkey], limit: 0}),
-        expect.objectContaining({kinds: [4444], authors: [userPubkey], limit: 0}),
-      ]),
-    )
-
-    cleanup()
-  })
-
-  it("does not fully backfill multiple persisted messaging relays", async () => {
-    mocks.pubkey.set("a".repeat(64))
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-    await flush()
-    mocks.dmLoad.mockClear()
-
-    mocks.userMessagingRelayList.set({
-      tags: [
-        ["r", "wss://one.example.com"],
-        ["r", "wss://two.example.com"],
-      ],
-    })
-    await flush()
-
-    expect(
-      mocks.dmLoad.mock.calls.some(call =>
-        call[0].filters.every(
-          (filter: any) => filter.limit === undefined && filter.since === undefined,
-        ),
-      ),
-    ).toBe(false)
-    expect(mocks.request).toHaveBeenCalledTimes(2)
-
-    cleanup()
-  })
-
-  it("fully backfills DMs when the first relay is added after hydrated empty state", async () => {
-    const userPubkey = "a".repeat(64)
-
-    mocks.pubkey.set(userPubkey)
-    mocks.userMessagingRelayList.set({tags: []})
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-    await flush()
-    mocks.dmLoad.mockClear()
-
-    mocks.userMessagingRelayList.set({
-      tags: [["relay", "wss://first-dm.relay.example.com"]],
-    })
-    await flush()
-
-    const fullHistoryCall = mocks.dmLoad.mock.calls
-      .map(call => call[0])
-      .find(call =>
-        call.filters.every(
-          (filter: any) => filter.limit === undefined && filter.since === undefined,
-        ),
-      )
-
-    expect(fullHistoryCall?.relays).toEqual(["wss://first-dm.relay.example.com/"])
-
-    cleanup()
-  })
-
-  it("uses loader recovery for smart-relay full-history backfill", async () => {
-    const userPubkey = "a".repeat(64)
-    mocks.hasNegentropy.mockReturnValue(true)
-    mocks.pubkey.set(userPubkey)
-    mocks.userMessagingRelayList.set({tags: []})
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-    await flush()
-    mocks.dmLoad.mockClear()
-
-    mocks.userMessagingRelayList.set({
-      tags: [["relay", "wss://first-smart-dm.relay.example.com"]],
-    })
-    await flush()
-
-    expect(
-      mocks.dmLoad.mock.calls.some(call =>
-        call[0].filters.every(
-          (filter: any) => filter.limit === undefined && filter.since === undefined,
-        ),
-      ),
-    ).toBe(true)
-
-    cleanup()
-  })
-
-  it("uses negentropy without concurrent loader fallback", async () => {
-    mocks.hasNegentropy.mockReturnValue(true)
-    mocks.pubkey.set("a".repeat(64))
-    mocks.userMessagingRelayList.set({tags: [["r", "wss://smart.example.com"]]})
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-    await flush()
-
-    expect(mocks.pull).toHaveBeenCalledTimes(1)
-    expect(
-      mocks.dmLoad.mock.calls.some(call =>
-        call[0].filters.every((filter: any) => filter.limit === 100),
-      ),
-    ).toBe(false)
-    expect(
-      mocks.dmLoad.mock.calls.some(call =>
-        call[0].filters.every((filter: any) => filter.limit === 200),
-      ),
-    ).toBe(true)
-
-    cleanup()
-  })
-
-  it("falls back to the loader when negentropy rejects", async () => {
-    mocks.hasNegentropy.mockReturnValue(true)
-    mocks.pull.mockRejectedValueOnce(new Error("negentropy failed"))
-    mocks.pubkey.set("a".repeat(64))
-    mocks.userMessagingRelayList.set({tags: [["r", "wss://smart.example.com"]]})
-
-    const {syncApplicationData} = await import("./sync")
-    const cleanup = syncApplicationData()
-    await flush()
-
-    expect(
-      mocks.dmLoad.mock.calls.some(call =>
-        call[0].filters.every((filter: any) => filter.limit === 100),
-      ),
-    ).toBe(true)
-
-    cleanup()
-  })
-
-  it("falls back when negentropy does not settle", async () => {
-    vi.useFakeTimers()
-    mocks.hasNegentropy.mockReturnValue(true)
-    mocks.pull.mockReturnValueOnce(new Promise(() => {}))
-    mocks.pubkey.set("a".repeat(64))
-    mocks.userMessagingRelayList.set({tags: [["r", "wss://smart.example.com"]]})
-
-    try {
-      const {syncApplicationData} = await import("./sync")
-      const cleanup = syncApplicationData()
-
-      await vi.advanceTimersByTimeAsync(3_000)
-
-      expect(
-        mocks.dmLoad.mock.calls.some(call =>
-          call[0].filters.every((filter: any) => filter.limit === 100),
-        ),
-      ).toBe(true)
-
-      cleanup()
-    } finally {
-      vi.useRealTimers()
-    }
   })
 
   it("loads current-user metadata when the user relay list is available", async () => {
+    const self = "b".repeat(64)
     mocks.signer.set({})
-    mocks.userRelayList.set({event: {pubkey: "b".repeat(64)}})
-
+    mocks.userRelayList.set({event: {pubkey: self}})
     const {syncApplicationData} = await import("./sync")
     const cleanup = syncApplicationData()
-    await flush()
-
-    expect(mocks.loadSettings).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.loadRepoWatch).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.hydrateEmailDigestSettings).toHaveBeenCalledWith("b".repeat(64))
-    expect(mocks.hydrateCommunityAlertSettings).toHaveBeenCalledWith("b".repeat(64))
+    expect(mocks.loadSettings).toHaveBeenCalledWith(self)
+    expect(mocks.loadRepoWatch).toHaveBeenCalledWith(self)
+    expect(mocks.hydrateEmailDigestSettings).toHaveBeenCalledWith(self)
+    expect(mocks.hydrateCommunityAlertSettings).toHaveBeenCalledWith(self)
     expect(mocks.loadUserBlossomServerList).toHaveBeenCalledWith()
     expect(mocks.loadUserFollowList).toHaveBeenCalledWith()
     expect(mocks.loadUserMuteList).toHaveBeenCalledWith()
-    expect(mocks.loadProfile).toHaveBeenCalledWith("b".repeat(64))
-
+    expect(mocks.loadProfile).toHaveBeenCalledWith(self)
     cleanup()
   })
 
   it("hydrates community alert settings when the signer becomes available", async () => {
-    const userPubkey = "b".repeat(64)
-    mocks.userRelayList.set({event: {pubkey: userPubkey}})
-
+    const self = "b".repeat(64)
+    mocks.userRelayList.set({event: {pubkey: self}})
     const {syncApplicationData} = await import("./sync")
     const cleanup = syncApplicationData()
-    await flush()
     expect(mocks.hydrateCommunityAlertSettings).not.toHaveBeenCalled()
-
     mocks.signer.set({})
-    await flush()
-    expect(mocks.hydrateCommunityAlertSettings).toHaveBeenCalledWith(userPubkey)
-
+    expect(mocks.hydrateCommunityAlertSettings).toHaveBeenCalledWith(self)
     cleanup()
   })
 
-  it("does not preload metadata for followed users", async () => {
-    const bootstrapPubkey = "c".repeat(64)
-    mocks.userFollowList.set({event: {pubkey: "b".repeat(64)}, tags: [["p", bootstrapPubkey]]})
-
+  it("does not preload metadata without a current-user relay list", async () => {
     const {syncApplicationData} = await import("./sync")
     const cleanup = syncApplicationData()
     await flush()
-    await flush()
-
-    expect(mocks.loadRelayList).not.toHaveBeenCalled()
     expect(mocks.loadProfile).not.toHaveBeenCalled()
-    expect(mocks.loadFollowList).not.toHaveBeenCalled()
-    expect(mocks.loadMuteList).not.toHaveBeenCalled()
-    expect(mocks.loadUserRelayList).not.toHaveBeenCalledWith(bootstrapPubkey)
-    expect(mocks.loadUserFollowList).not.toHaveBeenCalledWith(bootstrapPubkey)
-    expect(mocks.loadUserMuteList).not.toHaveBeenCalledWith(bootstrapPubkey)
-
+    expect(mocks.loadUserFollowList).not.toHaveBeenCalled()
+    expect(mocks.loadUserMuteList).not.toHaveBeenCalled()
     cleanup()
   })
 
-  it("does not start GRASP recommendations from global Git sync", async () => {
+  it("does not start additional fallback loads from global Git sync", async () => {
     mocks.pubkey.set("d".repeat(64))
-
     const {syncGitData} = await import("./sync")
     const cleanup = syncGitData()
     await flush()
-
-    expect(mocks.startGraspServerRecommendationsSync).not.toHaveBeenCalled()
-    expect(mocks.load.mock.calls.flatMap(call => call[0]?.filters || [])).not.toContainEqual(
-      expect.objectContaining({kinds: [30617]}),
-    )
-
+    expect(mocks.loadGraspServers).not.toHaveBeenCalled()
+    expect(mocks.loadTokens).not.toHaveBeenCalled()
+    expect(mocks.loadExtensionSettings).not.toHaveBeenCalled()
     cleanup()
   })
 })

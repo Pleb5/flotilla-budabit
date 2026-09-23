@@ -21,6 +21,72 @@ const waitForAbort = (options: RequestOptions) =>
   })
 
 describe("finite relay request", () => {
+  it("gives slow AUTH its own deadline, then starts the data deadline after approval", async () => {
+    vi.useFakeTimers()
+    let authChanged!: (waiting: boolean) => void
+    const unsubscribeAuth = vi.fn()
+    const request = vi.fn((options: RequestOptions) => {
+      options.onStart?.(relay)
+      authChanged(true)
+      return waitForAbort(options)
+    })
+    const finiteRequest = createFiniteRelayRequester({request})
+    try {
+      const pending = finiteRequest({
+        relay,
+        filters: [{}],
+        timeoutMs: 1000,
+        authTimeoutMs: 10_000,
+        subscribeAuth: listener => {
+          authChanged = listener
+          return unsubscribeAuth
+        },
+      })
+      let finished = false
+      void pending.then(() => {
+        finished = true
+      })
+      await vi.advanceTimersByTimeAsync(5000)
+      expect(finished).toBe(false)
+      authChanged(false)
+      await vi.advanceTimersByTimeAsync(999)
+      expect(finished).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect((await pending).outcome).toBe("timeout")
+      expect(unsubscribeAuth).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("bounds AUTH waiting even if repeated challenge notifications arrive", async () => {
+    vi.useFakeTimers()
+    let authChanged!: (waiting: boolean) => void
+    const finiteRequest = createFiniteRelayRequester({request: options => waitForAbort(options)})
+    try {
+      const pending = finiteRequest({
+        relay,
+        filters: [{}],
+        timeoutMs: 1000,
+        authTimeoutMs: 5000,
+        subscribeAuth: listener => {
+          authChanged = listener
+          listener(true)
+          return () => {}
+        },
+      })
+      await vi.advanceTimersByTimeAsync(4000)
+      authChanged(true)
+      await vi.advanceTimersByTimeAsync(1000)
+      await expect(pending).resolves.toMatchObject({
+        outcome: "timeout",
+        reason: "Relay authentication timed out",
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it("returns EOSE with deduplicated events while forwarding relay provenance", async () => {
     let clock = 100
     const onEvent = vi.fn()

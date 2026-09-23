@@ -1,7 +1,10 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
-  import Spinner from "@lib/components/Spinner.svelte"
-  import ChatItem from "@app/components/ChatItem.svelte"
+  import Button from "@lib/components/Button.svelte"
+  import LazyChatItem from "@app/components/LazyChatItem.svelte"
+  import DmHistoryStatus from "@app/components/DmHistoryStatus.svelte"
+  import {dmHistoryState, retryDmHistory} from "@app/core/dm-sync"
+  import {DM_INBOX, emptyDmHistory} from "@app/core/dm-history"
   import PeopleSearchResultItem from "@app/components/PeopleSearchResultItem.svelte"
   import {chatSearch} from "@app/core/state"
   import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
@@ -14,20 +17,14 @@
     chatItemClass?: string
     peopleItemClass?: string
     showEmpty?: boolean
-    loadingPromise?: Promise<unknown>
     empty?: Snippet
   }
 
-  const {
-    term,
-    chatItemClass = "",
-    peopleItemClass = "",
-    showEmpty = false,
-    loadingPromise,
-    empty,
-  }: Props = $props()
+  const {term, chatItemClass = "", peopleItemClass = "", showEmpty = false, empty}: Props = $props()
 
   let debouncedTerm = $state("")
+  let shownCount = $state(30)
+  const history = $derived($dmHistoryState.get(DM_INBOX) || emptyDmHistory)
 
   $effect(() => {
     const value = term
@@ -44,6 +41,10 @@
   })
 
   const normalizedTerm = $derived(debouncedTerm.trim())
+  $effect(() => {
+    void normalizedTerm
+    shownCount = 30
+  })
   const chats = $derived($chatSearch.searchOptions(debouncedTerm))
   const shownChatPubkeys = $derived(new Set(chats.map(chat => chat.id)))
   const recentConversationPubkeys = $derived($chatSearch.searchOptions("").map(chat => chat.id))
@@ -63,9 +64,14 @@
   <div class="px-6 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide opacity-60">
     Recent conversations
   </div>
-  {#each chats as { id, pubkeys, latestMessage } (id)}
-    <ChatItem {id} {pubkeys} {latestMessage} class={chatItemClass} />
+  {#each chats.slice(0, shownCount) as chat (chat.id)}
+    <LazyChatItem {chat} class={chatItemClass} />
   {/each}
+  {#if chats.length > shownCount}
+    <Button class="btn btn-ghost btn-sm mx-4" onclick={() => (shownCount += 30)}>
+      Show more conversations ({chats.length - shownCount})
+    </Button>
+  {/if}
 {/if}
 
 {#if normalizedTerm && peopleResults.length > 0}
@@ -75,14 +81,8 @@
   {/each}
 {/if}
 
-{#if loadingPromise}
-  {#await loadingPromise}
-    <div class="border-t border-solid border-base-100 px-6 py-4 text-xs">
-      <Spinner loading>Loading recent conversations...</Spinner>
-    </div>
-  {/await}
-{/if}
+<DmHistoryStatus state={history} inbox retry={() => retryDmHistory()} />
 
-{#if showEmpty && chats.length === 0 && (!normalizedTerm || peopleResults.length === 0)}
+{#if showEmpty && history.exhausted && chats.length === 0 && (!normalizedTerm || peopleResults.length === 0)}
   {@render empty?.()}
 {/if}

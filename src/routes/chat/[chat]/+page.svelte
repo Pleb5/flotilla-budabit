@@ -27,7 +27,9 @@
 </script>
 
 {#if $pubkey && pubkeys.length > 0}
-  <Chat {pubkeys} />
+  {#key `${$pubkey}:${recipient}`}
+    <Chat {pubkeys} />
+  {/key}
 {:else}
   <div class="flex h-full items-center justify-center">
     <p class="text-muted-foreground">Please log in to access chat.</p>

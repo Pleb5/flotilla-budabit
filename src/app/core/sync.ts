@@ -1,36 +1,21 @@
-import {page} from "$app/stores"
 import type {Unsubscriber} from "svelte/store"
 import {derived} from "svelte/store"
-import {partition, call, sortBy, assoc, sleep, identity, WEEK, ago} from "@welshman/lib"
-import {
-  getListTags,
-  getRelayTagValues,
-  isSignedEvent,
-  unionFilters,
-  isRelayUrl,
-  normalizeRelayUrl,
-} from "@welshman/util"
-import type {Filter} from "@welshman/util"
-import {request, pull, makeLoader} from "@welshman/net"
+import {call, sleep, WEEK, ago} from "@welshman/lib"
+import {isRelayUrl, normalizeRelayUrl} from "@welshman/util"
 import {Router} from "@welshman/router"
 import {
   pubkey,
   signer,
   loadRelay,
-  tracker,
-  repository,
-  hasNegentropy,
   userRelayList,
-  userMessagingRelayList,
-  loadUserRelayList,
-  forceLoadUserMessagingRelayList,
   loadUserBlossomServerList,
   loadUserFollowList,
   loadUserMuteList,
 } from "@welshman/app"
 import {INDEXER_RELAYS, loadSettings} from "@app/core/state"
 import {GIT_RELAYS} from "@app/core/git-state"
-import {DM_KIND, getMessagingRelayHints} from "@app/core/dm"
+import {makeDmHistoryFilters} from "@app/core/dm-history"
+import {startDmSync, isChatPath} from "@app/core/dm-sync"
 import {
   loadGraspServers,
   loadTokens,
@@ -47,120 +32,6 @@ import {hydrateCommunityAlertSettings} from "@app/core/community-alerts-state"
 import {loadBudabitProfile} from "@app/core/profile-resolver"
 
 // Utils
-
-type PullOpts = {
-  relays: string[]
-  filters: Filter[]
-  signal: AbortSignal
-}
-
-type DmPullOpts = PullOpts & {
-  fullHistory?: boolean
-}
-
-const dmLoad = makeLoader({delay: 200, timeout: 3000, threshold: 0.5})
-const DM_RECENT_BACKFILL_LIMIT = 100
-const DM_BOOTSTRAP_BACKFILL_LIMIT = 200
-const DM_NEGENTROPY_TIMEOUT_MS = 3000
-
-const pullWithFallbackDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
-  const [smart, dumb] = partition(hasNegentropy, relays)
-  const events = repository.query(filters, {shouldSort: false}).filter(isSignedEvent)
-  const loadRelay = (url: string) => {
-    let relayFilters = filters
-    const urlEvents = events.filter(e => tracker.hasRelay(e.id, url))
-
-    if (!fullHistory && urlEvents.length >= 100) {
-      relayFilters = relayFilters.map(
-        assoc("since", sortBy(e => -e.created_at, urlEvents)[10]!.created_at),
-      )
-    }
-
-    return dmLoad({relays: [url], filters: relayFilters, signal})
-  }
-  const promises: Promise<unknown>[] = dumb.map(loadRelay)
-
-  if (smart.length > 0) {
-    promises.push(
-      (async () => {
-        const timeoutController = new AbortController()
-        const pullSignal = AbortSignal.any([signal, timeoutController.signal])
-        let timedOut = false
-        let failed = false
-        let timeout: ReturnType<typeof setTimeout> | undefined
-        const timeoutPromise = new Promise<void>(resolve => {
-          timeout = setTimeout(() => {
-            timedOut = true
-            timeoutController.abort()
-            resolve()
-          }, DM_NEGENTROPY_TIMEOUT_MS)
-        })
-
-        try {
-          await Promise.race([
-            pull({relays: smart, filters, signal: pullSignal, events}),
-            timeoutPromise,
-          ])
-        } catch {
-          failed = true
-        } finally {
-          if (timeout) clearTimeout(timeout)
-        }
-
-        if (!signal.aborted && (fullHistory || failed || timedOut)) {
-          await Promise.all(smart.map(loadRelay))
-        }
-      })(),
-    )
-  }
-
-  return Promise.all(promises)
-}
-
-const buildDmBootstrapFilters = (filters: Filter[]) =>
-  filters.map(filter => {
-    const bootstrapFilter = {...filter}
-
-    delete bootstrapFilter.since
-    delete bootstrapFilter.until
-
-    return {...bootstrapFilter, limit: DM_BOOTSTRAP_BACKFILL_LIMIT}
-  })
-
-const loadDmBootstrap = ({relays, filters, signal}: PullOpts) =>
-  Promise.all(relays.map(url => dmLoad({relays: [url], filters, signal})))
-
-const pullAndListenDm = ({relays, filters, signal, fullHistory = false}: DmPullOpts) => {
-  const backfillFilters = fullHistory
-    ? filters
-    : filters.map(f => ({limit: DM_RECENT_BACKFILL_LIMIT, ...f}))
-  const liveFilters = unionFilters(filters).map(assoc("limit", 0))
-
-  void pullWithFallbackDm({
-    relays,
-    signal,
-    filters: backfillFilters,
-    fullHistory,
-  }).catch(error => {
-    if (!signal.aborted) console.warn("[sync] Failed to synchronize DMs", error)
-  })
-
-  if (!fullHistory) {
-    void loadDmBootstrap({
-      relays,
-      signal,
-      filters: buildDmBootstrapFilters(filters),
-    }).catch(error => {
-      if (!signal.aborted) console.warn("[sync] Failed to bootstrap DMs", error)
-    })
-  }
-
-  request({
-    relays,
-    signal,
-    filters: liveFilters,
-  })
-}
 
 const sanitizeRelayList = (relays: unknown) => {
   const out: string[] = []
@@ -238,177 +109,18 @@ const syncUserData = () => {
 
 // DMs
 
-const buildDmFilters = (pubkey: string, extra: Filter = {}) => [
-  {kinds: [DM_KIND], "#p": [pubkey], ...extra},
-  {kinds: [DM_KIND], authors: [pubkey], ...extra},
-]
-
-export const shouldRefreshDmRelayListsForChat = (pathname = "") =>
-  pathname === "/chat" || pathname.startsWith("/chat/")
+export const shouldRefreshDmRelayListsForChat = isChatPath
 
 export const buildDmSyncFilters = (pubkey: string, fullHistory = false) =>
-  buildDmFilters(pubkey, fullHistory ? {} : {since: ago(WEEK, 2)})
-
-const syncDMRelay = (url: string, pubkey: string, fullHistory = false) => {
-  const controller = new AbortController()
-  const filters = buildDmSyncFilters(pubkey, fullHistory)
-
-  pullAndListenDm({
-    relays: [url],
-    signal: controller.signal,
-    filters,
-    fullHistory,
-  })
-
-  return () => controller.abort()
-}
-
-const backfillDMRelayHistory = (url: string, pubkey: string) => {
-  const controller = new AbortController()
-
-  pullWithFallbackDm({
-    relays: [url],
-    signal: controller.signal,
-    filters: buildDmSyncFilters(pubkey, true),
-    fullHistory: true,
-  }).catch(error => {
-    if (!controller.signal.aborted) {
-      console.warn("[sync] Failed to backfill DM relay history", error)
-    }
-  })
-
-  return () => controller.abort()
-}
-
-const syncDMs = () => {
-  const unsubscribersByUrl = new Map<string, Unsubscriber>()
-  const historyBackfillUnsubscribersByUrl = new Map<string, Unsubscriber>()
-
-  let currentPubkey: string | undefined
-  let currentFullHistory = false
-  let hasRequestedChatRelayRefresh = false
-  let hasObservedMessagingRelays = false
-  let previousRelayUrls: string[] = []
-
-  const unsubscribeAll = () => {
-    for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
-      unsubscribersByUrl.delete(url)
-      unsubscribe()
-    }
-
-    for (const [url, unsubscribe] of historyBackfillUnsubscribersByUrl.entries()) {
-      historyBackfillUnsubscribersByUrl.delete(url)
-      unsubscribe()
-    }
-  }
-
-  const subscribeAll = (pubkey: string, urls: string[], fullHistory = false) => {
-    const sanitizedUrls = sanitizeRelayList(urls)
-    const newRelayUrls = sanitizedUrls.filter(url => !previousRelayUrls.includes(url))
-    const shouldBackfillFirstRelayHistory =
-      hasObservedMessagingRelays && previousRelayUrls.length === 0 && sanitizedUrls.length > 0
-
-    if (fullHistory !== currentFullHistory) {
-      unsubscribeAll()
-      currentFullHistory = fullHistory
-    }
-
-    if (sanitizedUrls.length === 0) {
-      unsubscribeAll()
-      previousRelayUrls = []
-      hasObservedMessagingRelays = true
-      return
-    }
-
-    // Start syncing newly added relays
-    for (const url of sanitizedUrls) {
-      if (!unsubscribersByUrl.has(url)) {
-        unsubscribersByUrl.set(url, syncDMRelay(url, pubkey, fullHistory))
-      }
-
-      if (shouldBackfillFirstRelayHistory && newRelayUrls.includes(url)) {
-        historyBackfillUnsubscribersByUrl.get(url)?.()
-        historyBackfillUnsubscribersByUrl.set(url, backfillDMRelayHistory(url, pubkey))
-      }
-    }
-
-    // Stop syncing removed relays
-    for (const [url, unsubscribe] of unsubscribersByUrl.entries()) {
-      if (!sanitizedUrls.includes(url)) {
-        unsubscribersByUrl.delete(url)
-        unsubscribe()
-      }
-    }
-
-    for (const [url, unsubscribe] of historyBackfillUnsubscribersByUrl.entries()) {
-      if (!sanitizedUrls.includes(url)) {
-        historyBackfillUnsubscribersByUrl.delete(url)
-        unsubscribe()
-      }
-    }
-
-    previousRelayUrls = sanitizedUrls
-    hasObservedMessagingRelays = true
-  }
-
-  // When pubkey changes, re-sync
-  const unsubscribePubkey = pubkey.subscribe($pubkey => {
-    if ($pubkey !== currentPubkey) {
-      unsubscribeAll()
-      currentFullHistory = false
-      hasRequestedChatRelayRefresh = false
-      hasObservedMessagingRelays = false
-      previousRelayUrls = []
-    }
-
-    // Refresh relay lists whenever a user is active so DM sync works across sessions/tabs.
-    if ($pubkey) {
-      const relayHints = getMessagingRelayHints()
-      loadUserRelayList()
-      forceLoadUserMessagingRelayList(relayHints)
-    }
-
-    currentPubkey = $pubkey
-  })
-
-  // When user messaging relays change, update synchronization
-  const unsubscribeList = derived([pubkey, userMessagingRelayList, page], identity).subscribe(
-    ([$pubkey, $userMessagingRelayList, $page]) => {
-      if ($pubkey) {
-        if (
-          !hasRequestedChatRelayRefresh &&
-          shouldRefreshDmRelayListsForChat($page?.url?.pathname || "")
-        ) {
-          hasRequestedChatRelayRefresh = true
-          const relayHints = getMessagingRelayHints()
-          loadUserRelayList()
-          forceLoadUserMessagingRelayList(relayHints)
-        }
-
-        if (!$userMessagingRelayList) return
-
-        const rawRelays = getRelayTagValues(getListTags($userMessagingRelayList))
-        // Filter out any non-string values before sanitizing
-        const stringRelays = Array.isArray(rawRelays)
-          ? rawRelays.filter(r => typeof r === "string" && r.length > 0)
-          : []
-        const relayUrls = sanitizeRelayList(stringRelays)
-        subscribeAll($pubkey, relayUrls)
-      }
-    },
-  )
-
-  return () => {
-    unsubscribeAll()
-    unsubscribePubkey()
-    unsubscribeList()
-  }
-}
+  makeDmHistoryFilters(pubkey).map(filter => ({
+    ...filter,
+    ...(fullHistory ? {} : {since: ago(WEEK, 2)}),
+  }))
 
 // Merge all synchronization functions
 
 export const syncApplicationData = () => {
-  const unsubscribers = [syncRelays(), syncUserData(), syncDMs()]
+  const unsubscribers = [syncRelays(), syncUserData(), startDmSync()]
 
   return () => unsubscribers.forEach(call)
 }

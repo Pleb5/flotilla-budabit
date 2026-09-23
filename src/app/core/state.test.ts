@@ -154,6 +154,63 @@ describe("state", () => {
     expect(chats.size).toBe(0)
   })
 
+  it("updates only the affected conversation during historical intake and clears it on logout", async () => {
+    const {pubkey, repository} = await import("@welshman/app")
+    const {deriveChat, chatsById} = await import("./state")
+    const self = "a".repeat(64),
+      first = "b".repeat(64),
+      second = "c".repeat(64)
+    const previous = get(pubkey)
+    const messages = [
+      {
+        id: "1".repeat(64),
+        pubkey: self,
+        kind: 4444,
+        tags: [["p", first]],
+        created_at: 30,
+        content: "ciphertext",
+        sig: "sig",
+      },
+      {
+        id: "2".repeat(64),
+        pubkey: self,
+        kind: 4444,
+        tags: [["p", second]],
+        created_at: 20,
+        content: "ciphertext",
+        sig: "sig",
+      },
+      {
+        id: "3".repeat(64),
+        pubkey: self,
+        kind: 4444,
+        tags: [["p", second]],
+        created_at: 10,
+        content: "ciphertext",
+        sig: "sig",
+      },
+    ]
+    pubkey.set(self)
+    const observer = vi.fn()
+    const stop = deriveChat([self, first]).subscribe(observer)
+    try {
+      repository.publish(messages[0])
+      const original = get(chatsById).get(first)
+      observer.mockClear()
+      repository.batch(() => messages.slice(1).forEach(event => repository.publish(event)))
+      expect(observer).not.toHaveBeenCalled()
+      expect(get(chatsById).get(first)).toBe(original)
+      expect(get(chatsById).get(second)?.messages).toHaveLength(2)
+      pubkey.set(undefined)
+      expect(get(chatsById).size).toBe(0)
+      expect(observer).toHaveBeenLastCalledWith(undefined)
+    } finally {
+      stop()
+      for (const event of messages) repository.removeEvent(event.id)
+      pubkey.set(previous)
+    }
+  })
+
   it("displayReaction maps content to emoji", async () => {
     const {displayReaction} = await import("./state")
     expect(displayReaction("")).toBe("❤️")
