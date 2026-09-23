@@ -2,6 +2,7 @@ import {nip19} from "nostr-tools"
 import {BASE_TIMESTAMP, TEST_PUBKEYS, signTestEvent} from "./events"
 
 export const tradeRelay = "wss://trade-preview.example/"
+export const tradeAuthorRelay = "wss://trade-author-outbox.example/"
 const pubkey = TEST_PUBKEYS.alice
 const create = (kind: number, identifier: string, content: string, tags: string[][]) =>
   signTestEvent({
@@ -55,4 +56,22 @@ export const tradeReference = (event: (typeof tradeEvents)[number]) =>
 export const cacheTradeFixtures = async () => {
   const {repository} = await import("@welshman/app")
   tradeEvents.forEach(event => repository.publish(event))
+}
+
+export const cacheTradeAuthorRelayList = async () => {
+  const {repository} = await import("@welshman/app")
+  repository.publish(
+    signTestEvent({
+      kind: 10002,
+      pubkey,
+      created_at: BASE_TIMESTAMP,
+      content: "",
+      tags: [["r", tradeAuthorRelay]],
+    }),
+  )
+}
+
+export const getTradeAuthorRelayHints = async () => {
+  const {Router} = await import("@welshman/router")
+  return Router.get().FromPubkey(pubkey).getUrls()
 }

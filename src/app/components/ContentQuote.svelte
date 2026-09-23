@@ -148,6 +148,8 @@
   const idOrAddress = id || new Address(kind, pubkey, identifier).toString()
   const authorRelays = pubkey ? Router.get().FromPubkey(pubkey).getUrls() : []
   const referenceRelays = getQuoteRelayHints(relays, getQuoteTagRelayHints(event, idOrAddress))
+  // Lookup candidates may include author/browsing relays. Preview cards must
+  // receive referenceRelays so opening or sharing does not encode those candidates.
   const mergedRelays = getQuoteRelayHints(
     referenceRelays,
     Router.get().Quote(event, idOrAddress, relays).getUrls(),
@@ -1017,18 +1019,18 @@
   <div class="my-2 min-w-0 max-w-full">
     {#key $quote.id}<ArticleCard
         event={$quote}
-        relays={mergedRelays}
+        relays={referenceRelays}
         {url}
         {communitySectionName}
         compact />{/key}
   </div>
 {:else if $quote && isTradeEventKind($quote.kind)}
   <div class="my-2 min-w-0 max-w-full">
-    {#key $quote.id}<TradeEventCard event={$quote} relays={mergedRelays} compact />{/key}
+    {#key $quote.id}<TradeEventCard event={$quote} relays={referenceRelays} compact />{/key}
   </div>
 {:else if $quote && ![MESSAGE, THREAD, EVENT_DATE, EVENT_TIME, ZAP_GOAL].includes($quote.kind)}
   <div class="my-2 min-w-0 max-w-full">
-    {#key $quote.id}<EventFallback event={$quote} relays={mergedRelays} compact />{/key}
+    {#key $quote.id}<EventFallback event={$quote} relays={referenceRelays} compact />{/key}
   </div>
 {:else if quoteTimedOut}
   <div
