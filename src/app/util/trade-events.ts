@@ -14,6 +14,10 @@ const labels: Record<number, string> = {
 export const isTradeEventKind = (kind: number) => Object.hasOwn(labels, kind)
 export const tradeEventLabel = (kind: number) => labels[kind] || "Listing"
 
+// Group only the integer part, preserving decimal precision without converting to Number.
+const formatPriceAmount = (amount: string) =>
+  amount.replace(/^\d+/, whole => whole.replace(/\B(?=(\d{3})+(?!\d))/g, ","))
+
 const imageUrl = (value: string) => {
   try {
     const url = new URL(value)
@@ -56,7 +60,7 @@ export const getTradeEventDetails = (
     price = free
       ? "Free"
       : validPrice
-        ? `${amount} ${currency.toUpperCase()}${frequency ? ` / ${frequency}` : ""}`
+        ? `${formatPriceAmount(amount)} ${currency.toUpperCase()}${frequency ? ` / ${frequency}` : ""}`
         : prices.length
           ? "Price unavailable"
           : "Ask for price"

@@ -259,12 +259,12 @@ test("an older seller without DM relays stays on the listing with a helpful prom
 }) => {
   const {frame, relay} = await openWidget(page)
   await frame.getByRole("button", {name: "View Seller lamp"}).click()
-  await frame.getByRole("button", {name: "Copy message", exact: true}).click()
-  await expect(frame.getByRole("status")).toContainText("Message and listing link copied.")
+  await frame.getByRole("button", {name: "Copy inquiry", exact: true}).click()
+  await expect(frame.getByRole("status")).toContainText("Inquiry and listing link copied.")
   const copiedMessage = await frame.locator("body").evaluate(() => (window as any).__copiedText)
   expect(copiedMessage).toMatch(/^Hi, is “Seller lamp” still available\?\nnostr:naddr1/)
-  await frame.getByRole("button", {name: "Copy Nostr link", exact: true}).click()
-  await expect(frame.getByRole("status")).toContainText("Nostr link copied.")
+  await frame.getByRole("button", {name: "Share listing", exact: true}).click()
+  await expect(frame.getByRole("status").filter({hasText: "Nostr link copied."})).toBeVisible()
   const copiedLink = await frame.locator("body").evaluate(() => (window as any).__copiedText)
   expect(copiedLink).toBe(copiedMessage.split("\n")[1])
   expect(nip19.decode(copiedLink.slice(6))).toMatchObject({

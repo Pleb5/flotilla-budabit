@@ -141,7 +141,7 @@ test("renders every shared trade kind as a rich quote and opens the native listi
       )
     }
   }
-  await expect(quotes.nth(0)).toContainText("25000 SATS")
+  await expect(quotes.nth(0)).toContainText("25,000 SATS")
   await expect(quotes.nth(1)).toContainText("5,000 sats / hour")
   await expect(quotes.nth(3).getByRole("link", {name: "View job", exact: true})).toBeVisible()
   await expect(quotes.nth(4)).toContainText("Fulfilled")
