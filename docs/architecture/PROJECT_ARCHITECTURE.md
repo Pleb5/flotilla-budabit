@@ -11,8 +11,9 @@ flotilla-budabit/
 │   ├── nostr-git-core/     # Core Git/Nostr library (NIP-34 implementation)
 │   ├── nostr-git-ui/       # Svelte 5 UI components for Git features
 │   ├── budabit-pipelines-extension/  # Pipelines extension package
+│   ├── budabit-releases-extension/   # Releases extension package
 │   ├── welshman/           # Vendored Nostr workspace source
-│   └── flotilla-extension-template/  # The sole Git submodule
+│   └── flotilla-extension-template/  # In-tree template, SDK, and scaffold CLI
 ├── docs/                   # Project and architecture documentation
 ```
 
@@ -285,10 +286,13 @@ Root Application
     └── Depends on: @nostr-git/core (workspace)
 ```
 
-The repository also contains `budabit-pipelines-extension` and the
-`flotilla-extension-template` submodule. They are development/distribution
-packages, not bundled built-ins in the app shell. Core/UI and pipelines are
-ordinary tracked directories; Welshman is a vendored subtree.
+The repository also contains `budabit-releases-extension`,
+`budabit-pipelines-extension`, and `flotilla-extension-template` as ordinary
+tracked workspaces. Their child packages share the root lockfile, and Releases
+and Pipelines link to the local `budabit-sdk` in the template. These are
+development/distribution packages, not bundled built-ins in the app shell.
+Core/UI are in-tree libraries and Welshman is a vendored subtree. There are no
+Git submodules. See the [workspace guide](../development/workspaces.md).
 
 Kanban is developed and tested in its [standalone repository](https://grasp.budabit.club/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/budabit-kanban-extension.git),
 outside Budabit's workspace and bootstrap. The host continues to support its

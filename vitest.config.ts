@@ -82,7 +82,7 @@ export default defineConfig({
         root: path.resolve(__dirname, "packages/budabit-pipelines-extension"),
         test: {
           name: "budabit-pipelines-extension",
-          include: ["packages/shared/src/**/*.{test,spec}.ts"],
+          include: ["packages/iframe-app/src/**/*.{test,spec}.ts"],
         },
       },
       {
@@ -90,7 +90,23 @@ export default defineConfig({
         root: path.resolve(__dirname, "packages/flotilla-extension-template"),
         test: {
           name: "flotilla-extension-template",
-          include: ["packages/shared/src/**/*.{test,spec}.ts"],
+          include: ["packages/{shared,manifest,test-utils,worker}/src/**/*.{test,spec}.ts"],
+        },
+      },
+      {
+        extends: "./packages/flotilla-extension-template/packages/sdk/vitest.config.ts",
+        root: path.resolve(__dirname, "packages/flotilla-extension-template/packages/sdk"),
+        test: {
+          name: "budabit-sdk",
+          include: ["src/**/*.test.ts"],
+        },
+      },
+      {
+        extends: "./packages/budabit-releases-extension/vitest.config.ts",
+        root: path.resolve(__dirname, "packages/budabit-releases-extension"),
+        test: {
+          name: "budabit-releases-extension",
+          include: ["packages/iframe-app/src/**/*.{test,spec}.ts"],
         },
       },
     ],

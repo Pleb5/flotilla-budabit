@@ -2,6 +2,19 @@
 
 A Flotilla Smart Widget extension that provides a full workflow management interface and artifact-attestation workflow for Nostr-native Git repositories. Users can view workflow run history, inspect live job status, trigger new runs, and co-sign artifact attestations — all powered by Nostr events and the Loom compute protocol.
 
+## Monorepo development
+
+This package and its iframe/manifest children are maintained in Budabit's root
+workspace. Use Node 22 and pnpm 10.12.4, install once at the Budabit root with
+`pnpm install --frozen-lockfile`, and run `pnpm dev:pipelines` for the widget and
+local SDK watcher. `pnpm build:extensions`, `pnpm check:extensions`, and
+`pnpm test:extensions` cover Pipelines together with Releases and the template/SDK.
+
+Package-specific commands below run from this directory after the root install,
+or through `pnpm --filter budabit-pipelines-extension run <script>`. The SDK is
+linked from the in-tree template via `workspace:*`; changes belong in the same
+Budabit PR. See the [workspace guide](../../docs/development/workspaces.md).
+
 ## How It Works
 
 ### Nostr Event Architecture
@@ -190,7 +203,8 @@ NIP-82 software releases (kinds 32267/30063/3063) are handled by `budabit-releas
 ### 1) Install
 
 ```bash
-pnpm install
+# From the Budabit root
+pnpm install --frozen-lockfile
 ```
 
 ### 2) Run the iframe app locally

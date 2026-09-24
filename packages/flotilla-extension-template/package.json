@@ -1,0 +1,58 @@
+{
+  "name": "budabit-extension-template",
+  "version": "0.1.1",
+  "private": true,
+  "description": "Reusable starter template for BudaBit Smart Widgets",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @budabit/ext-iframe dev",
+    "build": "pnpm --filter './packages/*' run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "e2e": "playwright test",
+    "e2e:headed": "playwright test --headed",
+    "e2e:debug": "playwright test --debug",
+    "typecheck": "pnpm --filter './packages/*' run typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "pnpm --filter './packages/*' run clean",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm e2e",
+    "manifest:generate": "pnpm --filter @budabit/ext-manifest generate --title 'My Widget' --type tool --app-url '${WIDGET_APP_URL:-http://localhost:5173}' --fallback-app-urls '${WIDGET_FALLBACK_APP_URLS:-}' --icon 'Sparkles' --image 'https://example.com/preview.png' --identifier 'my-widget' --version '0.1.0' --changelog 'Initial release' --permissions 'nostr:publish,community:checkWriteCapabilities,community:queryEvents,ui:toast'",
+    "manifest:publish": "pnpm --filter @budabit/ext-manifest publish-widget --relay ${COMMUNITY_RELAYS:?Set COMMUNITY_RELAYS to the tagged community relay URLs}",
+    "widget:build": "pnpm build && pnpm manifest:generate",
+    "widget:publish": "pnpm widget:build && pnpm manifest:publish",
+    "widget:publish:dry-run": "pnpm widget:build && pnpm --filter @budabit/ext-manifest publish-widget --dry-run",
+    "widget:publish:blossom": "pnpm widget:build && pnpm --filter @budabit/ext-manifest publish-widget --upload-first --blossom https://blossom.primal.net --artifact ../iframe-app/dist/index.html",
+    "widget:publish:github": "pnpm widget:build && pnpm --filter @budabit/ext-manifest publish-widget --upload-first --github-repo ${GITHUB_REPO} --github-tag ${GITHUB_TAG} --artifact ../iframe-app/dist/index.html"
+  },
+  "keywords": [
+    "budabit",
+    "nostr",
+    "smart-widget",
+    "template",
+    "kind-30033"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.48.2",
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@10.12.4"
+}

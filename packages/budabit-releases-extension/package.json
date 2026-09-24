@@ -1,0 +1,59 @@
+{
+  "name": "budabit-releases-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Budabit Smart Widget: budabit-releases-extension",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @budabit-releases-extension/iframe dev",
+    "build": "pnpm --filter './packages/*' run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
+    "e2e": "pnpm build && playwright test",
+    "e2e:headed": "pnpm build && playwright test --headed",
+    "e2e:debug": "pnpm build && playwright test --debug",
+    "typecheck": "pnpm --filter './packages/*' run typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "clean": "pnpm --filter './packages/*' run clean",
+    "verify": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build && pnpm e2e",
+    "manifest:generate": "budabit-generate --title 'Releases' --type tool --app-url \"${WIDGET_APP_URL:-http://localhost:5173}\" --icon \"${WIDGET_ICON_URL:-https://blossom.budabit.club/1bff8e9625479d94b37d6003c597445cc892c65154845c16d7e8dc24a8a553dd.png}\" --image 'https://budabit.dev/images/releases-preview.png' --identifier 'budabit-releases' --permissions 'nostr:sign,nostr:publish,nostr:query,nostr:subscribe,nostr:unsubscribe,storage:get,storage:set,storage:compareAndSet' --nostr-kinds '32267,30063,3063,1063,5401' --slot-type repo-tab --slot-label Releases --slot-path releases",
+    "manifest:publish": "budabit-publish",
+    "widget:build": "pnpm build && pnpm manifest:generate",
+    "widget:publish": "pnpm widget:build && pnpm manifest:publish",
+    "widget:publish:dry-run": "pnpm widget:build && budabit-publish --dry-run",
+    "widget:publish:blossom": "pnpm widget:build && budabit-publish --upload-first --blossom https://blossom.primal.net --artifact packages/iframe-app/dist/index.html",
+    "widget:publish:github": "pnpm widget:build && budabit-publish --upload-first --github-repo ${GITHUB_REPO} --github-tag ${GITHUB_TAG} --artifact packages/iframe-app/dist/index.html"
+  },
+  "keywords": [
+    "budabit",
+    "nostr",
+    "smart-widget",
+    "kind-30033"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.48.2",
+    "@types/node": "^22.10.2",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
+    "budabit-sdk": "workspace:*",
+    "eslint": "^9.17.0",
+    "jsdom": "^25.0.1",
+    "prettier": "^3.4.2",
+    "prettier-plugin-svelte": "^3.4.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.1",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=22.12.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@10.12.4"
+}

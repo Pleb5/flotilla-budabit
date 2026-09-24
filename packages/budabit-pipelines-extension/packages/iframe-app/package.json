@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 5173",
+    "dev:workspace": "vite --port ${WIDGET_PORT:-5173} --strictPort",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
@@ -20,7 +21,7 @@
     "applesauce-relay": "^5.2.0",
     "applesauce-sqlite": "^5.2.0",
     "blossom-client-sdk": "^5.0.0",
-    "budabit-sdk": "^0.2.0",
+    "budabit-sdk": "workspace:*",
     "date-fns": "^4.1.0",
     "js-yaml": "^4.1.1",
     "nostr-tools": "^2.11.0",

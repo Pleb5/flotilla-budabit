@@ -11,10 +11,8 @@ The current architecture is community-first. A deployment can point at a default
 Use Node.js 22 (Jod) and pnpm 10.12.4, matching `.nvmrc` and `package.json`.
 
 ```sh
-git clone --recurse-submodules --branch master https://github.com/Pleb5/flotilla-budabit.git budabit
+git clone --branch master https://github.com/Pleb5/flotilla-budabit.git budabit
 cd budabit
-git submodule sync --recursive
-git submodule update --init --recursive
 pnpm run build-in-production
 ```
 
@@ -22,8 +20,8 @@ Upload the contents of `build/` to your host.
 
 That is enough for a basic deployment.
 
-The only submodule is `packages/flotilla-extension-template`. Core/UI, pipelines,
-and Welshman source are tracked in Budabit. Kanban lives in its
+Releases, Pipelines, the template/SDK, core/UI, and Welshman source are tracked in
+Budabit. The current monorepo has no Git submodules. Kanban lives in its
 [own repository](https://grasp.budabit.club/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/budabit-kanban-extension.git)
 and is not needed to clone, install, build, or test the host.
 
@@ -238,8 +236,6 @@ For a deployment checkout without local source commits (keep branding in `.env`)
 
 ```sh
 git pull --ff-only
-git submodule sync --recursive
-git submodule update --init --recursive
 pnpm run build-in-production
 ```
 
@@ -247,7 +243,7 @@ Then use the ordered deployment procedure below. Uploading `build/` as one paral
 
 For local source commits or checkouts predating the submodule-to-directory
 migration, follow [Updating and Migrating Older Checkouts](../../CONTRIBUTING.md#updating-and-migrating-older-checkouts).
-Do not use recursive pull/rebase to reconcile locally committed template pointers.
+Legacy template-pointer commits must be migrated to ordinary source changes.
 
 ## Deploying with SFTP/LFTP (Recommended Strategy)
 
@@ -379,7 +375,7 @@ VITE_GIT_DEFAULT_CORS_PROXY=https://your-cors-proxy.example.com
 ## Things That Will Bite You
 
 - Do not deploy under a subfolder unless you plan to rework base-path assumptions.
-- Do not skip submodule sync/update on fresh clones or after submodule changes.
+- Use the root workspace and lockfile for installs; current revisions need no submodule initialization.
 - Do not use a dumb file server without SPA rewrites and expect deep links to work.
 - Do not point `VITE_DEFAULT_COMMUNITY` at a user profile, raw pubkey, `npub`, or `ncommunity`; use a resolvable exact `kind:32222` definition `naddr`.
 - Do not rely on legacy `/spaces/[relay]` routes. They were removed in the Communikey pivot.

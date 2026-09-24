@@ -1,68 +1,86 @@
 import {execFileSync} from "node:child_process"
-import {readFileSync} from "node:fs"
+import {existsSync, readFileSync, realpathSync} from "node:fs"
 import {fileURLToPath} from "node:url"
-import {afterEach, describe, expect, it, vi} from "vitest"
+import {describe, expect, it} from "vitest"
 
+const root = fileURLToPath(new URL("../", import.meta.url))
 const readProjectFile = (path: string) => readFileSync(new URL(path, import.meta.url), "utf8")
-const loadProjects = async () => {
-  vi.resetModules()
-  const {default: config} = await import("../vitest.config")
-  return config.test?.projects
-}
 
-afterEach(() => vi.unstubAllEnvs())
-
-describe("CI extension isolation", () => {
-  it("uses the public template fork containing the pinned commit", () => {
-    const remote = execFileSync(
-      "git",
-      [
-        "config",
-        "--file",
-        fileURLToPath(new URL("../.gitmodules", import.meta.url)),
-        "--get",
-        "submodule.packages/flotilla-extension-template.url",
-      ],
-      {encoding: "utf8"},
-    ).trim()
-    expect(remote).toBe("https://github.com/Pleb5/flotilla-extension-template.git")
+describe("self-contained extension workspaces", () => {
+  it("checks out all package sources without Git submodules", () => {
+    expect(existsSync(new URL("../.gitmodules", import.meta.url))).toBe(false)
+    const index = execFileSync("git", ["ls-files", "--stage"], {cwd: root, encoding: "utf8"})
+    expect(index).not.toMatch(/^160000 /m)
+    for (const name of [
+      "budabit-releases-extension",
+      "budabit-pipelines-extension",
+      "flotilla-extension-template",
+      "nostr-git-core",
+      "nostr-git-ui",
+      "welshman",
+    ]) {
+      expect(existsSync(new URL(`../packages/${name}/package.json`, import.meta.url))).toBe(true)
+      expect(existsSync(new URL(`../packages/${name}/.git`, import.meta.url))).toBe(false)
+    }
   })
 
-  it.each(["", "true"])("keeps standalone Kanban outside Budabit tests (CI=%s)", async ci => {
-    vi.stubEnv("CI", ci)
-    const projects = JSON.stringify(await loadProjects())
-    expect(projects).not.toContain("budabit-kanban-extension")
-    expect(projects).toContain("flotilla-extension-template")
-    expect(projects).toContain("budabit-pipelines-extension")
-  })
-
-  it("registers only the template as a submodule", () => {
-    const paths = execFileSync(
-      "git",
-      [
-        "config",
-        "--file",
-        fileURLToPath(new URL("../.gitmodules", import.meta.url)),
-        "--get-regexp",
-        "^submodule\\..*\\.path$",
-      ],
-      {encoding: "utf8"},
+  it("discovers extension children through the root workspace, excluding scaffold fixtures", () => {
+    const packages = JSON.parse(
+      execFileSync("pnpm", ["list", "--recursive", "--depth=-1", "--json"], {
+        cwd: root,
+        encoding: "utf8",
+      }),
+    ) as {name: string; path: string}[]
+    const names = packages.map(pkg => pkg.name)
+    expect(names).toEqual(
+      expect.arrayContaining([
+        "budabit-releases-extension",
+        "@budabit-releases-extension/iframe",
+        "budabit-pipelines-extension",
+        "@flotilla/ext-iframe",
+        "@flotilla/ext-manifest",
+        "budabit-extension-template",
+        "@budabit/ext-iframe",
+        "budabit-sdk",
+        "create-budabit-widget",
+      ]),
     )
-      .trim()
-      .split("\n")
-    expect(paths).toEqual([
-      "submodule.packages/flotilla-extension-template.path packages/flotilla-extension-template",
-    ])
-    expect(readProjectFile("../pnpm-lock.yaml")).not.toContain("packages/budabit-kanban-extension:")
+    expect(new Set(names).size).toBe(names.length)
+    expect(names).not.toContain("budabit-kanban-extension")
+    expect(packages.some(pkg => pkg.path.includes("create-budabit-widget/template/"))).toBe(false)
   })
 
-  it.each(["community-policy-conformance.yml", "e2e-tests.yml", "contributor-bootstrap.yml"])(
-    "%s exercises recursive initialization without a Kanban bypass",
-    workflow => {
-      const source = readProjectFile(`../.github/workflows/${workflow}`)
-      expect(source).toMatch(/submodules:\s*recursive/)
-      expect(source).not.toMatch(/submodules:\s*false/)
-      expect(source).not.toContain("excluding Kanban")
-    },
-  )
+  it("links Releases and Pipelines to the in-tree SDK", () => {
+    const sdk = realpathSync(
+      new URL("../packages/flotilla-extension-template/packages/sdk", import.meta.url),
+    )
+    for (const name of ["budabit-releases-extension", "budabit-pipelines-extension"]) {
+      const consumer = new URL(`../packages/${name}/packages/iframe-app/`, import.meta.url)
+      expect(realpathSync(new URL("node_modules/budabit-sdk", consumer))).toBe(sdk)
+      const workspace = new URL(`../packages/${name}/`, import.meta.url)
+      expect(existsSync(new URL("pnpm-workspace.yaml", workspace))).toBe(false)
+      expect(existsSync(new URL("pnpm-lock.yaml", workspace))).toBe(false)
+    }
+  })
+
+  it("registers widget and SDK tests rather than obsolete shared-package paths", async () => {
+    const {default: config} = await import("../vitest.config")
+    const projects = JSON.stringify(config.test?.projects)
+    expect(projects).toContain("budabit-releases-extension")
+    expect(projects).toContain("budabit-pipelines-extension")
+    expect(projects).toContain("flotilla-extension-template")
+    expect(projects).toContain("budabit-sdk")
+    expect(projects).not.toContain("budabit-kanban-extension")
+  })
+
+  it.each([
+    "community-policy-conformance.yml",
+    "e2e-tests.yml",
+    "contributor-bootstrap.yml",
+    "docker-publish.yml",
+  ])("%s uses an ordinary checkout", workflow => {
+    const source = readProjectFile(`../.github/workflows/${workflow}`)
+    expect(source).not.toMatch(/submodules:\s*(recursive|true)/)
+    expect(source).not.toContain("git submodule update")
+  })
 })

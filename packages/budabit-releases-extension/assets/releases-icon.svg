@@ -1,0 +1,74 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="256"
+  height="256"
+  viewBox="0 0 256 256"
+  fill="none"
+  role="img"
+  aria-labelledby="title description"
+>
+  <title id="title">Releases</title>
+  <desc id="description">An amber software package with a download arrow on a charcoal tile.</desc>
+  <defs>
+    <linearGradient id="tile" x1="32" y1="12" x2="216" y2="256" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#25343B" />
+      <stop offset="1" stop-color="#10181E" />
+    </linearGradient>
+    <linearGradient id="lid" x1="66" y1="64" x2="174" y2="128" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE1A0" />
+      <stop offset="1" stop-color="#F4AD45" />
+    </linearGradient>
+    <linearGradient id="edge" x1="58" y1="92" x2="178" y2="206" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFD082" />
+      <stop offset="1" stop-color="#EB9A38" />
+    </linearGradient>
+    <linearGradient id="badge" x1="162" y1="154" x2="214" y2="216" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE4A6" />
+      <stop offset="1" stop-color="#F5B23E" />
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#tile)" />
+  <rect
+    x="1"
+    y="1"
+    width="254"
+    height="254"
+    rx="55"
+    stroke="#FFF"
+    stroke-opacity=".07"
+    stroke-width="2"
+  />
+  <path d="M56 96 119 60 182 96 119 132Z" fill="url(#lid)" />
+  <path d="M56 96 119 132V204L61 171Q56 168 56 162Z" fill="#47372A" />
+  <path d="M182 96 119 132V204L177 171Q182 168 182 162Z" fill="#74502C" />
+  <path
+    d="M56 96 115 62Q119 60 123 62L182 96V162Q182 168 177 171L123 202Q119 204 115 202L61 171Q56 168 56 162Z"
+    stroke="url(#edge)"
+    stroke-width="7"
+    stroke-linejoin="round"
+  />
+  <path
+    d="m56 96 63 36 63-36M119 132v70"
+    stroke="url(#edge)"
+    stroke-width="7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="m88 78 63 36v22"
+    stroke="#845726"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path d="m76 152 17 10" stroke="#FFD082" stroke-width="6" stroke-linecap="round" />
+  <circle cx="187" cy="185" r="39" fill="#141E24" />
+  <circle cx="187" cy="185" r="33" fill="url(#badge)" />
+  <path
+    d="M187 166v36m-13-13 13 13 13-13"
+    stroke="#263038"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

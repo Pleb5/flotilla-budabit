@@ -1,0 +1,9 @@
+node_modules/
+dist/
+packages/*/dist/
+coverage/
+test-results/
+playwright-report/
+pnpm-lock.yaml
+docs/session-checkpoint.md
+docs/session-plan.md

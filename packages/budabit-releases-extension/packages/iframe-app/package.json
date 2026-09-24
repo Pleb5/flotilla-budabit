@@ -1,0 +1,30 @@
+{
+  "name": "@budabit-releases-extension/iframe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:workspace": "vite --port ${WIDGET_PORT:-5173} --strictPort",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.0.1",
+    "budabit-sdk": "workspace:*",
+    "nostr-tools": "^2.23.5",
+    "dompurify": "^3.4.13",
+    "marked": "^18.0.9"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tsconfig/svelte": "^5.0.4",
+    "svelte": "^5.15.0",
+    "svelte-check": "^4.1.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vite-plugin-singlefile": "^2.0.4"
+  }
+}

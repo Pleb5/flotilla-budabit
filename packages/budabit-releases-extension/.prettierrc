@@ -1,0 +1,11 @@
+{
+  "semi": true,
+  "plugins": ["prettier-plugin-svelte"],
+  "singleQuote": true,
+  "tabWidth": 2,
+  "useTabs": false,
+  "trailingComma": "es5",
+  "printWidth": 100,
+  "arrowParens": "always",
+  "endOfLine": "lf"
+}

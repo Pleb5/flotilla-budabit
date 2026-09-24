@@ -14,7 +14,7 @@ Follow the [README setup](README.md#setup-instructions) with Node.js 22 (Jod) an
 pnpm 10.12.4. Work on a feature branch based on `origin/dev`:
 
 ```sh
-git clone --recurse-submodules --branch dev https://github.com/Pleb5/flotilla-budabit.git budabit
+git clone --branch dev https://github.com/Pleb5/flotilla-budabit.git budabit
 cd budabit
 git switch -c my-feature origin/dev
 pnpm install --frozen-lockfile
@@ -36,24 +36,31 @@ git remote add fork https://github.com/YOUR_ACCOUNT/flotilla-budabit.git
 git push -u fork my-feature
 ```
 
-### Workspace Packages and the Template Submodule
+### Workspace Packages
 
-Core (`packages/nostr-git-core`), UI (`packages/nostr-git-ui`), pipelines
-(`packages/budabit-pipelines-extension`), and Welshman (`packages/welshman`) are
-ordinary directories tracked by Budabit. Changes to their source belong in a
-Budabit commit and PR.
+All package source is tracked in Budabit, with **no Git submodules**:
 
-The only submodule is `packages/flotilla-extension-template`. Its pinned checkout
-is required by the root Vitest project configuration, including selected app tests.
-Contribute template changes to [Pleb5/flotilla-extension-template](https://github.com/Pleb5/flotilla-extension-template),
-then update the gitlink here to the exact reviewed, publicly fetchable commit:
+- `packages/nostr-git-core` and `packages/nostr-git-ui`
+- `packages/budabit-releases-extension` and `packages/budabit-pipelines-extension`
+- `packages/flotilla-extension-template`, including `budabit-sdk` and the scaffold CLI
+- `packages/welshman`
+
+Install once at the repository root using pnpm 10.12.4. Extension child packages
+are root workspace members; the template's generated example project is excluded.
+Releases and Pipelines resolve `budabit-sdk` via `workspace:*` to its source in
+this tree. Commit library, widget, and host integration changes together in a
+Budabit PR against `dev`.
 
 ```sh
-git -C packages/flotilla-extension-template fetch origin
-git -C packages/flotilla-extension-template checkout --detach REVIEWED_COMMIT
-git add packages/flotilla-extension-template
-git commit -m "chore(template): update reviewed template revision"
+pnpm build:extensions
+pnpm check:extensions
+pnpm test:extensions
+pnpm test:releases
 ```
+
+See the [workspace guide](docs/development/workspaces.md) for scoped development,
+builds, tests, and import provenance. The root lockfile is authoritative; do not
+create nested installs/lockfiles or update pointers in the former standalone repos.
 
 Kanban is an independent [repository on GRASP](https://grasp.budabit.club/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/budabit-kanban-extension.git).
 Clone it outside Budabit, install its own dependencies, and submit widget changes
@@ -85,7 +92,9 @@ The main parts of the application are as follows:
 - **`packages/nostr-git-core`** - in-tree workspace containing nostr-git core protocol logic.
 - **`packages/nostr-git-ui`** - in-tree workspace containing nostr-git UI and worker integration.
 - **`packages/welshman`** - vendored Welshman source and its workspace packages.
-- **`packages/flotilla-extension-template`** - the sole Git submodule.
+- **`packages/flotilla-extension-template`** - in-tree template, SDK, manifest tools, and scaffold CLI.
+- **`packages/budabit-releases-extension`** - in-tree release discovery/publication widget.
+- **`packages/budabit-pipelines-extension`** - in-tree workflow and artifact widget.
 
 Application organization is based on an acyclic dependency graph:
 
@@ -176,16 +185,27 @@ For a clean feature branch using the current layout:
 ```sh
 git fetch --no-recurse-submodules origin
 git -c submodule.recurse=false rebase origin/dev
-git submodule sync --recursive
-git submodule update --init --recursive
 pnpm install --frozen-lockfile
 ```
 
-`clone --recurse-submodules` initializes the template; it does not set
-`submodule.recurse=true`. With that setting enabled, `git pull --rebase` can fail
-with `cannot rebase with locally recorded submodule modifications` when local
-commits change a gitlink. Fetch/rebase the parent separately as above, then update
-the template checkout. Publish template commits before referencing them in Budabit.
+There is no submodule update step on the current layout. Older branches with
+locally committed gitlink changes may still hit `cannot rebase with locally
+recorded submodule modifications` when using recursive `git pull --rebase`.
+Fetch/rebase the parent separately as above and port package changes into the
+current tracked source.
+
+**Former template submodule:** before rebasing an initialized old checkout across
+the template conversion, save its local changes and commits in an independent
+checkout. While on the old branch that still lists it in `.gitmodules`, run:
+
+```sh
+git submodule deinit -- packages/flotilla-extension-template
+```
+
+For a clean submodule this removes the obstructing worktree without discarding
+local changes with force. Then fetch/rebase as above. Template/SDK edits now
+belong directly in this repository; the imported base revision is recorded in
+`packages/flotilla-extension-template/IMPORT.md`.
 
 **Pre-June-2026 core/UI/pipelines checkouts:** their initialized submodule files
 can block rebasing onto the conversion to ordinary directories, even when an
@@ -220,8 +240,7 @@ All PRs should be opened against the `dev` branch (unless for hotfixes). **Clear
 
 - Budabit-specific (changes in `src/app/core/git-*`, `src/app/components`, or `src/app/util`)
 - A potential upstream contribution (core Flotilla changes)
-- An in-tree core/UI, pipelines, or Welshman change
-- A template submodule update
+- An in-tree core/UI, Releases, Pipelines, template/SDK, or Welshman change
 
 ## Communication
 

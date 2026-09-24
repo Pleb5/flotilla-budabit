@@ -18,7 +18,7 @@
     "publish-widget": "budabit-publish"
   },
   "dependencies": {
-    "budabit-sdk": "^0.2.0"
+    "budabit-sdk": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.7.2"

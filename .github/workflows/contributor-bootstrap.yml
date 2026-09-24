@@ -17,12 +17,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
           persist-credentials: false
-      - name: Verify pinned submodule checkouts
+      - name: Verify self-contained checkout
         run: |
-          git submodule foreach --recursive 'test "$(git rev-parse HEAD)" = "$sha1"'
-          git diff --exit-code --ignore-submodules=none
+          test ! -e .gitmodules
+          test -z "$(git ls-files --stage | grep '^160000 ' || true)"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -34,6 +33,11 @@ jobs:
           SHARP_IGNORE_GLOBAL_LIBVIPS: '1'
       - run: pnpm check
       - run: pnpm exec vitest run --project=main tests/ci-extensions.test.ts
+      - run: pnpm build:extensions
+      - run: pnpm check:extensions
+      - run: pnpm test:extensions
+      - run: pnpm --filter budabit-releases-extension run lint
+      - run: pnpm --filter budabit-releases-extension run test:coverage
       - run: pnpm build
       - name: Verify bootstrap leaves tracked files clean
         run: git diff --exit-code --ignore-submodules=none

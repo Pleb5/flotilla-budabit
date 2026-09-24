@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Releases isolated test host</title>
+    <style>
+      body {
+        margin: 0;
+        background: #edf1f5;
+        font: 14px system-ui;
+      }
+      header {
+        padding: 12px;
+      }
+      button {
+        padding: 6px;
+        margin: 4px;
+      }
+      iframe {
+        display: block;
+        width: 100%;
+        height: calc(100vh - 110px);
+        border: 0;
+      }
+      #metrics {
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <strong>Isolated release fixture — no relay connections or real accounts</strong><br />
+      <button id="logout">Log out</button><button id="login">Test maintainer</button
+      ><button id="replace">Replace release</button><button id="revoke">Revoke application</button
+      ><button id="partial">Toggle partial query</button
+      ><button id="fail">Fail next publication</button><button id="clear">Clear repository</button
+      ><span id="metrics"></span>
+    </header>
+    <iframe
+      title="Releases fixture"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+    ></iframe>
+    <script type="module" src="./host.ts"></script>
+  </body>
+</html>

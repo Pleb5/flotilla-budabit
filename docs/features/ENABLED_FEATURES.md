@@ -42,9 +42,10 @@ Additional extensions are installed through community-curated `kind:30033` disco
 
 ## Optional Extension Packages
 
-The repo contains `packages/budabit-pipelines-extension` and the
-`packages/flotilla-extension-template` submodule for development and distribution;
-they are not automatically enabled in the app bundle.
+The repo contains `packages/budabit-releases-extension`,
+`packages/budabit-pipelines-extension`, and `packages/flotilla-extension-template`
+as in-tree workspaces for development and distribution. They share the root
+install and local SDK, but are not automatically enabled in the app bundle.
 
 Kanban is maintained in a [standalone repository](https://grasp.budabit.club/npub16p8v7varqwjes5hak6q7mz6pygqm4pwc6gve4mrned3xs8tz42gq7kfhdw/budabit-kanban-extension.git).
 It is not a Budabit submodule, workspace, or test project. Published Kanban widgets

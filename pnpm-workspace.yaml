@@ -1,9 +1,13 @@
-# Keep membership explicit: standalone widgets are developed outside Budabit.
+# First-level child globs deliberately exclude the scaffold's generated example project.
 packages:
   - 'packages/nostr-git-core'
   - 'packages/nostr-git-ui'
   - 'packages/flotilla-extension-template'
+  - 'packages/flotilla-extension-template/packages/*'
   - 'packages/budabit-pipelines-extension'
+  - 'packages/budabit-pipelines-extension/packages/*'
+  - 'packages/budabit-releases-extension'
+  - 'packages/budabit-releases-extension/packages/*'
   - 'packages/welshman'
   - 'packages/welshman/packages/*'
 allowBuilds:
