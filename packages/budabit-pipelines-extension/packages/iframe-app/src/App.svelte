@@ -7,6 +7,8 @@
     ChevronDown,
     Copy,
     ExternalLink,
+    Eye,
+    EyeOff,
     FileCheck,
     Play,
     RotateCw,
@@ -74,6 +76,8 @@
   } from './lib/view-model'
   import {buildRunnerScriptTemplate} from './lib/runner-script'
   import {loadRepoMetadata} from './lib/repo'
+  import {BudabitHiveCIClient} from './lib/BudabitHiveCIClient'
+  import {bridgeNostrSigner, extractFollowedRepoAddrs, isUnauthorizedError} from './lib/ci-watch'
   import {getJobGroups, parseActLog, parseWorkflowJobsFromYaml} from './lib/cicd'
   import {parseCashuTokenAmount} from './lib/payment'
   import {
@@ -206,6 +210,17 @@
   const reclaimInFlight = new Set<string>()
 
   let currentView = $state<'workflows' | 'releases'>('workflows')
+
+  // ─── Hive CI repo watch ────────────────────────────────────────────────────
+  // Follow status of the current repo on the Hive CI service, gathered via
+  // BudabitHiveCIClient in parallel with the runs-list initial load.
+  // 'idle' = no client (missing bridge/repo/user context — no button).
+  let ciWatchStatus = $state<'idle' | 'loading' | 'followed' | 'unfollowed' | 'unauthorized' | 'error'>('idle')
+  let ciWatchError = $state<string | null>(null)
+  // $state.raw: the client must not be deep-proxied — its internal MCP
+  // client/transport/relay-pool graph breaks behind Svelte's reactive proxy.
+  let ciClient = $state.raw<BudabitHiveCIClient | null>(null)
+  let ciActionInFlight = $state(false)
 
   let detailSeq = 0
 
@@ -763,6 +778,55 @@
     autoTokenDismissedKey = autoTokenPromptKey
   }
 
+  const ciWatchButtonTitle = $derived.by(() => {
+    switch (ciWatchStatus) {
+      case 'loading':
+        return 'Checking whether this repo is watched…'
+      case 'followed':
+        return ciActionInFlight ? 'Stopping watch…' : 'Stop watching the repo for new commits'
+      case 'unfollowed':
+        return ciActionInFlight
+          ? 'Starting watch…'
+          : 'Watch the repo for new commits and run jobs on push'
+      case 'unauthorized':
+        return ciWatchError
+          ? `Not authorized to manage repo watches: ${ciWatchError}`
+          : 'Not authorized to manage repo watches on the Hive CI service'
+      case 'error':
+        return ciWatchError
+          ? `Watch status unavailable: ${ciWatchError}`
+          : 'Watch status unavailable'
+      default:
+        return ''
+    }
+  })
+
+  async function toggleCiWatch() {
+    if (!ciClient || !repo?.repoAddress || ciActionInFlight) return
+    if (ciWatchStatus !== 'followed' && ciWatchStatus !== 'unfollowed') return
+
+    const repoAddress = repo.repoAddress
+    const repoRelays = repo.repoRelays
+    const follow = ciWatchStatus === 'unfollowed'
+    ciActionInFlight = true
+
+    try {
+      if (follow) {
+        await ciClient.FollowRepo(repoAddress, undefined, undefined, repoRelays)
+        ciWatchStatus = 'followed'
+        await showToast('Watching this repo — jobs will run on new commits.', 'success')
+      } else {
+        await ciClient.UnfollowRepo(repoAddress, undefined, undefined, repoRelays)
+        ciWatchStatus = 'unfollowed'
+        await showToast('Stopped watching this repo.', 'success')
+      }
+    } catch (err) {
+      await showToast(friendlyErrorMessage(err instanceof Error ? err.message : String(err)), 'error')
+    } finally {
+      ciActionInFlight = false
+    }
+  }
+
   function openNewRunForm() {
     if (!repo) return
 
@@ -1151,6 +1215,49 @@
       runsSub.unsubscribe()
       detailSub.unsubscribe()
       workersSub.unsubscribe()
+    }
+  })
+
+  // Hive CI follow status for the watch/unwatch button. Keyed on the same
+  // bridge + repo context as the runs-list effect above, so the client
+  // connects and queries list_followed in parallel with the initial run load
+  // — neither blocks the other. Requires a signed-in user: follow state is
+  // per-requester, so without a userPubkey there is no button at all.
+  $effect(() => {
+    if (!bridge || !repo?.repoAddress || !repo.userPubkey) {
+      ciWatchStatus = 'idle'
+      ciWatchError = null
+      ciClient = null
+      return
+    }
+
+    const repoAddress = repo.repoAddress
+    const client = new BudabitHiveCIClient({
+      signer: bridgeNostrSigner(bridge, repo.userPubkey),
+    })
+    ciClient = client
+    ciWatchStatus = 'loading'
+    ciWatchError = null
+
+    let cancelled = false
+    void (async () => {
+      try {
+        const output = await client.ListFollowed({})
+        if (cancelled) return
+        const followed = extractFollowedRepoAddrs(output)
+        ciWatchStatus = followed.includes(repoAddress) ? 'followed' : 'unfollowed'
+      } catch (err) {
+        if (cancelled) return
+        console.warn('[workflows] failed to load CI follow status', err)
+        ciWatchError = friendlyErrorMessage(err instanceof Error ? err.message : String(err))
+        ciWatchStatus = isUnauthorizedError(err) ? 'unauthorized' : 'error'
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      ciClient = null
+      void client.disconnect().catch(() => undefined)
     }
   })
 
@@ -1550,6 +1657,22 @@
               <Play class="h-4 w-4" />
               New run
             </button>
+            {#if ciWatchStatus !== 'idle'}
+              <button
+                class="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground shadow-sm hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-card"
+                disabled={ciWatchStatus === 'loading' || ciWatchStatus === 'unauthorized' || ciWatchStatus === 'error' || ciActionInFlight}
+                title={ciWatchButtonTitle}
+                onclick={() => void toggleCiWatch()}>
+                {#if ciWatchStatus === 'loading' || ciActionInFlight}
+                  <RotateCw class="h-4 w-4 animate-spin" />
+                {:else if ciWatchStatus === 'followed'}
+                  <EyeOff class="h-4 w-4" />
+                {:else}
+                  <Eye class="h-4 w-4" />
+                {/if}
+                {ciWatchStatus === 'followed' ? 'Unwatch' : 'Watch'}
+              </button>
+            {/if}
             <input
               class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground"
               bind:value={searchTerm}

@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@cashu/cashu-ts": "^3.6.2",
+    "@contextvm/mcp-sdk": "^1.30.0",
+    "@contextvm/sdk": "^0.14.2",
     "@lucide/svelte": "^0.562.0",
     "@tursodatabase/database-wasm": "^0.5.3",
     "anser": "^2.3.5",
