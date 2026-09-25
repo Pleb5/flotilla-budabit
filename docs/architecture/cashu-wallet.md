@@ -23,6 +23,82 @@ resolves full keyset IDs through Coco before decoding compact tokens. The
 independently packaged pipelines iframe's metadata-only parser supports both
 its existing v3 numeric SDK and the host's v5 `Amount` API.
 
+## Token receipts and redemption status
+
+Chat cards look up local receive/send operations by a fingerprint of the mint,
+unit and sorted proofs. Receipts survive component remounts and reloads, including
+re-encoded copies of a token and receipts beyond the recent-history page. A
+successful receipt records the amount after fees; it is not a current-balance
+claim. Duplicate receives reuse the saved operation, including its recovery
+outputs, and concurrent attempts are serialized within the wallet and across
+browser tabs where Web Locks are available.
+
+Outgoing tokens show **Not checked** until there is mint evidence. Opening or
+refocusing wallet history checks at most ten unresolved tokens from the last
+seven days, with a persisted one-minute throttle shared across tabs and requests
+batched by mint. **Check
+status** performs a read-only NUT-07 check. Partial/pending responses and failed
+checks retain their distinct meaning; only a complete, validated all-spent
+response finalizes a send. The timestamped display cache stores fingerprints and
+amounts, not proof secrets, and is removed when replacing or clearing the wallet.
+Chat previews do not fetch mint keys or check unfamiliar tokens automatically.
+
+**Received** means this wallet has a durable receipt. **Redeemed** means the mint
+confirmed the original token was spent, without identifying the recipient.
+Short labels open click/tap explanations, with keyboard dismissal, in both chat
+and wallet history. Browser coverage uses a synthetic mint and isolated wallets
+(`tests/e2e/cashu-receipts.spec.ts`); it does not move real funds.
+
+### Storage and active-use limits
+
+`budabit-cashu-status-v1` is a separate, optional IndexedDB database:
+
+- `checks`: at most **2,000** token summaries/attempt timestamps. Writes are
+  per-record and transactional across tabs, with oldest-first eviction. Nonfinal
+  observations expire after **30 days** (ignored on read, pruned on open/write).
+  Spent observations can remain until cap eviction. Cached observations never
+  establish a local receipt or replace recovery material.
+- `operations`: a rebuildable fingerprint → operation-ID index, at most one
+  receive and one send reference per token identity. It contains no proof secrets
+  or duplicated recovery outputs. Its size follows wallet history rather than the
+  disposable observation cap. Lookup reads the actual SDK operation and verifies
+  the fingerprint before presenting a receipt. Missing indexes are rebuilt from
+  SDK operations in **50-row pages**, yielding between pages, and updated from SDK
+  operation events. A missing receive is checked afresh before a new receive starts.
+- `meta`: a wallet-lifetime epoch. Reset changes it transactionally, rejecting
+  stale writers from other tabs. Wallet clear/replacement/restore clear both
+  derived stores; lock/reload close the connection and cancel obsolete work.
+
+The legacy `budabit_cashu_token_checks_v1` localStorage blob is validated, trimmed,
+and migrated once, then removed only after commit. Malformed or oversized blobs
+(over two million characters) are disposable and discarded rather than parsed.
+Quota/unavailable-cache failures fall back to bounded in-memory observations and
+paged SDK lookups; they cannot turn a completed receive into a failure.
+
+The tracker retains at most **128** raw-token previews and status/observation
+entries, with a combined **500,000-character** raw-token budget and at most **256**
+in-memory throttle entries. It does not retain full per-mint operation histories.
+Mounted cards may keep their own small display result after tracker eviction.
+
+These limits are shared by mobile and desktop, without viewport/device detection:
+
+- No interval polling. Mounted wallet history reacts to focus, visibility return,
+  and network reconnection. Chat previews only read local data.
+- Automatic checks skip hidden/offline views and `Save-Data` connections, cancel
+  on backgrounding or leaving history, and release paused attempts for resumption.
+- One automatic mint batch at a time, at most **1,000 proofs per mint batch**,
+  **100 proofs per request**, and a **10-second batch deadline**. Larger tokens
+  remain explicitly checkable. Complete validated responses are required before
+  summarizing; partial network responses never imply redemption.
+- Explicit checks remain available despite connectivity hints, coalesce recent
+  clicks, and retain the last successful observation if the mint cannot be reached.
+- These rules govern optional redemption checks, not SDK issuance/payment recovery.
+
+Eviction may require another status check; it never deletes wallet proofs or
+durable receive operations. Receipts remain browser-local: a seed backup recovers
+funds, not this device's complete transaction history. Neither cache is a promise
+against browser-origin eviction or clearing site data.
+
 ## Storage migration and recovery material
 
 The live database remains **`budabit-coco-wallet`**. The mnemonic and the

@@ -10,6 +10,8 @@
     receiveCashuToken,
     recoverCashuMint,
     trustCashuMint,
+    loadCashuTokenStatus,
+    CashuReceiveError,
   } from "@app/core/cashu"
   import CashuMintCard from "@app/components/CashuMintCard.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
@@ -26,6 +28,7 @@
   import {downloadText} from "@lib/html"
   import Button from "@lib/components/Button.svelte"
   import ModalHeader from "@lib/components/ModalHeader.svelte"
+  import ClickHelp from "@lib/components/ClickHelp.svelte"
 
   type Step =
     | "loading"
@@ -38,6 +41,9 @@
     | "trusting"
     | "recovering"
     | "success"
+    | "spent"
+    | "partial"
+    | "pending"
     | "error"
 
   interface Props {
@@ -81,6 +87,8 @@
   let started = $state(false)
   let error = $state("")
   let received = $state<number | null>(null)
+  let alreadyReceived = $state(false)
+  let receivedAt = $state<number | undefined>()
   let untrustedMintUrl = $state("")
   let recoverMintUrl = $state("")
 
@@ -114,6 +122,32 @@
       return
     }
 
+    try {
+      const known = await loadCashuTokenStatus(tokenInfo.token)
+      if (known?.received) {
+        received = known.received.amount
+        receivedAt = known.received.at
+        alreadyReceived = true
+        step = "success"
+        return
+      }
+      if (
+        known?.check?.state === "spent" ||
+        known?.outgoing?.state === "spent" ||
+        known?.outgoing?.state === "reclaimed"
+      ) {
+        step = "spent"
+        return
+      }
+      if (known?.check?.state === "partial") {
+        step = "partial"
+        return
+      }
+    } catch {
+      setError("Couldn't read this token's receipt. Reopen your wallet and try again.")
+      return
+    }
+
     if (!tokenMintTrusted) {
       untrustedMintUrl = tokenInfo.mintUrl
       step = "untrusted"
@@ -142,11 +176,10 @@
       step = "success"
       onredeemed?.({amount, mintUrl: tokenInfo.mintUrl})
     } catch (e: any) {
-      console.error("[cashu] redeem flow error:", e, {
-        name: e?.name,
-        code: e?.code,
-        message: e?.message,
-      })
+      if (e instanceof CashuReceiveError && e.code !== "failed") {
+        step = e.code
+        return
+      }
 
       const untrusted = matchUntrustedCashuMint(e)
       if (untrusted) {
@@ -163,7 +196,7 @@
         }
       }
 
-      setError(e?.message || "Failed to redeem token")
+      setError("Couldn't redeem this token. Please try again.")
     }
   }
 
@@ -185,7 +218,7 @@
       await redeemToken()
     } catch (e: any) {
       untrustedMintUrl = untrustedMintUrl || tokenInfo.mintUrl
-      error = e?.message || "Failed to trust mint and redeem token"
+      error = "Couldn't add this mint. Please try again."
       step = "untrusted"
     }
   }
@@ -201,7 +234,7 @@
       recoverMintUrl = ""
       await redeemToken()
     } catch (e: any) {
-      error = e?.message || "Recovery failed"
+      error = "Couldn't finish recovery. Please try again."
       step = "recover"
     }
   }
@@ -221,12 +254,11 @@
 <div class="flex min-w-0 flex-col gap-4 p-2 sm:p-4">
   <ModalHeader>
     {#snippet title()}
-      <div>Redeem Cashu Token</div>
+      <div>{alreadyReceived ? "Cashu receipt" : "Redeem Cashu Token"}</div>
     {/snippet}
     {#snippet info()}
       <span>
-        {amountLabel}{#if mintHost}
-          from {mintHost}{/if}
+        {amountLabel}{#if mintHost}{" from "}{mintHost}{/if}
       </span>
     {/snippet}
   </ModalHeader>
@@ -252,9 +284,10 @@
     </div>
   {:else if step === "untrusted"}
     <div class="flex min-w-0 flex-col gap-4">
-      <div class="rounded-lg border border-warning/50 bg-warning/10 p-3 text-sm text-warning">
-        You don't yet trust the mint this token is from. You can only redeem this token if you trust
-        this mint and register it in your wallet backup.
+      <div class="text-warning">
+        <ClickHelp
+          label="New mint"
+          text="This token comes from a mint you haven't added yet. Only continue if you trust it to hold your sats." />
       </div>
 
       <CashuMintCard mintUrl={untrustedMintUrl} />
@@ -267,13 +300,12 @@
         class="btn btn-warning btn-lg min-h-fit w-full whitespace-normal text-center"
         onclick={trustMintBackupAndRedeem}
         disabled={!walletUnlocked}>
-        Trust this mint, create new wallet backup and redeem token
+        Trust mint & redeem
       </Button>
 
-      <p class="text-xs opacity-70">
-        Budabit will download an updated backup file that includes this mint before receiving the
-        token.
-      </p>
+      <ClickHelp
+        label="Backup included"
+        text="Before receiving the token, Budabit downloads an updated wallet backup that includes this mint. Keep it with your other wallet backups." />
     </div>
   {:else if step === "trusting"}
     <div class="flex min-h-32 flex-col items-center justify-center gap-3 text-sm">
@@ -282,15 +314,9 @@
     </div>
   {:else if step === "recover"}
     <div class="flex flex-col gap-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-      <p>
-        The mint says these outputs were already signed. The wallet counter is out of sync with this
-        mint.
-      </p>
-      <p class="break-all font-mono text-xs opacity-75">{recoverMintUrl}</p>
-      <p class="text-xs opacity-70">
-        Recovery asks the mint for proofs this wallet may have missed, advances the counter, and
-        then retries receiving this token.
-      </p>
+      <ClickHelp
+        label="Wallet needs recovery"
+        text="A previous swap may not have finished on this device. Recover the wallet with this mint, then try redeeming again." />
 
       {#if error}
         <p class="text-sm text-error">{error}</p>
@@ -309,16 +335,36 @@
   {:else if step === "recovering"}
     <div class="flex min-h-32 flex-col items-center justify-center gap-3 text-sm">
       <span class="loading loading-spinner loading-md"></span>
-      <p class="opacity-75">Recovering wallet counter...</p>
+      <p class="opacity-75">Recovering wallet...</p>
     </div>
   {:else if step === "success"}
     <div class="rounded-lg bg-success/10 p-4 text-center text-success">
       <p class="text-lg font-bold">
-        +{formatCashuSats(received || 0)} sats received!
+        {alreadyReceived ? "Already received" : "Received"} · {formatCashuSats(received || 0)} sats
       </p>
+      {#if alreadyReceived}<ClickHelp
+          label="In this wallet"
+          text={`This token was added to this wallet${receivedAt ? ` on ${new Date(receivedAt).toLocaleString()}` : ""}. You don't need to redeem it again.`} />{/if}
       <Button class="btn btn-ghost btn-sm mt-2 inline-flex justify-center" onclick={close}>
         Close
       </Button>
+    </div>
+  {:else if step === "spent" || step === "partial"}
+    <div class="flex flex-col items-center gap-3 rounded-lg bg-base-200 p-4 text-center">
+      <ClickHelp
+        label={step === "spent" ? "Already redeemed" : "Partly redeemed"}
+        text={step === "spent"
+          ? "The mint confirmed this token has been used, so it can't be received again. This wallet doesn't have a receipt for it."
+          : "Part of this token has already been used. Ask the sender about the remaining amount."} />
+      <Button class="btn btn-ghost btn-sm" onclick={close}>Close</Button>
+    </div>
+  {:else if step === "pending"}
+    <div class="flex flex-col items-center gap-3 rounded-lg bg-warning/10 p-4 text-center">
+      <ClickHelp
+        label="Receipt not yet confirmed"
+        text="The receive attempt is saved. Check the receipt to let the wallet finish with the mint; you won't start a second receive attempt." />
+      <Button class="btn btn-primary btn-sm" onclick={redeemToken}>Check receipt</Button>
+      <Button class="btn btn-ghost btn-sm" onclick={close}>Close</Button>
     </div>
   {:else if step === "error"}
     <div class="flex flex-col gap-3 rounded-lg border border-error/40 bg-error/10 p-3 text-sm">

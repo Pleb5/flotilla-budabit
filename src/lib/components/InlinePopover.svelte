@@ -7,6 +7,7 @@
     onClose: () => void
     align?: "left" | "right"
     widthClass?: string
+    layerClass?: string
     viewportMargin?: number
     children?: Snippet
   }
@@ -15,6 +16,7 @@
     onClose,
     align = "left",
     widthClass = "w-72",
+    layerClass = "z-popover",
     viewportMargin = 16,
     children,
   }: Props = $props()
@@ -164,7 +166,7 @@
 <div
   use:portal
   bind:this={element}
-  class={`fixed z-popover max-w-[calc(100vw-3rem)] ${widthClass}`}
+  class={`fixed max-w-[calc(100vw-3rem)] ${layerClass} ${widthClass}`}
   style={`left:${left}px; top:${top}px; max-height:${maxHeight}px; visibility:${ready ? "visible" : "hidden"};`}>
   <div
     transition:fly|local

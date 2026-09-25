@@ -1,7 +1,13 @@
 import {writable, get} from "svelte/store"
 import type {Writable} from "svelte/store"
 import {Manager, initializeCoco, getEncodedToken, getTokenMetadata} from "@cashu/coco-core"
-import type {HistoryEntry, MintQuote, MintOperation, Bolt11MintQuote} from "@cashu/coco-core"
+import type {
+  HistoryEntry,
+  MintQuote,
+  MintOperation,
+  Bolt11MintQuote,
+  ReceiveOperation,
+} from "@cashu/coco-core"
 import type {MeltOperation} from "@cashu/coco-core"
 import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import * as bip39 from "@scure/bip39"
@@ -18,6 +24,14 @@ import {cashuPositiveSats, cashuSatsNumber} from "@app/util/cashu-amount"
 import {cashuSnapshotDatabaseName, prepareCashuStorageUpgrade} from "./cashu-storage-migration"
 import {enforceCashuKeysetPolicy} from "./cashu-keyset-policy"
 import {getLightningInvoiceInfo, getInvoicePaymentAmount} from "@app/util/lightning-invoice"
+import {
+  CashuTokenTracker,
+  cashuTokenIdentity,
+  cashuTokenStatuses,
+  clearCashuTokenChecks,
+} from "./cashu-token-status"
+export {cashuTokenStatuses, cashuTokenDisplayKey} from "./cashu-token-status"
+export type {CashuTokenStatus} from "./cashu-token-status"
 
 const KEY_MNEMONIC = "budabit_cashu_mnemonic"
 const KEY_MNEMONIC_ENCRYPTED = "budabit_cashu_mnemonic_encrypted"
@@ -33,6 +47,7 @@ export interface TokenHistoryEntry {
   amount: number
   mintUrl: string
   token?: string
+  tokenOperationId?: string
   createdAt: number
   state: string
   error?: string
@@ -90,6 +105,7 @@ let _managerReadyPromise: Promise<void> | null = null
 let _resolveManagerReady: (() => void) | null = null
 let runtimeGeneration = 0
 let initializationError: Error | null = null
+let tokenTracker: CashuTokenTracker | null = null
 
 const canUseBrowserSessionStorage = () => typeof sessionStorage !== "undefined"
 
@@ -110,6 +126,9 @@ const clearUnlockedCashuMnemonic = () => {
 
 const resetManagerRuntime = async () => {
   runtimeGeneration++
+  tokenTracker?.dispose()
+  tokenTracker = null
+  cashuTokenStatuses.set({})
   const previousManager = manager
   const previousRepo = repo
   const previousInit = _initPromise
@@ -136,6 +155,7 @@ const resetManagerRuntime = async () => {
 
 export const clearCashuWalletStorage = async (): Promise<void> => {
   await resetManagerRuntime()
+  await clearCashuTokenChecks().catch(() => {})
   _mnemonic = null
   _encryptedMnemonic = null
   clearUnlockedCashuMnemonic()
@@ -274,6 +294,7 @@ const _doInitialize = async (generation: number): Promise<void> => {
     }
     repo = openingRepo
     manager = openingManager
+    tokenTracker = new CashuTokenTracker(manager, repo)
 
     manager.on("mint:added", refreshCashuMints)
     manager.on("mint:trusted", refreshCashuMints)
@@ -371,6 +392,7 @@ export const createCashuWallet = async (): Promise<void> => {
   const mnemonic = bip39.generateMnemonic(wordlist)
 
   await resetManagerRuntime()
+  await clearCashuTokenChecks().catch(() => {})
   await persistCashuMnemonic({mnemonic, mints: []})
   await storageRemove(KEY_BACKUP_CONFIRMED)
   cashuBackupConfirmed.set(false)
@@ -421,6 +443,7 @@ export const restoreCashuSeedBackup = async (
   cashuRecoveryInProgress.set(true)
   try {
     await resetManagerRuntime()
+    await clearCashuTokenChecks().catch(() => {})
     await persistCashuMnemonic({mnemonic, mints}, options.encryptPassphrase)
     await storageRemove(KEY_BACKUP_CONFIRMED)
     cashuBackupConfirmed.set(false)
@@ -568,15 +591,62 @@ const refreshCashuBalancesStrict = async (): Promise<number> => {
 
 // ─── Token Operations ─────────────────────────────────────────────────────────
 
+// Preview lookups are local only; no wallet creation, keyset fetch, or mint check.
+export const loadCashuTokenStatus = (token: string) => tokenTracker?.load(token)
+export const pauseCashuTokenChecks = () => tokenTracker?.pauseAutomaticChecks()
+
+export const checkCashuTokenStatus = async (token: string): Promise<void> => {
+  await ensureManagerReady()
+  if (!tokenTracker) throw new Error("Unlock your wallet to check this token.")
+  await tokenTracker.checkMany([token], "manual")
+}
+
+export const checkRecentCashuTokens = async (): Promise<void> => {
+  if (!tokenTracker || (typeof document !== "undefined" && document.hidden)) return
+  const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
+  const tokens = get(cashuTokenHistory)
+    .filter(
+      entry =>
+        entry.direction === "sent" &&
+        entry.token &&
+        entry.state === "pending" &&
+        entry.createdAt >= cutoff,
+    )
+    .slice(0, 10)
+    .map(entry => entry.token!)
+  await tokenTracker.checkMany(tokens)
+}
+
+export class CashuReceiveError extends Error {
+  constructor(public readonly code: "spent" | "partial" | "pending" | "failed") {
+    super(
+      {
+        spent: "This token has already been redeemed.",
+        partial: "Part of this token has already been redeemed.",
+        pending: "Receipt not yet confirmed.",
+        failed: "Couldn't redeem this token. Please try again.",
+      }[code],
+    )
+  }
+}
+
+const receiveTasks = new WeakMap<Manager, Map<string, Promise<number>>>()
+
 export const receiveCashuToken = async (token: string): Promise<number> => {
   await ensureManagerReady()
   if (!manager) throw new Error("Wallet not initialized")
   const active = manager
+  const tracker = tokenTracker!
 
   const metadata = getTokenMetadata(token)
-  const mintUrl = metadata.mint
+  const mintUrl = metadata.mint.replace(/\/+$/, "")
   if (metadata.unit !== "sat") throw new Error("Only sat-denominated Cashu tokens are supported")
   cashuSatsNumber(metadata.amount)
+
+  await tracker.refresh()
+  const previous = await tracker.load(token)
+  if (manager !== active) throw new Error("Wallet session changed")
+  if (previous?.received) return previous.received.amount
 
   if (mintUrl && !(await active.mint.isTrustedMint(mintUrl))) {
     throw new UntrustedMintError(mintUrl)
@@ -587,13 +657,65 @@ export const receiveCashuToken = async (token: string): Promise<number> => {
   }
 
   if (manager !== active) throw new Error("Wallet session changed")
-  const prepared = await active.ops.receive.prepare({token: decoded})
-  const received = await active.ops.receive.execute(prepared)
-  if (manager !== active) throw new Error("Wallet session changed")
-  const amount = cashuSatsNumber(received.amount.subtract(received.fee))
-  await refreshCashuBalancesStrict()
-  await refreshCashuHistoryStrict()
-  return amount
+  const identity = cashuTokenIdentity(decoded)
+  let tasks = receiveTasks.get(active)
+  if (!tasks) receiveTasks.set(active, (tasks = new Map()))
+  const existingTask = tasks.get(identity)
+  if (existingTask) return existingTask
+  const receive = async () => {
+    if (manager !== active) throw new Error("Wallet session changed")
+    let operation = (await tracker.findOperation(mintUrl, identity)).received
+    const finish = async (op: ReceiveOperation) => {
+      if (op.state !== "finalized") throw new CashuReceiveError("pending")
+      if (manager !== active) throw new Error("Wallet session changed")
+      // Completion is durable before display refreshes. A refresh failure must not undo success.
+      await Promise.all([refreshCashuBalances(), refreshCashuHistory()])
+      await tracker.refresh().catch(() => {})
+      if (manager !== active) throw new Error("Wallet session changed")
+      return cashuSatsNumber(op.amount.subtract(op.fee))
+    }
+    if (operation?.state === "finalized") return finish(operation)
+    if (operation?.state === "executing") {
+      operation = await active.ops.receive.refresh(operation.id).catch(() => {
+        throw new CashuReceiveError("pending")
+      })
+      if (manager !== active) throw new Error("Wallet session changed")
+      if (operation.state === "finalized") return finish(operation)
+      if (operation.state === "executing") throw new CashuReceiveError("pending")
+    }
+    await tracker.refresh()
+    const known = await tracker.load(token)
+    if (known?.check?.state === "spent") throw new CashuReceiveError("spent")
+    if (known?.check?.state === "partial") throw new CashuReceiveError("partial")
+    try {
+      if (operation?.state !== "prepared")
+        operation = await active.ops.receive.prepare({token: decoded})
+      if (manager !== active) throw new Error("Wallet session changed")
+      return await finish(await active.ops.receive.execute(operation))
+    } catch (error) {
+      if (manager !== active) throw new Error("Wallet session changed")
+      const latest = operation ? await active.ops.receive.get(operation.id) : null
+      if (latest?.state === "finalized") return finish(latest)
+      await tracker.refresh()
+      if (latest?.state === "executing") throw new CashuReceiveError("pending")
+      const message = error instanceof Error ? error.message : ""
+      // Retain the existing recovery flow for deterministic-output collisions.
+      if (/outputs?\s+already\s+signed/i.test(message)) throw error
+      await tracker.checkMany([token], "receive")
+      const status = await tracker.load(token)
+      if (status?.received) return status.received.amount
+      if (status?.check?.state === "spent") throw new CashuReceiveError("spent")
+      if (status?.check?.state === "partial") throw new CashuReceiveError("partial")
+      throw new CashuReceiveError("failed")
+    }
+  }
+  const task = (async () => {
+    if (typeof navigator !== "undefined" && navigator.locks)
+      return await navigator.locks.request(`budabit/cashu-receive/${identity}`, receive)
+    return await receive()
+  })().finally(() => tasks!.delete(identity))
+  tasks.set(identity, task)
+  return task
 }
 
 export const createCashuToken = async (amount: number, mintUrl: string): Promise<string> => {
@@ -1062,6 +1184,7 @@ const mapHistoryEntry = (entry: HistoryEntry): TokenHistoryEntry | null => {
       return {
         ...base,
         direction: "sent",
+        tokenOperationId: "operationId" in entry ? entry.operationId : undefined,
         token: entry.token ? getEncodedToken(entry.token) : undefined,
       }
     case "receive":
@@ -1152,4 +1275,5 @@ const refreshCashuHistoryStrict = async (): Promise<void> => {
       .map(mapHistoryEntry)
       .filter((e): e is TokenHistoryEntry => !!e),
   )
+  await tokenTracker?.refresh().catch(() => {})
 }
