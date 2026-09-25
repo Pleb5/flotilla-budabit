@@ -40,6 +40,26 @@ The artifact is gzip-compressed when supported and hashed before upload. The act
 
 ## Deterministic Harness
 
+### Wallet operations
+
+Test deployments enable `VITE_DIAGNOSTICS=1` and `VITE_PERFORMANCE_DIAGNOSTICS=1`.
+Under **Debug info**, select **Cashu wallet**, start recording, reproduce the wallet
+action, then stop and download the existing debug artifact. The category defaults
+off, and probes are inactive without a build gate and an active capture.
+
+Wallet records include operation/event categories, outcomes, lookup row counts and
+budget exhaustion, cache work, mint-check proof counts, background queue delay and
+elapsed time. They use a closed allowlist: no raw SDK objects, errors, tokens, proofs,
+seeds, operation IDs, mint URLs, invoices or amounts enter these records.
+
+An armed Community Home or `/git` performance capture also includes `cashu:*`
+records for concurrent wallet initialization/work. This is the startup measurement
+path; a manually started debug recording covers subsequent wallet activity. Both
+use the existing bounded recorders and export/publication machinery. Recording does
+not initiate wallet scans, status checks or network activity.
+
+### Root-route harness
+
 Run the production-build benchmark:
 
 ```sh

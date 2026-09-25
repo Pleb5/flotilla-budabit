@@ -24,6 +24,7 @@ import {
   mintTokensFromQuote,
   getCashuTopUp,
   refreshCashuTopUps,
+  refreshCashuHistory,
   cashuTopUps,
   cashuTotalBalance,
   cashuTokenHistory,
@@ -58,6 +59,8 @@ describe("durable top-up failures with production background processing", () => 
     mint.quotes.get(quote.quote)!.state = "ISSUED"
     await expect(mintTokensFromQuote(mint.url, quote.quote, 4)).rejects.toThrow()
     await reloadCashuWallet()
+    await refreshCashuTopUps()
+    await refreshCashuHistory()
     expect(get(cashuTotalBalance)).toBe(0)
     expect(get(cashuTopUps)).toEqual([
       expect.objectContaining({quote: quote.quote, state: "recovery_required"}),
@@ -88,6 +91,7 @@ describe("durable top-up failures with production background processing", () => 
     expect(await repo.counterRepository.getCounter(mint.url, mint.id)).toEqual(counter)
     expect((await repo.mintOperationRepository.getById(operation.id))!.state).toBe("finalized")
     await reloadCashuWallet()
+    await refreshCashuTopUps()
     expect(get(cashuTotalBalance)).toBe(4)
     expect(get(cashuTopUps)).toEqual([])
   })
@@ -108,6 +112,7 @@ describe("durable top-up failures with production background processing", () => 
       expect.objectContaining({state: "needs_preparation", request: ""}),
     ])
     await reloadCashuWallet()
+    await refreshCashuTopUps()
     expect(get(cashuTopUps)).toEqual([
       expect.objectContaining({state: "needs_preparation", request: ""}),
     ])
@@ -129,6 +134,7 @@ describe("durable top-up failures with production background processing", () => 
     expect(operation).toMatchObject({state: "pending", outputData: {keep: expect.any(Array)}})
     expect(await repo.mintOperationRepository.getByMintUrl(mint.url)).toHaveLength(1)
     await reloadCashuWallet()
+    await refreshCashuTopUps()
     expect(get(cashuTopUps)[0]).toMatchObject({state: "unpaid", operationId: first.operationId})
     mint.pay("q-1")
     await mintTokensFromQuote(mint.url, "q-1", 4)

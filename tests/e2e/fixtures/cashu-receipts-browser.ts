@@ -7,7 +7,12 @@ import {
   createCashuWallet,
   mintTokensFromQuote,
   requestMintQuote,
+  receiveCashuToken,
+  reloadCashuWallet,
 } from "../../../src/app/core/cashu"
+import {IndexedDbRepositories} from "@cashu/coco-indexeddb"
+import {clearCashuTokenChecks} from "../../../src/app/core/cashu-status-cache"
+import {getDebugDiagnosticsSnapshot} from "../../../src/app/core/debug-diagnostics"
 import CashuTokenRedeemFlow from "../../../src/app/components/CashuTokenRedeemFlow.svelte"
 import {pushModal} from "../../../src/app/util/modal"
 
@@ -43,4 +48,38 @@ export function balance() {
 export function openReceive(token: string) {
   guard()
   pushModal(CashuTokenRedeemFlow, {token})
+}
+
+export async function receiveAndLoseIndex(token: string) {
+  guard()
+  await receiveCashuToken(token)
+  const repo = new IndexedDbRepositories({name: "budabit-coco-wallet"})
+  await repo.init()
+  try {
+    const table = repo.db.table("coco_cashu_receive_operations")
+    const receipt = await table.toCollection().first()
+    await table.delete(receipt.id)
+    await table.bulkAdd([
+      {...receipt, id: "zz-cold-receipt"},
+      ...Array.from({length: 1005}, (_, i) => ({
+        ...receipt,
+        id: `public-history-${String(i).padStart(5, "0")}`,
+        inputProofsJson: JSON.stringify(
+          JSON.parse(receipt.inputProofsJson).map((proof: object) => ({
+            ...proof,
+            secret: `public-fixture-${i}`,
+          })),
+        ),
+      })),
+    ])
+  } finally {
+    repo.db.close()
+  }
+  await clearCashuTokenChecks()
+  await reloadCashuWallet()
+}
+
+export function walletDiagnostics() {
+  guard()
+  return getDebugDiagnosticsSnapshot().records.filter(record => record.category === "cashu-wallet")
 }

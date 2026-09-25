@@ -104,7 +104,23 @@
     copyError = ""
   })
   $effect(() => {
-    if (cashu && $cashuInitialized) void loadCashuTokenStatus(cashu.token)?.catch(() => {})
+    if (!cashu || !$cashuInitialized) return
+    const token = cashu.token
+    let controller = new AbortController()
+    const refresh = () => {
+      controller.abort()
+      if (document.hidden) return
+      controller = new AbortController()
+      void loadCashuTokenStatus(token, {signal: controller.signal})?.catch(() => {})
+    }
+    refresh()
+    window.addEventListener("focus", refresh)
+    document.addEventListener("visibilitychange", refresh)
+    return () => {
+      controller.abort()
+      window.removeEventListener("focus", refresh)
+      document.removeEventListener("visibilitychange", refresh)
+    }
   })
   $effect(() => {
     if (!invoice) return

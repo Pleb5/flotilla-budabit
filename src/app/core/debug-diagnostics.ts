@@ -13,6 +13,7 @@ export const DEBUG_DIAGNOSTIC_CATEGORIES = [
   "relay-scheduler",
   "publication-lifecycle",
   "app-update",
+  "cashu-wallet",
 ] as const
 
 export const DEBUG_DIAGNOSTIC_PRESET_IDS = ["quick", "standard", "extended"] as const
@@ -105,6 +106,7 @@ export const defaultDebugDiagnosticsSettings = (): DebugDiagnosticsSettings => (
     "relay-scheduler": false,
     "publication-lifecycle": false,
     "app-update": false,
+    "cashu-wallet": false,
   },
 })
 

@@ -1,5 +1,5 @@
 diff --git a/dist/index-CvKNFBXJ.d.ts b/dist/index-CvKNFBXJ.d.ts
-index a32709943f7e5c50555c6f85ce01d7d6d95f8686..5f545e8d7b08a65ab442e7eba7dc9b85f24c5cbc 100644
+index a32709943f7e5c50555c6f85ce01d7d6d95f8686..1f2554aec181ce0f592f909930478ddddc27e4ad 100644
 --- a/dist/index-CvKNFBXJ.d.ts
 +++ b/dist/index-CvKNFBXJ.d.ts
 @@ -202,6 +202,8 @@ interface Keyset {
@@ -11,8 +11,39 @@ index a32709943f7e5c50555c6f85ce01d7d6d95f8686..5f545e8d7b08a65ab442e7eba7dc9b85
    updatedAt: number;
  }
  //#endregion
+@@ -1842,7 +1844,7 @@ declare class SendOperationService {
+    * This should be called during initialization.
+    * Throws if recovery is already in progress.
+    */
+-  recoverPendingOperations(): Promise<void>;
++  recoverPendingOperations(options?: { checkPending?: boolean }): Promise<void>;
+   /**
+    * Clean up a failed init operation.
+    * Releases any orphaned proof reservations and deletes the operation.
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index d77efe485c85f1e28e4969cc942ac851059d3ae1..382a897273aa6b073d52e4631b41be82b7c5c993 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -229,7 +229,7 @@ interface PrepareSendInput {
+ }
+ interface SendRecoveryApi {
+   /** Runs the startup-style recovery sweep for send operations. */
+-  run(): Promise<void>;
++  run(options?: { checkPending?: boolean }): Promise<void>;
+   /** Returns true while a recovery sweep is running. */
+   inProgress(): boolean;
+ }
+@@ -538,6 +538,8 @@ declare class PaymentRequestsApi {
+  * Configuration options for initializing the Coco Cashu manager
+  */
+ interface CocoConfig {
++  /** Skip optional redemption checks while retaining interrupted-send recovery. */
++  startup?: { checkPendingSends?: boolean };
+   /** Repository implementations for data persistence */
+   repo: Repositories;
+   /** Function that returns the wallet seed as Uint8Array */
 diff --git a/dist/index.js b/dist/index.js
-index 680223d0a4201f4b29fbce8458cda9fcbf2d78e0..221eda917237029e3f68e8297d917332bb408d7a 100644
+index 680223d0a4201f4b29fbce8458cda9fcbf2d78e0..fcf05e4e7610884eb160e9f44bada906a93b2d68 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -1117,7 +1117,8 @@ var MintService = class {
@@ -43,3 +74,39 @@ index 680223d0a4201f4b29fbce8458cda9fcbf2d78e0..221eda917237029e3f68e8297d917332
  			keys: keyset.keypairs
  		}));
  		const cache = {
+@@ -5680,7 +5683,7 @@ var SendOperationService = class {
+ 	* This should be called during initialization.
+ 	* Throws if recovery is already in progress.
+ 	*/
+-	async recoverPendingOperations() {
++	async recoverPendingOperations(options = {}) {
+ 		if (this.recoveryLock) throw new Error("Recovery is already in progress");
+ 		let releaseRecoveryLock;
+ 		this.recoveryLock = new Promise((resolve) => {
+@@ -5709,7 +5712,7 @@ var SendOperationService = class {
+ 					error: e instanceof Error ? e.message : String(e)
+ 				});
+ 			}
+-			const pendingOps = await this.sendOperationRepository.getByState("pending");
++			const pendingOps = options.checkPending === false ? [] : await this.sendOperationRepository.getByState("pending");
+ 			for (const op of pendingOps) try {
+ 				await this.checkPendingOperation(op);
+ 				pendingCount++;
+@@ -12015,7 +12018,7 @@ var AuthApi = class {
+ var SendOpsApi = class {
+ 	/** Recovery helpers for send operations. */
+ 	recovery = {
+-		run: async () => this.sendOperationService.recoverPendingOperations(),
++		run: async (options) => this.sendOperationService.recoverPendingOperations(options),
+ 		inProgress: () => this.sendOperationService.isRecoveryInProgress()
+ 	};
+ 	/** Lightweight diagnostics for send operations. */
+@@ -13684,7 +13687,7 @@ async function initializeCoco(config) {
+ 	if (!mintOperationProcessorConfig?.disabled) await coco.enableMintOperationProcessor(mintOperationProcessorConfig);
+ 	const meltSettlementProcessorConfig = config.processors?.meltSettlementProcessor;
+ 	if (!meltSettlementProcessorConfig?.disabled) await coco.enableMeltSettlementProcessor(meltSettlementProcessorConfig);
+-	await coco.ops.send.recovery.run();
++	await coco.ops.send.recovery.run({ checkPending: config.startup?.checkPendingSends });
+ 	await coco.ops.melt.recovery.run();
+ 	await coco.recoverPendingPaymentRequestReceiveAttempts();
+ 	await coco.recoverPendingMintOperations();

@@ -8,6 +8,7 @@
     mintTokensFromQuote,
     getCashuTopUp,
     refreshCashuTopUps,
+    observeCashuActivity,
     prepareCashuTopUp,
     type CashuTopUpQuote,
   } from "@app/core/cashu"
@@ -40,9 +41,7 @@
     clearTimeout(pollTimer)
     clearTimeout(copyTimer)
   }
-  onMount(() => {
-    void refreshCashuTopUps()
-  })
+  onMount(() => observeCashuActivity("topups"))
   onDestroy(stopPolling)
 
   const poll = async (quote: CashuTopUpQuote, current: number) => {

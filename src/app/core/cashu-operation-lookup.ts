@@ -2,10 +2,17 @@ import type {IndexedDbRepositories} from "@cashu/coco-indexeddb"
 import type {Manager, ReceiveOperation, SendOperation} from "@cashu/coco-core"
 import {cashuTokenIdentity, receiveOperationIdentity} from "./cashu-token-status"
 import {CashuStatusCache, type OperationRef} from "./cashu-status-cache"
+import {assertCashuWorkActive, runCashuBackground} from "./cashu-background"
+import {beginCashuDiagnostic} from "./cashu-diagnostics"
 
 const PAGE_SIZE = 50
-const MINT_LIMIT = 16
-const yieldToBrowser = () => new Promise<void>(resolve => setTimeout(resolve, 0))
+export const RECEIPT_LOOKUP_ROWS = 1000
+const LOOKUP_TIME_MS = 500
+export class CashuReceiptLookupIncomplete extends Error {
+  constructor() {
+    super("More wallet history to check. Continue checking the receipt.")
+  }
+}
 const reference = (
   kind: "receive" | "send",
   operation: ReceiveOperation | SendOperation,
@@ -33,15 +40,40 @@ const reference = (
   }
 }
 
-/** A derived hash/ID index. SDK operations remain authoritative, including state. */
+// Keyset pagination keeps insertions/deletions in other operations from shifting
+// offsets and skipping a receipt. Only keys are read; SDK APIs hydrate matches.
+const receiveKeys = (repo: IndexedDbRepositories, mintUrl: string, after?: IDBValidKey) =>
+  new Promise<string[]>((resolve, reject) => {
+    const tx = repo.db.backendDB().transaction("coco_cashu_receive_operations", "readonly")
+    const request = tx
+      .objectStore("coco_cashu_receive_operations")
+      .index("mintUrl")
+      .openKeyCursor(IDBKeyRange.only(mintUrl))
+    const keys: string[] = []
+    request.onerror = () => reject(request.error)
+    tx.onabort = () => reject(tx.error)
+    request.onsuccess = () => {
+      const cursor = request.result
+      if (!cursor || keys.length === PAGE_SIZE) return resolve(keys)
+      if (after !== undefined && indexedDB.cmp(cursor.primaryKey, after) <= 0) {
+        if (indexedDB.cmp(cursor.primaryKey, after) < 0 && cursor.continuePrimaryKey)
+          cursor.continuePrimaryKey(mintUrl, after)
+        else cursor.continue()
+        return
+      }
+      keys.push(String(cursor.primaryKey))
+      cursor.continue()
+    }
+  })
+
+/** Previews only use point lookups. Historical reconciliation requires an explicit action. */
 export class CashuOperationLookup {
-  private scanned = new Set<string>()
-  private scans = new Map<string, Promise<void>>()
   private unsubscribers: (() => void)[] = []
-  private writes = new Set<Promise<void>>()
-  private disposed = false
+  private writes = new Set<{run: () => Promise<void>; controller: AbortController}>()
+  private controller = new AbortController()
+  private cursors = new Map<string, {after?: string; candidate?: string}>()
   constructor(
-    private manager: Manager,
+    manager: Manager,
     private repo: IndexedDbRepositories,
     private cache: CashuStatusCache,
   ) {
@@ -58,125 +90,134 @@ export class CashuOperationLookup {
       this.unsubscribers.push(manager.on(event, send))
   }
   private remember(kind: "receive" | "send", operation: ReceiveOperation | SendOperation) {
-    const ref = reference(kind, operation)
-    if (!ref || this.disposed) return
-    const task = this.cache
-      .index([ref])
-      .catch(() => {
-        this.scanned.delete(operation.mintUrl)
-      })
-      .finally(() => this.writes.delete(task))
-    this.writes.add(task)
-    // Never let derived storage failure change a wallet operation's outcome.
+    // This index is disposable; a dropped write falls back only during an
+    // explicit receive. Never accumulate an unbounded background event queue.
+    if (this.writes.size >= 128 || this.controller.signal.aborted) return
+    let writing: Promise<void> | undefined
+    const pending = {
+      controller: new AbortController(),
+      run: () =>
+        (writing ||= (async () => {
+          assertCashuWorkActive(this.controller.signal)
+          const ref = reference(kind, operation)
+          if (ref) await this.cache.index([ref])
+        })().catch(() => {})),
+    }
+    this.writes.add(pending)
+    void runCashuBackground(
+      "index-write",
+      pending.run,
+      AbortSignal.any([pending.controller.signal, this.controller.signal]),
+    )
+      .catch(() => {})
+      .finally(() => this.writes.delete(pending))
   }
   dispose() {
-    this.disposed = true
+    this.controller.abort()
+    this.cursors.clear()
     for (const unsubscribe of this.unsubscribers) unsubscribe()
   }
-  private active() {
-    if (this.disposed) throw new Error("Wallet session changed")
+  async flush() {
+    // An explicit action promotes small forward writes instead of waiting for
+    // optional background admission. Already-running writes are joined once.
+    await Promise.all(
+      [...this.writes].map(pending => {
+        pending.controller.abort()
+        return pending.run()
+      }),
+    )
   }
 
-  async find(
-    mintUrl: string,
-    identity: string,
-    fresh = false,
-  ): Promise<{received?: ReceiveOperation; outgoing?: SendOperation}> {
-    await Promise.all(this.writes)
-    this.active()
-    let refs = await this.cache.refs(identity).catch(() => [])
-    // Missing receipt indexes are rebuilt lazily, at most once per mint until
-    // this runtime ends. An explicit receive always verifies a miss afresh.
-    let found: {received?: ReceiveOperation; outgoing?: SendOperation} = {}
-    const read = async () => {
-      found = {}
-      for (const ref of refs) {
-        if (ref.kind === "receive") {
-          const op = await this.repo.receiveOperationRepository.getById(ref.operationId)
-          if (op && receiveOperationIdentity(op) === identity) found.received = op
-        } else {
-          const op = await this.repo.sendOperationRepository.getById(ref.operationId)
-          if (op && "token" in op && op.token && cashuTokenIdentity(op.token) === identity)
-            found.outgoing = op
-        }
-      }
-    }
-    await read()
-    if (
-      (!found.received || found.received.state === "rolled_back") &&
-      (fresh || !this.scanned.has(mintUrl))
-    ) {
-      let scan = this.scans.get(mintUrl)
-      if (!scan) {
-        this.scanned.delete(mintUrl)
-        scan = this.scan(mintUrl, (kind, op) => {
-          const ref = reference(kind, op)
-          if (ref?.identity === identity) {
-            // Also works when the optional index is unavailable or quota-limited.
-            if (
-              kind === "receive" &&
-              (!found.received || ref.priority >= (reference(kind, found.received)?.priority || 0))
-            )
-              found.received = op as ReceiveOperation
-            if (kind === "send") found.outgoing = op as SendOperation
-          }
-        }).finally(() => this.scans.delete(mintUrl))
-        this.scans.set(mintUrl, scan)
-        await scan
+  async find(identity: string, sendOperationId?: string) {
+    assertCashuWorkActive(this.controller.signal)
+    const refs = await this.cache.refs(identity).catch(() => [])
+    const found: {received?: ReceiveOperation; outgoing?: SendOperation} = {}
+    for (const ref of refs) {
+      assertCashuWorkActive(this.controller.signal)
+      if (ref.kind === "receive") {
+        const op = await this.repo.receiveOperationRepository.getById(ref.operationId)
+        if (op && receiveOperationIdentity(op) === identity) found.received = op
       } else {
-        await scan
-        refs = await this.cache.refs(identity).catch(() => [])
-        await read()
-        // If persistence failed, do not mistake an unavailable index for no receipt.
-        if (!found.received && !this.scanned.has(mintUrl))
-          return this.find(mintUrl, identity, fresh)
+        const op = await this.repo.sendOperationRepository.getById(ref.operationId)
+        if (op && "token" in op && op.token && cashuTokenIdentity(op.token) === identity)
+          found.outgoing = op
       }
     }
-    this.active()
+    if (!found.outgoing && sendOperationId) {
+      const op = await this.repo.sendOperationRepository.getById(sendOperationId)
+      if (op && "token" in op && op.token && cashuTokenIdentity(op.token) === identity) {
+        found.outgoing = op
+        await this.cache.index([reference("send", op)!]).catch(() => {})
+      }
+    }
     return found
   }
 
-  private async scan(
+  async reconcileReceive(
     mintUrl: string,
-    visit: (kind: "receive" | "send", op: ReceiveOperation | SendOperation) => void,
-  ) {
-    let persisted = true
-    for (const kind of ["receive", "send"] as const) {
-      // Read only a bounded page from the SDK-owned schema. Hydrate through the
-      // SDK API, so amount/token serialization remains its responsibility.
-      const table = this.repo.db.table(`coco_cashu_${kind}_operations`)
-      let offset = 0
-      for (;;) {
-        this.active()
-        const ids = await table
-          .where("mintUrl")
-          .equals(mintUrl)
-          .offset(offset)
-          .limit(PAGE_SIZE)
-          .primaryKeys()
-        if (!ids.length) break
-        const refs: OperationRef[] = []
-        for (const id of ids) {
-          this.active()
-          const op = await (kind === "receive"
-            ? this.repo.receiveOperationRepository.getById(String(id))
-            : this.repo.sendOperationRepository.getById(String(id)))
-          if (!op) continue
-          visit(kind, op)
-          const ref = reference(kind, op)
-          if (ref) refs.push(ref)
+    identity: string,
+    signal?: AbortSignal,
+  ): Promise<ReceiveOperation | undefined> {
+    const active = signal
+      ? AbortSignal.any([signal, this.controller.signal])
+      : this.controller.signal
+    assertCashuWorkActive(active)
+    // Only explicit reconciliation waits for pending forward-index writes.
+    await this.flush()
+    const known = (await this.find(identity)).received
+    if (known && ["finalized", "executing", "prepared"].includes(known.state)) return known
+    const cursor = this.cursors.get(identity) || {}
+    this.cursors.delete(identity)
+    this.cursors.set(identity, cursor)
+    if (this.cursors.size > 16) this.cursors.delete(this.cursors.keys().next().value!)
+    const finish = beginCashuDiagnostic("reconcile", {source: "explicit", priority: "background"})
+    const start = performance.now()
+    let rows = 0
+    try {
+      while (
+        rows < RECEIPT_LOOKUP_ROWS &&
+        (rows === 0 || performance.now() - start < LOOKUP_TIME_MS)
+      ) {
+        const result = await runCashuBackground(
+          "reconcile",
+          async () => {
+            assertCashuWorkActive(active)
+            const ids = await receiveKeys(this.repo, mintUrl, cursor.after)
+            for (const id of ids) {
+              assertCashuWorkActive(active)
+              if (rows > 0 && performance.now() - start >= LOOKUP_TIME_MS)
+                return {operation: undefined, done: false}
+              const op = await this.repo.receiveOperationRepository.getById(id)
+              rows++
+              cursor.after = id
+              if (!op || receiveOperationIdentity(op) !== identity) continue
+              if (["finalized", "executing", "prepared"].includes(op.state)) {
+                cursor.candidate = id
+                await this.cache.index([reference("receive", op)!]).catch(() => {})
+                if (op.state === "finalized") return {operation: op, done: true}
+              }
+            }
+            return {operation: undefined, done: ids.length < PAGE_SIZE}
+          },
+          active,
+        )
+        if (result.done) {
+          this.cursors.delete(identity)
+          const operation =
+            result.operation ||
+            (cursor.candidate
+              ? await this.repo.receiveOperationRepository.getById(cursor.candidate)
+              : undefined)
+          finish?.({rows, outcome: operation ? "hit" : "miss"})
+          return operation || undefined
         }
-        await this.cache.index(refs).catch(() => {
-          persisted = false
-        })
-        offset += ids.length
-        if (ids.length < PAGE_SIZE) break
-        await yieldToBrowser()
       }
-    }
-    if (persisted) {
-      this.scanned.add(mintUrl)
-      if (this.scanned.size > MINT_LIMIT) this.scanned.delete(this.scanned.values().next().value!)
+      finish?.({rows, outcome: "budget-exhausted"})
+      throw new CashuReceiptLookupIncomplete()
+    } catch (error) {
+      if (!(error instanceof CashuReceiptLookupIncomplete))
+        finish?.({rows, outcome: active.aborted ? "cancelled" : "error"})
+      throw error
     }
   }
 }

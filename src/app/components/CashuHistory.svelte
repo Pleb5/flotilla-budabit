@@ -9,6 +9,7 @@
     checkCashuTokenStatus,
     checkRecentCashuTokens,
     pauseCashuTokenChecks,
+    observeCashuActivity,
   } from "@app/core/cashu"
   import type {TokenHistoryEntry} from "@app/core/cashu"
   import {formatCashuSats} from "@app/util/cashu-format"
@@ -45,12 +46,19 @@
   const displayed = $derived(limit > 0 && !showAll ? history.slice(0, limit) : history)
 
   $effect(() => {
+    const controller = new AbortController()
     for (const entry of displayed) {
-      if (entry.token) void loadCashuTokenStatus(entry.token)?.catch(() => {})
+      if (entry.token)
+        void loadCashuTokenStatus(entry.token, {
+          signal: controller.signal,
+          sendOperationId: entry.tokenOperationId,
+        })?.catch(() => {})
     }
     if (history.length) void checkRecentCashuTokens().catch(() => {})
+    return () => controller.abort()
   })
   onMount(() => {
+    const stopActivity = observeCashuActivity("history")
     const refresh = () => {
       if (!document.hidden) void checkRecentCashuTokens().catch(() => {})
     }
@@ -58,6 +66,7 @@
     window.addEventListener("online", refresh)
     document.addEventListener("visibilitychange", refresh)
     return () => {
+      stopActivity()
       pauseCashuTokenChecks()
       window.removeEventListener("focus", refresh)
       window.removeEventListener("online", refresh)

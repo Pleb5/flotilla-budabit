@@ -1,4 +1,6 @@
 <script lang="ts">
+  import {onMount} from "svelte"
+  import {CashuReceiptLookupIncomplete} from "@app/core/cashu-operation-lookup"
   import {
     cashuBackupConfirmed,
     cashuMints,
@@ -44,6 +46,7 @@
     | "spent"
     | "partial"
     | "pending"
+    | "receipt-check"
     | "error"
 
   interface Props {
@@ -91,6 +94,17 @@
   let receivedAt = $state<number | undefined>()
   let untrustedMintUrl = $state("")
   let recoverMintUrl = $state("")
+  let receiptController = new AbortController()
+  onMount(() => {
+    const pause = () => {
+      if (document.hidden) receiptController.abort()
+    }
+    document.addEventListener("visibilitychange", pause)
+    return () => {
+      receiptController.abort()
+      document.removeEventListener("visibilitychange", pause)
+    }
+  })
 
   const close = () => history.back()
 
@@ -123,7 +137,10 @@
     }
 
     try {
-      const known = await loadCashuTokenStatus(tokenInfo.token)
+      const known = await loadCashuTokenStatus(tokenInfo.token, {
+        explicit: true,
+        signal: receiptController.signal,
+      })
       if (known?.received) {
         received = known.received.amount
         receivedAt = known.received.at
@@ -131,18 +148,8 @@
         step = "success"
         return
       }
-      if (
-        known?.check?.state === "spent" ||
-        known?.outgoing?.state === "spent" ||
-        known?.outgoing?.state === "reclaimed"
-      ) {
-        step = "spent"
-        return
-      }
-      if (known?.check?.state === "partial") {
-        step = "partial"
-        return
-      }
+      // A cached spend observation cannot rule out an older local receipt whose
+      // index is missing. The explicit receive path reconciles that receipt first.
     } catch {
       setError("Couldn't read this token's receipt. Reopen your wallet and try again.")
       return
@@ -171,11 +178,16 @@
     recoverMintUrl = ""
 
     try {
-      const amount = await receiveCashuToken(tokenInfo.token)
+      receiptController = new AbortController()
+      const amount = await receiveCashuToken(tokenInfo.token, receiptController.signal)
       received = amount
       step = "success"
       onredeemed?.({amount, mintUrl: tokenInfo.mintUrl})
     } catch (e: any) {
+      if (e instanceof CashuReceiptLookupIncomplete || e?.name === "AbortError") {
+        step = "receipt-check"
+        return
+      }
       if (e instanceof CashuReceiveError && e.code !== "failed") {
         step = e.code
         return
@@ -357,6 +369,11 @@
           ? "The mint confirmed this token has been used, so it can't be received again. This wallet doesn't have a receipt for it."
           : "Part of this token has already been used. Ask the sender about the remaining amount."} />
       <Button class="btn btn-ghost btn-sm" onclick={close}>Close</Button>
+    </div>
+  {:else if step === "receipt-check"}
+    <div class="flex flex-col gap-3">
+      <p>More wallet history to check for a saved receipt. No new redemption has been started.</p>
+      <Button onclick={redeemToken}>Continue checking</Button>
     </div>
   {:else if step === "pending"}
     <div class="flex flex-col items-center gap-3 rounded-lg bg-warning/10 p-4 text-center">

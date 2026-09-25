@@ -47,6 +47,7 @@ describe("debug diagnostics", () => {
       "relay-scheduler": false,
       "publication-lifecycle": false,
       "app-update": false,
+      "cashu-wallet": false,
     })
     expect(normalizeDebugDiagnosticsSettings({version: 2, categories: {}})).toEqual(
       defaultDebugDiagnosticsSettings(),
@@ -63,6 +64,7 @@ describe("debug diagnostics", () => {
         "relay-scheduler": false,
         "publication-lifecycle": false,
         "app-update": false,
+        "cashu-wallet": false,
       },
     })
   })
@@ -95,6 +97,7 @@ describe("debug diagnostics", () => {
         "relay-scheduler": false,
         "publication-lifecycle": false,
         "app-update": false,
+        "cashu-wallet": false,
       },
     })
   })

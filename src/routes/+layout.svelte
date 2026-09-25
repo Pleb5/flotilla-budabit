@@ -76,7 +76,7 @@
     measurePerformanceDiagnosticsWork,
     stopPerformanceDiagnosticsCapture,
   } from "@app/core/performance-diagnostics"
-  import {initializeCashuWallet} from "@app/core/cashu"
+  import {startCashuWalletInBackground} from "@app/core/cashu"
   import {registerCashuBridgeHandlers} from "@app/core/cashu-bridge"
   import {APP_BUILD_HASH, APP_BUILD_ID} from "@app/core/build-info"
   import {
@@ -1574,7 +1574,7 @@
 
     if (CASHU_WALLET_ENABLED) {
       // Initialize an existing wallet eagerly so its balance is immediately available.
-      void initializeCashuWallet()
+      void startCashuWalletInBackground().catch(() => {})
     }
 
     // Initialize keyboard state tracking

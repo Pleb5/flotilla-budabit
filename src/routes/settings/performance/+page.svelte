@@ -63,6 +63,11 @@
     return getDebugDiagnosticsOverview()
   })
   const debugCategoryCopy: Record<DebugDiagnosticCategory, {label: string; description: string}> = {
+    "cashu-wallet": {
+      label: "Cashu wallet",
+      description:
+        "Startup, operations, lookup budgets, background queue timing, and status checks. No tokens, invoices, or amounts.",
+    },
     "relay-normalization": {
       label: "Relay URL normalization",
       description: "Canonicalization outcomes, invalid inputs, and equivalent URL mismatches.",

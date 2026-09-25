@@ -10,7 +10,7 @@ overrides:
 
 patchedDependencies:
   '@cashu/coco-core@2.0.0':
-    hash: 18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361
+    hash: 763965191989329a8c606bda06638cd0d0cc2acf428700c3665852b3905d7304
     path: patches/@cashu__coco-core@2.0.0.patch
   '@cashu/coco-indexeddb@2.0.0':
     hash: 787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c
@@ -25,10 +25,10 @@ importers:
         version: 5.0.0-rc.4
       '@cashu/coco-core':
         specifier: 2.0.0
-        version: 2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3)
+        version: 2.0.0(patch_hash=763965191989329a8c606bda06638cd0d0cc2acf428700c3665852b3905d7304)(typescript@5.9.3)
       '@cashu/coco-indexeddb':
         specifier: 2.0.0
-        version: 2.0.0(patch_hash=787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3))(typescript@5.9.3)
+        version: 2.0.0(patch_hash=787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=763965191989329a8c606bda06638cd0d0cc2acf428700c3665852b3905d7304)(typescript@5.9.3))(typescript@5.9.3)
       '@codemirror/lang-cpp':
         specifier: ^6.0.2
         version: 6.0.3
@@ -6049,7 +6049,7 @@ snapshots:
       '@scure/base': 2.4.0
       '@scure/bip32': 2.4.0
 
-  '@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3)':
+  '@cashu/coco-core@2.0.0(patch_hash=763965191989329a8c606bda06638cd0d0cc2acf428700c3665852b3905d7304)(typescript@5.9.3)':
     dependencies:
       '@cashu/cashu-ts': 5.0.0-rc.4
       '@noble/curves': 2.0.1
@@ -6057,10 +6057,10 @@ snapshots:
       '@scure/bip32': 2.0.1
       typescript: 5.9.3
 
-  '@cashu/coco-indexeddb@2.0.0(patch_hash=787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3))(typescript@5.9.3)':
+  '@cashu/coco-indexeddb@2.0.0(patch_hash=787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c)(@cashu/cashu-ts@5.0.0-rc.4)(@cashu/coco-core@2.0.0(patch_hash=763965191989329a8c606bda06638cd0d0cc2acf428700c3665852b3905d7304)(typescript@5.9.3))(typescript@5.9.3)':
     dependencies:
       '@cashu/cashu-ts': 5.0.0-rc.4
-      '@cashu/coco-core': 2.0.0(patch_hash=18605f20ec8b363ea7c883485cf02ba1ceb2232f0fbe4eb3e24f570f4dfbb361)(typescript@5.9.3)
+      '@cashu/coco-core': 2.0.0(patch_hash=763965191989329a8c606bda06638cd0d0cc2acf428700c3665852b3905d7304)(typescript@5.9.3)
       dexie: 4.3.0
       typescript: 5.9.3
 

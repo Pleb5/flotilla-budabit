@@ -7,7 +7,8 @@ import {initializeCoco, MemoryRepositories} from "@cashu/coco-core"
 import {CashuTestMint} from "../../../tests/helpers/cashu-mint"
 import {legacyCashuWallet} from "../../../tests/helpers/cashu-idb-fixture"
 import {makeInvoice} from "../../../tests/helpers/lightning-invoice"
-import {CashuStatusCache, clearCashuTokenChecks} from "./cashu-status-cache"
+import {CashuStatusCache, clearCashuTokenChecks, CASHU_STATUS_DB} from "./cashu-status-cache"
+import {CashuReceiptLookupIncomplete, RECEIPT_LOOKUP_ROWS} from "./cashu-operation-lookup"
 import {TOKEN_MEMORY_LIMIT} from "./cashu-token-status"
 
 vi.mock("@lib/util", () => ({
@@ -56,6 +57,7 @@ import {
   createCashuToken,
   receiveCashuToken,
   refreshCashuTopUps,
+  refreshCashuHistory,
   prepareCashuInvoicePayment,
   executeCashuInvoicePayment,
   cancelCashuInvoicePayment,
@@ -90,6 +92,163 @@ describe("Cashu app service", () => {
     await mintTokensFromQuote(mint.url, topUp.quote, amount)
     return mint
   }
+
+  it("does no historical status work at startup or preview, and budgets explicit cold receipt reconciliation", async () => {
+    const mint = await fundedMint()
+    const token = await createCashuToken(4, mint.url)
+    await receiveCashuToken(token)
+    const saved = new IndexedDbRepositories({name: "budabit-coco-wallet"})
+    await saved.init()
+    try {
+      const receives = saved.db.table("coco_cashu_receive_operations")
+      const sends = saved.db.table("coco_cashu_send_operations")
+      const receipt = await receives.toCollection().first()
+      const send = await sends.toCollection().first()
+      await receives.delete(receipt.id)
+      await receives.bulkAdd([
+        {...receipt, id: "zz-target-receipt"},
+        ...Array.from({length: 1205}, (_, i) => ({
+          ...receipt,
+          id: `history-${String(i).padStart(5, "0")}`,
+          inputProofsJson: JSON.stringify(
+            JSON.parse(receipt.inputProofsJson).map((p: object) => ({
+              ...p,
+              secret: `public-fixture-${i}`,
+            })),
+          ),
+        })),
+      ])
+      await sends.bulkAdd(
+        Array.from({length: 1205}, (_, i) => ({...send, id: `pending-fixture-${i}`})),
+      )
+      await clearCashuTokenChecks()
+      const open = vi.spyOn(indexedDB, "open")
+      const receiveReads = vi.spyOn(
+        Object.getPrototypeOf(saved.receiveOperationRepository),
+        "getById",
+      )
+      const sendReads = vi.spyOn(Object.getPrototypeOf(saved.sendOperationRepository), "getById")
+      const sendStates = vi.spyOn(
+        Object.getPrototypeOf(saved.sendOperationRepository),
+        "getByState",
+      )
+      const mintStates = vi.spyOn(
+        Object.getPrototypeOf(saved.mintOperationRepository),
+        "getByState",
+      )
+      const history = vi.spyOn(
+        Object.getPrototypeOf(saved.historyRepository),
+        "getPaginatedHistoryEntries",
+      )
+      const before = mint.calls.length
+      await reloadCashuWallet()
+      expect(open.mock.calls.some(([name]) => name === CASHU_STATUS_DB)).toBe(false)
+      expect(sendStates.mock.calls.some(([state]) => state === "pending")).toBe(false)
+      expect(mintStates.mock.calls.some(([state]) => state === "finalized")).toBe(false)
+      expect(history).not.toHaveBeenCalled()
+      expect(receiveReads).not.toHaveBeenCalled()
+      expect(sendReads).not.toHaveBeenCalled()
+      expect(mint.calls).toHaveLength(before)
+
+      expect((await loadCashuTokenStatus(token))?.received).toBeUndefined()
+      expect(receiveReads).not.toHaveBeenCalled()
+      expect(sendReads).not.toHaveBeenCalled()
+      // A direct history-row ID also must not trigger a receive fallback scan.
+      expect(
+        (await loadCashuTokenStatus(token, {sendOperationId: send.id}))?.outgoing,
+      ).toBeDefined()
+      expect(receiveReads).not.toHaveBeenCalled()
+      expect(sendReads).toHaveBeenCalledTimes(1)
+
+      const cancelled = new AbortController()
+      cancelled.abort()
+      await expect(receiveCashuToken(token, cancelled.signal)).rejects.toMatchObject({
+        name: "AbortError",
+      })
+      expect(receiveReads).not.toHaveBeenCalled()
+      expect(mint.calls).toHaveLength(before)
+
+      await expect(receiveCashuToken(token)).rejects.toBeInstanceOf(CashuReceiptLookupIncomplete)
+      expect(receiveReads.mock.calls.length).toBeGreaterThan(0)
+      expect(receiveReads.mock.calls.length).toBeLessThanOrEqual(RECEIPT_LOOKUP_ROWS)
+      expect(mint.calls).toHaveLength(before)
+      let received: number | undefined
+      for (let attempt = 0; attempt < 30 && received === undefined; attempt++) {
+        receiveReads.mockClear()
+        try {
+          received = await receiveCashuToken(token)
+        } catch (error) {
+          expect(error).toBeInstanceOf(CashuReceiptLookupIncomplete)
+        }
+        // Allow the final point lookup used to display the found receipt.
+        expect(receiveReads.mock.calls.length).toBeLessThanOrEqual(RECEIPT_LOOKUP_ROWS + 1)
+      }
+      expect(received).toBe(4)
+      expect(mint.calls).toHaveLength(before)
+      expect((await loadCashuTokenStatus(token))?.received?.operationId).toBe("zz-target-receipt")
+    } finally {
+      saved.db.close()
+    }
+  })
+
+  it("still recovers an interrupted send after a lost swap response at startup", async () => {
+    const mint = await fundedMint()
+    let lost = false
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (/\/v1\/(restore|checkstate)$/.test(String(input)))
+        throw new Error("Synthetic offline recovery")
+      const result = await mint.fetch(input, init)
+      if (String(input).endsWith("/v1/swap") && !lost) {
+        lost = true
+        throw new Error("Synthetic lost response")
+      }
+      return result
+    })
+    await expect(createCashuToken(3, mint.url)).rejects.toThrow()
+    const saved = new IndexedDbRepositories({name: "budabit-coco-wallet"})
+    await saved.init()
+    try {
+      expect(await saved.sendOperationRepository.getByState("executing")).toHaveLength(1)
+    } finally {
+      saved.db.close()
+    }
+    const before = mint.calls.filter(c => c.path === "/v1/swap").length
+    vi.stubGlobal("fetch", mint.fetch)
+    await reloadCashuWallet()
+    await refreshCashuHistory()
+    expect(get(cashuTokenHistory)).toContainEqual(
+      expect.objectContaining({direction: "sent", state: "rolled_back"}),
+    )
+    expect(mint.calls.filter(c => c.path === "/v1/swap")).toHaveLength(before)
+    expect(get(cashuTotalBalance)).toBe(16)
+  })
+
+  it("promotes forward indexing for explicit lookups without waiting for queued previews", async () => {
+    const mint = await fundedMint()
+    const warm = await createCashuToken(2, mint.url)
+    await loadCashuTokenStatus(warm, {explicit: true})
+    // Simulate an indefinitely busy foreground. Optional background tasks never
+    // get admitted; explicit point lookups and their forward writes must finish.
+    const postTask = vi.fn(
+      (_work: unknown, {signal}: {signal: AbortSignal}) =>
+        new Promise((_, reject) => {
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Cancelled", "AbortError")),
+            {once: true},
+          )
+        }),
+    )
+    vi.stubGlobal("scheduler", {postTask})
+    const token = await createCashuToken(2, mint.url)
+    const controller = new AbortController()
+    const preview = loadCashuTokenStatus(token, {signal: controller.signal})!
+    const cancelled = expect(preview).rejects.toMatchObject({name: "AbortError"})
+    expect((await loadCashuTokenStatus(token, {explicit: true}))?.outgoing?.state).toBe("created")
+    controller.abort()
+    await cancelled
+    expect(postTask).toHaveBeenCalled()
+  })
 
   it("quotes without paying, releases cancelled reservations, then pays and recovers change", async () => {
     const mint = await fundedMint()
@@ -153,6 +312,7 @@ describe("Cashu app service", () => {
     const mint = await fundedMint()
     const payment = await prepareCashuInvoicePayment(mint.url, makeInvoice())
     await reloadCashuWallet()
+    await refreshCashuHistory()
     expect(get(cashuTokenHistory)).toContainEqual(
       expect.objectContaining({paymentOperationId: payment.operationId, state: "prepared"}),
     )
@@ -183,6 +343,7 @@ describe("Cashu app service", () => {
     expect(quote.operationId).toBeTruthy()
     expect(get(cashuTopUps)).toHaveLength(1)
     await reloadCashuWallet()
+    await refreshCashuTopUps()
     expect(get(cashuTopUps)[0]).toMatchObject({quote: quote.quote, operationId: quote.operationId})
     mint.pay(quote.quote)
     await Promise.all([
@@ -335,6 +496,7 @@ describe("Cashu app service", () => {
     })
     expect(await receiveCashuToken(copy)).toBe(credited)
     expect(mint.calls).toHaveLength(before)
+    await refreshCashuHistory()
     expect(get(cashuTokenHistory).filter(entry => entry.direction === "received")).toHaveLength(1)
   })
 
@@ -370,7 +532,12 @@ describe("Cashu app service", () => {
     saved.db.close()
     await clearCashuTokenChecks()
     await reloadCashuWallet()
+    await refreshCashuHistory()
     expect(get(cashuTokenHistory).some(entry => entry.id.includes(receipt.id))).toBe(false)
+    expect((await loadCashuTokenStatus(token))?.received).toBeUndefined()
+    const before = mint.calls.length
+    expect(await receiveCashuToken(token)).toBe(4)
+    expect(mint.calls).toHaveLength(before)
     expect(await loadCashuTokenStatus(token)).toMatchObject({received: {amount: 4}})
     await createCashuWallet()
     expect(get(cashuTokenStatuses)).toEqual({})
@@ -566,7 +733,7 @@ describe("Cashu app service", () => {
     expect(await receiveCashuToken(token)).toBe(4)
     await reloadCashuWallet()
     const before = mint.calls.length
-    expect((await loadCashuTokenStatus(token))?.received?.amount).toBe(4)
+    expect((await loadCashuTokenStatus(token))?.received).toBeUndefined()
     expect(await receiveCashuToken(token)).toBe(4)
     expect(mint.calls).toHaveLength(before)
   })
@@ -625,7 +792,7 @@ describe("Cashu app service", () => {
       } else pauseCashuTokenChecks()
       await checking
       expect(aborted).toBe(true)
-      const paused = await loadCashuTokenStatus(token)
+      const paused = await loadCashuTokenStatus(token, {explicit: true})
       expect(paused?.checking).toBe(false)
       expect(paused?.checkError).toBeUndefined()
       expect(paused?.check).toBeUndefined()

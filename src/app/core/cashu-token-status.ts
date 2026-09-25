@@ -7,6 +7,8 @@ import {bytesToHex} from "@noble/hashes/utils.js"
 import {cashuSatsNumber} from "@app/util/cashu-amount"
 import {CashuStatusCache, validCashuCheck} from "./cashu-status-cache"
 import {CashuOperationLookup} from "./cashu-operation-lookup"
+import {assertCashuWorkActive, runCashuBackground} from "./cashu-background"
+import {beginCashuDiagnostic} from "./cashu-diagnostics"
 export {clearCashuTokenChecks} from "./cashu-status-cache"
 
 const CHECK_INTERVAL = 60_000
@@ -52,6 +54,11 @@ export type CashuTokenStatus = {
   checkError?: string
 }
 export const cashuTokenStatuses = writable<Record<string, CashuTokenStatus>>({})
+export type CashuLookupOptions = {
+  signal?: AbortSignal
+  sendOperationId?: string
+  explicit?: boolean
+}
 
 export const receiveOperationIdentity = (operation: ReceiveOperation) =>
   cashuTokenIdentity({mint: operation.mintUrl, unit: operation.unit, proofs: operation.inputProofs})
@@ -67,7 +74,9 @@ export class CashuTokenTracker {
   private checks = new Map<string, Promise<void>>()
   private cache = new CashuStatusCache()
   private operations: CashuOperationLookup
-  private refreshing?: Promise<void>
+  private loads = new Set<Promise<CashuTokenStatus | undefined>>()
+  private coalescedLoads = new Map<string, Promise<CashuTokenStatus | undefined>>()
+  private queuedCharacters = 0
   private automaticTask?: Promise<void>
   private automaticGeneration = 0
   private automaticControllers = new Set<AbortController>()
@@ -77,13 +86,6 @@ export class CashuTokenTracker {
     private repo: IndexedDbRepositories,
   ) {
     this.operations = new CashuOperationLookup(manager, repo, this.cache)
-    if (typeof window !== "undefined") window.addEventListener("focus", this.onFocus)
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onFocus)
-  }
-
-  private onFocus = () => {
-    if (typeof document !== "undefined" && document.hidden) return
-    void this.refresh().catch(() => {})
   }
   dispose() {
     this.disposed = true
@@ -94,9 +96,6 @@ export class CashuTokenTracker {
     this.known.clear()
     this.observations.clear()
     this.attempts.clear()
-    if (typeof window !== "undefined") window.removeEventListener("focus", this.onFocus)
-    if (typeof document !== "undefined")
-      document.removeEventListener("visibilitychange", this.onFocus)
   }
   private assertActive() {
     if (this.disposed) throw new Error("Wallet session changed")
@@ -132,11 +131,48 @@ export class CashuTokenTracker {
     }
   }
 
-  findOperation(mintUrl: string, identity: string) {
-    return this.operations.find(mintUrl, identity, true)
+  async findOperation(mintUrl: string, identity: string, signal?: AbortSignal) {
+    return {received: await this.operations.reconcileReceive(mintUrl, identity, signal)}
   }
 
-  async load(raw: string): Promise<CashuTokenStatus | undefined> {
+  load(raw: string, options: CashuLookupOptions = {}): Promise<CashuTokenStatus | undefined> {
+    if (options.explicit) return this.loadNow(raw, options)
+    if (typeof document !== "undefined" && document.hidden) return Promise.resolve(undefined)
+    // Optional requests are coalesced and bounded before scheduling/decoding.
+    const pending = this.coalescedLoads.get(raw)
+    if (pending && !options.signal) return pending
+    if (
+      this.loads.size >= TOKEN_MEMORY_LIMIT ||
+      this.queuedCharacters + raw.length > TOKEN_CHARACTER_LIMIT
+    )
+      return Promise.resolve(undefined)
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, this.controller.signal])
+      : this.controller.signal
+    this.queuedCharacters += raw.length
+    const task = runCashuBackground(
+      "lookup",
+      () => {
+        if (typeof document !== "undefined" && document.hidden) return undefined
+        return this.loadNow(raw, {...options, signal})
+      },
+      signal,
+    ).finally(() => {
+      this.loads.delete(task)
+      this.queuedCharacters -= raw.length
+      if (this.coalescedLoads.get(raw) === task) this.coalescedLoads.delete(raw)
+    })
+    this.loads.add(task)
+    if (!options.signal) this.coalescedLoads.set(raw, task)
+    return task
+  }
+
+  private async loadNow(
+    raw: string,
+    options: CashuLookupOptions,
+  ): Promise<CashuTokenStatus | undefined> {
+    assertCashuWorkActive(options.signal)
+    if (options.explicit) await this.operations.flush()
     const key = cashuTokenDisplayKey(raw)
     this.assertActive()
     this.remember(raw, key)
@@ -155,7 +191,10 @@ export class CashuTokenTracker {
       return undefined
     }
     const id = cashuTokenIdentity(token)
-    const found = await this.operations.find(mintUrl, id)
+    const finish = beginCashuDiagnostic("lookup", {
+      source: options.explicit ? "explicit" : "preview",
+    })
+    const found = await this.operations.find(id, options.sendOperationId)
     const received = found.received?.state === "finalized" ? found.received : undefined
     const receiving =
       found.received && ["prepared", "executing"].includes(found.received.state)
@@ -176,6 +215,11 @@ export class CashuTokenTracker {
       outgoing?.state === "rolled_back" ||
       observation?.state === "spent",
     )
+    assertCashuWorkActive(options.signal)
+    finish?.({
+      outcome: found.received || found.outgoing ? "hit" : "miss",
+      rows: Number(Boolean(found.received)) + Number(Boolean(found.outgoing)),
+    })
     return this.update(key, {
       id,
       ...(received?.state === "finalized"
@@ -208,20 +252,6 @@ export class CashuTokenTracker {
           ? undefined
           : previous?.checkError,
     })
-  }
-
-  refresh() {
-    if (typeof document !== "undefined" && document.hidden) return Promise.resolve()
-    if (!this.refreshing)
-      this.refreshing = (async () => {
-        for (const raw of [...this.known.values()]) {
-          this.assertActive()
-          await this.load(raw)
-        }
-      })().finally(() => {
-        this.refreshing = undefined
-      })
-    return this.refreshing
   }
 
   /** Read-only, bounded checks. Group by mint and coalesce overlapping callers. */
@@ -278,7 +308,7 @@ export class CashuTokenTracker {
     let proofCount = 0
     for (const raw of raws) {
       if (mode === "automatic" && !activeView()) break
-      const status = await this.load(raw)
+      const status = await this.load(raw, {explicit: mode !== "automatic"})
       if (
         !status ||
         status.received ||
@@ -357,7 +387,18 @@ export class CashuTokenTracker {
           throw new Error("Check paused")
         }
         const batch = ys.slice(i, i + 100)
-        const response = await mint.check({Ys: batch})
+        const finish = beginCashuDiagnostic("mint-check", {
+          source: mode === "automatic" ? "history" : "explicit",
+          proofs: batch.length,
+        })
+        let response
+        try {
+          response = await mint.check({Ys: batch})
+          finish?.()
+        } catch (error) {
+          finish?.({outcome: foreground.signal.aborted ? "cancelled" : "error"})
+          throw error
+        }
         if (response.states.length !== batch.length) throw new Error("Incomplete mint response")
         for (const state of response.states) {
           if (
@@ -427,6 +468,8 @@ export class CashuTokenTracker {
         document.removeEventListener("visibilitychange", pause)
       }
     }
-    await this.refresh()
+    // Refresh only this batch; there is no global sweep of previously seen cards.
+    if (mode === "automatic" && !activeView()) return
+    for (const {raw} of targets.values()) await this.load(raw, {explicit: true})
   }
 }

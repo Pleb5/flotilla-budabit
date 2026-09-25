@@ -48,6 +48,80 @@ const setup = async (page: Page, mint: CashuTestMint, events: ReturnType<typeof 
   return relay
 }
 
+test("cold receipts pause at the budget and wallet diagnostics capture the explicit continuation", async ({
+  page,
+}, info) => {
+  test.setTimeout(60_000)
+  const mint = new CashuTestMint()
+  await setup(page, mint)
+  // Exercise the diagnostics-enabled test-build branch without changing the
+  // developer's server configuration. Relays and mint remain isolated fixtures.
+  await page.route("**/src/app/core/feature-flags.ts", async route => {
+    const response = await route.fetch()
+    const body = (await response.text()).replace(
+      /export const DIAGNOSTICS_ENABLED = [^;]+;/,
+      "export const DIAGNOSTICS_ENABLED = true;",
+    )
+    await route.fulfill({response, body})
+  })
+  await page.goto("/settings/performance")
+  await page.getByRole("checkbox", {name: /Cashu wallet/}).check()
+  await page.getByRole("button", {name: "Start recording", exact: true}).click()
+  const quotes = await page.evaluate(
+    async path => (await import(/* @vite-ignore */ path)).prepareSender(),
+    fixturePath,
+  )
+  for (const quote of quotes) mint.pay(quote)
+  const token = await page.evaluate(
+    async ({path, quotes}) => (await import(/* @vite-ignore */ path)).fundAndSend(quotes),
+    {path: fixturePath, quotes},
+  )
+  await page.evaluate(
+    async ({path, token}) => (await import(/* @vite-ignore */ path)).receiveAndLoseIndex(token),
+    {path: fixturePath, token},
+  )
+  const before = mint.calls.filter(call => call.path === "/v1/swap").length
+  await page.evaluate(
+    async ({path, token}) => (await import(/* @vite-ignore */ path)).openReceive(token),
+    {path: fixturePath, token},
+  )
+  const more = page.getByRole("button", {name: "Continue checking", exact: true})
+  await expect(more).toBeVisible()
+  await expect(
+    page.getByText(
+      "More wallet history to check for a saved receipt. No new redemption has been started.",
+    ),
+  ).toBeVisible()
+  await page.screenshot({path: info.outputPath("cashu-receipt-budget.png")})
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await more.click()
+    await expect(page.getByText("Received · 210 sats", {exact: true}).or(more)).toBeVisible()
+    if (!(await more.isVisible())) break
+  }
+  await expect(page.getByText("Received · 210 sats", {exact: true})).toBeVisible()
+  expect(mint.calls.filter(call => call.path === "/v1/swap")).toHaveLength(before)
+  const records = await page.evaluate(
+    async path => (await import(/* @vite-ignore */ path)).walletDiagnostics(),
+    fixturePath,
+  )
+  expect(records).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({type: "send:finish"}),
+      expect.objectContaining({type: "receive:finish"}),
+      expect.objectContaining({
+        type: "reconcile:finish",
+        detail: expect.objectContaining({outcome: "budget-exhausted"}),
+      }),
+      expect.objectContaining({
+        type: "reconcile:finish",
+        detail: expect.objectContaining({outcome: "hit"}),
+      }),
+    ]),
+  )
+  expect(JSON.stringify(records)).not.toContain(token)
+  expect(JSON.stringify(records)).not.toContain(mint.url)
+})
+
 test("two wallets retain receipts, reconcile redemption, and explain statuses on tap", async ({
   page: sender,
   browser,

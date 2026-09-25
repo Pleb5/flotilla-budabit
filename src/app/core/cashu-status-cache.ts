@@ -1,4 +1,6 @@
 import type {CashuTokenCheck} from "./cashu-token-status"
+import {runCashuBackground} from "./cashu-background"
+import {beginCashuDiagnostic} from "./cashu-diagnostics"
 
 export const CASHU_STATUS_DB = "budabit-cashu-status-v1"
 export const LEGACY_CHECKS_KEY = "budabit_cashu_token_checks_v1"
@@ -97,25 +99,41 @@ export class CashuStatusCache {
   private closed = false
   private db?: IDBDatabase
   private epoch = ""
-  private ready: Promise<void>
-
-  constructor() {
-    this.ready = this.initialize()
-    void this.ready.catch(() => {})
+  private ready?: Promise<void>
+  private maintenance?: Promise<void>
+  private controller = new AbortController()
+  private ensureReady() {
+    return (this.ready ||= this.initialize())
+  }
+  private maintain() {
+    return (this.maintenance ||= runCashuBackground(
+      "cache-maintenance",
+      async () => {
+        await this.ensureReady()
+        await this.migrate()
+      },
+      this.controller.signal,
+    ))
   }
   private async initialize() {
-    const db = await openDatabase()
-    if (this.closed) {
-      db.close()
-      throw new Error("Status cache closed")
+    const finish = beginCashuDiagnostic("cache-open")
+    try {
+      const db = await openDatabase()
+      if (this.closed) {
+        db.close()
+        throw new Error("Status cache closed")
+      }
+      this.db = db
+      const tx = db.transaction("meta", "readwrite")
+      const done = completed(tx)
+      this.epoch = (await request(tx.objectStore("meta").get("epoch"))) || crypto.randomUUID()
+      tx.objectStore("meta").put(this.epoch, "epoch")
+      await done
+      finish?.()
+    } catch (error) {
+      finish?.({outcome: "error"})
+      throw error
     }
-    this.db = db
-    const tx = db.transaction("meta", "readwrite")
-    const done = completed(tx)
-    this.epoch = (await request(tx.objectStore("meta").get("epoch"))) || crypto.randomUUID()
-    tx.objectStore("meta").put(this.epoch, "epoch")
-    await done
-    await this.migrate()
   }
   private async transaction<T>(
     stores: string[],
@@ -123,7 +141,7 @@ export class CashuStatusCache {
     fn: (tx: IDBTransaction) => Promise<T>,
     initializing = false,
   ): Promise<T> {
-    if (!initializing) await this.ready
+    if (!initializing) await this.ensureReady()
     if (this.closed || !this.db) throw new Error("Status cache closed")
     const tx = this.db.transaction(["meta", ...stores], mode)
     const done = completed(tx)
@@ -194,6 +212,7 @@ export class CashuStatusCache {
       }
   }
   async get(id: string) {
+    await this.maintain()
     return this.transaction(["checks"], "readonly", async tx => {
       const row = await request<Observation | undefined>(tx.objectStore("checks").get(id))
       return validCashuCheck(row?.check, Date.now()) ? row!.check : undefined
@@ -201,6 +220,7 @@ export class CashuStatusCache {
   }
   async put(id: string, check: CashuTokenCheck) {
     if (!validId(id) || !validCashuCheck(check, Date.now())) return
+    await this.maintain()
     await this.transaction(["checks"], "readwrite", async tx => {
       const store = tx.objectStore("checks")
       const current = await request<Observation | undefined>(store.get(id))
@@ -216,6 +236,7 @@ export class CashuStatusCache {
     })
   }
   async claim(id: string, interval: number) {
+    await this.maintain()
     return this.transaction(["checks"], "readwrite", async tx => {
       const store = tx.objectStore("checks")
       const current = await request<Observation | undefined>(store.get(id))
@@ -260,6 +281,7 @@ export class CashuStatusCache {
   }
   close() {
     this.closed = true
+    this.controller.abort()
     this.db?.close()
   }
 }
