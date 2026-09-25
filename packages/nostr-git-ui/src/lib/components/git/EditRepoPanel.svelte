@@ -723,6 +723,8 @@
   // Update form data when repo changes
   $effect(() => {
     void repo?.repoStateEvent;
+    // Track the prop so asynchronously loaded job runners (kind 30728) sync into the form.
+    void workflowJobRunners;
     if (repo && repo.repoEvent && !isEditing && !preserveFormAfterSaveFailure) {
       untrack(() => {
         if (isFormDirty && editingAnnouncement) return;
