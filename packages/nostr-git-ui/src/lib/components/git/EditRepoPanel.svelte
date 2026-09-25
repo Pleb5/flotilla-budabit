@@ -1129,6 +1129,7 @@
         };
         const jobRunnersEvent = {
           kind: GIT_REPO_JOB_RUNNERS,
+          pubkey: source.pubkey,
           created_at: replacementCreatedAt,
           content: "",
           tags: [["d", nextName], ...normalizedJobRunners.map((pubkey) => ["p", pubkey])],
