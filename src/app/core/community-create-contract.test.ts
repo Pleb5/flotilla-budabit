@@ -47,7 +47,7 @@ describe("Communikeys create source contract", () => {
     )
 
     expect(originalDraftState).not.toContain("communityProfile")
-    expect(component).toContain("makeOriginalDraftState(definition)")
+    expect(component).toContain("originalDraftState = makeOriginalDraftState(next)")
   })
 
   it("preserves unfamiliar valid services when rebuilding an edited definition", () => {

@@ -168,6 +168,7 @@ describe("community admin helpers", () => {
       name: "Sibling community",
       relays: ["wss://relay.example.com"],
       graspServers: ["wss://grasp.example.com"],
+      ciRepoWatchers: [{pubkey: memberPubkey, relays: ["wss://ci.example.com"]}],
       sections: [
         {
           name: "Threads",
@@ -211,6 +212,7 @@ describe("community admin helpers", () => {
     expect(reparsed.ownerPubkey).toBe(v2Controller)
     expect(reparsed.communityId).toBe(v2CommunityId)
     expect(reparsed.pointer.address).toBe(definition.pointer.address)
+    expect(reparsed.ciRepoWatchers).toEqual(definition.ciRepoWatchers)
   })
 
   it("reuses an existing owner member grant list ref", () => {

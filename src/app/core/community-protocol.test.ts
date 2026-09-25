@@ -133,6 +133,127 @@ describe("Communikeys identity", () => {
 })
 
 describe("Communikeys definitions", () => {
+  const watcherDefinition = (tags: string[][] = []) => {
+    const template = buildCommunityDefinition({
+      communityId,
+      name: "CI community",
+      relays: ["wss://community.example"],
+      sections: [section],
+    })
+    const sectionIndex = template.tags.findIndex(tag => tag[0] === "content")
+    return makeEvent({
+      kind: COMMUNITY_DEFINITION_KIND,
+      tags: [
+        ...template.tags.slice(0, sectionIndex),
+        ...tags,
+        ...template.tags.slice(sectionIndex),
+      ],
+    })
+  }
+
+  it("round-trips CI watcher identities and merges duplicate relay hints before content sections", () => {
+    const template = buildCommunityDefinition({
+      communityId,
+      name: "CI community",
+      relays: ["wss://community.example"],
+      ciRepoWatchers: [
+        {pubkey: servicePubkey, relays: ["wss://ci.example/", "wss://ci.example"]},
+        {pubkey: servicePubkey, relays: ["wss://backup.example"]},
+        {pubkey: otherController, relays: ["wss://other.example"]},
+      ],
+      sections: [section],
+    })
+    const definition = parseCommunityDefinition(makeEvent({...template}))!
+    expect(definition.ciRepoWatchers).toEqual([
+      {pubkey: servicePubkey, relays: ["wss://ci.example", "wss://backup.example"]},
+      {pubkey: otherController, relays: ["wss://other.example"]},
+    ])
+    const watcherTags = template.tags.filter(tag => tag[0] === "ci-repo-watcher")
+    expect(watcherTags).toEqual([
+      ["ci-repo-watcher", servicePubkey, "wss://ci.example", "wss://backup.example"],
+      ["ci-repo-watcher", otherController, "wss://other.example"],
+    ])
+    expect(template.tags.indexOf(watcherTags[1])).toBeLessThan(
+      template.tags.findIndex(tag => tag[0] === "content"),
+    )
+    expect(parseCommunityDefinition(watcherDefinition())?.ciRepoWatchers).toEqual([])
+    expect(
+      parseCommunityDefinition(watcherDefinition([...watcherTags, watcherTags[0]]))?.ciRepoWatchers,
+    ).toEqual(definition.ciRepoWatchers)
+  })
+
+  it("rejects malformed, noncanonical, oversized, and section-local watcher advertisements", () => {
+    for (const tag of [
+      ["ci-repo-watcher"],
+      ["ci-repo-watcher", servicePubkey],
+      ["ci-repo-watcher", "npub1invalid", "wss://ci.example"],
+      ["ci-repo-watcher", servicePubkey.toUpperCase(), "wss://ci.example"],
+      ...[
+        "",
+        "ws://ci.example",
+        "https://ci.example",
+        "wss://ci.example/",
+        "wss://user@ci.example",
+        "wss://ci.example/#fragment",
+      ].map(relay => ["ci-repo-watcher", servicePubkey, relay]),
+      ["ci-repo-watcher", servicePubkey, ...Array(21).fill("wss://ci.example")],
+    ]) {
+      expect(
+        parseCommunityDefinition(watcherDefinition([tag])),
+        JSON.stringify(tag),
+      ).toBeUndefined()
+    }
+    const tag = ["ci-repo-watcher", servicePubkey, "wss://ci.example"]
+    expect(parseCommunityDefinition(watcherDefinition(Array(21).fill(tag)))).toBeUndefined()
+    const event = watcherDefinition()
+    expect(parseCommunityDefinition({...event, tags: [...event.tags, tag]})).toBeUndefined()
+    const splitRelays = Array.from({length: 21}, (_, index) => `wss://relay-${index}.example`)
+    expect(
+      parseCommunityDefinition(
+        watcherDefinition([
+          ["ci-repo-watcher", servicePubkey, ...splitRelays.slice(0, 20)],
+          ["ci-repo-watcher", servicePubkey, splitRelays[20]],
+        ]),
+      ),
+    ).toBeUndefined()
+    expect(() =>
+      buildCommunityDefinition({
+        communityId,
+        name: "CI",
+        relays: ["wss://community.example"],
+        sections: [section],
+        ciRepoWatchers: [{pubkey: servicePubkey, relays: []}],
+      }),
+    ).toThrow("Invalid CI repository watcher")
+  })
+
+  it("preserves watchers on metadata edits and replaces or removes them on settings rebuilds", () => {
+    const tag = ["ci-repo-watcher", servicePubkey, "wss://ci.example"]
+    const definition = parseCommunityDefinition(watcherDefinition([tag, ["future", "opaque"]]))!
+    expect(updateCommunityDefinition(definition, {name: "Renamed"}).tags).toContainEqual(tag)
+    for (const ciRepoWatchers of [
+      definition.ciRepoWatchers,
+      [],
+      [{pubkey: otherController, relays: ["wss://new.example"]}],
+    ]) {
+      const replacement = buildCommunityDefinition({
+        ...definition.metadata,
+        communityId,
+        relays: definition.relays,
+        sections: definition.sections,
+        ciRepoWatchers,
+      })
+      const updated = updateCommunityDefinition(definition, {}, {replacement})
+      expect(parseCommunityDefinition(makeEvent({...updated}))?.ciRepoWatchers).toEqual(
+        ciRepoWatchers,
+      )
+      expect(updated.tags.filter(tag => tag[0] === "ci-repo-watcher")).toHaveLength(
+        ciRepoWatchers.length,
+      )
+      expect(updated.tags).toContainEqual(["future", "opaque"])
+    }
+  })
+
   it("builds and strictly parses definition-native metadata", () => {
     const template = buildCommunityDefinition({
       communityId,

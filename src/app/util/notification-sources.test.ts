@@ -154,6 +154,7 @@ const makeCommunityRef = (): ActiveUserCommunityRef => ({
     relays: [],
     blossomServers: [],
     graspServers: [],
+    ciRepoWatchers: [],
     mints: [],
     services: [],
     sourceTags: [],

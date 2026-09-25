@@ -4,6 +4,8 @@ import type {EventContent, Filter, TrustedEvent} from "@welshman/util"
 export const COMMUNITY_DEFINITION_KIND = 32222
 export const TARGETED_PUBLICATION_KIND = 30222
 export const MAX_TARGET_COMMUNITIES = 12
+export const MAX_COMMUNITY_CI_REPO_WATCHERS = 20
+export const MAX_CI_REPO_WATCHER_RELAYS = 20
 
 declare const communityIdBrand: unique symbol
 declare const ownerPubkeyBrand: unique symbol
@@ -41,6 +43,7 @@ export type CommunityDefinitionRetentionPolicy = {
 }
 export type CommunityDefinitionMint = {url: string; type?: string}
 export type CommunityDefinitionTerms = {reference: string; relay?: string}
+export type CommunityCiRepoWatcher = {pubkey: string; relays: string[]}
 export type CommunityDefinitionService = {
   name: string
   pubkey: OwnerPubkey
@@ -75,6 +78,7 @@ export type CommunityDefinition = {
   relays: string[]
   blossomServers: string[]
   graspServers: string[]
+  ciRepoWatchers: CommunityCiRepoWatcher[]
   mints: CommunityDefinitionMint[]
   terms?: CommunityDefinitionTerms
   services: CommunityDefinitionService[]
@@ -89,6 +93,7 @@ export type BuildCommunityDefinitionParams = Omit<CommunityDefinitionMetadata, "
   relays: string[]
   blossomServers?: string[]
   graspServers?: string[]
+  ciRepoWatchers?: CommunityCiRepoWatcher[]
   mints?: Array<{url: string; type?: string}>
   terms?: {reference: string; relay?: string}
   services?: Array<{
@@ -531,6 +536,7 @@ const TOP_LEVEL_TAGS = new Set([
   "r",
   "blossom",
   "grasp",
+  "ci-repo-watcher",
   "mint",
   "location",
   "g",
@@ -598,6 +604,44 @@ const parseServiceTags = (tags: string[][]): CommunityDefinitionService[] | unde
     })
   }
   return result
+}
+
+/** Watcher identity is its pubkey; repeated advertisements merge relay hints in order. */
+export const normalizeCommunityCiRepoWatchers = (
+  watchers: CommunityCiRepoWatcher[],
+): CommunityCiRepoWatcher[] | undefined => {
+  if (watchers.length > MAX_COMMUNITY_CI_REPO_WATCHERS) return undefined
+  const byPubkey = new Map<string, CommunityCiRepoWatcher>()
+  for (const watcher of watchers) {
+    const pubkey = parseOwnerPubkey(watcher.pubkey)
+    if (!pubkey || !watcher.relays.length || watcher.relays.length > MAX_CI_REPO_WATCHER_RELAYS) {
+      return undefined
+    }
+    const relays = watcher.relays.map(normalizeCommunityRelay)
+    if (relays.some(relay => !relay)) return undefined
+    const merged = Array.from(
+      new Set([...(byPubkey.get(pubkey)?.relays || []), ...relays]),
+    ) as string[]
+    if (merged.length > MAX_CI_REPO_WATCHER_RELAYS) return undefined
+    byPubkey.set(pubkey, {pubkey, relays: merged})
+  }
+  return Array.from(byPubkey.values())
+}
+
+const parseCiRepoWatcherTags = (tags: string[][]) => {
+  const watcherTags = getTags(tags, "ci-repo-watcher")
+  if (
+    watcherTags.some(
+      tag =>
+        tag.length < 3 ||
+        tag.slice(2).some(relay => !relay || normalizeCommunityRelay(relay) !== relay),
+    )
+  ) {
+    return undefined
+  }
+  return normalizeCommunityCiRepoWatchers(
+    watcherTags.map(tag => ({pubkey: tag[1], relays: tag.slice(2)})),
+  )
 }
 
 export const getCommunityDefinitionValidationFailure = (event: TrustedEvent) => {
@@ -695,7 +739,8 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
   const mints = parseMintTags(tags)
   const terms = parseTermsTag(tags)
   const services = parseServiceTags(tags)
-  if (!mints || terms === null || !services) return undefined
+  const ciRepoWatchers = parseCiRepoWatcherTags(tags)
+  if (!mints || terms === null || !services || !ciRepoWatchers) return undefined
 
   const rawSections: string[][][] = []
   let currentSection: string[][] | undefined
@@ -748,6 +793,7 @@ export const parseCommunityDefinition = (event: TrustedEvent): CommunityDefiniti
     relays,
     blossomServers,
     graspServers,
+    ciRepoWatchers,
     mints,
     ...(terms ? {terms} : {}),
     services,
@@ -878,6 +924,11 @@ export const buildCommunityDefinition = (
     if (graspServers.has(normalized)) continue
     graspServers.add(normalized)
     tags.push(["grasp", normalized])
+  }
+  const ciRepoWatchers = normalizeCommunityCiRepoWatchers(params.ciRepoWatchers || [])
+  if (!ciRepoWatchers) throw new Error("Invalid CI repository watcher advertisements.")
+  for (const watcher of ciRepoWatchers) {
+    tags.push(["ci-repo-watcher", watcher.pubkey, ...watcher.relays])
   }
   if ((params.mints?.length || 0) > 20) throw new Error("Too many mint declarations.")
   const mintKeys = new Set<string>()

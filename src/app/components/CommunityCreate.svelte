@@ -45,6 +45,8 @@
     DEFAULT_COMMUNITY_SECTION_NAMES,
     COMMUNITY_DEFINITION_KIND,
     COMMUNITY_SECTION_MARKETPLACE,
+    MAX_COMMUNITY_CI_REPO_WATCHERS,
+    MAX_CI_REPO_WATCHER_RELAYS,
     FORM_RESPONSE_KIND,
     buildCommunityDefinition,
     getCommunitySectionKindAssignments,
@@ -69,6 +71,7 @@
     updateCommunityDefinition,
     PROFILE_LIST_KIND,
     type CommunityAlertService,
+    type CommunityCiRepoWatcher,
     type CommunityDefinitionBadgeRef,
     type CommunityEmailDigestService,
     type CommunityMint,
@@ -78,6 +81,12 @@
     type CommunityDefinitionSectionInput,
     type CommunityDefinitionSectionKind,
   } from "@app/core/community"
+  import {
+    ciRepoWatcherField,
+    makeCiRepoWatcherDrafts,
+    validateCiRepoWatcherDrafts,
+    type CiRepoWatcherDraft,
+  } from "@app/core/ci-repo-watchers"
   import {
     getCommunitySectionNameKey,
     getSectionLifecycleChanges,
@@ -196,6 +205,7 @@
     extraRelays: string[]
     blossomServers: string[]
     graspServers: string[]
+    ciRepoWatchers: CommunityCiRepoWatcher[]
     emailDigestServices: CommunityEmailDigestService[]
     communityAlertServices: CommunityAlertService[]
     mints: CommunityMint[]
@@ -216,6 +226,7 @@
     extraRelays: string
     blossomServers: string
     graspServers: string
+    ciRepoWatchers: CiRepoWatcherDraft[]
     emailDigestServicePubkey: string
     emailDigestRequestRelay: string
     emailDigestHandlerAddress: string
@@ -347,6 +358,7 @@
       extraRelays: "Extra relays",
       blossomServers: "Blossom servers",
       graspServers: "GRASP servers",
+      ciRepoWatchers: "CI repository watchers",
       mints: "Mints",
       emailDigestServicePubkey: "Repository digest service pubkey",
       emailDigestRequestRelay: "Repository digest request relay",
@@ -362,6 +374,11 @@
       geohash: "Geohash",
     }
     if (labels[field]) return labels[field]
+
+    const watcherMatch = field.match(/^ci-repo-watcher-(\d+)-(pubkey|relays)$/)
+    if (watcherMatch) {
+      return `CI watcher ${Number(watcherMatch[1]) + 1} ${watcherMatch[2] === "pubkey" ? "public key" : "relays"}`
+    }
 
     const sectionMatch = field.match(/^section-(\d+)-(name|kinds|kind-\d+|subtype-\d+)$/)
     if (!sectionMatch) return "Community settings"
@@ -427,6 +444,7 @@
     extraRelays: communityDefinition.relays.slice(1).join("\n"),
     blossomServers: communityDefinition.blossomServers.join("\n"),
     graspServers: communityDefinition.graspServers.join("\n"),
+    ciRepoWatchers: makeCiRepoWatcherDrafts(communityDefinition.ciRepoWatchers || []),
     emailDigestServicePubkey:
       communityDefinition.services.find(service => service.name === "email-digest")?.pubkey || "",
     emailDigestRequestRelay:
@@ -1312,6 +1330,31 @@
     return {sections: nextSections, newProfileLists}
   }
 
+  const validateCiRepoWatchers = (event?: FocusEvent) => {
+    // Submission validates the whole draft. Changing error layout on pointer-down
+    // would move the submit button before pointer-up and swallow the click.
+    if (
+      event?.relatedTarget instanceof HTMLButtonElement &&
+      event.relatedTarget.type === "submit"
+    ) {
+      return
+    }
+    const result = validateCiRepoWatcherDrafts(ciRepoWatchers)
+    errors = {
+      ...Object.fromEntries(
+        Object.entries(errors).filter(
+          ([key]) => key !== "ciRepoWatchers" && !key.startsWith("ci-repo-watcher-"),
+        ),
+      ),
+      ...result.errors,
+    }
+  }
+
+  const removeCiRepoWatcher = (index: number) => {
+    ciRepoWatchers = ciRepoWatchers.filter((_, position) => position !== index)
+    validateCiRepoWatchers()
+  }
+
   const validateForm = (): ValidatedSetup | undefined => {
     const nextErrors: FieldErrors = {}
     const community = fromCurrentSession()
@@ -1344,6 +1387,8 @@
       })
       .filter(Boolean)
     const normalizedEmailDigestService = validateEmailDigestServiceFields(nextErrors)
+    const normalizedCiRepoWatchers = validateCiRepoWatcherDrafts(ciRepoWatchers)
+    Object.assign(nextErrors, normalizedCiRepoWatchers.errors)
     const normalizedCommunityAlertService = validateCommunityAlertServiceFields(nextErrors)
     const normalizedMints = validateMints(nextErrors)
     const trimmedTosRef = tosRef.trim()
@@ -1435,6 +1480,7 @@
       extraRelays: normalizedExtraRelays,
       blossomServers: normalizedBlossomServers,
       graspServers: normalizedGraspServers,
+      ciRepoWatchers: normalizedCiRepoWatchers.watchers,
       emailDigestServices: [
         ...(normalizedEmailDigestService ? [normalizedEmailDigestService] : []),
         ...additionalEmailDigestServices,
@@ -1808,6 +1854,7 @@
               relays: validated.relays,
               blossomServers: validated.blossomServers,
               graspServers: validated.graspServers,
+              ciRepoWatchers: validated.ciRepoWatchers,
               mints: validated.mints,
               terms: validated.tos
                 ? {reference: validated.tos.ref, relay: validated.tos.relay}
@@ -1916,6 +1963,7 @@
         relays: validated.relays,
         blossomServers: validated.blossomServers,
         graspServers: validated.graspServers,
+        ciRepoWatchers: validated.ciRepoWatchers,
         mints: validated.mints,
         terms: validated.tos
           ? {reference: validated.tos.ref, relay: validated.tos.relay}
@@ -2104,6 +2152,7 @@
     extraRelays = originalDraftState.extraRelays
     blossomServers = originalDraftState.blossomServers
     graspServers = originalDraftState.graspServers
+    ciRepoWatchers = originalDraftState.ciRepoWatchers.map(watcher => ({...watcher}))
     emailDigestServicePubkey = originalDraftState.emailDigestServicePubkey
     emailDigestRequestRelay = originalDraftState.emailDigestRequestRelay
     emailDigestHandlerAddress = originalDraftState.emailDigestHandlerAddress
@@ -2390,6 +2439,7 @@
     extraRelays = validated.extraRelays.join("\n")
     blossomServers = validated.blossomServers.join("\n")
     graspServers = validated.graspServers.join("\n")
+    ciRepoWatchers = makeCiRepoWatcherDrafts(validated.ciRepoWatchers)
     validateEmailDigestServiceFields({}, true)
     validateCommunityAlertServiceFields({}, true)
     mints = validated.mints.map(mint => [mint.url, mint.type].filter(Boolean).join(" ")).join("\n")
@@ -2761,6 +2811,7 @@
   let extraRelays = $state("")
   let blossomServers = $state("")
   let graspServers = $state("")
+  let ciRepoWatchers = $state<CiRepoWatcherDraft[]>([])
   let emailDigestServicePubkey = $state("")
   let emailDigestRequestRelay = $state("")
   let emailDigestHandlerAddress = $state("")
@@ -2815,6 +2866,7 @@
     extraRelays,
     blossomServers,
     graspServers,
+    ciRepoWatchers,
     emailDigestServicePubkey,
     emailDigestRequestRelay,
     emailDigestHandlerAddress,
@@ -2942,6 +2994,7 @@
     extraRelays = ""
     blossomServers = ""
     graspServers = ""
+    ciRepoWatchers = []
     emailDigestServicePubkey = ""
     emailDigestRequestRelay = ""
     emailDigestHandlerAddress = ""
@@ -3671,6 +3724,92 @@
                 optional; maximum 20.{/snippet}
             </Field>
           </div>
+          <section
+            class="mt-5 rounded-2xl border border-base-300 bg-base-200/40 p-4 sm:p-5"
+            aria-labelledby="ci-repo-watchers-heading">
+            <h3 id="ci-repo-watchers-heading" class="font-semibold">
+              CI repository watchers <span class="font-normal opacity-60">(optional)</span>
+            </h3>
+            <p class="mt-2 text-sm leading-relaxed text-base-content/70">
+              Advertise services that watch repositories and trigger CI workflows. Each entry is a
+              community recommendation; repository owners choose their watcher separately.
+            </p>
+            <div class="mt-4 space-y-4">
+              {#each ciRepoWatchers as watcher, index}
+                {@const pubkeyField = ciRepoWatcherField(index, "pubkey")}
+                {@const relaysField = ciRepoWatcherField(index, "relays")}
+                <fieldset class="min-w-0 rounded-xl border border-base-300 bg-base-100/60 p-4">
+                  <legend class="px-1 text-sm font-semibold">CI watcher {index + 1}</legend>
+                  <div class="grid min-w-0 gap-4 md:grid-cols-2">
+                    <Field for={controlId(pubkeyField)} error={errors[pubkeyField]} class="min-w-0">
+                      {#snippet label()}<span>Watcher public key</span>{/snippet}
+                      {#snippet input()}
+                        <input
+                          id={controlId(pubkeyField)}
+                          bind:value={watcher.pubkey}
+                          onblur={validateCiRepoWatchers}
+                          class="input input-bordered w-full min-w-0 {errors[pubkeyField]
+                            ? 'input-error'
+                            : ''}"
+                          aria-invalid={Boolean(errors[pubkeyField])}
+                          aria-describedby={describedBy(pubkeyField, true)}
+                          placeholder="npub1… or 64-character hex public key"
+                          autocomplete="off"
+                          spellcheck="false"
+                          {disabled} />
+                      {/snippet}
+                      {#snippet info()}The service's own public key, in npub or hex format.{/snippet}
+                    </Field>
+                    <Field for={controlId(relaysField)} error={errors[relaysField]} class="min-w-0">
+                      {#snippet label()}<span>Watcher relays</span>{/snippet}
+                      {#snippet input()}
+                        <textarea
+                          id={controlId(relaysField)}
+                          bind:value={watcher.relays}
+                          onblur={validateCiRepoWatchers}
+                          class="textarea textarea-bordered w-full min-w-0 {errors[relaysField]
+                            ? 'textarea-error'
+                            : ''}"
+                          aria-invalid={Boolean(errors[relaysField])}
+                          aria-describedby={describedBy(relaysField, true)}
+                          placeholder="wss://relay.example.com"
+                          rows="2"
+                          spellcheck="false"
+                          {disabled}></textarea>
+                      {/snippet}
+                      {#snippet info()}Where clients can discover and contact this watcher. One
+                        wss:// URL per line; at least one, maximum {MAX_CI_REPO_WATCHER_RELAYS}.{/snippet}
+                    </Field>
+                  </div>
+                  <button
+                    type="button"
+                    class="btn btn-ghost btn-sm mt-3"
+                    aria-label={`Remove CI watcher ${index + 1}`}
+                    onclick={() => removeCiRepoWatcher(index)}
+                    {disabled}>Remove watcher</button>
+                </fieldset>
+              {/each}
+              <button
+                id={controlId("ciRepoWatchers")}
+                type="button"
+                class="btn btn-outline btn-sm"
+                disabled={loading || ciRepoWatchers.length >= MAX_COMMUNITY_CI_REPO_WATCHERS}
+                aria-describedby={errors.ciRepoWatchers
+                  ? `${controlId("ciRepoWatchers")}-error`
+                  : undefined}
+                onclick={() => (ciRepoWatchers = [...ciRepoWatchers, {pubkey: "", relays: ""}])}>
+                Add CI watcher
+              </button>
+              {#if errors.ciRepoWatchers}
+                <p
+                  id={`${controlId("ciRepoWatchers")}-error`}
+                  class="text-sm text-error"
+                  role="alert">
+                  {errors.ciRepoWatchers}
+                </p>
+              {/if}
+            </div>
+          </section>
           <details class="mt-5 rounded-2xl border border-base-300 bg-base-200/40 p-4 sm:p-5">
             <summary class="cursor-pointer select-none font-semibold">
               Email digest providers <span class="opacity-60">(optional)</span>

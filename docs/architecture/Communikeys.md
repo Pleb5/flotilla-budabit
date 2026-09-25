@@ -109,28 +109,45 @@ Lengths are UTF-8 bytes after trimming leading and trailing ASCII whitespace. UR
 
 URL normalization uses the WHATWG URL parser and serializer. A URL is invalid if it has credentials, a fragment, or an empty host. Scheme and host are lowercase and default ports are removed by serialization. A terminal `/` is removed only when it is the complete path and there is no query. Other paths and queries are retained. Relay and GRASP URLs require `wss:`; HTTPS resources require `https:`. Duplicate comparison uses this normalized string.
 
-| Tag           | Cardinality | Rule                                                                    |
-| ------------- | ----------: | ----------------------------------------------------------------------- |
-| `d`           | Exactly one | Valid community ID; exactly two tag values.                             |
-| `name`        | Exactly one | 1 to 100 bytes.                                                         |
-| `description` | Zero or one | 1 to 4096 bytes when present.                                           |
-| `picture`     | Zero or one | Absolute HTTPS URL, at most 2048 bytes.                                 |
-| `banner`      | Zero or one | Absolute HTTPS URL, at most 2048 bytes.                                 |
-| `website`     | Zero or one | Absolute HTTP or HTTPS URL, at most 2048 bytes.                         |
-| `r`           |   One to 20 | Normalized `wss://` relay URL, at most 2048 bytes.                      |
-| `blossom`     |  Zero to 20 | Absolute HTTPS URL, at most 2048 bytes.                                 |
-| `grasp`       |  Zero to 20 | Normalized `wss://` URL, at most 2048 bytes; order is preference order. |
-| `mint`        |  Zero to 20 | Absolute HTTPS URL; optional type is at most 32 ASCII bytes.            |
-| `location`    | Zero or one | 1 to 256 bytes when present.                                            |
-| `g`           | Zero or one | Lowercase geohash, 1 to 12 characters.                                  |
-| `tos`         | Zero or one | Non-empty event ID or address and optional normalized relay hint.       |
-| `service`     |  Zero to 50 | Service extension described below.                                      |
+| Tag               | Cardinality | Rule                                                                    |
+| ----------------- | ----------: | ----------------------------------------------------------------------- |
+| `d`               | Exactly one | Valid community ID; exactly two tag values.                             |
+| `name`            | Exactly one | 1 to 100 bytes.                                                         |
+| `description`     | Zero or one | 1 to 4096 bytes when present.                                           |
+| `picture`         | Zero or one | Absolute HTTPS URL, at most 2048 bytes.                                 |
+| `banner`          | Zero or one | Absolute HTTPS URL, at most 2048 bytes.                                 |
+| `website`         | Zero or one | Absolute HTTP or HTTPS URL, at most 2048 bytes.                         |
+| `r`               |   One to 20 | Normalized `wss://` relay URL, at most 2048 bytes.                      |
+| `blossom`         |  Zero to 20 | Absolute HTTPS URL, at most 2048 bytes.                                 |
+| `grasp`           |  Zero to 20 | Normalized `wss://` URL, at most 2048 bytes; order is preference order. |
+| `ci-repo-watcher` |  Zero to 20 | Watcher pubkey followed by 1 to 20 normalized `wss://` relay hints.     |
+| `mint`            |  Zero to 20 | Absolute HTTPS URL; optional type is at most 32 ASCII bytes.            |
+| `location`        | Zero or one | 1 to 256 bytes when present.                                            |
+| `g`               | Zero or one | Lowercase geohash, 1 to 12 characters.                                  |
+| `tos`             | Zero or one | Non-empty event ID or address and optional normalized relay hint.       |
+| `service`         |  Zero to 50 | Service extension described below.                                      |
 
 Duplicate singleton tags invalidate the definition. Exceeding a stated maximum cardinality invalidates the definition. Within the maximum, readers MUST ignore duplicate normalized relay, Blossom, GRASP, mint, or service declarations after the first occurrence. Editors SHOULD remove these duplicates when intentionally updating a definition.
 
-Recognized top-level tags have exact arity: `d`, `name`, `description`, `picture`, `banner`, `website`, `r`, `blossom`, `grasp`, `location`, and `g` contain exactly two values; `mint` and `tos` contain two or three; `service` contains exactly six. Extra values make a recognized tag invalid and therefore invalidate a definition in which it appears.
+Recognized top-level tags have exact arity: `d`, `name`, `description`, `picture`, `banner`, `website`, `r`, `blossom`, `grasp`, `location`, and `g` contain exactly two values; `mint` and `tos` contain two or three; `service` contains exactly six. The `ci-repo-watcher` extension has variable arity as defined below. Extra values outside these rules make a recognized tag invalid and therefore invalidate a definition in which it appears.
 
 Community metadata comes only from definition tags. A owner's `kind:0` is a personal profile and MUST NOT override or fill community metadata.
+
+### CI Repository Watchers
+
+A community owner can advertise repository CI watchers using a top-level infrastructure tag, before the first `content` section:
+
+```text
+["ci-repo-watcher", <watcherPubkey>, <relay>, ...<additionalRelays>]
+```
+
+`watcherPubkey` is the service's own lowercase 64-character hex signing pubkey, independent of the community owner's identity. Each declaration contains 1 to 20 normalized `wss://` relay URLs (at most 2048 bytes each) where clients can discover and contact the watcher. Budabit's editor accepts npub or hex input and serializes hex. Hive CI Watcher is one compatible implementation; the tag itself is implementation-neutral.
+
+A definition may contain up to 20 declarations. Readers merge declarations for the same watcher pubkey and deduplicate relay hints in first-seen order; the combined relay set for one pubkey must also contain no more than 20 URLs. Invalid declarations, excessive cardinality, or placement inside a content section invalidate the definition. Editors serialize one declaration per watcher. Removing a declaration withdraws the community recommendation.
+
+The declaration is a community endorsement, not proof of availability or authorization. Repository selection and watcher activation are separate operations. Budabit exposes parsed advertisements as `CommunityDefinition.ciRepoWatchers` (`{pubkey, relays}[]`), which membership-based consumers can read from each exact community definition in `activeUserCommunityRefs`.
+
+Readers that do not implement this extension treat it as an unknown top-level tag and preserve it according to the editing rules below.
 
 ### Service Tags
 
