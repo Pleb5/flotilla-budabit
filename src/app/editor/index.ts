@@ -15,6 +15,7 @@ import {promptBlossomMirrorUpload} from "@app/util/blossom-mirror-prompt"
 import {getQuoteEventTags} from "@app/util/git-quote"
 import {PermalinkExtension} from "@nostr-git/ui"
 import Spinner from "@lib/components/Spinner.svelte"
+import {CashuToken} from "./CashuToken"
 export {plainTextToTiptapHTML} from "./text"
 
 type NEventNodeAttrs = {
@@ -150,6 +151,7 @@ export const makeEditor = async ({
     editorProps,
     element: document.createElement("div"),
     extensions: [
+      CashuToken,
       PermalinkExtension.configure({
         signer: async e => await signer.get().sign(e),
         relays: Router.get().FromUser().getUrls(),

@@ -1,12 +1,13 @@
 <style>
   .payment-card {
+    /* An explicit preferred width keeps size containment from collapsing DM bubbles. */
     container-type: inline-size;
   }
   .payment-card :global(.payment-primary) {
     flex: 1 0 100%;
   }
   .payment-card :global(.payment-secondary) {
-    flex: 1 1 0;
+    flex: 1 0 auto;
   }
   @container (min-width: 350px) {
     .payment-card :global(.payment-primary) {
@@ -128,7 +129,7 @@
     aria-label={cashu ? "Cashu token" : "Lightning invoice"}
     data-payment-card={cashu ? "cashu" : "lightning"}
     data-stop-tap
-    class="payment-card my-2 inline-flex w-full max-w-[26rem] flex-col gap-4 overflow-hidden rounded-2xl border border-base-content/10 bg-base-100 p-4 text-left align-top text-sm leading-normal shadow-sm">
+    class="payment-card my-2 inline-flex w-[26rem] max-w-full flex-col gap-4 overflow-hidden rounded-2xl border border-base-content/10 bg-base-100 p-4 text-left align-top text-sm leading-normal shadow-sm">
     <span class="flex items-center justify-between gap-2">
       <span class="flex items-center gap-2 text-xs font-medium text-base-content/70">
         <span
