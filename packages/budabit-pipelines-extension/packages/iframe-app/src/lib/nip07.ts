@@ -19,7 +19,8 @@ async function signAndPublish(
   unsignedEvent: Record<string, unknown>,
   relays: string[],
 ): Promise<string> {
-  const res: any = await bridge.request('nostr:publish', { event: unsignedEvent, relays });
+  // A caller may provide a reactive relay array; the wire payload must be plain.
+  const res: any = await bridge.request('nostr:publish', { event: unsignedEvent, relays: [...relays] });
 
   if (res?.error) {
     throw new Error(`Publish failed: ${res.error}`);

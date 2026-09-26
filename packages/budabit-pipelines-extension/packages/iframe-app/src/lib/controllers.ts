@@ -86,12 +86,17 @@ export async function submitRunController(args: {
 
   const nextDraft: RerunDraft = {
     ...rerunDraft,
+    // The form is Svelte $state: an outer spread leaves nested arrays proxied.
+    // Snapshot before upload so postMessage can clone the publication payload
+    // and edits made while awaiting upload cannot change the submission.
+    publishRelays: [...rerunDraft.publishRelays],
     envVars: rerunDraft.envVars.map(entry => ({ ...entry })),
     args: rerunArgsText
       .split('\n')
       .map(value => value.trim())
       .filter(Boolean),
   }
+  const nextSecrets = rerunSecrets.map(entry => ({ ...entry }))
 
   if (submissionMode === 'new' || (submissionMode === 'rerun' && rerunCommandMode === 'regenerate')) {
     nextDraft.command = 'bash'
@@ -103,6 +108,6 @@ export async function submitRunController(args: {
     signerPubkey,
     nextDraft,
     requiresPayment ? rerunPaymentToken.trim() : '',
-    rerunSecrets
+    nextSecrets
   )
 }
