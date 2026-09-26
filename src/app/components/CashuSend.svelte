@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {onDestroy, tick} from "svelte"
   import {
     cashuMints,
     cashuBalancesByMint,
@@ -6,9 +7,11 @@
     createCashuToken,
   } from "@app/core/cashu"
   import {formatCashuSats} from "@app/util/cashu-format"
+  import {getCashuTokenInfo} from "@app/util/cashu-token"
   import {pushModal} from "@app/util/modal"
   import Button from "@lib/components/Button.svelte"
   import CashuSeedBackup from "@app/components/CashuSeedBackup.svelte"
+  import CashuSavedSends from "./CashuSavedSends.svelte"
 
   let selectedMint = $state("")
   let amount = $state(0)
@@ -16,10 +19,18 @@
   let token = $state("")
   let error = $state("")
   let copied = $state(false)
+  let tokenHeading = $state<HTMLHeadingElement>()
+  let alive = true
+  let copyTimer: ReturnType<typeof setTimeout> | undefined
+  onDestroy(() => {
+    alive = false
+    clearTimeout(copyTimer)
+  })
 
   const mints = $derived($cashuMints)
   const balances = $derived($cashuBalancesByMint)
   const backupConfirmed = $derived($cashuBackupConfirmed)
+  const tokenInfo = $derived(token ? getCashuTokenInfo(token) : undefined)
 
   $effect(() => {
     if (mints.length > 0 && !selectedMint) {
@@ -30,6 +41,7 @@
   const selectedBalance = $derived(selectedMint ? (balances.get(selectedMint) ?? 0) : 0)
 
   const send = async () => {
+    if (loading) return
     if (!backupConfirmed) {
       pushModal(CashuSeedBackup, {mode: "backup", onconfirmed: send})
       return
@@ -43,8 +55,10 @@
     error = ""
     token = ""
     try {
-      token = await createCashuToken(amount, selectedMint)
+      const created = await createCashuToken(amount, selectedMint)
+      if (alive) openToken(created)
     } catch (e: any) {
+      if (!alive) return
       if (e?.message === "backup_required") {
         pushModal(CashuSeedBackup, {mode: "backup", onconfirmed: send})
       } else {
@@ -56,23 +70,50 @@
   }
 
   const copy = async () => {
-    await navigator.clipboard.writeText(token)
-    copied = true
-    setTimeout(() => (copied = false), 2000)
+    try {
+      await navigator.clipboard.writeText(token)
+      copied = true
+      clearTimeout(copyTimer)
+      copyTimer = setTimeout(() => (copied = false), 2000)
+    } catch {
+      error = "Could not copy token. Select and copy the text above."
+    }
+  }
+
+  const openToken = (saved: string) => {
+    token = saved
+    copied = false
+    error = ""
+    void tick().then(() => {
+      if (!alive) return
+      tokenHeading?.focus({preventScroll: true})
+      tokenHeading?.scrollIntoView({block: "start"})
+    })
   }
 
   const reset = () => {
     token = ""
     amount = 0
     error = ""
+    copied = false
   }
 </script>
 
 <div class="flex min-w-0 flex-col gap-4">
   {#if token}
     <div class="flex flex-col gap-3">
-      <p class="text-sm font-medium text-success">Token created! Copy and share it:</p>
+      <h3 bind:this={tokenHeading} tabindex="-1" class="text-sm font-medium text-success">
+        Token saved. Copy and share it:
+      </h3>
+      {#if tokenInfo}
+        <p class="font-mono font-bold">{formatCashuSats(tokenInfo.amount)} sats</p>
+        <p class="break-all text-xs opacity-70">{tokenInfo.mintUrl}</p>
+      {/if}
+      <p class="text-xs opacity-70">
+        Saved in this wallet. You can reopen it from Send or History.
+      </p>
       <textarea
+        aria-label="Saved Cashu token"
         class="textarea textarea-bordered min-w-0 break-all font-mono text-xs"
         rows={4}
         readonly
@@ -81,8 +122,10 @@
         <Button class="btn btn-primary inline-flex flex-1 justify-center" onclick={copy}>
           {copied ? "Copied!" : "Copy Token"}
         </Button>
-        <Button class="btn btn-ghost inline-flex justify-center" onclick={reset}>New</Button>
+        <Button class="btn btn-ghost inline-flex justify-center" onclick={reset}
+          >Create another token</Button>
       </div>
+      {#if error}<p role="alert" class="text-sm text-error">{error}</p>{/if}
     </div>
   {:else if mints.length === 0}
     <p class="text-sm opacity-75">Add a mint first to send tokens.</p>
@@ -125,4 +168,5 @@
       {loading ? "Creating…" : "Create Token"}
     </Button>
   {/if}
+  <CashuSavedSends onopen={openToken} />
 </div>

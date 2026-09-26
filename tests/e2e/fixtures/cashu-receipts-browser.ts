@@ -32,9 +32,12 @@ export async function prepareSender() {
   ])
   return quotes.map(quote => quote.quote)
 }
-export async function fundAndSend(quotes: string[]) {
+export async function fundSender(quotes: string[]) {
   guard()
   for (const quote of quotes) await mintTokensFromQuote(fixtureMint, quote, 128)
+}
+export async function fundAndSend(quotes: string[]) {
+  await fundSender(quotes)
   return createCashuToken(210, fixtureMint)
 }
 export async function sendBack() {

@@ -21,6 +21,7 @@
   import CashuMintCard from "@app/components/CashuMintCard.svelte"
   import CashuWalletError from "@app/components/CashuWalletError.svelte"
   import {formatCashuSats} from "@app/util/cashu-format"
+  import Button from "@lib/components/Button.svelte"
 
   type Props = {
     showHeader?: boolean
@@ -104,6 +105,9 @@
             {/each}
           {/if}
           <div class="mt-2">
+            <Button
+              class="btn btn-neutral btn-sm mb-3 justify-center"
+              onclick={() => (activeTab = "send")}>Saved outgoing tokens</Button>
             <p class="mb-1 text-xs font-medium opacity-60">Recent activity</p>
             <CashuHistory limit={3} />
           </div>

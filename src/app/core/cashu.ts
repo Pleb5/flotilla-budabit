@@ -26,6 +26,8 @@ import {enforceCashuKeysetPolicy} from "./cashu-keyset-policy"
 import {getLightningInvoiceInfo, getInvoicePaymentAmount} from "@app/util/lightning-invoice"
 import {runCashuBackground} from "./cashu-background"
 import {beginCashuDiagnostic, traceCashu} from "./cashu-diagnostics"
+import {readSavedCashuSends, savedCashuSend} from "./cashu-saved-sends"
+import type {SavedSendCursor} from "./cashu-saved-sends"
 import type {CashuLookupOptions} from "./cashu-token-status"
 import {
   CashuTokenTracker,
@@ -310,6 +312,13 @@ const _doInitialize = async (generation: number): Promise<void> => {
     manager.on("mint:untrusted", refreshCashuMints)
     manager.on("mint:updated", refreshCashuMints)
     manager.on("history:updated", () => scheduleCashuActivity("history"))
+    for (const event of [
+      "send:prepared",
+      "send:pending",
+      "send:finalized",
+      "send:rolled-back",
+    ] as const)
+      manager.on(event, () => scheduleCashuActivity("history"))
     manager.on("proofs:saved", refreshCashuBalances)
     manager.on("proofs:state-changed", refreshCashuBalances)
     manager.on("proofs:reserved", refreshCashuBalances)
@@ -752,6 +761,118 @@ export const receiveCashuToken = traceCashu(
   },
 )
 
+export const listSavedCashuSends = async (after?: SavedSendCursor, signal?: AbortSignal) => {
+  await ensureManagerReady()
+  if (!manager || !repo) throw new Error("Wallet not initialized")
+  const active = manager
+  const page = await readSavedCashuSends(repo, after, signal)
+  if (manager !== active) throw new Error("Wallet session changed")
+  return page
+}
+
+export const getSavedCashuSend = async (operationId: string) => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  const active = manager
+  const operation = await active.ops.send.get(operationId)
+  if (manager !== active) throw new Error("Wallet session changed")
+  if (!operation || operation.unit !== "sat") throw new Error("Saved send not found")
+  return savedCashuSend(operation)
+}
+
+export class CashuSendUnconfirmedError extends Error {
+  constructor(public readonly operationId: string) {
+    super("Token creation is unconfirmed. Open the saved send before trying again.")
+  }
+}
+
+const sendTasks = new WeakMap<Manager, Promise<unknown>>()
+const withCashuSendLock = <T>(active: Manager, work: () => Promise<T>): Promise<T> => {
+  const task = (sendTasks.get(active) || Promise.resolve())
+    .catch(() => {})
+    .then(async () => {
+      if (manager !== active) throw new Error("Wallet session changed")
+      if (typeof navigator !== "undefined" && navigator.locks)
+        return navigator.locks.request("budabit/cashu-send", work)
+      return work()
+    })
+    .finally(() => {
+      if (sendTasks.get(active) === task) sendTasks.delete(active)
+    })
+  sendTasks.set(active, task)
+  return task
+}
+
+const executeSavedCashuSend = async (active: Manager, operationId: string) => {
+  if (manager !== active) throw new Error("Wallet session changed")
+  try {
+    let operation = await active.ops.send.get(operationId).catch(() => {
+      throw new CashuSendUnconfirmedError(operationId)
+    })
+    if (operation?.state === "prepared") {
+      try {
+        operation = (await active.ops.send.execute(operationId)).operation
+      } catch {
+        // Execution can persist a token and then fail while notifying listeners.
+        // Reconcile this operation; never prepare another send as a retry.
+        operation = await active.ops.send.get(operationId).catch(() => null)
+      }
+    }
+    if (manager !== active) throw new Error("Wallet session changed")
+    if (operation?.state === "pending" && operation.token) return getEncodedToken(operation.token)
+    if (operation?.state === "rolled_back")
+      throw new Error(
+        "Token creation was cancelled. Check your wallet balance before trying again.",
+      )
+    if (operation?.state === "finalized") throw new Error("This token has already been redeemed.")
+    throw new CashuSendUnconfirmedError(operationId)
+  } finally {
+    if (manager === active) {
+      // Durable success must not depend on optional display reads.
+      await Promise.all([refreshCashuBalances(), refreshCashuHistory()])
+      scheduleCashuActivity("history")
+    }
+  }
+}
+
+export const resumeCashuSend = async (operationId: string): Promise<string> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  if (!get(cashuBackupConfirmed)) throw new Error("backup_required")
+  const active = manager
+  return withCashuSendLock(active, () => executeSavedCashuSend(active, operationId))
+}
+
+export const cancelPreparedCashuSend = async (operationId: string): Promise<void> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  const active = manager
+  await withCashuSendLock(active, async () => {
+    if (manager !== active) throw new Error("Wallet session changed")
+    const operation = await active.ops.send.get(operationId)
+    if (operation?.state === "prepared") await active.ops.send.cancel(operationId)
+    else if (operation?.state !== "rolled_back")
+      throw new Error("This send has already started. Open its saved token instead.")
+  })
+  if (manager === active) {
+    await Promise.all([refreshCashuBalances(), refreshCashuHistory()])
+    scheduleCashuActivity("history")
+  }
+}
+
+export const retryInterruptedCashuSends = async (): Promise<void> => {
+  await ensureManagerReady()
+  if (!manager) throw new Error("Wallet not initialized")
+  const active = manager
+  await withCashuSendLock(active, async () => {
+    if (manager !== active) throw new Error("Wallet session changed")
+    await active.ops.send.recovery.run({checkPending: false})
+  })
+  if (manager !== active) throw new Error("Wallet session changed")
+  await Promise.all([refreshCashuBalances(), refreshCashuHistory()])
+  scheduleCashuActivity("history")
+}
+
 export const createCashuToken = traceCashu(
   "send",
   async (amount: number, mintUrl: string): Promise<string> => {
@@ -763,12 +884,11 @@ export const createCashuToken = traceCashu(
       throw new Error("backup_required")
     }
     const active = manager
-    const prepared = await active.ops.send.prepare({mintUrl, amount: {amount: sats, unit: "sat"}})
-    const {token: tokenData} = await active.ops.send.execute(prepared)
-    if (manager !== active) throw new Error("Wallet session changed")
-    await refreshCashuBalancesStrict()
-    await refreshCashuHistoryStrict()
-    return getEncodedToken(tokenData)
+    return withCashuSendLock(active, async () => {
+      if (manager !== active) throw new Error("Wallet session changed")
+      const prepared = await active.ops.send.prepare({mintUrl, amount: {amount: sats, unit: "sat"}})
+      return executeSavedCashuSend(active, prepared.id)
+    })
   },
 )
 
@@ -1327,7 +1447,10 @@ const activityObservers: Record<CashuActivity, Set<() => void>> = {
 const scheduleCashuActivity = (kind: CashuActivity) => {
   for (const refresh of activityObservers[kind]) refresh()
 }
-export const observeCashuActivity = (kind: CashuActivity) => {
+export const observeCashuActivity = (
+  kind: CashuActivity,
+  read?: (signal: AbortSignal) => Promise<void>,
+) => {
   let observing = true
   let controller = new AbortController()
   let task: Promise<void> | undefined
@@ -1347,7 +1470,11 @@ export const observeCashuActivity = (kind: CashuActivity) => {
         dirty = false
         await ensureManagerReady()
         if (signal.aborted) return
-        await (kind === "history" ? refreshCashuHistory() : refreshCashuTopUps())
+        await (read
+          ? read(signal)
+          : kind === "history"
+            ? refreshCashuHistory()
+            : refreshCashuTopUps())
       },
       signal,
     )

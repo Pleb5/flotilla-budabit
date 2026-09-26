@@ -10,6 +10,7 @@ import {makeInvoice} from "../../../tests/helpers/lightning-invoice"
 import {CashuStatusCache, clearCashuTokenChecks, CASHU_STATUS_DB} from "./cashu-status-cache"
 import {CashuReceiptLookupIncomplete, RECEIPT_LOOKUP_ROWS} from "./cashu-operation-lookup"
 import {TOKEN_MEMORY_LIMIT} from "./cashu-token-status"
+import {SAVED_SEND_PAGE_SIZE, type SavedSendCursor} from "./cashu-saved-sends"
 
 vi.mock("@lib/util", () => ({
   deleteIndexedDB: (name: string) =>
@@ -69,6 +70,12 @@ import {
   pauseCashuTokenChecks,
   cashuTokenStatuses,
   createCashuWallet,
+  listSavedCashuSends,
+  getSavedCashuSend,
+  resumeCashuSend,
+  cancelPreparedCashuSend,
+  retryInterruptedCashuSends,
+  CashuSendUnconfirmedError,
 } from "./cashu"
 
 beforeEach(() => {
@@ -92,6 +99,197 @@ describe("Cashu app service", () => {
     await mintTokensFromQuote(mint.url, topUp.quote, amount)
     return mint
   }
+
+  it("reopens every saved token offline after reload, independent of the disposable status cache", async () => {
+    const mint = await fundedMint()
+    const first = await createCashuToken(3, mint.url)
+    const second = await createCashuToken(4, mint.url)
+    await clearCashuTokenChecks()
+    await reloadCashuWallet()
+    const before = mint.calls.length
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Offline")))
+    const page = await listSavedCashuSends()
+    expect(page.entries.map(entry => entry.token).sort()).toEqual([first, second].sort())
+    for (const entry of page.entries) {
+      expect((await getSavedCashuSend(entry.id)).token).toBe(entry.token)
+      // Resuming an already-created operation returns the same token, without spending again.
+      expect(await resumeCashuSend(entry.id)).toBe(entry.token)
+    }
+    expect(mint.calls).toHaveLength(before)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(get(cashuTotalBalance)).toBe(9)
+  })
+
+  it("finds old saved sends in bounded pages without scanning terminal history or skipping removed rows", async () => {
+    const mint = await fundedMint()
+    const token = await createCashuToken(3, mint.url)
+    const saved = new IndexedDbRepositories({name: "budabit-coco-wallet"})
+    await saved.init()
+    try {
+      const table = saved.db.table("coco_cashu_send_operations")
+      const original = await table.toCollection().first()
+      await table.delete(original.id)
+      const ids = Array.from(
+        {length: 2 * SAVED_SEND_PAGE_SIZE + 3},
+        (_, i) => `saved-${String(i).padStart(3, "0")}`,
+      )
+      await table.bulkAdd([
+        {...original, id: "interrupted", state: "executing"},
+        {...original, id: "prepared", state: "prepared"},
+        {...original, id: "returning", state: "rolling_back"},
+        ...ids.map(id => ({...original, id})),
+        ...Array.from({length: 1205}, (_, i) => ({
+          ...original,
+          id: `terminal-${i}`,
+          state: "finalized",
+          createdAt: original.createdAt + i + 1,
+        })),
+      ])
+      await refreshCashuHistory()
+      expect(get(cashuTokenHistory).every(entry => entry.state === "finalized")).toBe(true)
+      const reads = vi.spyOn(Object.getPrototypeOf(saved.sendOperationRepository), "getById")
+      const scan = vi.spyOn(Object.getPrototypeOf(saved.sendOperationRepository), "getPending")
+      let cursor: SavedSendCursor | undefined
+      const found: string[] = []
+      const before = mint.calls.length
+      do {
+        reads.mockClear()
+        const page = await listSavedCashuSends(cursor)
+        expect(reads.mock.calls.length).toBeLessThanOrEqual(SAVED_SEND_PAGE_SIZE)
+        expect(page.entries).toHaveLength(
+          Math.min(SAVED_SEND_PAGE_SIZE, ids.length + 3 - found.length),
+        )
+        for (const entry of page.entries) {
+          found.push(entry.id)
+          if (entry.state === "pending") expect(entry.token).toBe(token)
+        }
+        // Removing a previous-page row must not shift the continuation.
+        if (!cursor) await table.delete(page.entries[0].id)
+        cursor = page.next
+      } while (cursor)
+      expect(found.sort()).toEqual([...ids, "interrupted", "prepared", "returning"].sort())
+      expect(new Set(found).size).toBe(found.length)
+      expect(scan).not.toHaveBeenCalled()
+      expect(mint.calls).toHaveLength(before)
+    } finally {
+      saved.db.close()
+    }
+  })
+
+  it("returns the durable token when a history refresh fails after creation", async () => {
+    const mint = await fundedMint()
+    const saved = new IndexedDbRepositories({name: "budabit-coco-wallet"})
+    await saved.init()
+    const historyRead = vi
+      .spyOn(Object.getPrototypeOf(saved.historyRepository), "getPaginatedHistoryEntries")
+      .mockRejectedValue(new Error("Synthetic display read failure"))
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      const token = await createCashuToken(3, mint.url)
+      expect((await listSavedCashuSends()).entries).toMatchObject([{state: "pending", token}])
+      expect(get(cashuTotalBalance)).toBe(13)
+    } finally {
+      historyRead.mockRestore()
+      log.mockRestore()
+      saved.db.close()
+    }
+  })
+
+  it("reconciles an error after token persistence without creating a second send", async () => {
+    const mint = await fundedMint()
+    const saved = new IndexedDbRepositories({name: "budabit-coco-wallet"})
+    await saved.init()
+    const proto = Object.getPrototypeOf(saved.sendOperationRepository)
+    const update = proto.update
+    const write = vi.spyOn(proto, "update").mockImplementation(async function (
+      this: typeof saved.sendOperationRepository,
+      ...args: unknown[]
+    ) {
+      await update.apply(this, args)
+      if ((args[0] as {state: string}).state === "pending")
+        throw new Error("Synthetic post-commit failure")
+    })
+    try {
+      const token = await createCashuToken(3, mint.url)
+      expect((await listSavedCashuSends()).entries).toMatchObject([{state: "pending", token}])
+      expect(mint.calls.filter(call => call.path === "/v1/swap")).toHaveLength(1)
+      expect(get(cashuTotalBalance)).toBe(13)
+    } finally {
+      write.mockRestore()
+      saved.db.close()
+    }
+  })
+
+  it.each(["resume", "cancel"])(
+    "can %s a preparation interrupted before execution after reload",
+    async action => {
+      const mint = await fundedMint()
+      const saved = new IndexedDbRepositories({name: "budabit-coco-wallet"})
+      await saved.init()
+      const proto = Object.getPrototypeOf(saved.sendOperationRepository)
+      const getById = proto.getById
+      let interrupted = false
+      const read = vi.spyOn(proto, "getById").mockImplementation(async function (
+        this: typeof saved.sendOperationRepository,
+        ...args: unknown[]
+      ) {
+        const operation = await getById.apply(this, args)
+        if (operation?.state === "prepared" && !interrupted) {
+          interrupted = true
+          throw new Error("Synthetic interruption before execution")
+        }
+        return operation
+      })
+      try {
+        await expect(createCashuToken(3, mint.url)).rejects.toBeInstanceOf(
+          CashuSendUnconfirmedError,
+        )
+        read.mockRestore()
+        await reloadCashuWallet()
+        const [prepared] = (await listSavedCashuSends()).entries
+        expect(prepared.state).toBe("prepared")
+        expect(prepared.token).toBeUndefined()
+        expect(mint.calls.filter(call => call.path === "/v1/swap")).toHaveLength(0)
+        if (action === "resume") {
+          const [first, second] = await Promise.all([
+            resumeCashuSend(prepared.id),
+            resumeCashuSend(prepared.id),
+          ])
+          expect(first).toBe(second)
+          expect((await getSavedCashuSend(prepared.id)).token).toBe(first)
+          expect(mint.calls.filter(call => call.path === "/v1/swap")).toHaveLength(1)
+          expect(get(cashuTotalBalance)).toBe(13)
+        } else {
+          await cancelPreparedCashuSend(prepared.id)
+          expect((await listSavedCashuSends()).entries).toEqual([])
+          expect(get(cashuSpendableByMint).get(mint.url)).toBe(16)
+        }
+      } finally {
+        read.mockRestore()
+        saved.db.close()
+      }
+    },
+  )
+
+  it("retains an unconfirmed send and explicitly recovers it after a lost mint response", async () => {
+    const mint = await fundedMint()
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (/\/v1\/(restore|checkstate)$/.test(String(input))) throw new Error("Offline recovery")
+      const result = await mint.fetch(input, init)
+      if (String(input).endsWith("/v1/swap")) throw new Error("Lost swap response")
+      return result
+    })
+    await expect(createCashuToken(3, mint.url)).rejects.toBeInstanceOf(CashuSendUnconfirmedError)
+    const [saved] = (await listSavedCashuSends()).entries
+    expect(saved.state).toBe("executing")
+    expect(saved.token).toBeUndefined()
+    vi.stubGlobal("fetch", mint.fetch)
+    await retryInterruptedCashuSends()
+    expect((await listSavedCashuSends()).entries).toEqual([])
+    expect((await getSavedCashuSend(saved.id)).state).toBe("rolled_back")
+    expect(mint.calls.filter(call => call.path === "/v1/swap")).toHaveLength(1)
+    expect(get(cashuTotalBalance)).toBe(16)
+  })
 
   it.each([
     {amount: 3, resend: false},

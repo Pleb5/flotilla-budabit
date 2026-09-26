@@ -228,6 +228,27 @@ are migrated; all newly created top-ups use the durable flow below.
 
 ## Operations and UI
 
+- The Send tab lists **Saved outgoing tokens** directly from durable Coco send
+  operations. A Balance shortcut opens the same view. Leaving Send, closing the
+  wallet, or reloading keeps every saved token available to reopen and copy.
+  Tokens remain browser-local, in the same proof database as the rest of the wallet.
+- Saved sends use the existing `state` index and stable `(state, primary key)`
+  cursors: at most **25 operations per page**, plus one lookahead key. Pages group
+  unresolved states and skip terminal history, independently of the 100-entry
+  recent-history view. Display/status-cache eviction never removes a saved token.
+  Reads are view-owned and local; reopening a token does not contact its mint.
+  Explicit **Check status** reuses the existing bounded status tracker.
+- Creation returns the persisted token even if a history display refresh fails or
+  execution throws after committing it. Ambiguous results retain their operation
+  ID and are shown as unconfirmed. Retries reconcile the same operation rather
+  than creating another send. Send preparation/execution, explicit recovery, and
+  cancellation are serialized within the manager and across tabs using Web Locks
+  where available.
+- Interrupted preparations offer **Resume creation** and **Cancel preparation**.
+  Executing sends offer **Retry interrupted sends**, using Coco's recovery sweep
+  with optional pending-token redemption checks disabled. Unresolved results stay
+  visible; recovery may restore funds instead of producing a token. Cancelling a
+  preparation releases reservations and does not revoke an already-created token.
 - New Lightning top-ups create a **locked canonical quote**, then prepare a
   deterministic mint operation and persist its outputs before displaying the
   invoice. Identity is `{mintUrl, quoteId}`; operations are reused across polling,

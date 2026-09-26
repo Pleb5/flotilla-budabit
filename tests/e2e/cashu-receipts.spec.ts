@@ -48,6 +48,157 @@ const setup = async (page: Page, mint: CashuTestMint, events: ReturnType<typeof 
   return relay
 }
 
+for (const viewport of [
+  {width: 1280, height: 900},
+  {width: 390, height: 844},
+]) {
+  test(`saved sends survive navigation and reload at ${viewport.width}px`, async ({page}, info) => {
+    test.setTimeout(60_000)
+    await page.setViewportSize(viewport)
+    const mint = new CashuTestMint()
+    const relay = await setup(page, mint)
+    await page.goto("/settings/wallet")
+    await expect(page.getByRole("button", {name: "Create wallet", exact: true})).toBeVisible({
+      timeout: 20_000,
+    })
+    const quotes = await page.evaluate(
+      async path => (await import(/* @vite-ignore */ path)).prepareSender(),
+      fixturePath,
+    )
+    for (const quote of quotes) mint.pay(quote)
+    await page.evaluate(
+      async ({path, quotes}) => (await import(/* @vite-ignore */ path)).fundSender(quotes),
+      {path: fixturePath, quotes},
+    )
+
+    await page.getByRole("button", {name: "Saved outgoing tokens", exact: true}).click()
+    await page.getByLabel("Amount (sats)", {exact: false}).fill("3")
+    await page.getByRole("button", {name: "Create Token", exact: true}).click()
+    const tokenField = page.getByRole("textbox", {name: "Saved Cashu token"})
+    await expect(tokenField).toBeVisible()
+    const first = await tokenField.inputValue()
+    expect(first.startsWith("cashu")).toBe(true)
+    await expect(
+      page.getByText("Saved in this wallet. You can reopen it from Send or History."),
+    ).toBeVisible()
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+    await page.getByRole("button", {name: "Copy Token", exact: true}).click()
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(first)
+
+    await page.getByRole("button", {name: "Create another token", exact: true}).click()
+    await page.getByLabel("Amount (sats)", {exact: false}).fill("4")
+    await page.getByRole("button", {name: "Create Token", exact: true}).click()
+    await expect(tokenField).toBeVisible()
+    const second = await tokenField.inputValue()
+    expect(second).not.toBe(first)
+    const saved = page.getByRole("region", {name: "Saved outgoing tokens"})
+    await expect(saved.getByRole("button", {name: "Open token", exact: true})).toHaveCount(2)
+    await page.getByRole("button", {name: "Balance", exact: true}).click()
+    await page.getByRole("button", {name: "Saved outgoing tokens", exact: true}).click()
+    await expect(saved.getByRole("button", {name: "Open token", exact: true})).toHaveCount(2)
+
+    // Actual route departure and return, followed by a full document reload.
+    await page.goto("/settings/performance")
+    await page.goBack()
+    await page.reload()
+    await page.getByRole("button", {name: "Saved outgoing tokens", exact: true}).click()
+    await expect(saved.getByRole("button", {name: "Open token", exact: true})).toHaveCount(2)
+    const swaps = mint.calls.filter(call => call.path === "/v1/swap").length
+    // The local dev server remains reachable; the mint is now unavailable.
+    await page.context().route(`${mint.url}/**`, route => route.abort())
+    const reopened: string[] = []
+    for (let index = 0; index < 2; index++) {
+      await saved.getByRole("button", {name: "Open token", exact: true}).nth(index).click()
+      await expect(
+        saved.getByRole("button", {name: "Open token", exact: true}).first(),
+      ).toBeEnabled()
+      await expect(tokenField).toBeVisible()
+      await expect(
+        page.getByRole("heading", {name: "Token saved. Copy and share it:"}),
+      ).toBeInViewport()
+      reopened.push(await tokenField.inputValue())
+    }
+    expect([...reopened].sort()).toEqual([first, second].sort())
+    expect(mint.calls.filter(call => call.path === "/v1/swap")).toHaveLength(swaps)
+    expect(
+      await page.evaluate(
+        async path => (await import(/* @vite-ignore */ path)).balance(),
+        fixturePath,
+      ),
+    ).toBe(249)
+    await page.evaluate(() => {
+      Object.defineProperty(navigator.clipboard, "writeText", {
+        configurable: true,
+        value: async () => {
+          throw new Error("Clipboard blocked by fixture")
+        },
+      })
+    })
+    await page.getByRole("button", {name: "Copy Token", exact: true}).click()
+    await expect(
+      page.getByText("Could not copy token. Select and copy the text above."),
+    ).toBeVisible()
+    await expect(tokenField).toHaveValue(reopened[1])
+    await expect(page.locator("body")).toHaveJSProperty(
+      "scrollWidth",
+      await page.locator("body").evaluate(element => element.clientWidth),
+    )
+    await page.screenshot({
+      path: info.outputPath(`cashu-saved-sends-${viewport.width}.png`),
+      fullPage: true,
+    })
+    expect(relay.getPublishedEvents()).toHaveLength(0)
+  })
+}
+
+test("leaving Send during creation retains the completed token", async ({page}) => {
+  test.setTimeout(60_000)
+  const mint = new CashuTestMint()
+  await setup(page, mint)
+  await page.goto("/settings/wallet")
+  await expect(page.getByRole("button", {name: "Create wallet", exact: true})).toBeVisible({
+    timeout: 20_000,
+  })
+  const quotes = await page.evaluate(
+    async path => (await import(/* @vite-ignore */ path)).prepareSender(),
+    fixturePath,
+  )
+  for (const quote of quotes) mint.pay(quote)
+  await page.evaluate(
+    async ({path, quotes}) => (await import(/* @vite-ignore */ path)).fundSender(quotes),
+    {path: fixturePath, quotes},
+  )
+  let release!: () => void
+  const gate = new Promise<void>(resolve => {
+    release = resolve
+  })
+  let started!: () => void
+  const swapping = new Promise<void>(resolve => {
+    started = resolve
+  })
+  await page.route(`${mint.url}/v1/swap`, async route => {
+    started()
+    await gate
+    await route.fallback()
+  })
+  await page.getByRole("button", {name: "Saved outgoing tokens", exact: true}).click()
+  await page.getByLabel("Amount (sats)", {exact: false}).fill("3")
+  await page.getByRole("button", {name: "Create Token", exact: true}).click()
+  await swapping
+  await page.getByRole("button", {name: "Balance", exact: true}).click()
+  await page.getByRole("button", {name: "Saved outgoing tokens", exact: true}).click()
+  release()
+  await page.getByRole("button", {name: "Open token", exact: true}).click()
+  await expect(page.getByRole("textbox", {name: "Saved Cashu token"})).toHaveValue(/^cashu/)
+  expect(mint.calls.filter(call => call.path === "/v1/swap")).toHaveLength(1)
+  expect(
+    await page.evaluate(
+      async path => (await import(/* @vite-ignore */ path)).balance(),
+      fixturePath,
+    ),
+  ).toBe(253)
+})
+
 test("cold receipts pause at the budget and wallet diagnostics capture the explicit continuation", async ({
   page,
 }, info) => {
