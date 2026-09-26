@@ -69,6 +69,8 @@
     SECURE_EMBED_URL_REQUIREMENT,
   } from "@app/extensions/url-policy"
   import {postRepoTabContext, postRepoTabInit} from "@app/extensions/repo-tab-context"
+  import {activeUserCommunityRefs, activePreferredCommunities} from "@app/core/community-state"
+  import {selectRepoCiWatchers} from "@app/extensions/ci-watchers"
   import {theme} from "@app/util/theme"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -190,7 +192,18 @@
   })
 
   function buildRepoContext(): RepoContext | undefined {
-    return buildRepoExtensionContext(repoClass, naddr, repoRelays)
+    const context = buildRepoExtensionContext(repoClass, naddr, repoRelays)
+    if (!context) return undefined
+    return {
+      ...context,
+      ciWatchers: $pubkey
+        ? selectRepoCiWatchers(
+            $activeUserCommunityRefs,
+            $activePreferredCommunities,
+            repoClass.community,
+          )
+        : [],
+    }
   }
 
   function createExtensionInstance(): LoadedWidgetExtension | null {

@@ -27,7 +27,13 @@ export function postRepoTabInit(
     pubkey: userPubkey || null,
     relays: extension.repoContext?.relays ?? [],
     hostVersion: "2",
-    repoContext: extension.repoContext ?? null,
+    repoContext: extension.repoContext
+      ? {
+          ...extension.repoContext,
+          userPubkey: userPubkey || null,
+          address: `30617:${extension.repoContext.pubkey}:${extension.repoContext.name}`,
+        }
+      : null,
     capabilities: getHostCapabilitySnapshot({widget: extension.widget, slot: "repo-tab"}),
     theme,
     themeBackground,

@@ -2715,6 +2715,7 @@ registerBridgeHandler("context:getRepo", (payload, ext) => {
         naddr: ext.repoContext.naddr,
         relays: ext.repoContext.relays,
         maintainers: ext.repoContext.maintainers,
+        ciWatchers: ext.repoContext.ciWatchers,
         address: getRepoAddress(ext.repoContext), // Canonical "30617:pubkey:name" format
         // The push-based context:update event is the primary carrier of the
         // signed-in user's pubkey, but it can be lost if the host sends it
@@ -2777,6 +2778,7 @@ registerBridgeHandler("nostr:nip44Encrypt", async (payload, ext) => {
       throw new Error("Invalid plaintext: expected string")
     }
 
+    assertExpectedScope(payload, ext, true)
     const $signer = signer.get()
     if (!$signer) {
       throw new Error("No active signer available")
@@ -2786,6 +2788,7 @@ registerBridgeHandler("nostr:nip44Encrypt", async (payload, ext) => {
     }
 
     const ciphertext = await $signer.nip44.encrypt(recipientPubkey, plaintext)
+    assertExpectedScope(payload, ext, true)
     return {status: "ok", ciphertext}
   } catch (err: any) {
     console.error("Error in nostr:nip44Encrypt bridge handler:", err)
@@ -2804,6 +2807,7 @@ registerBridgeHandler("nostr:nip44Decrypt", async (payload, ext) => {
       throw new Error("Invalid ciphertext: expected string")
     }
 
+    assertExpectedScope(payload, ext, true)
     const $signer = signer.get()
     if (!$signer) {
       throw new Error("No active signer available")
@@ -2813,6 +2817,7 @@ registerBridgeHandler("nostr:nip44Decrypt", async (payload, ext) => {
     }
 
     const plaintext = await $signer.nip44.decrypt(senderPubkey, ciphertext)
+    assertExpectedScope(payload, ext, true)
     return {status: "ok", plaintext}
   } catch (err: any) {
     console.error("Error in nostr:nip44Decrypt bridge handler:", err)

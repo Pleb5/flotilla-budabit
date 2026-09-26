@@ -147,6 +147,21 @@ A definition may contain up to 20 declarations. Readers merge declarations for t
 
 The declaration is a community endorsement, not proof of availability or authorization. Repository selection and watcher activation are separate operations. Budabit exposes parsed advertisements as `CommunityDefinition.ciRepoWatchers` (`{pubkey, relays}[]`), which membership-based consumers can read from each exact community definition in `activeUserCommunityRefs`.
 
+The Workflows widget receives eligible watchers in repository context as `ciWatchers`.
+The host ranks them by repository community association, then the viewer's highest
+role (admin, moderator, member), then the existing community preference order.
+An h-only repository association matches the community ID; an exact legacy branch
+hint narrows that match to its definition address. Services are deduplicated by
+watcher pubkey with relay hints merged from eligible communities. Starred-only
+communities do not grant eligibility.
+
+The widget includes Arjen's original watcher as a fallback choice. Its dropdown
+uses the first ranked choice until the viewer explicitly chooses another. Manual
+selection lasts for the current account/repository session and is cleared if the
+service loses eligibility. Switching services does not unfollow the old service.
+Older hosts without `ciWatchers` expose the fallback and an update hint; community
+selection requires both the updated host context and the updated widget.
+
 Readers that do not implement this extension treat it as an unknown top-level tag and preserve it according to the editing rules below.
 
 ### Service Tags

@@ -12,16 +12,19 @@ import type { WidgetBridge } from 'budabit-sdk';
  * - nip44:        host `nostr:nip44Encrypt` / `nostr:nip44Decrypt` actions.
  *   Decrypt is required — CI server responses arrive NIP-59 gift-wrapped.
  */
-export function bridgeNostrSigner(bridge: WidgetBridge, pubkey: string): NostrSigner {
+export function bridgeNostrSigner(bridge: WidgetBridge, pubkey: string, isActive = () => true): NostrSigner {
+  const assertActive = () => { if (!isActive()) throw new Error('Watcher context changed'); };
   return {
-    getPublicKey: async () => pubkey,
+    getPublicKey: async () => { assertActive(); return pubkey; },
 
     signEvent: async (event) => {
-      const res: any = await bridge.request('nostr:sign', event);
+      assertActive();
+      const res: any = await bridge.request('nostr:sign', {...event, expectedPubkey: pubkey});
+      assertActive();
       if (res?.error) throw new Error(`nostr:sign failed: ${res.error}`);
       // Host returns either `{event}` or the signed event directly.
       const signed = res?.event ?? res;
-      if (!signed || typeof signed.id !== 'string' || typeof signed.sig !== 'string') {
+      if (!signed || signed.pubkey !== pubkey || typeof signed.id !== 'string' || typeof signed.sig !== 'string') {
         throw new Error('nostr:sign returned an unsigned event');
       }
       return signed;
@@ -29,7 +32,9 @@ export function bridgeNostrSigner(bridge: WidgetBridge, pubkey: string): NostrSi
 
     nip44: {
       encrypt: async (recipientPubkey, plaintext) => {
-        const res: any = await bridge.request('nostr:nip44Encrypt', { recipientPubkey, plaintext });
+        assertActive();
+        const res: any = await bridge.request('nostr:nip44Encrypt', { recipientPubkey, plaintext, expectedPubkey: pubkey });
+        assertActive();
         if (res?.error) throw new Error(`nostr:nip44Encrypt failed: ${res.error}`);
         const ciphertext = res?.ciphertext;
         if (typeof ciphertext !== 'string') {
@@ -38,7 +43,9 @@ export function bridgeNostrSigner(bridge: WidgetBridge, pubkey: string): NostrSi
         return ciphertext;
       },
       decrypt: async (senderPubkey, ciphertext) => {
-        const res: any = await bridge.request('nostr:nip44Decrypt', { senderPubkey, ciphertext });
+        assertActive();
+        const res: any = await bridge.request('nostr:nip44Decrypt', { senderPubkey, ciphertext, expectedPubkey: pubkey });
+        assertActive();
         if (res?.error) throw new Error(`nostr:nip44Decrypt failed: ${res.error}`);
         const plaintext = res?.plaintext;
         if (typeof plaintext !== 'string') {

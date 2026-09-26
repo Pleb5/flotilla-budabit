@@ -29,7 +29,7 @@ describe("repo-tab lifecycle payloads", () => {
       "widget:init",
       expect.objectContaining({
         pubkey: owner,
-        repoContext: repo,
+        repoContext: {...repo, userPubkey: owner, address: `30617:${owner}:Legacy:Repo`},
         capabilities: expect.objectContaining({
           surface: {kind: "widget", resize: false, visibility: false, slot: "repo-tab"},
           features: expect.objectContaining({"nostr.queryCompleteness": true}),

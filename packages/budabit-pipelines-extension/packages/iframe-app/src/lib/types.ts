@@ -1,4 +1,4 @@
-import type { WidgetBridge } from 'budabit-sdk';
+import type { WidgetBridge, RepoCiWatcher } from 'budabit-sdk';
 
 export interface RepoContext {
   contextId?: string;
@@ -10,6 +10,7 @@ export interface RepoContext {
     repoAddress?: string;
     repoRelays: string[];
     maintainers?: string[];
+    ciWatchers?: RepoCiWatcher[];
   };
 }
 
@@ -21,6 +22,7 @@ export interface RepoContextNormalized {
   repoAddress?: string;
   repoRelays: string[];
   maintainers?: string[];
+  ciWatchers?: RepoCiWatcher[];
 }
 
 export interface NostrEvent {

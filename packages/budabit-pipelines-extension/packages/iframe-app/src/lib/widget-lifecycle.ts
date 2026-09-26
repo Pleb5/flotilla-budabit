@@ -32,6 +32,7 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
   const { onBridgeChange, onRepoContextChange, onRepoChange, onUnmount } = args;
 
   let contextReceived = false;
+  let repoIdentity: string | undefined;
 
   const bridge = createWidgetBridge({
     targetWindow: window.parent,
@@ -48,9 +49,13 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
     contextReceived = true;
     const nextRepoCtx = input ? transformHostContext(input) : null;
     onRepoContextChange(nextRepoCtx);
-    if (options.resetRunState) {
+    const identity = nextRepoCtx?.repo
+      ? `${nextRepoCtx.repo.repoPubkey}:${nextRepoCtx.repo.repoName}|${nextRepoCtx.userPubkey || ''}`
+      : undefined;
+    if (options.resetRunState && identity !== repoIdentity) {
       onRepoChange();
     }
+    repoIdentity = identity;
   };
 
   const offInit = bridge.onEvent('widget:init', (payload: any) => {

@@ -613,6 +613,35 @@ describe("ExtensionBridge", () => {
     ).toMatchObject({error: "Signing account changed"})
   })
 
+  it("pins NIP-44 operations to the expected account before and after awaiting the signer", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const owner = testPubkey(1)
+    const extension = makeExtension({
+      widget: {permissions: ["nostr:nip44Encrypt", "nostr:nip44Decrypt"]},
+    })
+    const bridge = new ExtensionBridge(extension as any)
+    for (const [action, input, method] of [
+      ["nostr:nip44Encrypt", {recipientPubkey: owner, plaintext: "hello"}, "encrypt"],
+      ["nostr:nip44Decrypt", {senderPubkey: owner, ciphertext: "encrypted"}, "decrypt"],
+    ] as const) {
+      const operation = vi.fn(async () => "result")
+      mocks.signer.set({nip44: {[method]: operation}} as any)
+      mocks.pubkey.set(outsiderPubkey)
+      expect(
+        await sendBridgeRequest(bridge, extension, action, {...input, expectedPubkey: owner}),
+      ).toMatchObject({error: "Signing account changed"})
+      expect(operation).not.toHaveBeenCalled()
+      mocks.pubkey.set(owner)
+      operation.mockImplementationOnce(async () => {
+        mocks.pubkey.set(outsiderPubkey)
+        return "result"
+      })
+      expect(
+        await sendBridgeRequest(bridge, extension, action, {...input, expectedPubkey: owner}),
+      ).toMatchObject({error: "Signing account changed"})
+    }
+  })
+
   it("requires unsubscribe permission and releases only subscriptions owned by that widget", async () => {
     const {ExtensionBridge} = await import("./bridge")
     const {extensionSubscriptionRegistry} = await import("./extension-subscriptions")

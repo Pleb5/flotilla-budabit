@@ -265,6 +265,15 @@ export type SmartWidgetEvent = {
  * Repository context for repo-scoped extensions/widgets.
  * Used to scope storage and Nostr queries to a specific repository.
  */
+export type RepoCiWatcher = {
+  pubkey: string
+  relays: string[]
+  communityAddress: string
+  communityName: string
+  role: "admin" | "moderator" | "member"
+  repoMatch: boolean
+}
+
 export type RepoContext = {
   /** Repository owner's pubkey */
   pubkey: string
@@ -278,6 +287,8 @@ export type RepoContext = {
   relays?: string[]
   /** Declared repo maintainer pubkeys */
   maintainers?: string[]
+  /** Eligible community watchers, ordered by repo match, role, then community preference. */
+  ciWatchers?: RepoCiWatcher[]
 }
 
 /**

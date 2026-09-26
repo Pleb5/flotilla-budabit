@@ -44,5 +44,6 @@ export const buildRepoExtensionUpdate = (
     userPubkey: userPubkey || null,
     repoRelays: [...(repo.relays || [])],
     maintainers: [...(repo.maintainers || [])],
+    ciWatchers: repo.ciWatchers,
   },
 })

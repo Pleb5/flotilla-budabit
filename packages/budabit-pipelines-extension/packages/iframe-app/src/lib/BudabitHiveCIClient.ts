@@ -148,14 +148,13 @@ function extractTextContent(content: unknown): string {
 }
 
 export class BudabitHiveCIClient implements BudabitHiveCI {
-//  static readonly SERVER_PUBKEY = "94f4eb902465daeaa56c291d4abf07e712f03bda3d4f15a411b9728f80da18fa";  // Greg's
-  static readonly SERVER_PUBKEY = "f814c1976ca05431081e0b27e2a190c379e8e4b25477c7f431fe58e8a7fa9551";  // Arjen's
-  static readonly DEFAULT_RELAYS = ["wss://relay.budabit.club/", "wss://relay.contextvm.org/", "wss://relay2.contextvm.org/"];
   private client: Client;
   private transport: Transport;
+  private connected: Promise<void>;
+  private closed = false;
 
   constructor(
-    options: Partial<NostrTransportOptions> & { privateKey?: string; relays?: string[] } = {}
+    options: Partial<NostrTransportOptions> & { serverPubkey: string; privateKey?: string; relays: string[] }
   ) {
     this.client = new Client({
       name: "BudabitHiveCIClient",
@@ -168,15 +167,13 @@ export class BudabitHiveCIClient implements BudabitHiveCI {
 
     // Use options.signer if provided, otherwise create from resolved private key
     const signer = options.signer || new PrivateKeySigner(resolvedPrivateKey);
-    // Use options.relays if provided, otherwise use class DEFAULT_RELAYS
-    const relays = options.relays || BudabitHiveCIClient.DEFAULT_RELAYS;
+    const relays = options.relays;
     // Use options.relayHandler if provided, otherwise create from relays
     const relayHandler = options.relayHandler || new ApplesauceRelayPool(relays);
-    const serverPubkey = options.serverPubkey;
-    const { privateKey: _, ...rest } = options;
+    const { privateKey: _, serverPubkey, relays: _relays, ...rest } = options;
 
     this.transport = new NostrClientTransport({
-      serverPubkey: serverPubkey || BudabitHiveCIClient.SERVER_PUBKEY,
+      serverPubkey,
       signer,
       relayHandler,
       isStateless: true,
@@ -184,19 +181,23 @@ export class BudabitHiveCIClient implements BudabitHiveCI {
     });
 
     // Auto-connect in constructor
-    this.client.connect(this.transport).catch((error) => {
+    this.connected = this.client.connect(this.transport);
+    this.connected.catch((error) => {
       console.error(`Failed to connect to server: ${error}`);
     });
   }
 
   async disconnect(): Promise<void> {
-    await this.transport.close();
+    this.closed = true;
+    await this.client.close();
   }
 
   private async call<T = unknown>(
     name: string,
     args: Record<string, unknown>
   ): Promise<T> {
+    await this.connected;
+    if (this.closed) throw new Error('Watcher context changed');
     const result = await this.client.callTool({
       name,
       arguments: { ...args },

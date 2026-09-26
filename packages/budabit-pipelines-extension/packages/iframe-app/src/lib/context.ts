@@ -42,6 +42,7 @@ export function transformHostContext(hostCtx: any): RepoContext {
           repoAddress: resolveRepoAddress(repo),
           repoRelays: repo?.relays || repo?.repoRelays || [],
           maintainers: repo?.maintainers || [],
+          ciWatchers: repo?.ciWatchers,
         }
       : undefined,
   };
@@ -79,6 +80,7 @@ export function normalizeRepo(ctx: RepoContext | null): RepoContextNormalized | 
     repoAddress: repo.repoAddress,
     repoRelays,
     maintainers: Array.isArray(repo.maintainers) ? repo.maintainers : undefined,
+    ciWatchers: repo.ciWatchers,
   };
 }
 

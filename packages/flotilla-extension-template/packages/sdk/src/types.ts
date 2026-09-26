@@ -82,6 +82,16 @@ export type WidgetInitPayload = {
   [k: string]: unknown;
 };
 
+/** Host-validated community watcher, ranked by repo association, role and preference. */
+export type RepoCiWatcher = {
+  pubkey: string;
+  relays: string[];
+  communityAddress: string;
+  communityName: string;
+  role: 'admin' | 'moderator' | 'member';
+  repoMatch: boolean;
+};
+
 export type HostCapabilitySupport = 'supported' | 'unsupported' | 'unknown';
 
 export type HostCapabilitySnapshot = {
