@@ -1,6 +1,6 @@
 <script lang="ts">
   import {Lock} from '@lucide/svelte'
-  import {isFreeWorker} from '../submission'
+  import {isFreeWorker, workerAdmission, workerSubmissionBlock} from '../submission'
   import {freelistListrUrl} from '../workflows'
   import type {LoomWorker, RerunDraft, WorkflowDefinition} from '../types'
 
@@ -105,7 +105,8 @@
   // While the selected worker's advertised freelist event is being fetched,
   // membership (and therefore whether the run is free) is unknown — block
   // submission until it resolves.
-  const freelistFetching = $derived(!!selectedWorker?.freelistPending)
+  const freelistFetching = $derived(workerAdmission(selectedWorker) === 'pending')
+  const accessBlock = $derived(workerSubmissionBlock(selectedWorker))
 
   // Link to the selected worker's advertised freelist on listr.lol, shown
   // next to the "run unpaid" checkbox so users can inspect the list.
@@ -173,6 +174,8 @@
     const online = (w: LoomWorker) => (w.online ? 0 : 1)
     const minCostOf = (w: LoomWorker) => rate(w) * minDur(w)
     return [...discoveredWorkers].sort((a, b) => {
+      const rank = {allowed: 0, pending: 1, unknown: 2, denied: 3}
+      if (workerAdmission(a) !== workerAdmission(b)) return rank[workerAdmission(a)] - rank[workerAdmission(b)]
       if (free(a) !== free(b)) return free(a) - free(b)
       if (online(a) !== online(b)) return online(a) - online(b)
       if (minCostOf(a) !== minCostOf(b)) return minCostOf(a) - minCostOf(b)
@@ -211,7 +214,10 @@
     const current = rankedWorkers.find(w => w.pubkey === rerunDraft.workerPubkey)
     if (userPickedWorker && current) return
     const freePick = rankedWorkers.find(w => w.online && w.freeForUser)
-    const pick = freePick ?? (current ? undefined : rankedWorkers.find(w => w.online) || rankedWorkers[0])
+    const publicPick = !current || workerAdmission(current) !== 'allowed'
+      ? rankedWorkers.find(w => w.online && workerAdmission(w) === 'allowed')
+      : undefined
+    const pick = freePick ?? publicPick ?? (current ? undefined : rankedWorkers.find(w => w.online) || rankedWorkers[0])
     if (pick && pick.pubkey !== rerunDraft.workerPubkey) {
       rerunDraft.workerPubkey = pick.pubkey
     }
@@ -367,6 +373,9 @@
                     <span class="truncate font-medium">{worker.name}</span>
                     {#if worker.freeForUser}
                       <span class="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">free</span>
+                    {/if}
+                    {#if worker.requiresWhitelist && !worker.freeForUser}
+                      <span class="rounded-full border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{workerAdmission(worker) === 'allowed' ? 'access confirmed' : workerAdmission(worker) === 'denied' ? 'no access' : 'restricted access'}</span>
                     {/if}
                     {#if workerMinCost > 0 && workerMinCost === cheapestMinCost && rankedWorkers.length > 1}
                       <span class="rounded-full border border-green-500/30 bg-green-500/10 px-1.5 py-0.5 text-[10px] font-medium text-green-300">cheapest</span>
@@ -590,8 +599,12 @@
       <div class="rounded-md border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">Selected mint balance is lower than the prepayment.</div>
     {/if}
 
-    {#if freelistFetching}
-      <div class="rounded-md border border-yellow-500/20 bg-yellow-500/10 p-3 text-xs text-yellow-200">Fetching worker freelist</div>
+    {#if accessBlock}
+      <div role="status" class="rounded-md border border-border bg-muted/40 p-3 text-xs text-foreground">{accessBlock}</div>
+    {:else if selectedWorker?.requiresWhitelist && workerAdmission(selectedWorker) === 'unknown'}
+      <div role="status" class="rounded-md border border-border bg-muted/40 p-3 text-xs text-foreground">
+        This worker restricts access to approved accounts. Your membership could not be verified. Payment does not grant access; confirm access with the operator before paying. Manual runs use your account, not the community watcher.
+      </div>
     {/if}
 
     <button
@@ -599,7 +612,7 @@
         ? 'cursor-not-allowed border-input bg-muted text-muted-foreground'
         : 'border-green-500/40 bg-green-500/20 text-green-30 hover:bg-green-500/30 disabled:cursor-not-allowed disabled:opacity-50'}"
       onclick={onSubmit}
-      disabled={rerunSubmitting || generatingPaymentToken || !isFormValid || freelistFetching}>
+      disabled={rerunSubmitting || generatingPaymentToken || !isFormValid || !!accessBlock}>
       <span class="{rerunSubmitting || generatingPaymentToken ? 'animate-pulse' : ''}">▶</span>
       {rerunSubmitting
         ? 'Submitting…'

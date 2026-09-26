@@ -44,6 +44,21 @@ export function isFreeWorker(worker: LoomWorker | null): boolean {
   return !!worker && worker.pricing == null
 }
 
+export function workerAdmission(worker: LoomWorker | null): 'allowed' | 'pending' | 'denied' | 'unknown' {
+  if (!worker) return 'unknown'
+  if (worker.freeForUser) return 'allowed'
+  if (worker.freelistPending || worker.whitelistPending) return 'pending'
+  if (!worker.requiresWhitelist || worker.whitelistedForUser === true) return 'allowed'
+  return worker.whitelistedForUser === false ? 'denied' : 'unknown'
+}
+
+export function workerSubmissionBlock(worker: LoomWorker | null): string | null {
+  const access = workerAdmission(worker)
+  if (access === 'pending') return 'Checking worker access lists. Please wait.'
+  if (access === 'denied') return 'Your account is not on this worker’s access list. Payment does not grant access. Choose another worker or contact its operator.'
+  return null
+}
+
 export function canGenerateSuggestedToken(args: {
   walletAvailable: boolean
   selectedMint: string

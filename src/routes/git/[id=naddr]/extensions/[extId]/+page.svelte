@@ -187,7 +187,12 @@
       loading = true
       retryCount = 0
       currentFrameKey = frameKey
-      iframeSrc = secureExtEntrypoint
+      const frameUrl = new URL(secureExtEntrypoint)
+      // Pass the initial deep link without requiring cross-origin parent reads.
+      if (/^#run-[0-9a-f]{64}$/.test(window.location.hash)) {
+        frameUrl.hash = window.location.hash
+      }
+      iframeSrc = frameUrl.toString()
     }
   })
 
@@ -494,6 +499,7 @@
         class="extension-iframe"
         class:loading
         sandbox={REPO_TAB_SANDBOX}
+        allow="clipboard-write"
         onload={handleIframeLoad}
         onerror={handleIframeError}></iframe>
     {/key}

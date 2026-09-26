@@ -409,6 +409,7 @@ export type UiToastResponse = { status: 'ok' } | BridgeError;
 
 // --- ui:navigate ---
 
+/** App-relative /path, or #fragment to replace the current host fragment without remounting. */
 export type UiNavigateRequest = { path: string };
 export type UiNavigateResponse = { status: 'ok' } | BridgeError;
 

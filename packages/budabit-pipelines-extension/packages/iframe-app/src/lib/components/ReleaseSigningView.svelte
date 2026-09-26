@@ -1,4 +1,5 @@
 <script lang="ts">
+  import {copyToClipboard} from '../host-actions';
   import type { WidgetBridge } from 'budabit-sdk';
   import type { RepoContextNormalized } from '../types';
   import {
@@ -254,11 +255,13 @@
       .filter((t) => t.length > 0);
   }
 
+  let copyStatus = $state('');
   async function copyText(value: string) {
     try {
-      await navigator.clipboard.writeText(value);
+      await copyToClipboard(value);
+      copyStatus = 'Hash copied';
     } catch {
-      // pass
+      copyStatus = 'Unable to copy hash';
     }
   }
 
@@ -271,6 +274,7 @@
 </script>
 
 <div class="space-y-6">
+  {#if copyStatus}<p role="status" class="text-xs text-muted-foreground">{copyStatus}</p>{/if}
   <!-- Header -->
   <div>
     <div class="flex items-center gap-2">

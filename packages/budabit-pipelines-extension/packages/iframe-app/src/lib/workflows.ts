@@ -361,6 +361,8 @@ export function parseLoomWorker(event: NostrEvent): LoomWorker | null {
         Number.parseInt(String(content.max_concurrent_jobs || ''), 10) || undefined,
       currentQueueDepth:
         Number.parseInt(String(content.current_queue_depth || ''), 10) || undefined,
+      requiresWhitelist: (eventTagValue(event, 'is_whitelisted') ?? String(content.is_whitelisted)) === 'true',
+      whitelistEventAddress: accessListAddressFromEvent(event, 'whitelist_event'),
       freelistEventAddress: freelistAddressFromEvent(event),
       freelistTimeout: Number.parseInt(eventTagValue(event, 'freelist_timeout') || '', 10) || undefined,
       online: Date.now() - event.created_at * 1000 < 5 * 60 * 1000,
@@ -378,12 +380,16 @@ export function parseLoomWorker(event: NostrEvent): LoomWorker | null {
  * it (`freelist.advertise_event_id` in the loom-worker config).
  */
 export function freelistAddressFromEvent(event: NostrEvent): string | undefined {
-  const tagValue = eventTagValue(event, 'freelist_event');
+  return accessListAddressFromEvent(event, 'freelist_event');
+}
+
+function accessListAddressFromEvent(event: NostrEvent, name: string): string | undefined {
+  const tagValue = eventTagValue(event, name);
   if (tagValue) return tagValue;
   try {
     const content = JSON.parse(event.content || '{}');
-    return typeof content?.freelist_event === 'string' && content.freelist_event
-      ? content.freelist_event
+    return typeof content?.[name] === 'string' && content[name]
+      ? content[name]
       : undefined;
   } catch {
     return undefined;
@@ -456,15 +462,15 @@ export function freelistListrUrl(workerPubkey: string, address?: string): string
 }
 
 /**
- * One-shot fetch of a worker's advertised freelist — a NIP-51 pubkey list
+ * One-shot fetch of an advertised access list — a NIP-51 pubkey list
  * event. Returns the p-tag pubkeys of the newest version found across the
- * target relays (empty set when the address is invalid or nothing comes
- * back). Read once per address — the list is small and changes rarely, so
+ * target relays (null when the address is invalid or nothing comes back;
+ * an empty set means a confirmed empty list). Read once per address, so
  * no live subscription is kept open.
  */
-async function fetchFreelistPubkeys(address: string, relays: string[]): Promise<Set<string>> {
+async function fetchAccessListPubkeys(address: string, relays: string[]): Promise<Set<string> | null> {
   const pointer = parseFreelistAddress(address);
-  if (!pointer) return new Set();
+  if (!pointer) return null;
 
   // Relay hints embedded in naddr/nevent are unioned with the worker relays —
   // the list author may publish somewhere the worker ad never touched.
@@ -495,9 +501,9 @@ async function fetchFreelistPubkeys(address: string, relays: string[]): Promise<
       ),
       { defaultValue: null }
     );
-    return newest ? new Set(eventTagValues(newest, 'p')) : new Set();
+    return newest ? new Set(eventTagValues(newest, 'p')) : null;
   } catch {
-    return new Set();
+    return null;
   }
 }
 
@@ -526,13 +532,12 @@ export function workers$(relays: string[], userPubkey?: string): Observable<Loom
 
   const subject = new BehaviorSubject<LoomWorker[]>([]);
   const latestByPubkey = new Map<string, NostrEvent>();
-  // list address → member pubkeys. An empty set doubles as the in-flight
-  // marker so repeated ads for the same address don't refetch.
-  const freelistsByAddress = new Map<string, Set<string>>();
-  // Addresses whose freelist event fetch has not resolved yet — exposed on
-  // emitted workers as `freelistPending` so UIs can block submission until
-  // membership is known.
-  const freelistPendingAddresses = new Set<string>();
+  // Both paid-access and free-access lists share this address cache. Null
+  // means unavailable; only a fetched list can establish denied membership.
+  const membersByAddress = new Map<string, Set<string> | null>();
+  // In-flight list fetches are exposed on workers so payment/submission waits
+  // until both paid and free access checks have settled.
+  const pendingAddresses = new Set<string>();
 
   const recompute = () => {
     const next = Array.from(latestByPubkey.values())
@@ -543,25 +548,32 @@ export function workers$(relays: string[], userPubkey?: string): Observable<Loom
         freeForUser:
           !!userPubkey &&
           !!worker.freelistEventAddress &&
-          (freelistsByAddress.get(worker.freelistEventAddress)?.has(userPubkey) ?? false),
+          (membersByAddress.get(worker.freelistEventAddress)?.has(userPubkey) ?? false),
         freelistPending:
           !!userPubkey &&
           !!worker.freelistEventAddress &&
-          freelistPendingAddresses.has(worker.freelistEventAddress),
+          pendingAddresses.has(worker.freelistEventAddress),
+        whitelistedForUser:
+          userPubkey && worker.whitelistEventAddress
+            ? membersByAddress.get(worker.whitelistEventAddress)?.has(userPubkey)
+            : undefined,
+        whitelistPending:
+          !!userPubkey && !!worker.requiresWhitelist && !!worker.whitelistEventAddress &&
+          pendingAddresses.has(worker.whitelistEventAddress),
       }))
       .sort((a, b) => (a.currentQueueDepth || 0) - (b.currentQueueDepth || 0));
     subject.next(next);
   };
 
-  // Read the advertised freelist event once per address; recompute when it
+  // Read each advertised access list once per address; recompute when it
   // lands so the worker list reflects the user's membership.
-  const fetchFreelistOnce = (address: string) => {
-    if (!userPubkey || freelistsByAddress.has(address)) return;
-    freelistsByAddress.set(address, new Set());
-    freelistPendingAddresses.add(address);
-    void fetchFreelistPubkeys(address, relays).then((members) => {
-      freelistsByAddress.set(address, members);
-      freelistPendingAddresses.delete(address);
+  const fetchAccessListOnce = (address: string) => {
+    if (!userPubkey || membersByAddress.has(address)) return;
+    membersByAddress.set(address, null);
+    pendingAddresses.add(address);
+    void fetchAccessListPubkeys(address, relays).then((members) => {
+      membersByAddress.set(address, members);
+      pendingAddresses.delete(address);
       recompute();
     });
   };
@@ -580,7 +592,9 @@ export function workers$(relays: string[], userPubkey?: string): Observable<Loom
       if (prior && prior.created_at >= event.created_at) return;
       latestByPubkey.set(event.pubkey, event);
       const freelistAddress = freelistAddressFromEvent(event);
-      if (freelistAddress) fetchFreelistOnce(freelistAddress);
+      if (freelistAddress) fetchAccessListOnce(freelistAddress);
+      const whitelistAddress = accessListAddressFromEvent(event, 'whitelist_event');
+      if (whitelistAddress) fetchAccessListOnce(whitelistAddress);
     }
     // Drop entries we already know are too old to ever be online again.
     const cutoff = (Date.now() - WORKER_ONLINE_WINDOW_MS) / 1000;
@@ -665,13 +679,21 @@ export function statusLabel(status: WorkflowStatus): string {
 }
 
 export function publicLinkForRun(runId: string): string {
-  return `nostr:${runId}`;
+  return `nostr:${nip19.noteEncode(runId)}`;
 }
 
 export function externalUrlForEvent(event: NostrEvent | undefined): string | undefined {
-  return (
-    eventTagValue(event, 'log_url') || eventTagValue(event, 'url') || eventTagValue(event, 'stdout') || undefined
-  );
+  for (const tag of ['log_url', 'url', 'stdout']) {
+    const value = eventTagValue(event, tag);
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      if (url.protocol === 'https:' || url.protocol === 'http:') return url.href;
+    } catch {
+      // Inline output is text, not a navigation target.
+    }
+  }
+  return undefined;
 }
 
 export function eventSummary(event: NostrEvent | undefined): string {

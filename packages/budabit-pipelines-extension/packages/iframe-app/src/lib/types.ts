@@ -91,6 +91,12 @@ export interface LoomWorker {
   maxDuration?: number;
   maxConcurrentJobs?: number;
   currentQueueDepth?: number;
+  /** Paid access is restricted; payment does not bypass this list. */
+  requiresWhitelist?: boolean;
+  whitelistEventAddress?: string;
+  /** Undefined means the private/unavailable list could not be checked. */
+  whitelistedForUser?: boolean;
+  whitelistPending?: boolean;
   /**
    * Address of the worker's advertised NIP-51 freelist event
    * (naddr / nevent / kind:pubkey[:d_tag]), when the operator opted into

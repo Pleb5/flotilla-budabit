@@ -1,5 +1,6 @@
 import {pubkey as activeUserPubkey, publishThunk, repository, signer} from "@welshman/app"
-import {goto} from "$app/navigation"
+import {goto, replaceState} from "$app/navigation"
+import {page} from "$app/stores"
 import {PublishStatus} from "@welshman/net"
 import {
   EVENT_DATE,
@@ -2445,6 +2446,12 @@ registerBridgeHandler("ui:navigate", async (payload, ext) => {
   // if (ext) console.log(`[bridge] ui:navigate from ${ext.id}`, payload)
   try {
     const path = typeof payload?.path === "string" ? payload.path.trim() : ""
+    // Fragment updates stay on the host page and preserve router history state.
+    // Widgets cannot mutate parent.location from their sandbox.
+    if (path.startsWith("#")) {
+      replaceState(path, get(page).state)
+      return {status: "ok"}
+    }
     if (!path || !path.startsWith("/") || path.startsWith("//")) {
       throw new Error("Invalid navigation path")
     }

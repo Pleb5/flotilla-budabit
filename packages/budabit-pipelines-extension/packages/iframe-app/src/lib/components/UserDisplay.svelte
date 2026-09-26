@@ -1,7 +1,11 @@
 <script lang="ts">
+  import {getContext} from 'svelte'
+  import {HOST_ACTIONS, type HostActions} from '../host-actions'
   import {ProfileModel} from 'applesauce-core/models'
   import type {ProfileContent} from 'applesauce-core/helpers/profile'
   import {eventStore} from '../nostr'
+
+  const hostActions = getContext<HostActions>(HOST_ACTIONS)
 
   interface Props {
     pubkey: string
@@ -61,15 +65,12 @@
 {/snippet}
 
 {#if link && pubkey}
-  <a
+  <button
     class={`inline-flex min-w-0 items-center gap-1.5 hover:underline ${className}`}
-    href={`nostr:${pubkey}`}
-    target="_blank"
-    rel="noreferrer"
     title={name}
-    onclick={event => event.stopPropagation()}>
+    onclick={event => {event.stopPropagation(); hostActions.openProfile(pubkey)}}>
     {@render body()}
-  </a>
+  </button>
 {:else}
   <span class={`inline-flex min-w-0 items-center gap-1.5 ${className}`}>
     {@render body()}

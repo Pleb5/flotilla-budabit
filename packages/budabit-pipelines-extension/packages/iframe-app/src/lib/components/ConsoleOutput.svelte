@@ -1,5 +1,6 @@
 <script lang="ts">
   import {ChevronUp, Copy, ExternalLink} from '@lucide/svelte'
+  import {copyToClipboard} from '../host-actions'
 
   interface Props {
     title: string
@@ -13,12 +14,18 @@
   let {title, content, url = null, defaultLines = 5, variant = 'default', embedded = false}: Props = $props()
 
   let expanded = $state(false)
+  let copyStatus = $state('')
 
   const lines = $derived(content ? content.split('\n') : [])
   const isError = $derived(variant === 'error')
 
   async function copyContent() {
-    await navigator.clipboard.writeText(content)
+    try {
+      await copyToClipboard(content)
+      copyStatus = 'Copied'
+    } catch {
+      copyStatus = 'Unable to copy output'
+    }
   }
 </script>
 
@@ -32,7 +39,7 @@
         </a>
       {/if}
       {#if content}
-        <button onclick={() => void copyContent()} class="{isError ? 'text-red-400 hover:text-red-200' : 'text-gray-400 hover:text-gray-200'}">
+        <button title="Copy output" onclick={() => void copyContent()} class="{isError ? 'text-red-400 hover:text-red-200' : 'text-gray-400 hover:text-gray-200'}">
           <Copy class="h-3 w-3" />
         </button>
       {/if}
@@ -44,6 +51,7 @@
     </div>
   </div>
 
+  {#if copyStatus}<p role="status" class="px-4 py-1 text-xs">{copyStatus}</p>{/if}
   <div class="overflow-y-auto bg-gray-900 px-4 py-3 font-mono text-sm">
     {#if lines.length > 0}
       {@const collapsed = !expanded && lines.length > defaultLines}

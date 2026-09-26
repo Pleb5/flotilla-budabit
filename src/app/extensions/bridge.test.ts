@@ -73,6 +73,8 @@ const mocks = vi.hoisted(() => {
     signer: createStore(null),
     pubkey: createStore(undefined as string | undefined),
     goto: vi.fn(),
+    replaceState: vi.fn(),
+    page: createStore({state: {router: "preserved"}}),
     openWidgetProfile: vi.fn(),
     activeRepoClass: createStore(null),
     activeExactCommunityDefinition: createStore(undefined as any),
@@ -266,7 +268,9 @@ vi.mock("@welshman/app", () => ({
 
 vi.mock("$app/navigation", () => ({
   goto: mocks.goto,
+  replaceState: mocks.replaceState,
 }))
+vi.mock("$app/stores", () => ({page: mocks.page}))
 
 vi.mock("@app/core/git-state", () => ({
   activeRepoClass: mocks.activeRepoClass,
@@ -1036,6 +1040,24 @@ describe("ExtensionBridge", () => {
       sendBridgeRequest(bridge, extension, "ui:resize", {height: 640, width: 320}),
     ).resolves.toEqual({status: "ok"})
     expect(onResizeRequest).toHaveBeenCalledWith({height: 640, width: 320})
+  })
+
+  it("updates widget deep-link fragments without navigating or losing host history state", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeExtension()
+    const bridge = new ExtensionBridge(extension as any)
+    try {
+      const path = `#run-${"a".repeat(64)}`
+      await expect(sendBridgeRequest(bridge, extension, "ui:navigate", {path})).resolves.toEqual({
+        status: "ok",
+      })
+      expect(mocks.replaceState).toHaveBeenCalledWith(path, mocks.page.get().state)
+      expect(mocks.goto).not.toHaveBeenCalled()
+      await sendBridgeRequest(bridge, extension, "ui:navigate", {path: "#"})
+      expect(mocks.replaceState).toHaveBeenLastCalledWith("#", mocks.page.get().state)
+    } finally {
+      bridge.detach()
+    }
   })
 
   it("accepts visibility only on opted-in surfaces with current settled authority", async () => {

@@ -1,12 +1,14 @@
 <script lang="ts">
-  import {untrack} from 'svelte'
+  import {setContext, untrack} from 'svelte'
+  import {copyToClipboard, eventPath, HOST_ACTIONS, navigateHost, profilePath, type HostActions} from './lib/host-actions'
+  import EventActions from './lib/components/EventActions.svelte'
+  import WorkerFailure from './lib/components/WorkerFailure.svelte'
+  import {readRunIdFromUrl, writeRunIdToUrl} from './lib/run-fragment'
   import type {WidgetBridge} from 'budabit-sdk'
   import {
     AlertCircle,
     ArrowLeft,
     ChevronDown,
-    Copy,
-    ExternalLink,
     FileCheck,
     Play,
     RotateCw,
@@ -16,10 +18,8 @@
   import {friendlyErrorMessage, normalizeRepo} from './lib/context'
   import {
     eventTagValue,
-    externalUrlForEvent,
     isFreeRun,
     mergeEventIntoDetail,
-    publicLinkForRun,
     statusLabel,
   } from './lib/workflows'
   import {
@@ -40,6 +40,7 @@
     getSelectedWorker,
     getVisibleMintOptions,
     isFreeWorker,
+    workerSubmissionBlock,
   } from './lib/submission'
   import RunSubmissionForm from './lib/components/RunSubmissionForm.svelte'
   import ConsoleOutput from './lib/components/ConsoleOutput.svelte'
@@ -104,6 +105,19 @@
   } from './lib/types'
 
   let bridge = $state<WidgetBridge | null>(null)
+  const hostActions: HostActions = {
+    openEvent: id => void openHostPath(eventPath(id, repo?.repoRelays)),
+    openProfile: pubkey => void openHostPath(profilePath(pubkey)),
+  }
+  setContext(HOST_ACTIONS, hostActions)
+
+  async function openHostPath(path: string) {
+    try {
+      await navigateHost(bridge, path)
+    } catch (error) {
+      await showToast(error instanceof Error ? error.message : 'Unable to open in Budabit', 'error')
+    }
+  }
   let repoCtx = $state<RepoContext | null>(null)
   let repo = $derived(normalizeRepo(repoCtx))
 
@@ -425,7 +439,7 @@
     if (!value) return
 
     try {
-      await navigator.clipboard.writeText(value)
+      await copyToClipboard(value)
       await showToast(`${label} copied`, 'success')
     } catch {
       await showToast(`Unable to copy ${label.toLowerCase()}`, 'error')
@@ -607,45 +621,6 @@
     applySubmissionReset()
   }
 
-  const RUN_HASH_PREFIX = '#run-'
-
-  function readRunIdFromUrl(): string | null {
-    try {
-      const parentHash = window.parent?.location?.hash
-      if (parentHash?.startsWith(RUN_HASH_PREFIX)) {
-        return parentHash.slice(RUN_HASH_PREFIX.length) || null
-      }
-    } catch {
-      // cross-origin read blocked — fall through to iframe hash
-    }
-    if (window.location.hash.startsWith(RUN_HASH_PREFIX)) {
-      return window.location.hash.slice(RUN_HASH_PREFIX.length) || null
-    }
-    return null
-  }
-
-  function writeRunIdToUrl(id: string | null) {
-    const parentTarget = id ? RUN_HASH_PREFIX + id : '#'
-    try {
-      if (window.parent && window.parent !== window) {
-        // Cross-origin hash-only navigation via string assignment to
-        // `location` is permitted by the HTML spec (same-document nav).
-        // Reading `location.hash` cross-origin is NOT permitted, so we
-        // can't use the property setter — hence this form.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        ;(window.parent as any).location = parentTarget
-      }
-    } catch {
-      // cross-origin write blocked — rely on iframe hash below
-    }
-    try {
-      const baseUrl = window.location.pathname + window.location.search
-      history.replaceState(null, '', id ? `${baseUrl}${RUN_HASH_PREFIX}${id}` : baseUrl)
-    } catch {
-      // ignore
-    }
-  }
-
   function applyWorkflowFallback() {
     if (!workflowFallback?.content) return
     try {
@@ -730,6 +705,11 @@
 
   async function generatePaymentToken() {
     if (!bridge) return
+    const accessBlock = workerSubmissionBlock(selectedWorker)
+    if (accessBlock) {
+      signerError = accessBlock
+      return
+    }
 
     generatingPaymentToken = true
     walletError = null
@@ -858,6 +838,12 @@
 
     if (!bridge || !repo || !rerunDraft) {
       signerError = 'Missing required context to submit run. Please try refreshing the page.'
+      return
+    }
+
+    const accessBlock = workerSubmissionBlock(selectedWorker)
+    if (accessBlock) {
+      signerError = accessBlock
       return
     }
 
@@ -1043,10 +1029,13 @@
 
   // Sync selected run <-> URL hash so refresh + share preserves state.
   $effect(() => {
-    const initial = readRunIdFromUrl()
-    if (initial && !selectedRunId && bridge && repo) {
-      void openRunById(initial)
-    }
+    if (!bridge || !repo) return
+    // Hydrate once per context, not every selection change (which would reopen
+    // the previous hash while the detail view is closing).
+    untrack(() => {
+      const initial = readRunIdFromUrl()
+      if (initial && !selectedRunId) void openRunById(initial)
+    })
     const onHashChange = () => {
       const next = readRunIdFromUrl()
       if (next === selectedRunId) return
@@ -1058,8 +1047,9 @@
   })
 
   $effect(() => {
+    if (!bridge || !repo) return
     if (readRunIdFromUrl() === selectedRunId) return
-    writeRunIdToUrl(selectedRunId)
+    writeRunIdToUrl(bridge, selectedRunId)
   })
 
   // Refresh the wallet once when the bridge becomes ready. untrack(): the
@@ -1754,9 +1744,7 @@
               </div>
             </div>
 
-            {#if run.status === 'failure' && !run.workflowLogEvent && run.loomResultEvent}
-              <p class="text-xs text-yellow-400">Error (workflow result event missing — status inferred from loom result)</p>
-            {/if}
+            <WorkerFailure {run} />
 
             {#if rerunDraft}
               <div class="rounded-lg border border-border bg-card p-4">
@@ -1943,8 +1931,8 @@
                             ? 'bg-sky-500/5'
                             : 'bg-emerald-500/5'}
                       <div class={`overflow-hidden rounded-md border ${headerTone.split(' ')[0]}`}>
-                        <div class={`flex items-center justify-between gap-3 border-b px-3 py-2 ${headerTone}`}>
-                          <div class="min-w-0 flex-1">
+                        <div class={`flex flex-wrap items-center justify-between gap-3 border-b px-3 py-2 ${headerTone}`}>
+                          <div class="min-w-0 basis-full sm:flex-1 sm:basis-0">
                             <div class={`text-sm font-medium ${titleTone}`}>{block.label}</div>
                             {#if block.event}
                               <div class={`mt-0.5 break-all font-mono text-[11px] ${subTone}`}>
@@ -1955,22 +1943,7 @@
                             {/if}
                           </div>
                           {#if block.event}
-                            <div class="flex shrink-0 items-center gap-2">
-                              <button class="inline-flex items-center gap-1 text-xs text-primary hover:underline" onclick={() => void copyText(block.event?.id, `${block.label} ID`)}>
-                                <Copy class="h-3 w-3" />
-                                Copy
-                              </button>
-                              <a class="inline-flex items-center gap-1 text-xs text-primary hover:underline" href={publicLinkForRun(block.event.id)} target="_blank" rel="noreferrer">
-                                Open
-                                <ExternalLink class="h-3 w-3" />
-                              </a>
-                              {#if externalUrlForEvent(block.event)}
-                                <a class="inline-flex items-center gap-1 text-xs text-primary hover:underline" href={externalUrlForEvent(block.event)} target="_blank" rel="noreferrer">
-                                  Output
-                                  <ExternalLink class="h-3 w-3" />
-                                </a>
-                              {/if}
-                            </div>
+                            <EventActions event={block.event} label={block.label} {copyText} openEvent={hostActions.openEvent} />
                           {/if}
                         </div>
                         {#if block.event}

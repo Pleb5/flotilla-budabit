@@ -1,7 +1,9 @@
 <script lang="ts">
+  import {getContext} from 'svelte'
+  import {HOST_ACTIONS, type HostActions} from '../host-actions'
   import {ChevronDown, Copy, ExternalLink, GitBranch, GitCommit, Server} from '@lucide/svelte'
   import {shortId} from '../presentation'
-  import {isFreeRun, publicLinkForRun} from '../workflows'
+  import {isFreeRun} from '../workflows'
   import ReclaimBadge from './ReclaimBadge.svelte'
   import type {WorkflowRun, LoomWorker, ReclaimUiState} from '../types'
 
@@ -26,6 +28,7 @@
     copyText,
     onReclaim,
   }: Props = $props()
+  const hostActions = getContext<HostActions>(HOST_ACTIONS)
 
   const fmt = (n: number | null | undefined, sign: '' | '+' | '−' = '') =>
     n === null || n === undefined ? '—' : `${sign}${n.toLocaleString()} sats`
@@ -62,14 +65,12 @@
           onclick={() => void copyText(run.id, 'Run ID')}>
           <Copy class="h-3 w-3" />
         </button>
-        <a
+        <button
           class="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
           title="Open event"
-          href={publicLinkForRun(run.id)}
-          target="_blank"
-          rel="noreferrer">
+          onclick={() => hostActions.openEvent(run.id)}>
           <ExternalLink class="h-3 w-3" />
-        </a>
+        </button>
       </div>
       {#if run.workflowPath}
         <div class="truncate text-xs text-muted-foreground" title={run.workflowPath}>
@@ -98,14 +99,12 @@
             onclick={() => void copyText(worker.pubkey, 'Worker pubkey')}>
             <Copy class="h-3 w-3" />
           </button>
-          <a
+          <button
             class="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
             title="Open profile"
-            href={`nostr:${worker.pubkey}`}
-            target="_blank"
-            rel="noreferrer">
+            onclick={() => hostActions.openProfile(worker.pubkey)}>
             <ExternalLink class="h-3 w-3" />
-          </a>
+          </button>
         </div>
         <div class="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {#if worker.architecture}<span>{worker.architecture}</span>{/if}
