@@ -93,6 +93,52 @@ describe("Cashu app service", () => {
     return mint
   }
 
+  it.each([
+    {amount: 3, resend: false},
+    {amount: 16, resend: false},
+    {amount: 3, resend: true},
+    {amount: 16, resend: true},
+  ])(
+    "preserves funds after token/recovery commit failures ($amount sats, resend=$resend)",
+    async ({amount, resend}) => {
+      const mint = await fundedMint()
+      const saved = new IndexedDbRepositories({name: "budabit-coco-wallet"})
+      await saved.init()
+      const proto = Object.getPrototypeOf(saved.sendOperationRepository)
+      const update = proto.update
+      const write = vi.spyOn(proto, "update").mockImplementation(async function (
+        this: typeof saved.sendOperationRepository,
+        ...args: unknown[]
+      ) {
+        if (["pending", "rolled_back"].includes((args[0] as {state: string}).state))
+          throw new Error("Synthetic token commit failure")
+        return update.apply(this, args)
+      })
+      try {
+        await expect(createCashuToken(amount, mint.url)).rejects.toThrow()
+        expect(await saved.sendOperationRepository.getByState("executing")).toHaveLength(1)
+        write.mockRestore()
+        expect(get(cashuTotalBalance)).toBe(16)
+        // Recovery may restore proofs before its own terminal-state write fails.
+        // A later recovery must not release those proofs from a newer send.
+        if (resend) await createCashuToken(16, mint.url)
+        await reloadCashuWallet()
+        const sends = await saved.sendOperationRepository.getByState("pending")
+        const savedAmount = sends
+          .filter(entry => "token" in entry && entry.token)
+          .reduce((sum, entry) => sum + entry.amount.toNumber(), 0)
+        expect(get(cashuTotalBalance) + savedAmount).toBe(16)
+        expect(get(cashuTotalBalance)).toBe(resend ? 0 : 16)
+        expect(mint.calls.filter(call => call.path === "/v1/swap")).toHaveLength(
+          amount === 16 ? 0 : 1,
+        )
+      } finally {
+        write.mockRestore()
+        saved.db.close()
+      }
+    },
+  )
+
   it("does no historical status work at startup or preview, and budgets explicit cold receipt reconciliation", async () => {
     const mint = await fundedMint()
     const token = await createCashuToken(4, mint.url)

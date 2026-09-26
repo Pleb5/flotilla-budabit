@@ -196,6 +196,13 @@ before retrying a blocked upgrade.
    orphan-reservation cleanup, melt/mint recovery and default settlement processors
    retain their SDK behavior. The default remains upstream-compatible for other
    callers, and an explicit send recovery call can still check pending sends.
+5. **Interrupted send token commit:** execution can save proofs as `inflight`
+   before committing the pending token. Recovery now returns exact-match inputs
+   owned by that send to `ready`, and reconciles already-saved swap outputs with
+   the mint before returning unspent outputs to `ready`. Pending/unknown output
+   states keep the operation recoverable rather than hiding it as cancelled.
+   Outputs reserved by a different operation are not released. Tests cover both
+   token-commit and subsequent recovery-commit failure followed by reload.
 
 The current patched native database version is **323**. Future adapter upgrades
 must account for these intermediate versions, metadata and legacy-key marker.

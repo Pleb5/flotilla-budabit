@@ -1,5 +1,5 @@
 diff --git a/dist/index-CvKNFBXJ.d.ts b/dist/index-CvKNFBXJ.d.ts
-index a32709943f7e5c50555c6f85ce01d7d6d95f8686..1f2554aec181ce0f592f909930478ddddc27e4ad 100644
+index a32709943f7e5c50555c6f85ce01d7d6d95f8686..14673c5971e9afff50bb200a46078e6f1530e11d 100644
 --- a/dist/index-CvKNFBXJ.d.ts
 +++ b/dist/index-CvKNFBXJ.d.ts
 @@ -202,6 +202,8 @@ interface Keyset {
@@ -21,7 +21,7 @@ index a32709943f7e5c50555c6f85ce01d7d6d95f8686..1f2554aec181ce0f592f909930478ddd
     * Clean up a failed init operation.
     * Releases any orphaned proof reservations and deletes the operation.
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index d77efe485c85f1e28e4969cc942ac851059d3ae1..382a897273aa6b073d52e4631b41be82b7c5c993 100644
+index d77efe485c85f1e28e4969cc942ac851059d3ae1..b07d00e5c51c69d783054f2b5581465683d22831 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
 @@ -229,7 +229,7 @@ interface PrepareSendInput {
@@ -43,7 +43,7 @@ index d77efe485c85f1e28e4969cc942ac851059d3ae1..382a897273aa6b073d52e4631b41be82
    repo: Repositories;
    /** Function that returns the wallet seed as Uint8Array */
 diff --git a/dist/index.js b/dist/index.js
-index 680223d0a4201f4b29fbce8458cda9fcbf2d78e0..fcf05e4e7610884eb160e9f44bada906a93b2d68 100644
+index 680223d0a4201f4b29fbce8458cda9fcbf2d78e0..fed31150e3d4a03ace7048252205ee8ca8772577 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -1117,7 +1117,8 @@ var MintService = class {
@@ -92,7 +92,38 @@ index 680223d0a4201f4b29fbce8458cda9fcbf2d78e0..fcf05e4e7610884eb160e9f44bada906
  			for (const op of pendingOps) try {
  				await this.checkPendingOperation(op);
  				pendingCount++;
-@@ -12015,7 +12018,7 @@ var AuthApi = class {
+@@ -10565,7 +10568,12 @@ var DefaultSendHandler = class {
+ 	async recoverExecuting(ctx) {
+ 		const { operation, wallet, proofRepository, proofService, logger } = ctx;
+ 		if (!operation.needsSwap) {
+-			await proofService.releaseProofs(operation.mintUrl, operation.inputProofSecrets);
++			// Execution may have marked the inputs inflight before the token commit failed.
++			// No token is returned until pending is durable; release its value as well as its reservation.
++			const inputs = await proofRepository.getProofsBySecrets(operation.mintUrl, operation.inputProofSecrets);
++			const owned = inputs.filter((p) => p.usedByOperationId === operation.id);
++			await proofService.restoreProofsToReady(operation.mintUrl, owned.filter((p) => p.state === "ready" || p.state === "inflight").map((p) => p.secret));
++			await proofService.releaseProofs(operation.mintUrl, owned.filter((p) => p.state === "spent").map((p) => p.secret));
+ 			return {
+ 				status: "FAILED",
+ 				failed: {
+@@ -10608,6 +10616,16 @@ var DefaultSendHandler = class {
+ 				unit: operation.unit,
+ 				createdByOperationId: operation.id
+ 			});
++			// A crash after saving swap outputs but before saving the pending token leaves
++			// the send outputs inflight. Reconcile them before making this operation terminal.
++			// Never release an output subsequently reserved by a different operation.
++			const stranded = existingProofs.filter((p) => allOutputSecrets.includes(p.secret) && p.state === "inflight" && (!p.usedByOperationId || p.usedByOperationId === operation.id));
++			if (stranded.length) {
++				const states = await wallet.checkProofsStates(stranded);
++				if (states.length !== stranded.length || states.some((s) => !["UNSPENT", "SPENT"].includes(s.state))) throw new Error("Send output recovery is unconfirmed");
++				await proofService.setProofState(operation.mintUrl, stranded.filter((_, i) => states[i].state === "SPENT").map((p) => p.secret), "spent");
++				await proofService.restoreProofsToReady(operation.mintUrl, stranded.filter((_, i) => states[i].state === "UNSPENT").map((p) => p.secret));
++			}
+ 		}
+ 		await proofService.setProofState(operation.mintUrl, operation.inputProofSecrets, "spent");
+ 		const failed = {
+@@ -12015,7 +12033,7 @@ var AuthApi = class {
  var SendOpsApi = class {
  	/** Recovery helpers for send operations. */
  	recovery = {
@@ -101,7 +132,7 @@ index 680223d0a4201f4b29fbce8458cda9fcbf2d78e0..fcf05e4e7610884eb160e9f44bada906
  		inProgress: () => this.sendOperationService.isRecoveryInProgress()
  	};
  	/** Lightweight diagnostics for send operations. */
-@@ -13684,7 +13687,7 @@ async function initializeCoco(config) {
+@@ -13684,7 +13702,7 @@ async function initializeCoco(config) {
  	if (!mintOperationProcessorConfig?.disabled) await coco.enableMintOperationProcessor(mintOperationProcessorConfig);
  	const meltSettlementProcessorConfig = config.processors?.meltSettlementProcessor;
  	if (!meltSettlementProcessorConfig?.disabled) await coco.enableMeltSettlementProcessor(meltSettlementProcessorConfig);
