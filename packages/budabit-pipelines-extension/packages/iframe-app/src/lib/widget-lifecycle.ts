@@ -2,8 +2,10 @@ import { createWidgetBridge, type WidgetBridge } from 'budabit-sdk';
 import { watchHostTheme } from '../host-theme';
 import { getHostOrigin, transformHostContext } from './context';
 import type { RepoContext } from './types';
+import {observeContentHeight} from './content-height';
 
 interface WidgetLifecycleArgs {
+  contentElement?: HTMLElement;
   onBridgeChange: (bridge: WidgetBridge | null) => void;
   onRepoContextChange: (repoContext: RepoContext | null) => void;
   onRepoChange: () => void;
@@ -44,6 +46,7 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
 
   // Match the host application's theme (light/dark + background)
   const offTheme = watchHostTheme(bridge);
+  const offHeight = args.contentElement ? observeContentHeight(bridge, args.contentElement) : () => {};
 
   const handleRepoContext = (input: unknown, options: { resetRunState: boolean }) => {
     contextReceived = true;
@@ -113,6 +116,7 @@ export function setupWidgetLifecycle(args: WidgetLifecycleArgs) {
     cancelled = true;
     if (pollTimer) clearTimeout(pollTimer);
     offTheme();
+    offHeight();
     offInit();
     offUnmounting();
     offContext();

@@ -34,7 +34,11 @@ export function postRepoTabInit(
           address: `30617:${extension.repoContext.pubkey}:${extension.repoContext.name}`,
         }
       : null,
-    capabilities: getHostCapabilitySnapshot({widget: extension.widget, slot: "repo-tab"}),
+    capabilities: getHostCapabilitySnapshot({
+      widget: extension.widget,
+      slot: "repo-tab",
+      resize: Boolean(extension.onResizeRequest),
+    }),
     theme,
     themeBackground,
   })

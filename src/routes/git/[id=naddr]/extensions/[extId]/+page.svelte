@@ -1,8 +1,7 @@
 <style>
   .extension-panel {
     width: 100%;
-    height: calc(100vh - 4rem);
-    min-height: 600px;
+    flex: 0 0 auto;
     border: 1px solid hsl(var(--ng-border, 214 30% 84%));
     border-radius: 12px;
     overflow: hidden;
@@ -37,7 +36,8 @@
 
   .extension-iframe {
     width: 100%;
-    flex: 1 1 auto;
+    flex: 0 0 auto;
+    height: var(--extension-height, 600px);
     min-height: 0;
     border: none;
     display: block;
@@ -71,6 +71,7 @@
   import {postRepoTabContext, postRepoTabInit} from "@app/extensions/repo-tab-context"
   import {activeUserCommunityRefs, activePreferredCommunities} from "@app/core/community-state"
   import {selectRepoCiWatchers} from "@app/extensions/ci-watchers"
+  import {MAX_REPO_TAB_RESIZE_HEIGHT} from "@app/extensions/host-capabilities"
   import {theme} from "@app/util/theme"
   import ExtensionIcon from "@app/components/ExtensionIcon.svelte"
   import Spinner from "@lib/components/Spinner.svelte"
@@ -151,6 +152,7 @@
   let error = $state<string | null>(null)
   let retryCount = $state(0)
   let iframeSrc = $state<string | undefined>(undefined)
+  let iframeHeight = $state<number | undefined>(undefined)
   let initializedOrigin = ""
 
   // Tracks which extension entrypoint the iframe is currently bound to so
@@ -166,6 +168,7 @@
       ready = false
       currentFrameKey = undefined
       iframeSrc = undefined
+      iframeHeight = undefined
       return
     }
 
@@ -186,6 +189,7 @@
       error = null
       loading = true
       retryCount = 0
+      iframeHeight = undefined
       currentFrameKey = frameKey
       const frameUrl = new URL(secureExtEntrypoint)
       // Pass the initial deep link without requiring cross-origin parent reads.
@@ -224,6 +228,11 @@
       id: identifier,
       origin,
       repoContext,
+      onResizeRequest: ({height}) => {
+        if (height !== undefined) {
+          iframeHeight = Math.min(MAX_REPO_TAB_RESIZE_HEIGHT, Math.max(1, Math.ceil(height)))
+        }
+      },
       widget: {
         id: `ext-${identifier}`,
         kind: 30033,
@@ -344,6 +353,7 @@
     extInstance = null
     ready = false
     retryCount++
+    iframeHeight = undefined
     // Force iframe reload by updating src with cache buster
     if (secureExtEntrypoint) {
       const url = new URL(secureExtEntrypoint)
@@ -475,7 +485,9 @@
     </div>
   </Card>
 {:else}
-  <div class="extension-panel">
+  <div
+    class="extension-panel"
+    style:--extension-height={iframeHeight === undefined ? undefined : `${iframeHeight}px`}>
     {#if error}
       <div class="extension-error">
         <div class="flex items-center justify-between gap-4">

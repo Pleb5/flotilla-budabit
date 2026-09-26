@@ -12,7 +12,8 @@
     "nostr:nip44Encrypt",
     "nostr:nip44Decrypt",
     "ui:toast",
-    "ui:navigate"
+    "ui:navigate",
+    "ui:resize"
   ],
   "entrypoint": "http://localhost:5173/",
   "slot": {

@@ -13,6 +13,8 @@ export const MAX_NOSTR_QUERY_LIMIT = MAX_EXTENSION_EVENTS_PER_FILTER
 export const MAX_STORAGE_KEY_LENGTH = 256
 export const MAX_STORAGE_VALUE_SIZE = 1024 * 1024
 export const MAX_WIDGET_RESIZE_HEIGHT = 2_400
+// Repository tabs are full documents; their host page owns vertical scrolling.
+export const MAX_REPO_TAB_RESIZE_HEIGHT = 1_000_000
 export const MAX_WIDGET_PROFILE_PUBKEYS = 512
 
 export type BridgeHandler = (
@@ -92,7 +94,7 @@ export const getHostCapabilitySnapshot = ({
       nostrSubscriptionsPerRelay: MAX_EXTENSION_SUBSCRIPTIONS_PER_RELAY,
       storageKeyLength: MAX_STORAGE_KEY_LENGTH,
       storageValueBytes: MAX_STORAGE_VALUE_SIZE,
-      widgetResizeHeight: MAX_WIDGET_RESIZE_HEIGHT,
+      widgetResizeHeight: slot === "repo-tab" ? MAX_REPO_TAB_RESIZE_HEIGHT : MAX_WIDGET_RESIZE_HEIGHT,
       profilePubkeys: MAX_WIDGET_PROFILE_PUBKEYS,
     },
     surface: {

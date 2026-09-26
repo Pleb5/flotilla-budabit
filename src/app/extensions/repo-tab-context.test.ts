@@ -2,6 +2,7 @@ import {describe, expect, it, vi} from "vitest"
 import {postRepoTabContext, postRepoTabInit} from "./repo-tab-context"
 import {buildRepoExtensionContext} from "./repo-context"
 import type {LoadedWidgetExtension} from "./types"
+import {MAX_REPO_TAB_RESIZE_HEIGHT} from "./host-capabilities"
 
 describe("repo-tab lifecycle payloads", () => {
   it("sends canonical context, capabilities, viewer updates and explicit clears on the actual surface", () => {
@@ -49,5 +50,17 @@ describe("repo-tab lifecycle payloads", () => {
     postRepoTabContext(bridge, ext, undefined, null)
     expect(ext.repoContext).toBeUndefined()
     expect(bridge.post).toHaveBeenLastCalledWith("context:repoUpdate", null)
+
+    ext.onResizeRequest = vi.fn()
+    postRepoTabInit(bridge, ext, owner, "dark", "#111")
+    expect(bridge.post).toHaveBeenLastCalledWith(
+      "widget:init",
+      expect.objectContaining({
+        capabilities: expect.objectContaining({
+          surface: {kind: "widget", resize: true, visibility: false, slot: "repo-tab"},
+          limits: expect.objectContaining({widgetResizeHeight: MAX_REPO_TAB_RESIZE_HEIGHT}),
+        }),
+      }),
+    )
   })
 })

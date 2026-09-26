@@ -105,6 +105,7 @@
   } from './lib/types'
 
   let bridge = $state<WidgetBridge | null>(null)
+  let contentElement: HTMLDivElement | undefined = $state()
   const hostActions: HostActions = {
     openEvent: id => void openHostPath(eventPath(id, repo?.repoRelays)),
     openProfile: pubkey => void openHostPath(profilePath(pubkey)),
@@ -1371,6 +1372,7 @@
 
   $effect(() => {
     return setupWidgetLifecycle({
+      contentElement,
       onBridgeChange: nextBridge => {
         bridge = nextBridge
       },
@@ -1393,7 +1395,7 @@
   })
 </script>
 
-<div class="min-h-screen w-full bg-background p-4 text-foreground">
+<div bind:this={contentElement} class="w-full bg-background p-4 text-foreground">
   <div class="w-full space-y-4">
     <!-- Tab Switcher -->
     <div class="flex items-center gap-1 border-b border-border">
