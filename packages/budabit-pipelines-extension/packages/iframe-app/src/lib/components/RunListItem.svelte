@@ -20,9 +20,17 @@
   const spinning = $derived(run.status === 'running' || run.status === 'in_progress')
 </script>
 
-<button
+<div
+  role="button"
+  tabindex="0"
   class={`group flex w-full items-start gap-4 px-4 py-3 text-left transition-colors hover:bg-accent/40 sm:items-center ${divider ? 'border-t border-border' : ''} ${selected ? 'bg-accent/30' : ''}`}
-  onclick={onSelect}>
+  onclick={onSelect}
+  onkeydown={event => {
+    if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+      event.preventDefault()
+      onSelect()
+    }
+  }}>
   <div class={`shrink-0 pt-0.5 sm:pt-0 ${getStatusColor(run.status, visualOpts)}`}>
     {#if spinning}
       <RotateCw class="h-5 w-5 animate-spin" />
@@ -88,4 +96,4 @@
   <div class="shrink-0 pt-0.5 text-muted-foreground transition-colors group-hover:text-foreground sm:pt-0">
     <ChevronRight class="h-5 w-5" />
   </div>
-</button>
+</div>
