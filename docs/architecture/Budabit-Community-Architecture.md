@@ -395,6 +395,8 @@ Budabit discovers wrappers by stable `#h=<communityId>`, then requires each targ
 
 Repository announcements are a deliberate exception to this targeting model. Budabit currently supports only direct repository association: a community `kind:30617` MUST contain exactly one `h=<communityId>` and belongs to no other community. Catalogs query `kind:30617` with `#h=<communityId>` and locally require a current repository-section writer. Generic targeting and repository-context plumbing remains available for a future explicit multi-community repository feature, but current clients MUST NOT publish, request, or admit `kind:30222` as a repository association.
 
+Repository association writers emit only that `h` tag, optionally with a community relay hint; they do not add a community definition `a` tag. Readers retain support for exact definition hints in older announcements. Repository cards, overview, header, and settings resolve display metadata from matching `kind:32222` definitions. An `h`-only association remains visible while its definition loads, and does not select an arbitrary owner when multiple branches share the stable ID. Editing unrelated repository metadata preserves the existing association.
+
 Example targeted calendar publication:
 
 ```json

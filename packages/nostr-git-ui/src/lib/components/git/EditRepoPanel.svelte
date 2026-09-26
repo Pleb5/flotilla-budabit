@@ -131,6 +131,7 @@
     searchProfilesUpdateSignal?: ProfileSearchUpdateSignal;
     searchRelays?: (query: string) => Promise<string[]>;
     communityOptions?: RepoCommunityOption[];
+    currentCommunityLabel?: string;
     showWorkflowJobRunners?: boolean;
     workflowJobRunners?: string[];
     workflowJobRunnersEventExists?: boolean;
@@ -152,6 +153,7 @@
     searchProfilesUpdateSignal,
     searchRelays,
     communityOptions = [],
+    currentCommunityLabel,
     showWorkflowJobRunners = false,
     workflowJobRunners = [],
     workflowJobRunnersEventExists = false,
@@ -192,7 +194,7 @@
   function searchMaintainerProfiles(query: string) {
     if (!searchProfiles) return Promise.resolve([]);
     return searchProfiles(query, {
-      communityAddress: formData.communityAddress || undefined,
+      communityAddress: findRepoCommunityOption(communityOptions, formData.communityAddress)?.address,
     });
   }
 
@@ -287,7 +289,7 @@
       cloneUrls: editableCloneUrls,
       hashtags: copyList(repo.hashtags),
       earliestUniqueCommit: repo.earliestUniqueCommit || "",
-      communityAddress: repo.community?.address || "",
+      communityAddress: repo.community?.address || repo.community?.communityId || "",
       upstreams: repo.repoEvent ? getRepoUpstreamTags(repo.repoEvent) : [],
       workflowJobRunners: copyList(workflowJobRunners),
     };
@@ -1488,6 +1490,8 @@
 
         <RepoCommunitySelect
           options={communityOptions}
+          current={repo.community}
+          currentLabel={currentCommunityLabel}
           bind:value={formData.communityAddress}
           label="Repository community"
           description="Set, change, or remove the community bound to this repository identity."

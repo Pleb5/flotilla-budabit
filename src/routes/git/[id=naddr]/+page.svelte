@@ -19,8 +19,7 @@
   import Spinner from "@lib/components/Spinner.svelte"
   import Markdown from "@lib/components/Markdown.svelte"
   import {formatDistanceToNow} from "date-fns"
-  import {DELETE, getTagValue} from "@welshman/util"
-  import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
+  import {getTagValue} from "@welshman/util"
   import Button from "@lib/components/Button.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ProfileDetail from "@app/components/ProfileDetail.svelte"
@@ -49,27 +48,18 @@
   } from "@nostr-git/core/events"
   import {isGraspRelayUrl, isGraspRepoHttpUrl} from "@nostr-git/core/utils"
   import {page} from "$app/stores"
-  import {pubkey, repository} from "@welshman/app"
+  import {pubkey} from "@welshman/app"
   import {makeExactCommunityPath} from "@app/util/routes"
   import {nip19} from "nostr-tools"
   import {clip} from "@app/util/toast"
   import {getDisplayedRepoWebUrls} from "@app/util/repo-web-urls"
   import {buildDefaultNgitCloneUrl} from "@app/util/repo-clone-url"
   import {resolveRepoReadmeHref} from "@app/util/repo-readme-links"
+  import {normalizeRelays} from "@app/core/community"
   import {
-    makeCommunityPointer,
-    normalizeRelays,
-    parseCommunityDefinitionAddress,
-    type CommunityDefinition,
-  } from "@app/core/community"
-  import {
-    COMMUNITY_DISCOVERY_RELAYS,
-    hydratePubkeyOutboxRelays,
-    loadCommunityEvents,
-    makeExactCommunityDefinitionFilter,
-    resolveExactCommunityDefinition,
-    selectExactCommunityDefinition,
-  } from "@app/core/community-state"
+    REPO_COMMUNITY_METADATA_KEY,
+    type RepoCommunityMetadata,
+  } from "@app/core/repo-community-metadata.svelte"
   import {makeEventShareEntityForEvent} from "@app/util/event-share"
 
   import {getContext, onDestroy} from "svelte"
@@ -78,6 +68,7 @@
 
   // Get repoClass from context
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoCommunityMetadata = getContext<RepoCommunityMetadata>(REPO_COMMUNITY_METADATA_KEY)
   const repoProfileRelays = getContext<() => string[]>(REPO_PROFILE_RELAYS_KEY)
   const repoActions = getContext<RepoActions>(REPO_ACTIONS_KEY)
   const statusEventsByRootStore =
@@ -343,59 +334,8 @@
     community: repoClass.community,
   })
 
-  let repoCommunityDefinition = $state<CommunityDefinition>()
-  const repoCommunityPointer = $derived.by(() => {
-    const community = repoClass.community
-    const pointer = community ? parseCommunityDefinitionAddress(community.address) : undefined
-    return pointer
-      ? makeCommunityPointer({...pointer, relayHints: [community?.relay || ""]})
-      : undefined
-  })
-  const repoCommunityLabel = $derived.by(() => {
-    if (!repoCommunityPointer) return ""
-    const definition =
-      repoCommunityDefinition?.pointer.address === repoCommunityPointer.address
-        ? repoCommunityDefinition
-        : undefined
-    return definition?.metadata.name || `${repoCommunityPointer.communityId.slice(0, 8)}...`
-  })
-
-  $effect(() => {
-    const pointer = repoCommunityPointer
-    if (!pointer) {
-      repoCommunityDefinition = undefined
-      return
-    }
-
-    return deriveEventsAsc(
-      deriveEventsById({
-        repository,
-        filters: [
-          makeExactCommunityDefinitionFilter(pointer),
-          {kinds: [DELETE], authors: [pointer.ownerPubkey]},
-        ],
-      }),
-    ).subscribe(events => {
-      repoCommunityDefinition = selectExactCommunityDefinition(events, pointer)
-    })
-  })
-
-  $effect(() => {
-    const pointer = repoCommunityPointer
-    if (!pointer) return
-
-    const controller = new AbortController()
-    // The loader hydrates the local event store; the subscription above also
-    // picks up cached definitions, later renames, and deletions.
-    void resolveExactCommunityDefinition(pointer, {
-      discoveryRelays: COMMUNITY_DISCOVERY_RELAYS,
-      hydrateOwnerOutbox: hydratePubkeyOutboxRelays,
-      loadEvents: (relays, filters) =>
-        loadCommunityEvents(relays, filters, {timeout: 3000, signal: controller.signal}),
-    }).catch(() => undefined)
-
-    return () => controller.abort()
-  })
+  const repoCommunityPointer = $derived(repoCommunityMetadata.pointer)
+  const repoCommunityLabel = $derived(repoCommunityMetadata.label)
 
   const repoCommunityProfileRelays = $derived.by(() => {
     const relays = repoProfileRelays?.() || []
@@ -987,16 +927,23 @@
                   </div>
                 {/if}
 
-                {#if repoMetadata.community && repoCommunityPointer}
+                {#if repoMetadata.community}
                   <div class="flex items-center gap-2 py-1">
                     <span class="flex-shrink-0 text-muted-foreground">Community</span>
-                    <a
-                      href={makeExactCommunityPath(repoCommunityPointer)}
-                      title={repoCommunityLabel}
-                      data-testid="repo-community-link"
-                      class="min-w-0 flex-1 truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15">
-                      {repoCommunityLabel}
-                    </a>
+                    {#if repoCommunityPointer}
+                      <a
+                        href={makeExactCommunityPath(repoCommunityPointer)}
+                        title={repoCommunityLabel}
+                        data-testid="repo-community-link"
+                        class="min-w-0 flex-1 truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15">
+                        {repoCommunityLabel}
+                      </a>
+                    {:else}
+                      <span
+                        data-testid="repo-community-label"
+                        class="min-w-0 flex-1 truncate text-xs"
+                        title={repoMetadata.community.communityId}>{repoCommunityLabel}</span>
+                    {/if}
                   </div>
                 {/if}
 

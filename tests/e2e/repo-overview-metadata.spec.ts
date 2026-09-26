@@ -153,6 +153,71 @@ const createOverviewCommunity = (name: string, createdAt = overviewMetadata.crea
     created_at: createdAt,
   })
 
+test("h-only community association resolves on a direct repository load and matches its header", async ({
+  page,
+}) => {
+  const relay = await setupOverview(
+    page,
+    undefined,
+    {
+      community: {
+        communityId: overviewCommunity.communityId,
+        relay: overviewCommunity.relayHints[0],
+      },
+    },
+    {
+      seedEventsByRelay: {
+        "wss://overview-community.test/": [createOverviewCommunity("BudaBit h-only")],
+      },
+    },
+  )
+  await page.goto(overviewMetadataPath)
+  for (const id of ["repo-community-link", "repo-header-community-link"]) {
+    await expect(page.getByTestId(id)).toHaveText("BudaBit h-only")
+    await expect(page.getByTestId(id)).toHaveAttribute("href", `/c/${overviewCommunity.naddr}`)
+  }
+  await cacheOverviewEvent(
+    page,
+    createOverviewMetadataAnnouncement({created_at: overviewMetadata.created_at + 1}),
+  )
+  await expect(page.getByTestId("repo-community-link")).toHaveCount(0)
+  await expect(page.getByTestId("repo-community-label")).toHaveCount(0)
+  await expect(page.getByTestId("repo-header-community-link")).toHaveCount(0)
+  expect(relay.getPublishedEvents()).toEqual([])
+})
+
+test("settings preserves an h-only association and dirty edits while its name hydrates", async ({
+  page,
+}) => {
+  const pageErrors: Error[] = []
+  page.on("pageerror", error => pageErrors.push(error))
+  const relay = await setupOverview(page, TEST_PUBKEYS.alice, {
+    community: {communityId: overviewCommunity.communityId, relay: overviewCommunity.relayHints[0]},
+  })
+  await page.goto(`${overviewMetadataPath}/settings`)
+  const selection = page.getByLabel("Repository community", {exact: true})
+  await expect(selection).toHaveValue(overviewCommunity.communityId)
+  await expect(selection.locator("option:checked")).toHaveText(
+    `${overviewCommunity.communityId.slice(0, 8)}... (current)`,
+  )
+  await expect(page.getByRole("button", {name: "Save Changes", exact: true})).toBeDisabled()
+  const displayName = page.getByLabel("Display name *", {exact: true})
+  await displayName.fill("Unsaved repository name")
+  await cacheOverviewEvent(page, createOverviewCommunity("Hydrated community"))
+  await expect(selection.locator("option:checked")).toHaveText("Hydrated community (current)")
+  await expect(selection).toHaveValue(overviewCommunity.communityId)
+  await expect(displayName).toHaveValue("Unsaved repository name")
+  await selection.selectOption("")
+  await cacheOverviewEvent(
+    page,
+    createOverviewCommunity("Renamed community", overviewMetadata.created_at + 1),
+  )
+  await expect(selection).toHaveValue("")
+  await expect(displayName).toHaveValue("Unsaved repository name")
+  expect(relay.getPublishedEvents()).toEqual([])
+  expect(pageErrors).toEqual([])
+})
+
 test("community metadata uses the exact definition name and updates after a rename", async ({
   page,
 }) => {

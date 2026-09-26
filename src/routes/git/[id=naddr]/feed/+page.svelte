@@ -8,6 +8,10 @@
   import RepoFeedGitItem from "@app/components/RepoFeedGitItem.svelte"
   import {activeUserCommunityRefs} from "@app/core/community-state"
   import {
+    REPO_COMMUNITY_METADATA_KEY,
+    type RepoCommunityMetadata,
+  } from "@app/core/repo-community-metadata.svelte"
+  import {
     REPO_FEED_ACTIVITY_KEY,
     REPO_KEY,
     REPO_RELAYS_KEY,
@@ -20,6 +24,7 @@
     | {type: "activity"; id: string; value: TrustedEvent}
 
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoCommunityMetadata = getContext<RepoCommunityMetadata>(REPO_COMMUNITY_METADATA_KEY)
   const repoRelaysStore = getContext<Readable<string[]>>(REPO_RELAYS_KEY)
   const repoFeedActivityStore = getContext<Readable<TrustedEvent[]>>(REPO_FEED_ACTIVITY_KEY)
   const resolvedStatusByRootStore =
@@ -37,7 +42,7 @@
   const repoRelays = $derived.by(() => $repoRelaysStore || [])
   const resolvedStatusByRoot = $derived.by(() => $resolvedStatusByRootStore || new Map())
   const defaultThreadCommunityAddress = $derived.by(() => {
-    const communityAddress = repoClass.community?.address || ""
+    const communityAddress = repoCommunityMetadata.pointer?.address || ""
     return $activeUserCommunityRefs.some(ref => ref.community.address === communityAddress)
       ? communityAddress
       : ""

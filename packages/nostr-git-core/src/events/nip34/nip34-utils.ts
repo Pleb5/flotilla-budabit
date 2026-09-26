@@ -64,7 +64,8 @@ export const REPO_COMMUNITY_ADDRESS_TAG = "a"
 const REPO_COMMUNITY_DEFINITION_KIND = 32222
 
 export interface RepoCommunityBinding {
-  address: string
+  /** Optional exact branch hint read from older announcements; not emitted on writes. */
+  address?: string
   communityId: string
   relay?: string
 }
@@ -95,22 +96,21 @@ export function parseRepoCommunityBinding(
   eventOrTags: {tags?: readonly string[][]} | readonly string[][],
 ): RepoCommunityBinding | undefined {
   const tags = isTagArray(eventOrTags) ? eventOrTags : (eventOrTags.tags ?? [])
+  const scopes = tags.filter(tag => tag[0] === REPO_COMMUNITY_TAG)
+  if (scopes.length !== 1) return undefined
+  const tag = scopes[0]
+  const communityId = normalizeRepoCommunityId(tag[1])
+  if (!communityId) return undefined
   const addresses = tags
     .filter(tag => tag[0] === REPO_COMMUNITY_ADDRESS_TAG)
     .map(tag => normalizeRepoCommunityAddress(tag[1]))
     .filter((address): address is string => Boolean(address))
 
-  for (const tag of tags) {
-    if (tag[0] !== REPO_COMMUNITY_TAG) continue
-    const communityId = normalizeRepoCommunityId(tag[1])
-    if (!communityId) continue
-    const address = addresses.find(candidate => candidate.endsWith(`:${communityId}`))
-    if (!address) continue
-    const relay = tag[2] ? sanitizeRelays([tag[2]])[0] : undefined
-    return relay ? {address, communityId, relay} : {address, communityId}
-  }
-
-  return undefined
+  // Preserve an unambiguous legacy branch hint without requiring it for association.
+  const matching = [...new Set(addresses.filter(address => address.endsWith(`:${communityId}`)))]
+  const address = matching.length === 1 ? matching[0] : undefined
+  const relay = tag[2] ? sanitizeRelays([tag[2]])[0] : undefined
+  return {communityId, ...(address ? {address} : {}), ...(relay ? {relay} : {})}
 }
 
 export function withRepoCommunityBinding<T extends {tags?: string[][]}>(
@@ -122,15 +122,11 @@ export function withRepoCommunityBinding<T extends {tags?: string[][]}>(
       tag[0] !== REPO_COMMUNITY_TAG &&
       !(tag[0] === REPO_COMMUNITY_ADDRESS_TAG && normalizeRepoCommunityAddress(tag[1])),
   )
-  const address = normalizeRepoCommunityAddress(community?.address)
   const communityId = normalizeRepoCommunityId(community?.communityId)
 
-  if (address && communityId && address.endsWith(`:${communityId}`)) {
+  if (communityId) {
     const relay = community?.relay ? sanitizeRelays([community.relay])[0] : undefined
     tags.push(relay ? [REPO_COMMUNITY_TAG, communityId, relay] : [REPO_COMMUNITY_TAG, communityId])
-    tags.push(
-      relay ? [REPO_COMMUNITY_ADDRESS_TAG, address, relay] : [REPO_COMMUNITY_ADDRESS_TAG, address],
-    )
   }
 
   return {...event, tags}
@@ -412,17 +408,11 @@ export function createRepoAnnouncementEvent(opts: {
   ]
   if (opts.name) tags.push(["name", opts.name])
   if (opts.community) {
-    const address = normalizeRepoCommunityAddress(opts.community.address)
     const communityId = normalizeRepoCommunityId(opts.community.communityId)
-    if (address && communityId && address.endsWith(`:${communityId}`)) {
+    if (communityId) {
       const relay = opts.community.relay ? sanitizeRelays([opts.community.relay])[0] : undefined
       tags.push(
         relay ? [REPO_COMMUNITY_TAG, communityId, relay] : [REPO_COMMUNITY_TAG, communityId],
-      )
-      tags.push(
-        relay
-          ? [REPO_COMMUNITY_ADDRESS_TAG, address, relay]
-          : [REPO_COMMUNITY_ADDRESS_TAG, address],
       )
     }
   }

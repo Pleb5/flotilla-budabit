@@ -26,10 +26,15 @@ export const overviewMetadata = {
 export const createOverviewMetadataAnnouncement = ({
   community,
   ...changes
-}: Partial<RepoAnnouncementOptions> & {community?: RepoCommunityBinding} = {}) =>
-  signTestEvent(
-    withRepoCommunityBinding(createRepoAnnouncement({...overviewMetadata, ...changes}), community),
+}: Partial<RepoAnnouncementOptions> & {community?: RepoCommunityBinding} = {}) => {
+  const event = withRepoCommunityBinding(
+    createRepoAnnouncement({...overviewMetadata, ...changes}),
+    community,
   )
+  // Explicit addresses exercise reading older announcements. Writers now emit h only.
+  if (community?.address) event.tags.push(["a", community.address, community.relay || ""])
+  return signTestEvent(event)
+}
 
 export const overviewMetadataPath = `/git/${encodeRepoNaddr(
   overviewMetadata.pubkey,

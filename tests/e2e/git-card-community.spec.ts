@@ -32,20 +32,25 @@ const createCommunity = (name: string, createdAt = BASE_TIMESTAMP) =>
     created_at: createdAt,
   })
 
-async function openCards(page: Page, options: MockRelayOptions = {}) {
+async function openCards(page: Page, options: MockRelayOptions = {}, hOnly = false) {
   const announcements = ["Community repository", "Unbound repository"].map((name, index) =>
     signTestEvent(
-      withRepoCommunityBinding(
-        createRepoAnnouncement({
-          identifier: `community-card-${index}`,
-          name,
-          description: "Repository community badge fixture.",
-          pubkey: TEST_PUBKEYS.alice,
-          relays: ["wss://git-card-repositories.test"],
-          created_at: BASE_TIMESTAMP,
-        }),
-        index === 0 ? binding : undefined,
-      ),
+      (() => {
+        const event = withRepoCommunityBinding(
+          createRepoAnnouncement({
+            identifier: `community-card-${index}`,
+            name,
+            description: "Repository community badge fixture.",
+            pubkey: TEST_PUBKEYS.alice,
+            relays: ["wss://git-card-repositories.test"],
+            created_at: BASE_TIMESTAMP,
+          }),
+          index === 0 ? binding : undefined,
+        )
+        // Keep coverage of exact hints in historical announcements.
+        if (index === 0 && !hOnly) event.tags.push(["a", binding.address, binding.relay])
+        return event
+      })(),
     ),
   )
   const relay = new MockRelay({
@@ -162,5 +167,41 @@ test("repo card falls back until the exact community arrives and after deletion"
   )
   await expect(badge).toHaveText(fallback)
   await expect(badge).toHaveAttribute("href", `/c/${community.naddr}`)
+  expect(relay.getPublishedEvents()).toEqual([])
+})
+
+test("h-only repository cards discover their community through the relay hint", async ({page}) => {
+  const {relay, badge} = await openCards(
+    page,
+    {
+      seedEventsByRelay: {"wss://git-card-community.test/": [createCommunity("BudaBit h-only")]},
+    },
+    true,
+  )
+  await expect(badge).toHaveText("BudaBit h-only")
+  await expect(badge).toHaveAttribute("href", `/c/${community.naddr}`)
+  expect(relay.getPublishedEvents()).toEqual([])
+})
+
+test("h-only repository cards retain an unlinked association when branches are ambiguous", async ({
+  page,
+}) => {
+  const {relay, card, badge} = await openCards(
+    page,
+    {
+      seedEvents: [
+        createCommunity("First branch"),
+        signTestEvent({
+          ...createCommunity("Second branch"),
+          pubkey: TEST_PUBKEYS.alice,
+        }),
+      ],
+    },
+    true,
+  )
+  await expect(card.getByTestId("repo-card-community-label")).toHaveText(
+    `${community.communityId.slice(0, 8)}...`,
+  )
+  await expect(badge).toHaveCount(0)
   expect(relay.getPublishedEvents()).toEqual([])
 })

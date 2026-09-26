@@ -186,7 +186,10 @@
     clearActiveExactCommunity,
     setActiveExactCommunityPointer,
   } from "@app/core/community-state"
-  import {makeCommunityPointer, parseCommunityDefinitionAddress} from "@app/core/community"
+  import {
+    createRepoCommunityMetadata,
+    REPO_COMMUNITY_METADATA_KEY,
+  } from "@app/core/repo-community-metadata.svelte"
   import {
     COMMUNITY_WRITE_TARGETS,
     communityWritableSectionsSupportTarget,
@@ -273,33 +276,27 @@
         ownerPubkey: ref.definition.ownerPubkey,
         address: ref.community.address,
         communityId: ref.community.communityId,
-        label: getCommunityOptionLabel(ref.definition.ownerPubkey),
+        label: ref.definition.metadata.name || getCommunityOptionLabel(ref.definition.ownerPubkey),
         relays: ref.definition.relays,
         graspServers: ref.definition.graspServers,
       })),
   )
 
-  const repoCommunityLabel = $derived.by(() => {
-    const community = repoClass?.community
-    if (!community) return ""
-    const option = repoCommunityOptions.find(item => item.address === community.address)
-    const branch = parseCommunityDefinitionAddress(community.address)
-    return branch ? getCommunityOptionLabel(option?.ownerPubkey || branch.ownerPubkey) : ""
-  })
-  const repoCommunityPointer = $derived.by(() => {
-    const community = repoClass?.community
-    return community ? parseCommunityDefinitionAddress(community.address) : undefined
-  })
+  const repoCommunityLabel = $derived.by(() => repoCommunityMetadata.label)
+  const repoCommunityPointer = $derived.by(() => repoCommunityMetadata.pointer)
   const repoCommunityProfileRelays = $derived.by(() => {
     const community = repoClass?.community
     if (!community) return []
 
-    const option = repoCommunityOptions.find(item => item.address === community.address)
-    const ref = $activeUserCommunityRefs.find(ref => ref.community.address === community.address)
+    const option = repoCommunityOptions.find(item => item.address === repoCommunityPointer?.address)
+    const ref = $activeUserCommunityRefs.find(
+      ref => ref.community.address === repoCommunityPointer?.address,
+    )
     return Array.from(
       new Set(
         [
           community.relay || "",
+          ...repoCommunityMetadata.relays,
           option?.relay || "",
           ...(option?.relays || []),
           ...(ref?.relayHints || []),
@@ -1997,6 +1994,8 @@
       repoClass?.community ||
       ($repoEventStore ? parseRepoCommunityBinding($repoEventStore) : undefined),
   )
+  const repoCommunityMetadata = createRepoCommunityMetadata(() => repoBoundCommunity)
+  setContext(REPO_COMMUNITY_METADATA_KEY, repoCommunityMetadata)
   const repoPageWidthClass = $derived(
     $activeExactCommunityPointer || repoBoundCommunity?.communityId ? "" : "cw-full",
   )
@@ -2004,19 +2003,8 @@
 
   $effect(() => {
     const activeCommunityAddress = $activeExactCommunityPointer?.address || ""
-    const community = repoBoundCommunity
-
-    if (activeCommunityAddress || !community?.communityId) return
-    const option = repoCommunityOptions.find(item => item.address === community.address)
-    const branch = parseCommunityDefinitionAddress(community.address)
-    if (!branch) return
-
-    const pointer = makeCommunityPointer({
-      ownerPubkey: branch.ownerPubkey,
-      communityId: branch.communityId,
-      relayHints: [community.relay || "", ...(option?.relays || [])],
-    })
-    if (!pointer) return
+    const pointer = repoCommunityPointer
+    if (activeCommunityAddress || !pointer) return
 
     setActiveExactCommunityPointer(pointer)
     autoAppliedRepoCommunityAddress = pointer.address
@@ -3642,7 +3630,7 @@
         defaultMaintainers,
         communityOptions: repoCommunityOptions,
         defaultCommunityPubkey:
-          repoCommunityOptions.find(option => option.address === repoClass.community?.address)
+          repoCommunityOptions.find(option => option.address === repoCommunityPointer?.address)
             ?.address || "",
         getProfile: getRepoProfile,
         searchProfiles: searchRepoProfiles,
@@ -4002,10 +3990,17 @@
       {#if repoClass?.community && repoCommunityPointer}
         <a
           href={makeExactCommunityPath(repoCommunityPointer)}
-          class="ml-1 shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
+          data-testid="repo-header-community-link"
+          class="ml-1 min-w-0 max-w-48 truncate rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary hover:bg-primary/15"
           title={`Community: ${repoCommunityLabel}`}>
           {repoCommunityLabel}
         </a>
+      {:else if repoClass?.community}
+        <span
+          class="ml-1 min-w-0 max-w-48 truncate rounded-full border border-primary/30 px-2 py-0.5 text-xs text-primary"
+          title={`Community: ${repoClass.community.communityId}`}>
+          {repoCommunityLabel}
+        </span>
       {/if}
     </div>
   {/snippet}

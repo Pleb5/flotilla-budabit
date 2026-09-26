@@ -34,12 +34,16 @@ describe("repository settings feedback surface", () => {
     expect(panel).toContain("Try again");
   });
 
-  it("keys the repository community form by its exact address", async () => {
+  it("retains h-only community selections while resolving exact search context", async () => {
     const panel = await readPackageSource("src/lib/components/git/EditRepoPanel.svelte");
 
-    expect(panel).toContain("communityAddress: repo.community?.address ||");
+    expect(panel).toContain(
+      'communityAddress: repo.community?.address || repo.community?.communityId || ""'
+    );
     expect(panel).toContain("bind:value={formData.communityAddress}");
-    expect(panel).toContain("communityAddress: formData.communityAddress || undefined");
+    expect(panel).toContain(
+      "findRepoCommunityOption(communityOptions, formData.communityAddress)?.address"
+    );
     expect(panel).not.toContain("communityPubkey: string;");
   });
 

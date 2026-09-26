@@ -103,7 +103,6 @@
   import {installWidgetFromEvent} from "@app/core/commands"
   import {activeCommunityReportState} from "@app/core/community-state"
   import {getPreferredRepoPublicationAddress} from "@app/core/repo-publication"
-  import {parseCommunityDefinitionAddress} from "@app/core/community"
   import {
     getCommunityCensorReason,
     getCommunityReportEventAddress,
@@ -540,9 +539,8 @@
 
   const getRepoCommunityMeta = (evt: TrustedEvent) => {
     const community = parseRepoCommunityBinding(evt)
-    const pointer = community ? parseCommunityDefinitionAddress(community.address) : undefined
-    if (!pointer) return ""
-    return `Community: ${pointer.ownerPubkey.slice(0, 6)}:${pointer.communityId.slice(0, 6)}...`
+    if (!community) return ""
+    return `Community: ${community.communityId.slice(0, 8)}...`
   }
 
   const getGitShareCard = (evt: TrustedEvent, relays: string[] = []) => {

@@ -9,8 +9,13 @@
     communityWritableSectionsSupportTarget,
   } from "@app/core/community-permissions"
   import {effectiveExtensionSettings} from "@app/extensions/settings"
+  import {
+    REPO_COMMUNITY_METADATA_KEY,
+    type RepoCommunityMetadata,
+  } from "@app/core/repo-community-metadata.svelte"
 
   const repoClass = getContext<Repo>(REPO_KEY)
+  const repoCommunityMetadata = getContext<RepoCommunityMetadata>(REPO_COMMUNITY_METADATA_KEY)
   const repoSettings = getContext<RepoSettingsActions | undefined>(REPO_SETTINGS_ACTIONS_KEY)
 
   if (!repoClass) {
@@ -48,7 +53,7 @@
         ownerPubkey: ref.definition.ownerPubkey,
         address: ref.community.address,
         communityId: ref.community.communityId,
-        label: getCommunityOptionLabel(ref.definition.ownerPubkey),
+        label: ref.definition.metadata.name || getCommunityOptionLabel(ref.definition.ownerPubkey),
         relays: ref.definition.relays,
         graspServers: ref.definition.graspServers,
       })),
@@ -74,6 +79,7 @@
       showWorkflowJobRunners={hasWorkflowsExtension}
       workflowJobRunners={$workflowJobRunnersStore}
       workflowJobRunnersEventExists={$workflowJobRunnersEventExistsStore}
+      currentCommunityLabel={repoCommunityMetadata.label}
       communityOptions={repoCommunityOptions} />
   {:else}
     <Card class="p-4 sm:p-6">

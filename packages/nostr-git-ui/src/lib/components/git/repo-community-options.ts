@@ -12,8 +12,7 @@ export type RepoCommunityOption = {
   graspServers?: string[];
 };
 
-export const getRepoCommunityOptionKey = (option: RepoCommunityOption): string =>
-  option.address;
+export const getRepoCommunityOptionKey = (option: RepoCommunityOption): string => option.address;
 
 export const getRepoCommunityOptionLabel = (option: RepoCommunityOption): string => {
   if (option.name && option.about) return `${option.name} - ${option.about}`;
@@ -38,5 +37,9 @@ export const getRepoCommunityOptionBinding = (
 export const findRepoCommunityOption = (
   options: RepoCommunityOption[],
   key: string | undefined
-): RepoCommunityOption | undefined =>
-  options.find((option) => getRepoCommunityOptionKey(option) === key);
+): RepoCommunityOption | undefined => {
+  const exact = options.find((option) => getRepoCommunityOptionKey(option) === key);
+  if (exact) return exact;
+  const matching = options.filter((option) => option.communityId === key);
+  return matching.length === 1 ? matching[0] : undefined;
+};
