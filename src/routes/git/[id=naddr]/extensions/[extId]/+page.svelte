@@ -96,14 +96,21 @@
 
     const routeSegment = normalizeRepoTabRouteSegment(extRouteSegment)
 
+    // Prefer enabled widgets: a disabled default must not shadow an enabled
+    // extension claiming the same repo-tab path. Fall back to the first
+    // disabled match so its path still renders the "Disabled" card.
+    let disabledMatch: {id: string; extension: SmartWidgetEvent} | undefined
+
     for (const [widgetId, installedWidget] of Object.entries(settings.installed.widget || {})) {
       if (installedWidget.slot?.type !== "repo-tab") continue
-      if (normalizeRepoTabRouteSegment(installedWidget.slot.path) === routeSegment) {
+      if (normalizeRepoTabRouteSegment(installedWidget.slot.path) !== routeSegment) continue
+      if (settings.enabled.includes(widgetId)) {
         return {id: widgetId, extension: installedWidget as SmartWidgetEvent}
       }
+      disabledMatch ??= {id: widgetId, extension: installedWidget as SmartWidgetEvent}
     }
 
-    return undefined
+    return disabledMatch
   })
   const resolvedExtId = $derived(resolvedExtension?.id || extRouteSegment)
   const extension = $derived(resolvedExtension?.extension)

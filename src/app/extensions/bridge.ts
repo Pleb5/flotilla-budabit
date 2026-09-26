@@ -2793,6 +2793,33 @@ registerBridgeHandler("nostr:nip44Encrypt", async (payload, ext) => {
   }
 })
 
+registerBridgeHandler("nostr:nip44Decrypt", async (payload, ext) => {
+  if (ext) console.log(`[bridge] nostr:nip44Decrypt from ${ext.id}`)
+  try {
+    const {senderPubkey, ciphertext} = payload || {}
+    if (typeof senderPubkey !== "string" || senderPubkey.length !== 64) {
+      throw new Error("Invalid senderPubkey: expected 64-char hex string")
+    }
+    if (typeof ciphertext !== "string") {
+      throw new Error("Invalid ciphertext: expected string")
+    }
+
+    const $signer = signer.get()
+    if (!$signer) {
+      throw new Error("No active signer available")
+    }
+    if (!$signer.nip44) {
+      throw new Error("Active signer does not support NIP-44 decryption")
+    }
+
+    const plaintext = await $signer.nip44.decrypt(senderPubkey, ciphertext)
+    return {status: "ok", plaintext}
+  } catch (err: any) {
+    console.error("Error in nostr:nip44Decrypt bridge handler:", err)
+    return {error: err.message}
+  }
+})
+
 // ── Nostr Subscriptions ─────────────────────────────────────────────
 // Persistent subscriptions that stream events back to extensions via bridge events.
 

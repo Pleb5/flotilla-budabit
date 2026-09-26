@@ -43,11 +43,13 @@
     formatUnbackedGraspRelayError,
     getCloneGraspServiceDescriptors,
     getUnbackedGraspCloneRelayUrls,
+    graspServiceKey,
     mergeGraspServiceDescriptors,
     resolveKnownGraspServices,
     type GraspServiceDescriptor,
   } from "../../utils/grasp-service-coupling.js";
   import {
+    buildGraspRepoUrls,
     getRepoSettingsRelayState,
     publishRepoSettingsEvents,
     type PublishRepoEvent,
@@ -344,6 +346,38 @@
       identifier,
     })
   );
+
+  // Declared relays that are known GRASP services without a matching clone URL,
+  // paired with the clone URL the user should add for each of them.
+  const unbackedGraspCloneSuggestions = $derived.by(() => {
+    if (resolvingGraspServices) return [];
+    const ownerPubkey = repo.repoEvent?.pubkey || "";
+    if (!ownerPubkey || !identifier) return [];
+    const declaredRelays = new Set(
+      (formData.relays || []).map(normalizeRelayValue).filter(Boolean)
+    );
+    return unbackedGraspRelays.flatMap((relayUrl) => {
+      if (!declaredRelays.has(normalizeRelayValue(relayUrl))) return [];
+      const service = resolvedGraspServices.find(
+        (candidate) => graspServiceKey(candidate.relayUrl) === graspServiceKey(relayUrl)
+      );
+      const cloneUrl = buildGraspRepoUrls({
+        relayUrls: [service?.httpBaseAliases[0] || relayUrl],
+        ownerPubkey,
+        repoName: identifier,
+      }).cloneUrls[0];
+      return cloneUrl ? [{ relayUrl, cloneUrl }] : [];
+    });
+  });
+
+  function addSuggestedGraspCloneUrl(cloneUrl: string) {
+    if (formData.cloneUrls.some((value) => value.trim() === cloneUrl)) return;
+    const emptyIndex = formData.cloneUrls.findIndex((value) => !value.trim());
+    formData.cloneUrls =
+      emptyIndex >= 0
+        ? formData.cloneUrls.map((value, index) => (index === emptyIndex ? cloneUrl : value))
+        : [...formData.cloneUrls, cloneUrl];
+  }
 
   $effect(() => {
     const relayUrls = Array.from(
@@ -723,6 +757,8 @@
   // Update form data when repo changes
   $effect(() => {
     void repo?.repoStateEvent;
+    // Track the prop so asynchronously loaded job runners (kind 30728) sync into the form.
+    void workflowJobRunners;
     if (repo && repo.repoEvent && !isEditing && !preserveFormAfterSaveFailure) {
       untrack(() => {
         if (isFormDirty && editingAnnouncement) return;
@@ -1127,6 +1163,7 @@
         };
         const jobRunnersEvent = {
           kind: GIT_REPO_JOB_RUNNERS,
+          pubkey: source.pubkey,
           created_at: replacementCreatedAt,
           content: "",
           tags: [["d", nextName], ...normalizedJobRunners.map((pubkey) => ["p", pubkey])],
@@ -1679,6 +1716,29 @@
               </button>
             {/if}
           </div>
+          {#each unbackedGraspCloneSuggestions as suggestion (suggestion.relayUrl)}
+            <div
+              class="mt-2 flex flex-col gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 sm:flex-row sm:items-center sm:justify-between"
+              role="alert"
+              aria-live="polite"
+            >
+              <div class="min-w-0 text-sm text-amber-700 dark:text-amber-200">
+                <p>
+                  <span class="break-all font-medium">{suggestion.relayUrl}</span> is a GRASP
+                  server, but its clone URL is not set.
+                </p>
+                <p class="mt-1 break-all font-mono text-xs">{suggestion.cloneUrl}</p>
+              </div>
+              <button
+                type="button"
+                disabled={isEditing}
+                onclick={() => addSuggestedGraspCloneUrl(suggestion.cloneUrl)}
+                class="shrink-0 rounded-lg border border-amber-500/50 px-3 py-1.5 text-sm text-amber-700 hover:bg-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed dark:text-amber-200"
+              >
+                Add clone URL
+              </button>
+            </div>
+          {/each}
           {#if validationErrors.relays}
             <p
               class="text-red-700 dark:text-red-400 text-sm mt-1 flex items-center space-x-1"
