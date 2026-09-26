@@ -143,7 +143,7 @@ export class IsomorphicGitProvider implements GitProvider {
     return isogit.statusMatrix({...this.withDir(options), fs: this.fs, filter})
   }
   async currentBranch(options: any) {
-    return isogit.currentBranch({...this.withDir(options), fs: this.fs})
+    return (await isogit.currentBranch({...this.withDir(options), fs: this.fs})) || undefined
   }
   async version() {
     return isogit.version()

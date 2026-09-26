@@ -15,6 +15,9 @@ patchedDependencies:
   '@cashu/coco-indexeddb@2.0.0':
     hash: 787d892392e1f2cab72c9ec9e55b99c4861c8985408964536b83bf0dfe48769c
     path: patches/@cashu__coco-indexeddb@2.0.0.patch
+  isomorphic-git@1.37.2:
+    hash: 90a6760775ed0154820f0e6eae858ef898c753278ed6cd298edaf3ed99b9b951
+    path: patches/isomorphic-git@1.37.2.patch
 
 importers:
 
@@ -193,7 +196,7 @@ importers:
         version: 8.0.3
       isomorphic-git:
         specifier: ^1.36.1
-        version: 1.37.2
+        version: 1.37.2(patch_hash=90a6760775ed0154820f0e6eae858ef898c753278ed6cd298edaf3ed99b9b951)
       markdown-it:
         specifier: ^14.1.0
         version: 14.1.1
@@ -714,7 +717,7 @@ importers:
         version: 20.5.0
       isomorphic-git:
         specifier: ^1.30.1
-        version: 1.37.2
+        version: 1.37.2(patch_hash=90a6760775ed0154820f0e6eae858ef898c753278ed6cd298edaf3ed99b9b951)
       nostr-tools:
         specifier: ^2.10.0
         version: 2.23.3(typescript@5.9.3)
@@ -9332,7 +9335,7 @@ snapshots:
 
   isexe@2.0.0: {}
 
-  isomorphic-git@1.37.2:
+  isomorphic-git@1.37.2(patch_hash=90a6760775ed0154820f0e6eae858ef898c753278ed6cd298edaf3ed99b9b951):
     dependencies:
       async-lock: 1.4.1
       clean-git-ref: 2.0.1

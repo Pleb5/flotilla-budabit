@@ -1,0 +1,98 @@
+diff --git a/index.cjs b/index.cjs
+index 8c06cd77d390fe22213bd5779818b652304f0057..ce24594422a5b59dc4c332f13ed7f1aa310c4f55 100644
+--- a/index.cjs
++++ b/index.cjs
+@@ -6915,7 +6915,10 @@ async function _checkout({
+         await Promise.all(
+           ops
+             .filter(
+-              ([method]) => method === 'delete' || method === 'delete-index'
++              ([method]) =>
++                method === 'delete' ||
++                method === 'delete-index' ||
++                method === 'gitlink-to-tree'
+             )
+             .map(async function ([method, fullpath]) {
+               const filepath = `${dir}/${fullpath}`;
+@@ -6970,7 +6973,9 @@ async function _checkout({
+ 
+     await Promise.all(
+       ops
+-        .filter(([method]) => method === 'mkdir' || method === 'mkdir-index')
++        .filter(([method]) =>
++          method === 'mkdir' || method === 'mkdir-index' || method === 'gitlink-to-tree'
++        )
+         .map(async function ([_, fullpath]) {
+           const filepath = `${dir}/${fullpath}`;
+           await fs.mkdir(filepath);
+@@ -7387,7 +7392,21 @@ async function analyze({
+             case 'blob-tree': {
+               return ['update-blob-to-tree', fullpath]
+             }
++            case 'commit-tree': {
++              // Remove only the gitlink from the index, retaining its workdir.
++              // Child entries are checked normally for untracked-file conflicts.
++              if (workdir && (await workdir.type()) !== 'tree') {
++                return ['conflict', fullpath]
++              }
++              return ['gitlink-to-tree', fullpath]
++            }
++            case 'tree-commit':
+             case 'commit-commit': {
++              // Tracked descendants are checked/deleted before inserting the
++              // gitlink. Keep untracked contents and never recurse a submodule.
++              if (workdir && (await workdir.type()) !== 'tree') {
++                return ['conflict', fullpath]
++              }
+               return [
+                 'mkdir-index',
+                 fullpath,
+diff --git a/index.js b/index.js
+index dbd341957ec3bc86e5672d86a25c9328fbf1e981..92a79b24ac36cc7c305faf385d1782b292f37b62 100644
+--- a/index.js
++++ b/index.js
+@@ -6909,7 +6909,10 @@ async function _checkout({
+         await Promise.all(
+           ops
+             .filter(
+-              ([method]) => method === 'delete' || method === 'delete-index'
++              ([method]) =>
++                method === 'delete' ||
++                method === 'delete-index' ||
++                method === 'gitlink-to-tree'
+             )
+             .map(async function ([method, fullpath]) {
+               const filepath = `${dir}/${fullpath}`;
+@@ -6964,7 +6967,9 @@ async function _checkout({
+ 
+     await Promise.all(
+       ops
+-        .filter(([method]) => method === 'mkdir' || method === 'mkdir-index')
++        .filter(([method]) =>
++          method === 'mkdir' || method === 'mkdir-index' || method === 'gitlink-to-tree'
++        )
+         .map(async function ([_, fullpath]) {
+           const filepath = `${dir}/${fullpath}`;
+           await fs.mkdir(filepath);
+@@ -7381,7 +7386,21 @@ async function analyze({
+             case 'blob-tree': {
+               return ['update-blob-to-tree', fullpath]
+             }
++            case 'commit-tree': {
++              // Remove only the gitlink from the index, retaining its workdir.
++              // Child entries are checked normally for untracked-file conflicts.
++              if (workdir && (await workdir.type()) !== 'tree') {
++                return ['conflict', fullpath]
++              }
++              return ['gitlink-to-tree', fullpath]
++            }
++            case 'tree-commit':
+             case 'commit-commit': {
++              // Tracked descendants are checked/deleted before inserting the
++              // gitlink. Keep untracked contents and never recurse a submodule.
++              if (workdir && (await workdir.type()) !== 'tree') {
++                return ['conflict', fullpath]
++              }
+               return [
+                 'mkdir-index',
+                 fullpath,

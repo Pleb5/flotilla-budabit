@@ -677,7 +677,17 @@ export async function analyzePRMergeability(
   const cleanupAnalysisTarget = async () => {
     if (!analysisTargetBranch) return
     try {
-      await git.deleteBranch({dir: repoDir, ref: analysisTargetBranch})
+      try {
+        await git.deleteBranch({dir: repoDir, ref: analysisTargetBranch})
+      } catch (error) {
+        // deleteBranch checks the current branch, which requires a HEAD file.
+        // A fetch-only cache may have none; this invocation owns the temp ref
+        // and no branch can be checked out in that state.
+        if ((error as any)?.code !== "NotFoundError" || (error as any)?.data?.what !== "HEAD") {
+          throw error
+        }
+        await git.deleteRef({dir: repoDir, ref: `refs/heads/${analysisTargetBranch}`})
+      }
     } catch (error) {
       console.warn("[analyzePRMergeability] Failed to remove temporary target branch:", error)
     }
@@ -720,8 +730,9 @@ export async function analyzePRMergeability(
     `[analyzePRMergeability] Target branch ${resolvedBranch} @ ${targetCommit?.substring(0, 8)}`,
   )
 
-  // Use unique remote name per invocation to avoid race when multiple analyses run concurrently
-  const result = await withUrlFallback(
+  // Only transport failures should try another source URL. Once the exact tip
+  // is available, local analysis errors must not mark a healthy remote as failed.
+  const sourceResult = await withUrlFallback(
     validUrls,
     async (url: string) => {
       const prRemote = `pr-source-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`
@@ -741,136 +752,7 @@ export async function analyzePRMergeability(
         console.log(
           `[analyzePRMergeability] PR source ready via ${sourceFetch.strategy} from ${url}`,
         )
-
-        const tipOid = sourceFetch.tipOid
-
-        const prTipRef = tipOid
-        const prTipOid = tipOid
-        const patchCommits = [tipOid]
-
-        // Check if PR is already in target (tip must be present; partial commits = not merged)
-        const isUpToDate = await checkIfPRApplied(git, repoDir, resolvedBranch, prTipOid)
-        if (isUpToDate) {
-          console.log(
-            `[analyzePRMergeability] PR already up-to-date (commits present in ${resolvedBranch})`,
-          )
-          return {
-            canMerge: true,
-            hasConflicts: false,
-            conflictFiles: [],
-            conflictDetails: [],
-            upToDate: true,
-            fastForward: false,
-            targetCommit,
-            remoteCommit: undefined,
-            patchCommits: [],
-            analysis: "up-to-date",
-            filesChanged: [],
-            usedTargetCloneUrl,
-            usedCloneUrl: url,
-            prCommits: [],
-          } as PRMergeAnalysisResult
-        }
-
-        // Use prTipOid (not prTipRef) - findMergeBase requires OIDs
-        const mergeBase = await findMergeBase(git, repoDir, prTipOid, targetCommit)
-        const mergeBaseShort = typeof mergeBase === "string" ? mergeBase.substring(0, 8) : "none"
-        console.log(`[analyzePRMergeability] Merge base: ${mergeBaseShort}`)
-
-        // Fast-forward: target is ancestor of PR tip (no merge commit needed)
-        let isFastForward = false
-        try {
-          const descendant = await git.isDescendent({
-            dir: repoDir,
-            oid: prTipOid,
-            ancestor: targetCommit,
-          })
-          isFastForward = descendant || mergeBase === targetCommit
-        } catch {
-          isFastForward = mergeBase === targetCommit
-        }
-
-        if (isFastForward) {
-          console.log(`[analyzePRMergeability] Fast-forward merge possible`)
-          const baseForDiff = mergeBase ?? targetCommit
-          const filesChanged = baseForDiff
-            ? await getChangedFilesBetween(git, repoDir, baseForDiff, prTipRef)
-            : []
-          const prCommits = await getPRCommitsOnly(
-            git,
-            repoDir,
-            prTipRef,
-            mergeBase ?? targetCommit,
-            50,
-          )
-          const effectivePrCommits =
-            prCommits.length > 0
-              ? prCommits
-              : await getCommitMetadataForOids(git, repoDir, [prTipRef])
-          const patchCommitOids = effectivePrCommits.map(commit => commit.oid)
-          return {
-            canMerge: true,
-            hasConflicts: false,
-            conflictFiles: [],
-            conflictDetails: [],
-            upToDate: false,
-            fastForward: true,
-            mergeBase,
-            targetCommit,
-            remoteCommit: undefined,
-            patchCommits: patchCommitOids.length > 0 ? patchCommitOids : patchCommits,
-            analysis: "clean",
-            filesChanged,
-            usedTargetCloneUrl,
-            usedCloneUrl: url,
-            prCommits: effectivePrCommits,
-          } as PRMergeAnalysisResult
-        }
-
-        // Non-FF: perform real git merge to detect conflicts
-        // Pass prTipRef (not tipOid) so merge uses a ref that exists; tipOid may not resolve
-        const mergeResult = await performPRDryRunMerge(git, repoDir, prTipRef, resolvedBranch)
-        console.log(
-          `[analyzePRMergeability] Dry-run merge: conflicts=${mergeResult.hasConflicts}, files=${mergeResult.conflictFiles.length}`,
-        )
-
-        const baseForDiff = mergeBase ?? targetCommit
-        const filesChanged = baseForDiff
-          ? await getChangedFilesBetween(git, repoDir, baseForDiff, prTipRef)
-          : []
-        const prCommits = await getPRCommitsOnly(
-          git,
-          repoDir,
-          prTipRef,
-          mergeBase ?? targetCommit,
-          50,
-        )
-        const effectivePrCommits =
-          prCommits.length > 0
-            ? prCommits
-            : await getCommitMetadataForOids(git, repoDir, [prTipRef])
-        const patchCommitOids = effectivePrCommits.map(commit => commit.oid)
-        console.log(
-          `[analyzePRMergeability] Success via ${url}: analysis=${mergeResult.hasConflicts ? "conflicts" : "clean"}, filesChanged=${filesChanged.length}`,
-        )
-
-        return {
-          canMerge: !mergeResult.hasConflicts,
-          hasConflicts: mergeResult.hasConflicts,
-          conflictFiles: mergeResult.conflictFiles,
-          conflictDetails: mergeResult.conflictDetails,
-          upToDate: false,
-          fastForward: false,
-          mergeBase,
-          targetCommit,
-          remoteCommit: undefined,
-          patchCommits: patchCommitOids.length > 0 ? patchCommitOids : patchCommits,
-          analysis: mergeResult.hasConflicts ? "conflicts" : "clean",
-          filesChanged,
-          usedTargetCloneUrl,
-          usedCloneUrl: url,
-          prCommits: effectivePrCommits,
-        } as PRMergeAnalysisResult
+        return sourceFetch
       } finally {
         try {
           await git.deleteRemote({dir: repoDir, remote: prRemote})
@@ -882,20 +764,90 @@ export async function analyzePRMergeability(
     {perUrlTimeoutMs: 0},
   )
 
-  if (!result.success || !result.result) {
-    const errMsg = result.attempts?.length
-      ? result.attempts.map(a => `${a.url}: ${a.error || "failed"}`).join("; ")
+  if (!sourceResult.success || !sourceResult.result) {
+    const errMsg = sourceResult.attempts?.length
+      ? sourceResult.attempts.map(a => `${a.url}: ${a.error || "failed"}`).join("; ")
       : "Failed to fetch PR from any clone URL"
     console.warn(`[analyzePRMergeability] All clone URLs failed: ${errMsg}`)
     await cleanupAnalysisTarget()
-    return errResult(errMsg, result.attempts)
+    return errResult(errMsg, sourceResult.attempts)
   }
 
-  await cleanupAnalysisTarget()
-  return {
-    ...result.result,
+  const tipOid = sourceResult.result.tipOid
+  const result: PRMergeAnalysisResult = {
+    ...returnObj,
+    targetCommit,
+    usedTargetCloneUrl,
+    usedCloneUrl: sourceResult.usedUrl,
     targetAttempts,
-    sourceAttempts: result.attempts,
+    sourceAttempts: sourceResult.attempts,
+  }
+  try {
+    // Check if PR is already in target (partial commits do not mean merged).
+    if (await checkIfPRApplied(git, repoDir, resolvedBranch, tipOid)) {
+      return {
+        ...result,
+        canMerge: true,
+        upToDate: true,
+        patchCommits: [],
+        prCommits: [],
+        filesChanged: [],
+        analysis: "up-to-date",
+        errorMessage: undefined,
+      }
+    }
+
+    const mergeBase = await findMergeBase(git, repoDir, tipOid, targetCommit)
+    result.mergeBase = mergeBase
+    console.log(`[analyzePRMergeability] Merge base: ${mergeBase?.substring(0, 8) || "none"}`)
+
+    // Keep review metadata even if checkout or conflict analysis fails. The tip
+    // alone is not the PR's commit count.
+    const prCommits = await getPRCommitsOnly(git, repoDir, tipOid, mergeBase ?? targetCommit, 50)
+    result.prCommits =
+      prCommits.length > 0 ? prCommits : await getCommitMetadataForOids(git, repoDir, [tipOid])
+    result.patchCommits = result.prCommits.map(commit => commit.oid)
+    result.filesChanged = await getChangedFilesBetween(
+      git,
+      repoDir,
+      mergeBase ?? targetCommit,
+      tipOid,
+    )
+
+    let isFastForward = mergeBase === targetCommit
+    try {
+      isFastForward ||= await git.isDescendent({dir: repoDir, oid: tipOid, ancestor: targetCommit})
+    } catch {
+      // The merge base still proves a fast-forward if ancestry traversal fails.
+    }
+    if (isFastForward) {
+      return {
+        ...result,
+        canMerge: true,
+        fastForward: true,
+        analysis: "clean",
+        errorMessage: undefined,
+      }
+    }
+
+    const mergeResult = await performPRDryRunMerge(git, repoDir, tipOid, resolvedBranch)
+    return {
+      ...result,
+      ...mergeResult,
+      canMerge: !mergeResult.hasConflicts,
+      analysis: mergeResult.hasConflicts ? "conflicts" : "clean",
+      errorMessage: undefined,
+    }
+  } catch (error) {
+    const failure = error as {caller?: string; code?: string; data?: {message?: string}}
+    const operation = failure?.caller ? ` during ${failure.caller}` : ""
+    const code = failure?.code ? ` (${failure.code})` : ""
+    const detail = failure?.data?.message || getErrorMessage(error)
+    result.errorMessage = `Merge analysis failed${operation}${code}: ${detail}`
+    console.warn(`[analyzePRMergeability] ${result.errorMessage}`)
+    return result
+  } finally {
+    await cleanupAnalysisTarget()
   }
 }
 
@@ -1366,6 +1318,55 @@ async function handleMergeConflicts(
 }
 
 /**
+ * Fetch-only browser caches can have no HEAD, or an unborn symbolic HEAD. Use
+ * the fetched refs directly without creating a checkout just for analysis.
+ * abortOnConflict is essential: dryRun alone does not prevent isomorphic-git
+ * from writing conflict stages into the index when abortOnConflict is false.
+ */
+async function analyzePRWithoutCheckout(
+  git: GitProvider,
+  repoDir: string,
+  prTipSource: string,
+  targetBranch: string,
+): Promise<{hasConflicts: boolean; conflictFiles: string[]; conflictDetails: ConflictDetail[]}> {
+  try {
+    await git.merge({
+      dir: repoDir,
+      ours: targetBranch,
+      theirs: prTipSource,
+      fastForward: false,
+      dryRun: true,
+      noUpdateBranch: true,
+      abortOnConflict: true,
+      author: {name: "Repository Maintainer", email: "maintainer@nostr-git.local"},
+    })
+    return {hasConflicts: false, conflictFiles: [], conflictDetails: []}
+  } catch (error) {
+    const failure = error as any
+    const conflictFiles: string[] = failure?.data?.filepaths
+    if (
+      !isLikelyMergeConflictError(error) ||
+      !Array.isArray(conflictFiles) ||
+      !conflictFiles.length
+    ) {
+      throw error
+    }
+    return {
+      hasConflicts: true,
+      conflictFiles,
+      conflictDetails: conflictFiles.map(file => ({
+        file,
+        type:
+          failure.data.deleteByUs?.includes(file) || failure.data.deleteByTheirs?.includes(file)
+            ? "delete"
+            : "content",
+        conflictMarkers: [],
+      })),
+    }
+  }
+}
+
+/**
  * Perform a dry-run merge of PR tip into target branch to detect conflicts.
  *
  * Strategy: Create temp branch from target, write PR tip to a ref, then run
@@ -1388,22 +1389,37 @@ async function performPRDryRunMerge(
   const prTipRef = `refs/pr-tip-analysis-${Date.now()}` // Use unique name for analysis
   let tipOid: string = prTipSource // Declare outside try-catch for fallback access
   let originalBranch: string | undefined
+  let originalRef: string | undefined
+  let targetCheckedOut = false
+  let tempBranchCreated = false
+  let prTipRefCreated = false
+  let mergeStarted = false
 
   try {
+    let originalHead: string
+    try {
+      originalHead = await git.resolveRef({dir: repoDir, ref: "HEAD"})
+    } catch (error) {
+      if ((error as any)?.code !== "NotFoundError") throw error
+      return await analyzePRWithoutCheckout(git, repoDir, prTipSource, targetBranch)
+    }
     if (typeof (git as any).currentBranch === "function") {
       originalBranch =
         (await (git as any)
           .currentBranch({dir: repoDir, fullname: false})
           .catch(() => undefined)) || undefined
     }
+    originalRef = originalBranch || originalHead
     // Ensure we're working with the latest state - checkout target branch first
     await git.checkout({dir: repoDir, ref: targetBranch})
+    targetCheckedOut = true
 
     // Get the current target branch HEAD to ensure we're using the latest commit
     const targetOid = await git.resolveRef({dir: repoDir, ref: `refs/heads/${targetBranch}`})
 
     // Create temp branch from the current target HEAD (not the ref, to avoid stale references)
     await git.branch({dir: repoDir, ref: tempBranch, object: targetOid, checkout: true})
+    tempBranchCreated = true
 
     // Resolve PR tip ref consistently - handle both OID and ref cases
     if (prTipSource.startsWith("refs/")) {
@@ -1421,6 +1437,7 @@ async function performPRDryRunMerge(
     }
 
     await git.writeRef({dir: repoDir, ref: prTipRef, value: tipOid, force: true})
+    prTipRefCreated = true
 
     // Log the commit IDs being merged for debugging
     console.log(
@@ -1429,6 +1446,7 @@ async function performPRDryRunMerge(
 
     // Attempt merge: ours=target (temp), theirs=PR tip
     // Use same merge parameters as actual merge for consistency
+    mergeStarted = true
     await git.merge({
       dir: repoDir,
       ours: tempBranch,
@@ -1444,7 +1462,7 @@ async function performPRDryRunMerge(
     )
     return {hasConflicts: false, conflictFiles: [], conflictDetails: []}
   } catch (err: any) {
-    if (!isLikelyMergeConflictError(err)) {
+    if (!mergeStarted || !isLikelyMergeConflictError(err)) {
       throw err
     }
 
@@ -1463,21 +1481,28 @@ async function performPRDryRunMerge(
       ...conflictResult,
     }
   } finally {
-    // Restore repo state regardless of merge outcome
-    try {
-      await git.checkout({dir: repoDir, ref: originalBranch || targetBranch, force: true})
-    } catch (cleanupErr) {
-      console.warn("[performPRDryRunMerge] Cleanup checkout failed:", cleanupErr)
+    // A failed initial checkout has not switched HEAD. In particular, don't
+    // force a checkout over the local files that caused it to fail.
+    if (targetCheckedOut) {
+      try {
+        await git.checkout({dir: repoDir, ref: originalRef!, force: true})
+      } catch (cleanupErr) {
+        console.warn("[performPRDryRunMerge] Cleanup checkout failed:", cleanupErr)
+      }
     }
-    try {
-      await git.deleteBranch({dir: repoDir, ref: tempBranch})
-    } catch (cleanupErr) {
-      console.warn("[performPRDryRunMerge] Cleanup temp branch failed:", cleanupErr)
+    if (tempBranchCreated) {
+      try {
+        await git.deleteBranch({dir: repoDir, ref: tempBranch})
+      } catch (cleanupErr) {
+        console.warn("[performPRDryRunMerge] Cleanup temp branch failed:", cleanupErr)
+      }
     }
-    try {
-      await git.deleteRef({dir: repoDir, ref: prTipRef})
-    } catch (cleanupErr) {
-      console.warn("[performPRDryRunMerge] Cleanup temp ref failed:", cleanupErr)
+    if (prTipRefCreated) {
+      try {
+        await git.deleteRef({dir: repoDir, ref: prTipRef})
+      } catch (cleanupErr) {
+        console.warn("[performPRDryRunMerge] Cleanup temp ref failed:", cleanupErr)
+      }
     }
   }
 }
