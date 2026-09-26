@@ -3,7 +3,7 @@ import type {RepoCiWatcher} from 'budabit-sdk';
 export const FALLBACK_CI_WATCHER = {
   pubkey: 'f814c1976ca05431081e0b27e2a190c379e8e4b25477c7f431fe58e8a7fa9551',
   relays: ['wss://relay.budabit.club/', 'wss://relay.contextvm.org/', 'wss://relay2.contextvm.org/'],
-  label: 'Arjen’s watcher (fallback)',
+  label: 'Arjen’s watcher · f814c197…9551',
 };
 
 export type CiWatcherChoice = {
@@ -17,7 +17,7 @@ export function ciWatcherChoices(watchers: RepoCiWatcher[] = []): CiWatcherChoic
   const choices = watchers.map(community => ({
     pubkey: community.pubkey,
     relays: [...community.relays],
-    label: `${community.communityName} · ${community.repoMatch ? 'repo community · ' : ''}${community.role} · ${community.pubkey.slice(0, 8)}`,
+    label: `${community.communityName} · ${community.pubkey.slice(0, 8)}…${community.pubkey.slice(-4)}`,
     community,
   }));
   return choices.some(choice => choice.pubkey === FALLBACK_CI_WATCHER.pubkey)

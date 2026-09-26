@@ -1,6 +1,6 @@
 <script lang="ts">
   import {untrack} from 'svelte'
-  import {Eye, EyeOff, RotateCw} from '@lucide/svelte'
+  import {ChevronDown, Eye, EyeOff, RotateCw} from '@lucide/svelte'
   import type {WidgetBridge, RepoCiWatcher} from 'budabit-sdk'
   import {BudabitHiveCIClient} from '../BudabitHiveCIClient'
   import {bridgeNostrSigner} from '../ci-watch'
@@ -51,13 +51,16 @@
   <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
     <div class="min-w-0 flex-1">
       <label for="ci-watcher" class="mb-1 block text-xs font-medium text-muted-foreground">CI watcher</label>
-      <select id="ci-watcher" class="min-h-11 w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground sm:max-w-lg"
-        value={selected.pubkey} disabled={watchState.busy}
-        onchange={event => {manualPubkey = event.currentTarget.value}}>
-        {#each choices as choice (choice.pubkey)}
-          <option value={choice.pubkey}>{choice.label}</option>
-        {/each}
-      </select>
+      <div class="relative sm:max-w-lg">
+        <select id="ci-watcher" class="min-h-11 w-full min-w-0 appearance-none rounded-md border border-input bg-background py-2 pl-3 pr-10 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          value={selected.pubkey} disabled={watchState.busy}
+          onchange={event => {manualPubkey = event.currentTarget.value}}>
+          {#each choices as choice (choice.pubkey)}
+            <option value={choice.pubkey}>{choice.label}</option>
+          {/each}
+        </select>
+        <ChevronDown class="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+      </div>
     </div>
     <div class="flex shrink-0 items-center gap-2">
       <button class="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60 sm:flex-none"
@@ -72,6 +75,16 @@
         <button class="min-h-11 rounded-md border border-border px-3 text-sm hover:bg-accent" onclick={() => {retry += 1}}>Retry</button>
       {/if}
     </div>
+  </div>
+  <div class="mt-2 flex flex-wrap items-center gap-1.5" aria-label="Watcher affiliation">
+    <span class="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
+      {selected.community ? 'Community' : 'Fallback'}
+    </span>
+    {#if selected.community}
+      <span class="max-w-full break-words rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-xs text-primary">
+        {selected.community.communityName}
+      </span>
+    {/if}
   </div>
   <p class="mt-2 break-words text-xs text-muted-foreground" role="status" aria-live="polite">
     {#if watchState.status === 'loading'}Checking selected watcher…

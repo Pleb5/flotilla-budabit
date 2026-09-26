@@ -1553,15 +1553,16 @@
 
         <div class="overflow-hidden rounded-lg border border-border bg-card">
           <div class="flex flex-wrap items-center gap-3 border-b border-border bg-card/60 px-3 py-2">
-            <button class="inline-flex items-center gap-2 rounded-md border border-green-700 bg-green-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-500" onclick={openNewRunForm}>
+            <button class="inline-flex shrink-0 items-center gap-2 rounded-md border border-green-700 bg-green-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-green-500" onclick={openNewRunForm}>
               <Play class="h-4 w-4" />
               New run
             </button>
             <input
-              class="min-w-0 flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground placeholder:text-muted-foreground"
+              class="min-w-0 basis-full rounded-md border border-input bg-background px-3 py-1.5 text-sm text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring sm:min-w-64 sm:flex-1"
               bind:value={searchTerm}
               type="text"
-              placeholder="Search runs, commits, branches, actors…" />
+              aria-label="Search runs, commits, branches, or actors"
+              placeholder="Search runs…" />
             {#if jobRunnersListUrl}
               <a
                 class="shrink-0 text-xs text-primary hover:underline"
@@ -1570,7 +1571,7 @@
                 rel="noreferrer"
                 title="Show job runs only by the owner, the maintainers, or the profiles in this list">Job runners</a>
             {/if}
-            <div class="flex items-center gap-1">
+            <div class="flex flex-wrap items-center gap-1">
               <FilterDropdown
                 label="Workflow"
                 options={workflowOptions}

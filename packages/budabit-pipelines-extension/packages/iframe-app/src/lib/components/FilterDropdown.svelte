@@ -26,6 +26,16 @@
   let query = $state('')
   let button: HTMLButtonElement | undefined = $state()
   let panel: HTMLDivElement | undefined = $state()
+  let panelLeft = $state(16)
+  let panelTop = $state(0)
+
+  function positionPanel() {
+    if (!button) return
+    const rect = button.getBoundingClientRect()
+    const width = Math.min(288, window.innerWidth - 32)
+    panelLeft = Math.max(16, Math.min(rect.right - width, window.innerWidth - width - 16))
+    panelTop = rect.bottom + 8
+  }
 
   const filtered = $derived(
     query
@@ -56,8 +66,15 @@
 
   $effect(() => {
     if (!open) return
+    positionPanel()
     document.addEventListener('pointerdown', onDocumentPointerDown)
-    return () => document.removeEventListener('pointerdown', onDocumentPointerDown)
+    window.addEventListener('resize', positionPanel)
+    window.addEventListener('scroll', positionPanel, true)
+    return () => {
+      document.removeEventListener('pointerdown', onDocumentPointerDown)
+      window.removeEventListener('resize', positionPanel)
+      window.removeEventListener('scroll', positionPanel, true)
+    }
   })
 
   $effect(() => {
@@ -69,7 +86,8 @@
   <button
     bind:this={button}
     type="button"
-    class={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm hover:bg-accent ${activeCount ? 'text-foreground' : 'text-muted-foreground'}`}
+    class={`inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-sm transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${activeCount ? 'text-foreground' : 'text-muted-foreground'}`}
+    aria-expanded={open}
     onclick={() => (open = !open)}
   >
     <span>{label}</span>
@@ -84,7 +102,10 @@
   {#if open}
     <div
       bind:this={panel}
-      class="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
+      class="fixed z-20 w-72 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-lg border border-border bg-popover text-popover-foreground shadow-lg"
+      style:left={`${panelLeft}px`}
+      style:top={`${panelTop}px`}
+      style:max-height={`calc(100dvh - ${panelTop}px - 1rem)`}
     >
       <div class="flex items-center justify-between border-b border-border px-3 py-2">
         <span class="text-sm font-medium">Filter by {label}</span>
