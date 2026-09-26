@@ -145,6 +145,7 @@ export type ReclaimStatus =
   | 'idle'
   | 'pending'
   | 'redeemed'
+  | 'spent'
   | 'rateLimited'
   | 'failed'
   | 'p2pkUnsupported';
@@ -154,6 +155,7 @@ export interface ReclaimUiState {
   status: ReclaimStatus;
   amount?: number;
   error?: string;
+  manualOnly?: boolean;
   /** Unix ms when a rate-limit cooldown lifts. */
   rateLimitUntil?: number;
 }

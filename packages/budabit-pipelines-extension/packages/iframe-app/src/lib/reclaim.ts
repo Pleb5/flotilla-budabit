@@ -1,6 +1,7 @@
 import type {WidgetBridge} from 'budabit-sdk'
 import {eventTagValue} from './workflows'
 import type {WorkflowRun} from './types'
+import {runDeliveryState} from './run-delivery'
 
 /**
  * 72h matches the inferred-failure threshold the run list already uses to
@@ -16,6 +17,8 @@ export interface ReclaimCandidate {
   runId: string
   kind: ReclaimKind
   token: string
+  /** Unacknowledged jobs require an explicit user action, never auto-reclaim. */
+  manualOnly?: boolean
 }
 
 export type ReclaimFailureReason =
@@ -113,6 +116,18 @@ function isTerminalFailure(run: WorkflowRun): boolean {
 
 function isStalePending(run: WorkflowRun, now: number): boolean {
   return run.status === 'pending' && now - run.createdAt > STALE_PENDING_MS
+}
+
+export function getUnacknowledgedReclaimCandidate(
+  run: WorkflowRun,
+  userPubkey: string | undefined,
+  redeemed: RedeemedMap,
+  now = Date.now(),
+): ReclaimCandidate | null {
+  if (!userPubkey || run.actor !== userPubkey || redeemed[run.id]) return null
+  if (runDeliveryState(run, now) !== 'unacknowledged') return null
+  const token = eventTagValue(run.loomJobEvent, 'payment')
+  return token ? {runId: run.id, kind: 'original', token, manualOnly: true} : null
 }
 
 /**

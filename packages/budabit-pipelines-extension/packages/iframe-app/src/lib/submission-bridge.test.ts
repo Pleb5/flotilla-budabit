@@ -7,11 +7,15 @@ import type {RerunDraft} from './types';
 
 vi.mock('./blossom', () => ({buildScriptArgs: vi.fn()}));
 vi.mock('./workflows', () => ({loadWorkflowRunDetail: vi.fn()}));
+vi.mock('./worker-routing', () => ({
+  resolveWorkerDeliveryRelays: vi.fn(async (_worker, relays) => ['wss://worker-inbox.example', ...relays]),
+}));
 
 const user = 'a'.repeat(64);
 const worker = 'b'.repeat(64);
 const runId = 'c'.repeat(64);
 const relays = ['wss://repo.example', 'wss://relay.budabit.club'];
+const publicationRelays = [relays, ['wss://worker-inbox.example', ...relays]];
 const repoAddress = `30617:${user}:repo`;
 
 // Like a Svelte $state draft, reading/spreading the outer object leaves nested
@@ -57,7 +61,7 @@ describe('workflow submission across the structured-clone boundary', () => {
   it('also serializes relay arrays at the direct publication boundary', async () => {
     const {bridge, published} = bridgeHarness(); bridges.push(bridge);
     await expect(submitRerun(bridge, user, reactiveDraft(), '', [])).resolves.toBe(runId);
-    expect(published.map(p => p.relays)).toEqual([relays, relays]);
+    expect(published.map(p => p.relays)).toEqual(publicationRelays);
   });
 
   it.each([
@@ -73,7 +77,7 @@ describe('workflow submission across the structured-clone boundary', () => {
       rerunSecrets: new Proxy([{key: 'SECRET_ENV', value: 'fixture-secret'}], {}),
     })).resolves.toBe(runId);
     expect(published.map(({event}) => event.kind)).toEqual([5401, 5100]);
-    expect(published.map(({relays: actual}) => actual)).toEqual([relays, relays]);
+    expect(published.map(({relays: actual}) => actual)).toEqual(publicationRelays);
     const job = published[1]!.event;
     expect(job.tags).toContainEqual(['p', worker]);
     expect(job.tags).toContainEqual(['e', runId]);
@@ -99,7 +103,7 @@ describe('workflow submission across the structured-clone boundary', () => {
     secrets[0]!.key = 'LATER_SECRET';
     finishUpload(['-c', 'download-and-run']);
     await pending;
-    expect(published.map(p => p.relays)).toEqual([relays, relays]);
+    expect(published.map(p => p.relays)).toEqual(publicationRelays);
     expect(published[1]!.event.tags).toContainEqual(['env', 'PUBLIC_ENV', 'original']);
     expect(published[1]!.event.tags).toContainEqual(['secret', 'SECRET_ENV', `encrypted-for-${worker}`]);
     expect(published[1]!.event.tags.some(t => t[1] === 'LATER_SECRET')).toBe(false);

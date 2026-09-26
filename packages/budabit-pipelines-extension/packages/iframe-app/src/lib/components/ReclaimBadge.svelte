@@ -5,6 +5,7 @@
     | 'idle'
     | 'pending'
     | 'redeemed'
+    | 'spent'
     | 'rateLimited'
     | 'failed'
     | 'p2pkUnsupported'
@@ -19,6 +20,7 @@
     error?: string
     /** Render as an interactive button. When false, renders a passive span. */
     interactive?: boolean
+    manualOnly?: boolean
     onclick?: () => void
   }
 
@@ -29,6 +31,7 @@
     rateLimitUntil,
     error,
     interactive = false,
+    manualOnly = false,
     onclick,
   }: Props = $props()
 
@@ -59,8 +62,8 @@
           icon: Coins,
           spin: false,
           tone: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
-          text: amountText ? `Reclaim ${amountText}` : 'Reclaim',
-          title: `${labelPrefix} available — click to reclaim into your wallet.`,
+          text: manualOnly ? 'Try reclaiming payment' : amountText ? `Reclaim ${amountText}` : 'Reclaim',
+          title: manualOnly ? 'Attempt to return unspent payment to your wallet.' : `${labelPrefix} available — click to reclaim into your wallet.`,
         }
       case 'pending':
         return {
@@ -84,7 +87,7 @@
           spin: false,
           tone: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
           text: `Retry in ${cooldownSecs}s`,
-          title: 'Mint rate-limited — retrying after the cooldown.',
+          title: manualOnly ? 'Mint rate-limited — try again after the cooldown.' : 'Mint rate-limited — retrying after the cooldown.',
         }
       case 'failed':
         return {
@@ -93,6 +96,14 @@
           tone: 'border-red-500/30 bg-red-500/10 text-red-300',
           text: 'Reclaim failed',
           title: error || 'Reclaim failed.',
+        }
+      case 'spent':
+        return {
+          icon: AlertCircle,
+          spin: false,
+          tone: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+          text: 'Already spent',
+          title: 'The mint reports this token was already spent. No refund was confirmed by this attempt.',
         }
       case 'p2pkUnsupported':
         return {

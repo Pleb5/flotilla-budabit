@@ -3,6 +3,8 @@
   import {copyToClipboard, eventPath, HOST_ACTIONS, navigateHost, profilePath, type HostActions} from './lib/host-actions'
   import EventActions from './lib/components/EventActions.svelte'
   import WorkerFailure from './lib/components/WorkerFailure.svelte'
+  import RunDeliveryNotice from './lib/components/RunDeliveryNotice.svelte'
+  import {deliveryStatusLabel, runDeliveryState} from './lib/run-delivery'
   import {readRunIdFromUrl, writeRunIdToUrl} from './lib/run-fragment'
   import type {WidgetBridge} from 'budabit-sdk'
   import {
@@ -82,6 +84,7 @@
     STALE_PENDING_MS,
     classifyReclaimError,
     getReclaimCandidate,
+    getUnacknowledgedReclaimCandidate,
     isP2PKLocked,
     loadRateLimit,
     loadRedeemed,
@@ -229,6 +232,15 @@
   const FALLBACK_RELAYS = ['wss://relay.budabit.club', 'wss://nos.lol']
 
   let liveDurationSeconds = $state<number | null>(null)
+  let runNow = $state(Date.now())
+
+  // Waiting states and manual recovery become visible without needing a new event.
+  $effect(() => {
+    if (!workflowRuns.some(run => run.status === 'pending')) return
+    runNow = Date.now()
+    const timer = setInterval(() => {runNow = Date.now()}, 1000)
+    return () => clearInterval(timer)
+  })
 
   const selectedWorker = $derived(getSelectedWorker(rerunDraft, discoveredWorkers))
   const compatibleMints = $derived.by(() => getCompatibleMints(selectedWorker, walletMints))
@@ -291,23 +303,24 @@
       if (redeemedEntry) {
         map[run.id] = {
           kind: redeemedEntry.kind,
-          status: 'redeemed',
+          status: typeof redeemedEntry.amount === 'number' ? 'redeemed' : 'spent',
           amount: redeemedEntry.amount,
         }
         continue
       }
-      const candidate = getReclaimCandidate(run, userPubkey, reclaimRedeemed)
+      const candidate = getReclaimCandidate(run, userPubkey, reclaimRedeemed, runNow)
+        ?? getUnacknowledgedReclaimCandidate(run, userPubkey, reclaimRedeemed, runNow)
       if (candidate) {
         map[run.id] = limited
-          ? {kind: candidate.kind, status: 'rateLimited', rateLimitUntil: reclaimRateLimit.until}
-          : {kind: candidate.kind, status: 'idle'}
+          ? {kind: candidate.kind, manualOnly: candidate.manualOnly, status: 'rateLimited', rateLimitUntil: reclaimRateLimit.until}
+          : {kind: candidate.kind, manualOnly: candidate.manualOnly, status: 'idle'}
       }
     }
     return map
   })
 
   const eligibleReclaimCount = $derived(
-    Object.values(reclaimByRunId).filter(s => s.status === 'idle').length
+    Object.values(reclaimByRunId).filter(s => s.status === 'idle' && !s.manualOnly).length
   )
 
   const selectedReclaim = $derived(
@@ -327,9 +340,10 @@
       ? selectedReclaim.amount
       : changeAmount
   )
-  const actualCost = $derived(prepaidAmount !== null ? prepaidAmount - (effectiveChange ?? 0) : null)
+  const paymentSettled = $derived(!!selectedRunDetail?.run.loomResultEvent || !!selectedRunDetail?.run.workflowLogEvent || selectedReclaim?.status === 'redeemed')
+  const actualCost = $derived(paymentSettled && prepaidAmount !== null ? prepaidAmount - (effectiveChange ?? 0) : null)
 
-  async function attemptReclaim(runId: string): Promise<void> {
+  async function attemptReclaim(runId: string, allowUnacknowledged = false): Promise<void> {
     if (!bridge) return
     if (reclaimInFlight.has(runId)) return
     if (reclaimRateLimit.until > Date.now()) return
@@ -339,6 +353,7 @@
     const run = workflowRuns.find(r => r.id === runId)
     if (!run || !userPubkey) return
     const candidate = getReclaimCandidate(run, userPubkey, reclaimRedeemed)
+      ?? (allowUnacknowledged ? getUnacknowledgedReclaimCandidate(run, userPubkey, reclaimRedeemed) : null)
     if (!candidate) return
 
     reclaimInFlight.add(runId)
@@ -346,7 +361,7 @@
     // even before async work starts (P2PK decode, mint roundtrip).
     reclaimTransient = {
       ...reclaimTransient,
-      [runId]: {kind: candidate.kind, status: 'pending'},
+      [runId]: {kind: candidate.kind, manualOnly: candidate.manualOnly, status: 'pending'},
     }
 
     try {
@@ -360,6 +375,16 @@
         return
       }
 
+      // A late worker response may have arrived while decoding the token.
+      if (candidate.manualOnly) {
+        const latest = workflowRuns.find(r => r.id === runId)
+        if (!latest || !getUnacknowledgedReclaimCandidate(latest, repoCtx?.userPubkey, reclaimRedeemed)) {
+          const next = {...reclaimTransient}
+          delete next[runId]
+          reclaimTransient = next
+          return
+        }
+      }
       const result = await receiveReclaimToken(bridge!, candidate.token)
       const tokenHash = await sha256Hex(candidate.token)
       const amount = result.kind === 'redeemed' ? result.amount : undefined
@@ -402,6 +427,7 @@
           ...reclaimTransient,
           [runId]: {
             kind: candidate.kind,
+            manualOnly: candidate.manualOnly,
             status: 'failed',
             error: classified.message,
           },
@@ -414,7 +440,7 @@
 
   async function reclaimAllEligible() {
     const ids = workflowRuns
-      .filter(run => reclaimByRunId[run.id]?.status === 'idle')
+      .filter(run => reclaimByRunId[run.id]?.status === 'idle' && !reclaimByRunId[run.id]?.manualOnly)
       .map(run => run.id)
     for (const id of ids) {
       if (reclaimRateLimit.until > Date.now()) break
@@ -1124,12 +1150,14 @@
     })
 
     // Detail merging still needs the raw event stream.
-    const detailSub = repoEvents$(repoAddress, relays, trustedAuthors, viewerPubkey).subscribe(event => {
+    // Cached events replay synchronously during subscription. Reading/writing
+    // detail here must not make the subscription effect depend on that detail.
+    const detailSub = repoEvents$(repoAddress, relays, trustedAuthors, viewerPubkey).subscribe(event => untrack(() => {
       const detail = selectedRunDetail
       if (!detail) return
       const updated = mergeEventIntoDetail(detail, event)
       if (updated !== detail) selectedRunDetail = updated
-    })
+    }))
 
     // Worker discovery — kind 10100 stream, deduped by pubkey, latest wins.
     // The viewer pubkey lets the stream resolve advertised freelists and flag
@@ -1355,7 +1383,7 @@
     const anyPending = Object.values(reclaimTransient).some(s => s.status === 'pending')
     if (anyPending) return
     const states = reclaimByRunId
-    const next = workflowRuns.find(run => states[run.id]?.status === 'idle')
+    const next = workflowRuns.find(run => states[run.id]?.status === 'idle' && !states[run.id]?.manualOnly)
     if (next) void attemptReclaim(next.id)
   })
 
@@ -1644,6 +1672,7 @@
             {#each filteredRuns as run, i (run.id)}
               <RunListItem
                 {run}
+                now={runNow}
                 selected={selectedRunId === run.id}
                 divider={i > 0}
                 refreshing={detailRefreshing}
@@ -1838,28 +1867,34 @@
                       {:else}
                         <StatusIcon class="h-3.5 w-3.5" />
                       {/if}
-                      {statusLabel(run.status)}
+                      {deliveryStatusLabel(run, runNow) ?? statusLabel(run.status)}
                     </span>
                   </div>
                   <div class="space-y-1">
-                    <div class="text-xs text-muted-foreground">Total duration</div>
+                    <div class="text-xs text-muted-foreground">{runDeliveryState(run, runNow) ? 'Waiting since submission' : 'Total duration'}</div>
                     <div class="text-sm font-medium">
-                      {isActiveRunStatus(run.status) && liveDurationSeconds !== null
-                        ? formatDuration(liveDurationSeconds)
-                        : formatDuration(run.duration)}
+                      {runDeliveryState(run, runNow)
+                        ? formatDuration(Math.max(0, Math.floor((runNow - (run.loomJobEvent ? run.loomJobEvent.created_at * 1000 : run.createdAt)) / 1000)))
+                        : isActiveRunStatus(run.status) && liveDurationSeconds !== null
+                          ? formatDuration(liveDurationSeconds)
+                          : formatDuration(run.duration)}
                     </div>
                   </div>
                   <div class="space-y-1">
-                    <div class="text-xs text-muted-foreground">Total cost</div>
+                    <div class="text-xs text-muted-foreground">{paymentSettled ? 'Total cost' : 'Prepayment'}</div>
                     <div class="text-sm font-medium">
                       {#if isFreeRun(run)}
                         <span class="text-green-400">free</span>
                       {:else}
-                        {actualCost !== null ? `${actualCost.toLocaleString()} sats` : '—'}
+                        {paymentSettled
+                          ? actualCost !== null ? `${actualCost.toLocaleString()} sats` : '—'
+                          : prepaidAmount !== null ? `${prepaidAmount.toLocaleString()} sats · unconfirmed` : '—'}
                       {/if}
                     </div>
                   </div>
                 </div>
+
+                <RunDeliveryNotice {run} now={runNow} />
 
                 {#if usingWorkflowFallback && workflowFallback}
                   <div class="rounded-lg border-2 border-yellow-500/40 bg-yellow-500/10 p-4 text-yellow-200">
@@ -1964,7 +1999,7 @@
                 changeAmount={effectiveChange}
                 {actualCost}
                 reclaim={selectedReclaim}
-                onReclaim={() => void attemptReclaim(run.id)}
+                onReclaim={() => void attemptReclaim(run.id, true)}
                 {copyText} />
             </div>
           </div>

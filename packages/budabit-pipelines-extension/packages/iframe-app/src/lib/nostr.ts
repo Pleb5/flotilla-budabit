@@ -40,7 +40,7 @@ export const eventStore = new EventStore();
 export const pool = new RelayPool();
 
 /** Well-known relays that index profile/metadata events for everyone. */
-const PROFILE_LOOKUP_RELAYS = ['wss://purplepag.es', 'wss://index.hzrd149.com'];
+export const PROFILE_LOOKUP_RELAYS = ['wss://purplepag.es', 'wss://index.hzrd149.com'];
 
 /**
  * Default relays loom-workers publish to — loom jobs/results and kind:10100
@@ -242,13 +242,18 @@ function buildRepoEventGraph(
   const workerEvents$ = combineLatest([workers$, jobIds$]).pipe(
     switchMap(([workers, jobIds]) => {
       if (!workers.size || !jobIds.size) return EMPTY;
-      return pool
-        .subscription(relays, {
+      // Replies may only reach the worker's own outboxes. Follow their NIP-65
+      // lists as well as repository/default relays, including for historical jobs.
+      return outboxRelays$([...workers]).pipe(
+        startWith([]),
+        map(extra => [...new Set([...relays, ...extra])]),
+        distinctUntilChanged(sameRelaySet),
+        switchMap(replyRelays => pool.subscription(replyRelays, {
           kinds: [KIND_LOOM_RESULT, KIND_LOOM_STATUS],
           authors: [...workers],
           '#e': [...jobIds],
-        })
-        .pipe(onlyEvents());
+        }).pipe(onlyEvents())),
+      );
     }),
   );
 

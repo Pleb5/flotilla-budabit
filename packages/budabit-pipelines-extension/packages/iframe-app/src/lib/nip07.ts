@@ -1,6 +1,7 @@
 import { generateSecretKey, getPublicKey, nip19 } from 'nostr-tools';
 import type { WidgetBridge } from 'budabit-sdk';
 import type { RerunDraft } from './types';
+import {resolveWorkerDeliveryRelays} from './worker-routing';
 
 function hexFromBytes(bytes: Uint8Array): string {
   return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
@@ -69,6 +70,8 @@ export async function submitRerun(
   paymentToken: string,
   secrets: Array<{ key: string; value: string }>
 ): Promise<string> {
+  const repoRelays = [...draft.publishRelays];
+  const jobRelays = await resolveWorkerDeliveryRelays(draft.workerPubkey, repoRelays);
   const ephemeralSecretKey = generateSecretKey();
   const ephemeralPubkey = getPublicKey(ephemeralSecretKey);
   const ephemeralSecretKeyHex = hexFromBytes(ephemeralSecretKey);
@@ -91,7 +94,7 @@ export async function submitRerun(
     pubkey: signerPubkey,
   };
 
-  const runId = await signAndPublish(bridge, workflowRunEvent, draft.publishRelays);
+  const runId = await signAndPublish(bridge, workflowRunEvent, repoRelays);
 
   // 2. Encrypt secrets via the host's NIP-44 signer
   const envTags: string[][] = [
@@ -136,7 +139,7 @@ export async function submitRerun(
     pubkey: signerPubkey,
   };
 
-  await signAndPublish(bridge, loomJobEvent, draft.publishRelays);
+  await signAndPublish(bridge, loomJobEvent, jobRelays);
 
   return runId;
 }

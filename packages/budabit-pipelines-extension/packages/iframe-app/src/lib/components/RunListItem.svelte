@@ -2,6 +2,7 @@
   import {ChevronRight, Clock, GitBranch, GitCommit, RotateCw} from '@lucide/svelte'
   import {formatDuration, formatExactTime, formatTimeAgo, getStatusBadge, getStatusColor, getStatusIcon, shortId} from '../presentation'
   import {statusLabel} from '../workflows'
+  import {deliveryStatusLabel} from '../run-delivery'
   import UserDisplay from './UserDisplay.svelte'
   import type {WorkflowRun} from '../types'
 
@@ -10,10 +11,11 @@
     selected?: boolean
     divider?: boolean
     refreshing?: boolean
+    now?: number
     onSelect: () => void
   }
 
-  const {run, selected = false, divider = false, refreshing = false, onSelect}: Props = $props()
+  const {run, selected = false, divider = false, refreshing = false, now = Date.now(), onSelect}: Props = $props()
 
   const visualOpts = $derived({inferred: run.inferredFailure})
   const StatusIcon = $derived(getStatusIcon(run.status, visualOpts))
@@ -87,8 +89,8 @@
         {/if}
       </div>
 
-      <span class={`hidden w-24 shrink-0 items-center justify-center rounded-full border px-2 py-0.5 font-medium md:inline-flex ${getStatusBadge(run.status, visualOpts)}`}>
-        {statusLabel(run.status)}
+      <span class={`inline-flex shrink-0 items-center justify-center rounded-full border px-2 py-0.5 font-medium ${getStatusBadge(run.status, visualOpts)}`}>
+        {deliveryStatusLabel(run, now) ?? statusLabel(run.status)}
       </span>
     </div>
   </div>
