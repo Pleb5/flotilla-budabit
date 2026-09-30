@@ -120,6 +120,7 @@ import {
   makeCommunityExclusiveFilter,
   makeCommunityTargetingFilter,
   makeTargetedPublicationOriginalFilterPlan,
+  makeTargetedPublicationOriginalRelayHintPlans,
 } from "@app/core/community-feeds"
 import {readCommunityCalendarEventReply} from "@app/core/community-calendar"
 import {readCommunityRoomMessage} from "@app/core/community-messages"
@@ -129,6 +130,7 @@ import {
   COMMUNITY_WRITE_TARGETS,
   canWriteCommunityTarget,
   getCommunityCalendarTargetWriterPubkeys,
+  getCommunityCalendarWriteTargetSectionName,
   getCommunityCalendarWriteTargetSections,
   getGrantCapability,
   getGrantCapableSectionModeratorPubkeys,
@@ -149,6 +151,11 @@ import {
 import {
   notificationCandidates,
   notifications,
+  checked,
+  effectiveCommunityNotificationBaselines,
+  persistedNotificationStateReady,
+  hasNotificationForPath,
+  setupCommunityRootNotifications,
   type NotificationCandidate,
 } from "@app/util/notifications"
 import {
@@ -231,6 +238,7 @@ export type BuildRouteNotificationRowsOptions = {
 
 export type BuildCommunityNotificationRowsOptions = {
   refs: ActiveUserCommunityRef[]
+  rootRefs?: ActiveUserCommunityRef[]
   events: TrustedEvent[]
   profileListEvents?: TrustedEvent[]
   currentPubkey?: string
@@ -301,6 +309,7 @@ export type BuildGlobalCommunityNotificationFiltersOptions = {
   reportStates?: UserCommunityReportStates
   since: number
   limit: number
+  rootsOnly?: boolean
 }
 
 export type CommunityNotificationFilterSource = {
@@ -1887,6 +1896,7 @@ export const buildChatNotificationRows = ({
 
 export const buildCommunityNotificationRows = ({
   refs,
+  rootRefs = refs,
   events,
   profileListEvents = [],
   currentPubkey,
@@ -1895,6 +1905,8 @@ export const buildCommunityNotificationRows = ({
   targetEvents = [],
 }: BuildCommunityNotificationRowsOptions): NotificationRow[] => {
   const rowsById = new Map<string, NotificationRow>()
+  const memberAddresses = new Set(refs.map(ref => ref.community.address))
+  const allRefs = new Map([...refs, ...rootRefs].map(ref => [ref.community.address, ref]))
   const normalizedCurrentPubkey = normalizePubkey(currentPubkey || "")
   const muted = new Set(mutedPubkeys.map(normalizePubkey).filter(Boolean))
   const targetEventsById = mapEventsById([...events, ...targetEvents])
@@ -1903,6 +1915,20 @@ export const buildCommunityNotificationRows = ({
     [...events, ...targetEvents].filter(event => event.kind === TARGETED_PUBLICATION_KIND),
     [...events, ...targetEvents].filter(event => event.kind === DELETE),
   )
+  const deleteEvents = [...events, ...targetEvents].filter(event => event.kind === DELETE)
+  const isRootDeleted = (root: TrustedEvent) =>
+    deleteEvents.some(
+      event =>
+        event.pubkey === root.pubkey &&
+        event.tags.some(
+          tag =>
+            (tag[0] === "e" && tag[1] === root.id) ||
+            (tag[0] === "a" &&
+              isReplaceable(root) &&
+              tag[1] === getAddress(root) &&
+              event.created_at >= root.created_at),
+        ),
+    )
 
   const addRow = ({
     ref,
@@ -1921,6 +1947,7 @@ export const buildCommunityNotificationRows = ({
     detailLabel,
     actionLabel,
     focusEvent = true,
+    notificationCandidate,
   }: {
     ref: ActiveUserCommunityRef
     event: TrustedEvent
@@ -1938,6 +1965,7 @@ export const buildCommunityNotificationRows = ({
     detailLabel?: string
     actionLabel?: string
     focusEvent?: boolean
+    notificationCandidate?: NotificationCandidate
   }) => {
     if (!path) return
     if (normalizedCurrentPubkey && normalizePubkey(event.pubkey) === normalizedCurrentPubkey) return
@@ -1956,6 +1984,7 @@ export const buildCommunityNotificationRows = ({
       getCommunityCensorReason({
         reportState,
         eventId: event.id,
+        eventAddress: getEventAddressRef(event),
         pubkey: event.pubkey,
         sectionName: resolvedSectionName,
       })
@@ -1975,9 +2004,10 @@ export const buildCommunityNotificationRows = ({
       return
     }
 
+    const createdAt = notificationCandidate?.latestEvent?.created_at ?? event.created_at
     const id = `event:${event.id}`
     const current = rowsById.get(id)
-    if (current && current.createdAt >= event.created_at) return
+    if (current && current.createdAt >= createdAt) return
 
     rowsById.set(id, {
       id,
@@ -2010,7 +2040,8 @@ export const buildCommunityNotificationRows = ({
         fallback: preview,
         focusEvent,
       }),
-      createdAt: event.created_at,
+      createdAt,
+      ...(notificationCandidate ? {notificationCandidate} : {}),
       searchText: buildNotificationSearchText(
         "community",
         title,
@@ -2022,7 +2053,7 @@ export const buildCommunityNotificationRows = ({
     })
   }
 
-  for (const ref of refs) {
+  for (const ref of allRefs.values()) {
     const reportState = getReportState(reportStates, ref.community.address)
     const admitTarget = (targetEvent: TrustedEvent) =>
       isCommunityContextTargetAdmitted({
@@ -2035,6 +2066,30 @@ export const buildCommunityNotificationRows = ({
       })
 
     for (const event of events) {
+      const thread = readCommunityThread(event, ref.community.communityId)
+      if (thread) {
+        if (isRootDeleted(event)) continue
+        const path = makeExactCommunityThreadPath(ref.community, thread.id)
+        addRow({
+          ref,
+          event,
+          path,
+          title: "New thread",
+          preview: getTextPreview(event, "Thread"),
+          target: COMMUNITY_WRITE_TARGETS.thread,
+          action: "started a thread",
+          contextLabel: ref.definition.metadata.name || "Community",
+          actionLabel: "Open thread",
+          notificationCandidate: {
+            path: makeExactCommunityThreadPath(ref.community),
+            readPath: path,
+            latestEvent: event,
+          },
+        })
+        continue
+      }
+
+      if (!memberAddresses.has(ref.community.address)) continue
       const message = readCommunityRoomMessage(event, ref.community.communityId)
       if (message) {
         const parentMessage = message.parentMessageId
@@ -2178,7 +2233,70 @@ export const buildCommunityNotificationRows = ({
       }
     }
 
-    if (normalizedCurrentPubkey && reportState) {
+    for (const targetingEvent of targetingEvents) {
+      const targeting = parseTargetedPublication(targetingEvent)
+      if (!targeting || !targetsCommunityDefinition(targetingEvent, ref)) continue
+      const calendar = targeting.kind === EVENT_DATE || targeting.kind === EVENT_TIME
+      if (!calendar && targeting.kind !== ZAP_GOAL) continue
+      if (targetingEvent.pubkey === normalizedCurrentPubkey || muted.has(targetingEvent.pubkey))
+        continue
+      const target = calendar ? COMMUNITY_WRITE_TARGETS.calendar : COMMUNITY_WRITE_TARGETS.goal
+      const sectionName = calendar
+        ? getCommunityCalendarWriteTargetSectionName(ref.definition)
+        : getCommunityWriteTargetSectionName(ref.definition, target)
+      if (
+        reportState &&
+        getCommunityCensorReason({
+          reportState,
+          eventId: targetingEvent.id,
+          eventAddress: getEventAddressRef(targetingEvent),
+          pubkey: targetingEvent.pubkey,
+          sectionName,
+        })
+      )
+        continue
+      const filters = makeTargetedPublicationOriginalFilterPlan([targetingEvent]).localFilters
+      // Explicit targets may have an external author; authority belongs to the wrapper signer.
+      const root = [...targetEventsById.values()]
+        .filter(event => matchFilters(filters, event))
+        .sort((a, b) => b.created_at - a.created_at || a.id.localeCompare(b.id))[0]
+      if (
+        !root ||
+        isRootDeleted(root) ||
+        !isTargetableCommunityOriginalAdmitted({
+          event: root,
+          ref,
+          targetingEvents: [targetingEvent],
+          profileListEvents,
+          reportStates,
+          requireCompleteEvidence: true,
+        })
+      )
+        continue
+      const path = calendar
+        ? makeExactCommunityCalendarPath(ref.community, root.id)
+        : makeExactCommunityGoalPath(ref.community, root.id)
+      addRow({
+        ref,
+        event: root,
+        path,
+        title: calendar ? "New calendar event" : "New goal",
+        preview: getTextPreview(root, calendar ? "Calendar event" : "Goal"),
+        sectionName,
+        action: calendar ? "created a calendar event" : "created a goal",
+        contextLabel: ref.definition.metadata.name || "Community",
+        actionLabel: calendar ? "Open calendar event" : "Open goal",
+        notificationCandidate: {
+          path: calendar
+            ? makeExactCommunityCalendarPath(ref.community)
+            : makeExactCommunityGoalPath(ref.community),
+          readPath: path,
+          latestEvent: targetingEvent,
+        },
+      })
+    }
+
+    if (memberAddresses.has(ref.community.address) && normalizedCurrentPubkey && reportState) {
       for (const report of reportState.personReports) {
         if (normalizePubkey(report.targetPubkey || "") !== normalizedCurrentPubkey) continue
         if (!report.event) continue
@@ -3571,7 +3689,8 @@ export const buildRouteNotificationRows = ({
   const candidatesByPath = new Map<string, NotificationCandidate>()
 
   for (const candidate of candidates) {
-    if (!candidate.path) continue
+    // Item-specific roots have durable rows, rather than a latest-per-section fallback.
+    if (!candidate.path || candidate.readPath) continue
 
     const current = candidatesByPath.get(candidate.path)
     const candidateEvent = candidate.latestEvent
@@ -3598,6 +3717,11 @@ export const buildRouteNotificationRows = ({
   }
   for (const path of Array.from(centerPaths).sort()) {
     if (!path) continue
+    if (
+      !candidatesByPath.has(path) &&
+      candidates.some(candidate => candidate.path === path && candidate.readPath)
+    )
+      continue
 
     const candidateEvent = candidatesByPath.get(path)?.latestEvent
     const coveredAt = coveredAtByPath?.get(path)
@@ -3655,6 +3779,7 @@ export const buildGlobalCommunityNotificationFilterPlan = ({
   reportStates,
   since,
   limit,
+  rootsOnly = false,
 }: BuildGlobalCommunityNotificationFiltersOptions): CommunityNotificationFilterPlan => {
   const relayFilters: Filter[] = []
   const localFilters: Filter[] = []
@@ -3675,6 +3800,12 @@ export const buildGlobalCommunityNotificationFilterPlan = ({
       target: COMMUNITY_WRITE_TARGETS.comment,
       reportState,
     })
+    const threadAuthors = getCommunityTargetWriterPubkeys({
+      definition: ref.definition,
+      profileListEvents,
+      target: COMMUNITY_WRITE_TARGETS.thread,
+      reportState,
+    })
 
     const messageFilters = [
       makeCommunityExclusiveFilter(ref.community.communityId, [MESSAGE], {
@@ -3684,6 +3815,12 @@ export const buildGlobalCommunityNotificationFilterPlan = ({
     ]
     const commentFilters = [
       makeCommunityExclusiveFilter(ref.community.communityId, [COMMENT], {
+        since,
+        limit: boundedLimit,
+      }),
+    ]
+    const threadFilters = [
+      makeCommunityExclusiveFilter(ref.community.communityId, [THREAD], {
         since,
         limit: boundedLimit,
       }),
@@ -3706,7 +3843,19 @@ export const buildGlobalCommunityNotificationFilterPlan = ({
       )
     }
 
-    relayFilters.push(...messageFilters, ...commentFilters)
+    relayFilters.push(...messageFilters, ...commentFilters, ...threadFilters)
+    if (
+      hasCommunityGrantEvidence({
+        ref,
+        target: COMMUNITY_WRITE_TARGETS.thread,
+        profileListEvents,
+        reportStates,
+      })
+    ) {
+      localFilters.push(
+        ...makeCommunityContentFilterPlan(threadFilters, threadAuthors).localFilters,
+      )
+    }
     if (
       hasCommunityGrantEvidence({
         ref,
@@ -3731,7 +3880,12 @@ export const buildGlobalCommunityNotificationFilterPlan = ({
     }
   }
 
-  return {relayFilters, localFilters}
+  return rootsOnly
+    ? {
+        relayFilters: relayFilters.filter(filter => filter.kinds?.includes(THREAD)),
+        localFilters: localFilters.filter(filter => filter.kinds?.includes(THREAD)),
+      }
+    : {relayFilters, localFilters}
 }
 
 export const buildGlobalCommunityNotificationFilters = (
@@ -4180,6 +4334,7 @@ const globalCommunityNotificationSources = derived(
   [
     pubkey,
     notificationCommunityRefs,
+    globalCommunityEvidenceRefs,
     globalCommunityProfileListEvents,
     globalCommunityReportStates,
     notificationHistorySince,
@@ -4188,12 +4343,13 @@ const globalCommunityNotificationSources = derived(
   ([
     $pubkey,
     $refs,
+    $rootRefs,
     $profileListEvents,
     $reportStates,
     $notificationHistorySince,
     $notificationHistoryFilterLimit,
   ]) => {
-    return $refs.map(ref => {
+    return $rootRefs.map(ref => {
       const plan = buildGlobalCommunityNotificationFilterPlan({
         refs: [ref],
         profileListEvents: $profileListEvents,
@@ -4201,6 +4357,8 @@ const globalCommunityNotificationSources = derived(
         reportStates: $reportStates,
         since: $notificationHistorySince,
         limit: $notificationHistoryFilterLimit,
+        // Root creation badges also apply to signed-in readers without a publishing grant.
+        rootsOnly: !$refs.some(memberRef => memberRef.community.address === ref.community.address),
       })
 
       return {
@@ -4895,7 +5053,7 @@ const globalCommunityModerationCompletePubkeys = derived(
 )
 
 const globalCommunityTargetingSources = derived(
-  [notificationCommunityRefs, globalCommunityProfileListEvents, globalCommunityReportStates],
+  [globalCommunityEvidenceRefs, globalCommunityProfileListEvents, globalCommunityReportStates],
   ([$refs, $profileListEvents, $reportStates]) =>
     $refs.map(ref => {
       const reportState = getReportState($reportStates, ref.community.address)
@@ -4968,7 +5126,7 @@ const globalCommunityTargetingCandidateEvents = derived(
 )
 
 const globalCommunityTargetingReplacementSources = derived(
-  [notificationCommunityRefs, globalCommunityTargetingCandidateEvents],
+  [globalCommunityEvidenceRefs, globalCommunityTargetingCandidateEvents],
   ([$refs, $events]) =>
     $refs.map(ref => {
       const communityEvents = $events.filter(event => targetsCommunityDefinition(event, ref))
@@ -5005,7 +5163,7 @@ const globalCommunityTargetingLifecycleEvents = derived(
 
 const globalCommunityTargetingDeleteSources = derived(
   [
-    notificationCommunityRefs,
+    globalCommunityEvidenceRefs,
     globalCommunityTargetingCandidateEvents,
     globalCommunityTargetingLifecycleEvents,
   ],
@@ -5046,7 +5204,7 @@ const globalCommunityTargetingDeleteEvents = derived(
 
 const globalCommunityTargetingEvents = derived(
   [
-    notificationCommunityRefs,
+    globalCommunityEvidenceRefs,
     globalCommunityTargetingSources,
     globalCommunityTargetingCandidateLoad,
     globalCommunityTargetingReplacementSources,
@@ -5169,31 +5327,107 @@ const globalCommunityNotificationTargetEvents = deriveLoadedNotificationEventGro
   label: "global community notification targets",
 })
 
+export const buildCommunityRootOriginalSources = (
+  refs: ActiveUserCommunityRef[],
+  targetingEvents: TrustedEvent[],
+): CommunityNotificationFilterSource[] =>
+  refs.flatMap(ref => {
+    const wrappers = targetingEvents.filter(event => {
+      const targeting = parseTargetedPublication(event)
+      return (
+        targeting &&
+        [EVENT_DATE, EVENT_TIME, ZAP_GOAL].includes(targeting.kind) &&
+        targetsCommunityDefinition(event, ref)
+      )
+    })
+    return [
+      {
+        relays: getCommunityNotificationRelays(ref),
+        ...makeTargetedPublicationOriginalFilterPlan(wrappers),
+      },
+      ...makeTargetedPublicationOriginalRelayHintPlans(wrappers),
+    ]
+      .filter(plan => plan.relayFilters.length > 0)
+      .map(plan => ({
+        communityAddress: ref.community.address,
+        relays: plan.relays,
+        filters: plan.relayFilters,
+        localFilters: plan.localFilters,
+      }))
+  })
+
+const globalCommunityRootOriginalSources = derived(
+  [globalCommunityEvidenceRefs, globalCommunityTargetingEvents],
+  ([$refs, $events]) => buildCommunityRootOriginalSources($refs, $events),
+)
+
+const globalCommunityRootOriginalEvents = deriveLoadedNotificationEventGroups({
+  groups: makeCommunityNotificationGroups(globalCommunityRootOriginalSources),
+  label: "community notification root originals",
+})
+
+const globalCommunityRootDeleteSources = derived(
+  [
+    globalCommunityEvidenceRefs,
+    globalCommunityNotificationEvents,
+    globalCommunityRootOriginalEvents,
+    globalCommunityRootOriginalSources,
+  ],
+  ([$refs, $events, $originals, $originalSources]) =>
+    $refs.map(ref => ({
+      communityAddress: ref.community.address,
+      relays: normalizeRelayHints(
+        getCommunityNotificationRelays(ref),
+        $originalSources
+          .filter(source => source.communityAddress === ref.community.address)
+          .flatMap(source => source.relays),
+      ),
+      filters: makeSameAuthorDeleteFilters([
+        ...$events.filter(event => readCommunityThread(event, ref.community.communityId)),
+        ...$originals,
+      ]),
+    })),
+)
+
+const globalCommunityRootDeleteEvents = deriveLoadedNotificationEventGroups({
+  groups: makeCommunityNotificationGroups(globalCommunityRootDeleteSources),
+  label: "community notification root deletes",
+})
+
 const globalCommunityNotificationRows = derived(
   [
     pubkey,
     notificationCommunityRefs,
+    globalCommunityEvidenceRefs,
     globalCommunityNotificationEvents,
     globalCommunityNotificationTargetEvents,
     globalCommunityTargetingEvents,
+    globalCommunityRootOriginalEvents,
+    globalCommunityRootDeleteEvents,
     globalCommunityProfileListEvents,
     globalCommunityReportStates,
   ],
   ([
     $pubkey,
     $notificationCommunityRefs,
+    $rootRefs,
     $globalCommunityNotificationEvents,
     $globalCommunityNotificationTargetEvents,
     $globalCommunityTargetingEvents,
+    $globalCommunityRootOriginalEvents,
+    $globalCommunityRootDeleteEvents,
     $globalCommunityProfileListEvents,
     $globalCommunityReportStates,
   ]) =>
     buildCommunityNotificationRows({
       refs: $notificationCommunityRefs,
+      rootRefs: $rootRefs,
       events: $globalCommunityNotificationEvents,
       targetEvents: [
         ...$globalCommunityNotificationTargetEvents,
         ...$globalCommunityTargetingEvents,
+        ...$globalCommunityRootOriginalEvents,
+        ...$globalCommunityRootDeleteEvents,
       ],
       profileListEvents: $globalCommunityProfileListEvents,
       currentPubkey: $pubkey || undefined,
@@ -5201,6 +5435,13 @@ const globalCommunityNotificationRows = derived(
       mutedPubkeys: $pubkey ? getMutes($pubkey) : [],
     }),
 )
+
+export const communityRootNotificationCandidates = derived(globalCommunityNotificationRows, $rows =>
+  $rows.flatMap(row => (row.notificationCandidate ? [row.notificationCandidate] : [])),
+)
+
+export const setupCommunityRootNotificationBadges = () =>
+  setupCommunityRootNotifications(communityRootNotificationCandidates)
 
 const globalCommunityApplicationRows = derived(
   [
@@ -5478,6 +5719,9 @@ const engagementNotificationRows = derived(
 export const notificationCenterRows = derived(
   [
     pubkey,
+    checked,
+    effectiveCommunityNotificationBaselines,
+    persistedNotificationStateReady,
     chatsById,
     notifications,
     notificationCandidates,
@@ -5492,6 +5736,9 @@ export const notificationCenterRows = derived(
   ],
   ([
     $pubkey,
+    $checked,
+    $communityBaselines,
+    $persistedNotificationStateReady,
     $chatsById,
     $notifications,
     $notificationCandidates,
@@ -5546,7 +5793,21 @@ export const notificationCenterRows = derived(
           candidates: $notificationCandidates,
           currentPubkey: $pubkey || undefined,
         }),
-      ]),
+      ]).map(row =>
+        row.notificationCandidate
+          ? {
+              ...row,
+              read:
+                !$persistedNotificationStateReady ||
+                !hasNotificationForPath({
+                  ...row.notificationCandidate,
+                  currentPubkey: $pubkey,
+                  checked: $checked,
+                  communityBaselines: $communityBaselines,
+                }),
+            }
+          : row,
+      ),
     )
   },
 )
@@ -5565,6 +5826,6 @@ export const hasNotificationCenterUnread = derived(
     hasUnreadNotificationRowsState(
       $notificationReadState,
       $pubkey || undefined,
-      $rows.map(row => row.id),
+      $rows.filter(row => !row.read).map(row => row.id),
     ),
 )

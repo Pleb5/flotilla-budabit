@@ -116,11 +116,13 @@ export const notificationReadState = synced<NotificationReadState>({
 export const setupNotificationUnreadHints = () => {
   let active = true
   let unsubscribe: (() => void) | undefined
+  let stopRootNotifications: (() => void) | undefined
 
   void Promise.all([import("./notification-sources"), notificationReadState.ready])
-    .then(([{notificationCenterRows}]) => {
+    .then(([{notificationCenterRows, setupCommunityRootNotificationBadges}]) => {
       if (!active) return
 
+      stopRootNotifications = setupCommunityRootNotificationBadges()
       unsubscribe = derived(
         [pubkey, notificationCenterRows, notificationReadState],
         ([$pubkey, $rows, $readState]) => ({
@@ -128,7 +130,7 @@ export const setupNotificationUnreadHints = () => {
           unread: hasUnreadNotificationRowsState(
             $readState,
             $pubkey,
-            $rows.map(row => row.id),
+            $rows.filter(row => !row.read).map(row => row.id),
           ),
         }),
       ).subscribe(({pubkey, unread}) => setNotificationUnreadHint(pubkey, unread))
@@ -141,6 +143,8 @@ export const setupNotificationUnreadHints = () => {
     active = false
     unsubscribe?.()
     unsubscribe = undefined
+    stopRootNotifications?.()
+    stopRootNotifications = undefined
   }
 }
 

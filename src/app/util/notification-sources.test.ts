@@ -252,6 +252,291 @@ const makeTargetingEvent = ({
   })
 
 describe("notification sources", () => {
+  it("discovers and retains each incoming thread root without a mention or ownership", async () => {
+    const {
+      buildCommunityNotificationRows,
+      buildGlobalCommunityNotificationFilterPlan,
+      buildRouteNotificationRows,
+    } = await import("./notification-sources")
+    const options = {
+      refs: [makeCommunityRef()],
+      currentPubkey: viewer,
+      profileListEvents: [makeProfileList(threadProfileListAddress)],
+      reportStates: new Map([[notificationCommunity.address, emptyReportState]]),
+    }
+    const thread = (id: string, pubkey = writer, created_at = 100) =>
+      makeEvent({
+        id,
+        pubkey,
+        created_at,
+        kind: THREAD,
+        tags: [
+          ["h", notificationCommunity.communityId],
+          ["title", id],
+        ],
+      })
+    const events = [
+      thread("first"),
+      thread("second", writer, 110),
+      thread("own-latest", viewer, 120),
+      thread("outsider", outsider),
+      {...thread("room"), tags: [["h", notificationCommunity.communityId], ["room"]]},
+    ]
+    const plan = buildGlobalCommunityNotificationFilterPlan({...options, since: 10, limit: 50})
+    expect(plan.relayFilters).toContainEqual(
+      expect.objectContaining({
+        kinds: [THREAD],
+        "#h": [notificationCommunity.communityId],
+        since: 10,
+      }),
+    )
+    expect(plan.relayFilters.every(filter => !filter.authors)).toBe(true)
+    expect(plan.localFilters).toContainEqual(
+      expect.objectContaining({kinds: [THREAD], authors: expect.arrayContaining([writer])}),
+    )
+    const rows = buildCommunityNotificationRows({...options, events})
+    expect(rows.map(row => row.eventId)).toEqual(["second", "first"])
+    expect(
+      buildCommunityNotificationRows({...options, refs: [], rootRefs: options.refs, events}),
+    ).toEqual(rows)
+    const readerPlan = buildGlobalCommunityNotificationFilterPlan({
+      ...options,
+      since: 10,
+      limit: 50,
+      rootsOnly: true,
+    })
+    expect(readerPlan.relayFilters).toHaveLength(1)
+    expect(readerPlan.localFilters.every(filter => filter.kinds?.[0] === THREAD)).toBe(true)
+    for (const row of rows) {
+      expect(row).toMatchObject({
+        title: "New thread",
+        actorPubkey: writer,
+        preview: row.eventId,
+        path: expect.stringContaining(`/threads/${row.eventId}`),
+        readPath: row.path,
+        notificationCandidate: {path: expect.stringMatching(/\/threads$/), readPath: row.path},
+      })
+    }
+    expect(
+      buildRouteNotificationRows({
+        paths: rows.map(row => row.notificationCandidate!.path),
+        candidates: rows.map(row => row.notificationCandidate!),
+        currentPubkey: viewer,
+      }),
+    ).toEqual([])
+    expect(buildCommunityNotificationRows({...options, events, mutedPubkeys: [writer]})).toEqual([])
+    expect(buildCommunityNotificationRows({...options, events, reportStates: undefined})).toEqual(
+      [],
+    )
+    expect(buildCommunityNotificationRows({...options, events, profileListEvents: []})).toEqual([])
+  })
+
+  it.each([EVENT_DATE, EVENT_TIME, ZAP_GOAL])(
+    "notifies new targeted roots of kind %s using the original title and item path",
+    async kind => {
+      const {buildCommunityNotificationRows} = await import("./notification-sources")
+      const root = makeEvent({
+        id: "a".repeat(64),
+        pubkey: outsider,
+        kind,
+        created_at: 90,
+        tags: [
+          ["d", "root"],
+          ["title", "New community item"],
+        ],
+      })
+      const wrapper = makeTargetingEvent({id: "target", kind, originalId: root.id})
+      const options = {
+        refs: [makeCommunityRef()],
+        currentPubkey: viewer,
+        events: [],
+        targetEvents: [root, wrapper],
+        reportStates: new Map([[notificationCommunity.address, emptyReportState]]),
+      }
+      const section = kind === ZAP_GOAL ? "goals" : "calendar"
+      const [row] = buildCommunityNotificationRows(options)
+      expect(row).toMatchObject({
+        id: `event:${root.id}`,
+        eventId: root.id,
+        actorPubkey: outsider,
+        title: kind === ZAP_GOAL ? "New goal" : "New calendar event",
+        preview: "New community item",
+        createdAt: wrapper.created_at,
+        path: expect.stringContaining(`/${section}/${root.id}`),
+        readPath: expect.stringContaining(`/${section}/${root.id}`),
+        detail: expect.objectContaining({event: root}),
+        notificationCandidate: {
+          latestEvent: wrapper,
+          path: expect.stringMatching(new RegExp(`/${section}$`)),
+        },
+      })
+      expect(buildCommunityNotificationRows({...options, targetEvents: [wrapper]})).toEqual([])
+      expect(
+        buildCommunityNotificationRows({
+          ...options,
+          targetEvents: [{...root, pubkey: viewer}, wrapper],
+        }),
+      ).toEqual([])
+      expect(
+        buildCommunityNotificationRows({
+          ...options,
+          targetEvents: [root, {...wrapper, pubkey: viewer}],
+        }),
+      ).toEqual([])
+      expect(
+        buildCommunityNotificationRows({
+          ...options,
+          targetEvents: [root, {...wrapper, pubkey: outsider}],
+        }),
+      ).toEqual([])
+      expect(buildCommunityNotificationRows({...options, mutedPubkeys: [outsider]})).toEqual([])
+      expect(buildCommunityNotificationRows({...options, mutedPubkeys: [communityPubkey]})).toEqual(
+        [],
+      )
+    },
+  )
+
+  it("binds roots to the exact community and current wrapper, including implicit signer and deletion checks", async () => {
+    const {buildCommunityNotificationRows, buildCommunityRootOriginalSources} =
+      await import("./notification-sources")
+    const root = makeEvent({
+      id: "b".repeat(64),
+      pubkey: writer,
+      kind: EVENT_TIME,
+      created_at: 90,
+      tags: [["d", "calendar"]],
+    })
+    const wrapper = makeEvent({
+      id: "wrapper",
+      pubkey: communityPubkey,
+      ...buildTargetedPublication({
+        id: "target",
+        kind: EVENT_TIME,
+        source: {
+          type: "a",
+          value: `${EVENT_TIME}:${writer}:calendar`,
+          relay: "wss://original.example/",
+        },
+        communities: [notificationCommunity],
+      }),
+    })
+    const options = {
+      refs: [makeCommunityRef()],
+      events: [],
+      currentPubkey: viewer,
+      reportStates: new Map([[notificationCommunity.address, emptyReportState]]),
+    }
+    const rows = (targetEvents: TrustedEvent[]) =>
+      buildCommunityNotificationRows({...options, targetEvents})
+    expect(rows([root, wrapper])).toHaveLength(1)
+    const siblingWrapper = makeEvent({
+      ...wrapper,
+      ...buildTargetedPublication({
+        id: "target",
+        kind: EVENT_TIME,
+        source: {type: "a", value: `${EVENT_TIME}:${writer}:calendar`},
+        communities: [siblingCommunity],
+      }),
+      id: "replacement",
+      created_at: 110,
+    })
+    expect(rows([root, wrapper, siblingWrapper])).toEqual([])
+    const deletedWrapper = makeEvent({
+      id: "deleted-wrapper",
+      kind: DELETE,
+      pubkey: communityPubkey,
+      created_at: 110,
+      tags: [["a", `${TARGETED_PUBLICATION_KIND}:${communityPubkey}:target`]],
+    })
+    expect(rows([root, wrapper, deletedWrapper])).toEqual([])
+    const deletedRoot = makeEvent({
+      id: "deleted-root",
+      kind: DELETE,
+      pubkey: writer,
+      created_at: 110,
+      tags: [["a", `${EVENT_TIME}:${writer}:calendar`]],
+    })
+    expect(rows([root, wrapper, deletedRoot])).toEqual([])
+    expect(rows([root, wrapper, {...deletedRoot, pubkey: outsider}])).toHaveLength(1)
+    for (const targetAddress of [
+      `${EVENT_TIME}:${writer}:calendar`,
+      `${TARGETED_PUBLICATION_KIND}:${communityPubkey}:target`,
+    ]) {
+      expect(
+        buildCommunityNotificationRows({
+          ...options,
+          targetEvents: [root, wrapper],
+          reportStates: new Map([
+            [
+              notificationCommunity.address,
+              {
+                ...emptyReportState,
+                eventReports: [{targetAddress, sectionName: COMMUNITY_SECTION_CALENDAR}],
+              },
+            ],
+          ]),
+        }),
+      ).toEqual([])
+    }
+    const implicit = makeEvent({
+      ...wrapper,
+      ...buildTargetedPublication({
+        id: "implicit",
+        kind: EVENT_TIME,
+        communities: [notificationCommunity],
+      }),
+    })
+    expect(rows([{...root, tags: [["h", "implicit"]]}, implicit])).toEqual([])
+    expect(
+      rows([{...root, pubkey: communityPubkey, tags: [["h", "implicit"]]}, implicit]),
+    ).toHaveLength(1)
+    const sources = buildCommunityRootOriginalSources(options.refs, [wrapper, siblingWrapper])
+    expect(sources).toContainEqual(
+      expect.objectContaining({
+        relays: ["wss://original.example/"],
+        filters: [{kinds: [EVENT_TIME], authors: [writer], "#d": ["calendar"], limit: 1}],
+      }),
+    )
+  })
+
+  it("removes deleted or moderated roots from notifications and badge candidates", async () => {
+    const {buildCommunityNotificationRows} = await import("./notification-sources")
+    const thread = makeEvent({
+      id: "thread",
+      kind: THREAD,
+      pubkey: writer,
+      tags: [["h", notificationCommunity.communityId]],
+    })
+    const options = {
+      refs: [makeCommunityRef()],
+      events: [thread],
+      currentPubkey: viewer,
+      profileListEvents: [makeProfileList(threadProfileListAddress)],
+      reportStates: new Map([[notificationCommunity.address, emptyReportState]]),
+    }
+    const deletion = makeEvent({
+      id: "delete",
+      kind: DELETE,
+      pubkey: writer,
+      tags: [["e", thread.id]],
+    })
+    expect(buildCommunityNotificationRows({...options, targetEvents: [deletion]})).toEqual([])
+    expect(
+      buildCommunityNotificationRows({...options, targetEvents: [{...deletion, pubkey: outsider}]}),
+    ).toHaveLength(1)
+    expect(
+      buildCommunityNotificationRows({
+        ...options,
+        reportStates: new Map([
+          [
+            notificationCommunity.address,
+            {...emptyReportState, personReports: [{targetPubkey: writer}]},
+          ],
+        ]),
+      }),
+    ).toEqual([])
+  })
+
   it("builds unread chat rows from latest incoming DM events", async () => {
     const {buildChatNotificationRows, getLatestNotificationCenterTimestamp} =
       await import("./notification-sources")

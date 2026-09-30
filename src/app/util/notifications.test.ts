@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
-import {get, readable} from "svelte/store"
+import {get, readable, writable} from "svelte/store"
 import {readFileSync} from "node:fs"
 import {getPublicKey, nip19} from "nostr-tools"
 import {describe, expect, it, vi} from "vitest"
 import type {TrustedEvent} from "@welshman/util"
 import type {CommunityDefinition} from "@app/core/community"
-import {buildTargetedPublication, makeCommunityPointer} from "@app/core/community"
+import {makeCommunityPointer} from "@app/core/community"
 import type {CommunityPermissionStatus} from "@app/core/community-state"
 
 vi.mock("@app/core/storage", () => ({
@@ -69,18 +69,6 @@ const makeEvent = (overrides: Partial<TrustedEvent>): TrustedEvent =>
   }) as TrustedEvent
 
 describe("notifications", () => {
-  it("uses bounded structural wrapper discovery and relay-hint original plans", () => {
-    const source = readFileSync("src/app/util/notifications.ts", "utf8")
-
-    expect(source).toContain("makeCommunityContentFilterPlan(")
-    expect(source).toContain("relayFilters: targetingFilterPlan.relayFilters")
-    expect(source).toContain("localFilters: targetingFilterPlan.localFilters")
-    expect(source).toContain("parseTargetedPublication(event)")
-    expect(source).toContain("makeTargetedPublicationOriginalRelayHintPlans(")
-    expect(source.match(/loadBoundedCommunityHistory\(\{/g)).toHaveLength(2)
-    expect(source).not.toContain("request({")
-  })
-
   it("fails active-community candidates closed until current permissions are authoritative", async () => {
     const {getActiveCommunityNotificationPermissionKey} = await import("./notifications")
     const viewer = "a".repeat(64)
@@ -142,18 +130,10 @@ describe("notifications", () => {
     const source = readFileSync("src/app/util/notifications.ts", "utf8")
     const roomStore = source.slice(
       source.indexOf("const roomMessageNotificationCandidates"),
-      source.indexOf("const threadRootNotificationCandidates"),
-    )
-    const threadStore = source.slice(
-      source.indexOf("const threadRootNotificationCandidates"),
-      source.indexOf("const makeTargetedPublicationRootNotificationCandidates"),
-    )
-    const targetedStore = source.slice(
-      source.indexOf("const makeTargetedPublicationRootNotificationCandidates"),
-      source.indexOf("const calendarRootNotificationCandidates"),
+      source.indexOf("const budabitNotificationCandidates"),
     )
 
-    for (const store of [roomStore, threadStore, targetedStore]) {
+    for (const store of [roomStore]) {
       expect(store).toContain("activeCommunityPermissionStatus")
       expect(store).toContain("$activeCommunityPermissionStatus")
       expect(store).toMatch(/if \(!permissionKey\) \{\s*set\(\[\]\)\s*return/)
@@ -163,20 +143,6 @@ describe("notifications", () => {
     }
 
     expect(roomStore).toContain("authors: authorPubkeys")
-    expect(threadStore).toContain("authors: authorPubkeys")
-    expect(targetedStore).toContain("makeCommunityContentFilterPlan(")
-    expect(targetedStore).toContain("relayFilters: targetingFilterPlan.relayFilters")
-    expect(targetedStore).toContain("localFilters: targetingFilterPlan.localFilters")
-    expect(targetedStore).toContain("owner: `notifications-community-targets:${permissionKey}`")
-    expect(targetedStore).toContain("owner: `notifications-community-originals:${permissionKey}`")
-    expect(targetedStore).toContain("getCommunityCalendarTargetWriterPubkeys({")
-    expect(targetedStore).toContain("aggregateCalendarWriters")
-
-    const calendarStore = source.slice(
-      source.indexOf("const calendarRootNotificationCandidates"),
-      source.indexOf("const goalRootNotificationCandidates"),
-    )
-    expect(calendarStore).toContain("aggregateCalendarWriters: true")
   })
 
   it("uses aggregate calendar admission in global notification discovery", () => {
@@ -226,6 +192,14 @@ describe("notifications", () => {
       "/git/repo/issues": 30,
       "/c/community/threads": 40,
     })
+    const listener = vi.fn()
+    const unsubscribe = checked.subscribe(listener)
+    setCheckedAtMany([])
+    setCheckedAtMany([["/chat/alice", 20]])
+    expect(listener).toHaveBeenCalledTimes(1)
+    setCheckedAtMany([["/chat/alice", 21]])
+    expect(listener).toHaveBeenCalledTimes(2)
+    unsubscribe()
   })
 
   it("setupBudabitNotifications returns cleanup", async () => {
@@ -261,6 +235,33 @@ describe("notifications", () => {
     expect(stops).toBe(2)
 
     unsubscribe()
+  })
+
+  it("projects root feed arrivals into badges and clears them on cleanup", async () => {
+    const {notificationCandidates, setupBudabitNotifications, setupCommunityRootNotifications} =
+      await import("./notifications")
+    const candidate = {
+      path: "/c/community/threads",
+      readPath: "/c/community/threads/new",
+      latestEvent: makeEvent({id: "new"}),
+    }
+    const roots = writable([candidate])
+    const stop = setupBudabitNotifications()
+    const stopFirst = setupCommunityRootNotifications(roots)
+    try {
+      expect(get(notificationCandidates)).toEqual([candidate])
+      roots.set([])
+      expect(get(notificationCandidates)).toEqual([])
+      roots.set([candidate])
+      const stopSecond = setupCommunityRootNotifications(readable([candidate]))
+      stopFirst()
+      expect(get(notificationCandidates)).toEqual([candidate])
+      stopSecond()
+      expect(get(notificationCandidates)).toEqual([])
+    } finally {
+      stopFirst()
+      stop()
+    }
   })
 
   it("owns notification sound listeners and avoids eager audio loading", () => {
@@ -376,166 +377,23 @@ describe("notifications", () => {
     ])
   })
 
-  it("creates section notification candidates from latest incoming root events", async () => {
-    const {getSectionRootNotificationCandidates} = await import("./notifications")
-    const currentPubkey = "b".repeat(64)
-    const incomingPubkey = "c".repeat(64)
-    const path = "/c/community/threads"
-    const olderThread = makeEvent({
-      id: "older-thread",
-      pubkey: incomingPubkey,
-      created_at: 10,
-      kind: 11,
-    })
-    const newerThread = makeEvent({
-      id: "newer-thread",
-      pubkey: incomingPubkey,
-      created_at: 20,
-      kind: 11,
-    })
-    const ownThread = makeEvent({
-      id: "own-thread",
-      pubkey: currentPubkey,
-      created_at: 30,
-      kind: 11,
-    })
-    const comment = makeEvent({
-      id: "comment",
-      pubkey: incomingPubkey,
-      created_at: 40,
-      kind: 1111,
-    })
-
-    expect(
-      getSectionRootNotificationCandidates({
-        events: [olderThread, newerThread, ownThread, comment],
-        path,
-        currentPubkey,
-        allowEvent: event => event.kind === 11,
-      }),
-    ).toEqual([{path, latestEvent: newerThread}])
-  })
-
-  it("matches strict targets by exact branch address", async () => {
-    const {getTargetedPublicationRootNotificationCandidates} = await import("./notifications")
-    const owner = getPublicKey(new Uint8Array(32).fill(1))
-    const siblingController = getPublicKey(new Uint8Array(32).fill(2))
-    const author = getPublicKey(new Uint8Array(32).fill(3))
-    const sharedId = "7".repeat(64)
-    const community = makeCommunityPointer({ownerPubkey: owner, communityId: sharedId})!
-    const sibling = makeCommunityPointer({
-      ownerPubkey: siblingController,
-      communityId: sharedId,
-    })!
-    const path = `/c/${community.naddr}/calendar`
-    const root = makeEvent({
-      id: "root",
-      pubkey: author,
-      created_at: 19,
-      kind: 31923,
-      tags: [["d", "calendar"]],
-    })
-    const targeted = makeEvent({
-      id: "targeted",
-      pubkey: author,
-      created_at: 20,
-      ...buildTargetedPublication({
-        id: "target",
-        kind: 31923,
-        source: {type: "a", value: `31923:${author}:calendar`},
-        communities: [community],
-      }),
-    })
-    const siblingTargeted = makeEvent({
-      id: "sibling-targeted",
-      pubkey: author,
-      created_at: 30,
-      ...buildTargetedPublication({
-        id: "sibling-target",
-        kind: 31923,
-        source: {type: "a", value: `31923:${author}:calendar`},
-        communities: [sibling],
-      }),
-    })
-    const v1Shaped = makeEvent({
-      id: "v1-shaped",
-      pubkey: author,
-      created_at: 40,
-      kind: 30222,
-      tags: [
-        ["d", "legacy"],
-        ["k", "31923"],
-        ["p", owner],
-      ],
-    })
-
-    expect(
-      getTargetedPublicationRootNotificationCandidates({
-        targetingEvents: [targeted, siblingTargeted, v1Shaped],
-        rootEvents: [root],
-        communityAddress: community.address,
-        path,
-        kind: 31923,
-      }),
-    ).toEqual([{path, latestEvent: targeted}])
-  })
-
-  it("allows explicit external roots but binds implicit roots to the wrapper signer", async () => {
-    const {getTargetedPublicationRootNotificationCandidates} = await import("./notifications")
-    const owner = getPublicKey(new Uint8Array(32).fill(4))
-    const wrapperPubkey = getPublicKey(new Uint8Array(32).fill(5))
-    const externalPubkey = getPublicKey(new Uint8Array(32).fill(6))
-    const community = makeCommunityPointer({
-      ownerPubkey: owner,
-      communityId: "8".repeat(64),
-    })!
-    const path = `/c/${community.naddr}/goals`
-    const explicitTargeting = makeEvent({
-      id: "explicit-targeting",
-      pubkey: wrapperPubkey,
-      created_at: 20,
-      ...buildTargetedPublication({
-        id: "explicit-target",
-        kind: 9041,
-        source: {type: "e", value: "a".repeat(64), pubkey: externalPubkey},
-        communities: [community],
-      }),
-    })
-    const externalRoot = makeEvent({
-      id: "a".repeat(64),
-      pubkey: externalPubkey,
-      created_at: 19,
-      kind: 9041,
-      tags: [["d", "external-goal"]],
-    })
-    const implicitTargeting = makeEvent({
-      id: "implicit-targeting",
-      pubkey: wrapperPubkey,
-      created_at: 30,
-      ...buildTargetedPublication({
-        id: "implicit-target",
-        kind: 9041,
-        communities: [community],
-      }),
-    })
-    const externalImplicitRoot = makeEvent({
-      id: "external-implicit-root",
-      pubkey: externalPubkey,
-      created_at: 29,
-      kind: 9041,
-      tags: [["h", "implicit-target"]],
-    })
-
-    expect(
-      getTargetedPublicationRootNotificationCandidates({
-        targetingEvents: [explicitTargeting, implicitTargeting],
-        rootEvents: [externalRoot, externalImplicitRoot],
-        communityAddress: community.address,
-        path,
-        kind: 9041,
-      }),
-    ).toEqual([{path, latestEvent: explicitTargeting}])
-  })
+  it.each(["threads", "goals", "calendar"])(
+    "acknowledges individual %s roots without clearing unread siblings",
+    async section => {
+      const {hasNotificationForPath} = await import("./notifications")
+      const path = `/c/community/${section}`
+      const first = {path, readPath: `${path}/first`, latestEvent: makeEvent({created_at: 10})}
+      const second = {path, readPath: `${path}/second`, latestEvent: makeEvent({created_at: 20})}
+      const checked = {[second.readPath]: 30, [`${path}-unrelated`]: 40}
+      expect(hasNotificationForPath({...first, checked})).toBe(true)
+      expect(hasNotificationForPath({...second, checked})).toBe(false)
+      expect(hasNotificationForPath({...first, checked: {...checked, [path]: 30}})).toBe(false)
+      expect(hasNotificationForPath({...first, checked: {"*": 30}})).toBe(false)
+      expect(hasNotificationForPath({...first, checked: {[`${first.readPath}:seen`]: 30}})).toBe(
+        true,
+      )
+    },
+  )
 
   it("uses community first-encounter baselines as checked timestamps", async () => {
     const {getCommunityNotificationBaselineKey, getNotificationCheckedAt, hasNotificationForPath} =

@@ -118,7 +118,9 @@
       getUnreadNotificationRowIdsState(
         $notificationReadState,
         $pubkey || undefined,
-        $notificationCenterRows.filter(row => sessionNewRowIds.has(row.id)).map(row => row.id),
+        $notificationCenterRows
+          .filter(row => !row.read && sessionNewRowIds.has(row.id))
+          .map(row => row.id),
       ),
     )
 
@@ -172,7 +174,7 @@
       getUnreadNotificationRowIdsState(
         $notificationReadState,
         $pubkey || undefined,
-        $notificationCenterRows.map(row => row.id),
+        $notificationCenterRows.filter(row => !row.read).map(row => row.id),
       ),
     )
     sessionNewById = Object.fromEntries(
@@ -197,7 +199,7 @@
       getUnreadNotificationRowIdsState(
         $notificationReadState,
         $pubkey || undefined,
-        additions.map(row => row.id),
+        additions.filter(row => !row.read).map(row => row.id),
       ),
     )
     if (unreadAdditionIds.size > 0) {
@@ -215,7 +217,7 @@
       getUnreadNotificationRowIdsState(
         $notificationReadState,
         $pubkey || undefined,
-        visibleRowsWithoutActorNames.map(row => row.id),
+        visibleRowsWithoutActorNames.filter(row => !row.read).map(row => row.id),
       ),
     )
     if (visibleUnreadIds.size > 0) {

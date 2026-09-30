@@ -21,7 +21,10 @@ vi.mock("@welshman/app", async () => {
 })
 vi.mock("./notification-sources", async () => {
   const {writable} = await import("svelte/store")
-  return {notificationCenterRows: writable([])}
+  return {
+    notificationCenterRows: writable([]),
+    setupCommunityRootNotificationBadges: vi.fn(() => vi.fn()),
+  }
 })
 
 const rows = notificationCenterRows as Writable<NotificationRow[]>
@@ -77,5 +80,25 @@ describe("background notification unread hints", () => {
     await new Promise(resolve => setTimeout(resolve, 0))
     setRows("later-application")
     expect(get(notificationUnreadHints)).toEqual({})
+  })
+
+  it("keeps acknowledged root history without relighting the bell", async () => {
+    rows.set([{id: "root", read: true}] as NotificationRow[])
+    const stop = setupNotificationUnreadHints()
+    try {
+      await vi.waitFor(() => expect(get(notificationUnreadHints).alice).toBe(false))
+      rows.set([
+        {id: "root", read: true},
+        {id: "new-root", read: false},
+      ] as NotificationRow[])
+      expect(get(notificationUnreadHints).alice).toBe(true)
+      rows.set([
+        {id: "root", read: true},
+        {id: "new-root", read: true},
+      ] as NotificationRow[])
+      expect(get(notificationUnreadHints).alice).toBe(false)
+    } finally {
+      stop()
+    }
   })
 })

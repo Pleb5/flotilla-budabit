@@ -1,5 +1,6 @@
 import {createSearch} from "@welshman/app"
 import type {TrustedEvent} from "@welshman/util"
+import type {NotificationCandidate} from "@app/util/notifications"
 
 export type NotificationRowSource = "chat" | "git" | "community" | "widget"
 
@@ -72,6 +73,9 @@ export type NotificationRow = {
   actorName?: string
   repoWatchSeenPath?: string
   expandable?: boolean
+  notificationCandidate?: NotificationCandidate
+  /** A root already acknowledged through its item, section, or initial baseline. */
+  read?: boolean
 }
 
 export type NotificationRowFilterOptions = {
