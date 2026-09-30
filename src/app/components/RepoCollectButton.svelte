@@ -111,6 +111,7 @@
   const collectionState = $derived(providedCollectionState ?? $repoCollections)
 
   let pending = $state(false)
+  let loadingTimedOut = $state(false)
   let localTargetHistoryComplete = $state(false)
   let localDeleteHistoryComplete = $state(false)
   let localOriginalHistoryComplete = $state(false)
@@ -326,8 +327,19 @@
       ($repoCollections?.viewerPubkey === $pubkey &&
         $repoCollections.personalHistoryCompleteByAddress.has(repoAddress)),
   )
+  const collectionHistoryComplete = $derived(communityHistoryComplete && personalHistoryComplete)
+  // Bound the loading indicator while shared reads continue accepting late evidence.
+  $effect(() => {
+    loadingTimedOut = false
+    if (!repoAddress || !$pubkey || collectionHistoryComplete) return
+
+    const timeout = setTimeout(() => {
+      loadingTimedOut = true
+    }, 10_000)
+    return () => clearTimeout(timeout)
+  })
   const collectionStatus = $derived(
-    getRepoCollectionStatus(collected, communityHistoryComplete && personalHistoryComplete),
+    getRepoCollectionStatus(collected, collectionHistoryComplete, loadingTimedOut),
   )
   const collectionLabel = $derived.by(() => {
     if (!communityHistoryComplete || !personalHistoryComplete) {
@@ -719,8 +731,11 @@
   type="button"
   class={`${className} ${collectionStatus === "collected" ? "border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-400" : collectionStatus === "indeterminate" ? "border-dashed border-amber-400/60 text-amber-600 dark:text-amber-400" : ""}`}
   aria-label={collectionLabel}
-  title={collectionLabel}
+  title={collectionStatus === "unavailable"
+    ? "Some relays did not respond. Showing available collections."
+    : collectionLabel}
   data-collection-status={collectionStatus}
+  aria-busy={pending || collectionStatus === "indeterminate"}
   disabled={disabled || pending}
   onclick={openCollectModal}>
   <span class="relative inline-flex">

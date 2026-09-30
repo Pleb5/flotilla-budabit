@@ -55,7 +55,8 @@ const routes = [
     readyText: /flotilla-budabit|Overview|Activity|Code|Issues|PRs|Community/i,
     waitForText: /Budabit is a community-first|Recent Activity|Owner/i,
     waitForNoText: /Loading repository|Cloning repository/i,
-    finalDelayMs: 5_000,
+    finalDelayMs: 10_000,
+    waitForSelector: 'button[data-collection-status]:not([data-collection-status="indeterminate"])',
   },
 ]
 
@@ -180,6 +181,9 @@ async function waitForScreenshotReady(page, route) {
   await waitForLayoutQuiet(page)
   await waitForVisibleImages(page)
   await sleep(route.finalDelayMs ?? 3_000)
+  if (route.waitForSelector) {
+    await page.locator(route.waitForSelector).waitFor({state: "visible", timeout: 25_000})
+  }
   await page.evaluate(() => document.fonts?.ready).catch(() => undefined)
   await waitForVisibleImages(page)
 }

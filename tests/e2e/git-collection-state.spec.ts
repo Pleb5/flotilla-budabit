@@ -96,6 +96,7 @@ async function openFixture(
   options: {
     communityMode?: boolean
     gate?: Promise<"eose">
+    gateRepo?: boolean
     authenticateRepos?: boolean
     directRepo?: number
   } = {},
@@ -108,12 +109,16 @@ async function openFixture(
       [options.authenticateRepos ? authRepoRelay : repoRelay]: [personal],
       [communityRelay]: [wrapper(referenced), wrapper(otherMemberStar, TEST_PUBKEYS.bob)],
       [sourceRelay]: [referenced, otherMemberStar],
+      ...(options.gateRepo ? {[authRepoRelay]: [reaction(2)]} : {}),
     },
     onSubscribe: (_id, filters, relay) => requests.push({filters, relay}),
     getSubscriptionOutcome: (filters, relay) =>
       options.gate &&
-      relay === communityRelay &&
-      filters.some(filter => filter.kinds?.includes(30222) && filter.authors?.includes(viewer))
+      relay === (options.gateRepo ? authRepoRelay : communityRelay) &&
+      filters.some(
+        filter =>
+          filter.kinds?.includes(options.gateRepo ? 7 : 30222) && filter.authors?.includes(viewer),
+      )
         ? options.gate
         : "eose",
   })
@@ -222,6 +227,45 @@ for (const entry of ["list", "overview"] as const) {
     else await expectListResolved()
     await expect.poll(authCount).toBe(1)
     await page.screenshot({path: testInfo.outputPath(`authenticated-${entry}.png`)})
+    expect(relay.getPublishedEvents()).toEqual([])
+    expect(errors).toEqual([])
+  })
+}
+
+for (const entry of ["list", "overview"] as const) {
+  test(`bounds star loading with a stalled relay on ${entry} and accepts its late star`, async ({
+    page,
+  }) => {
+    const errors: string[] = []
+    page.on("pageerror", error => errors.push(error.message))
+    let release!: (outcome: "eose") => void
+    const gate = new Promise<"eose">(resolve => {
+      release = resolve
+    })
+    const {relay} = await openFixture(page, {
+      gate,
+      gateRepo: true,
+      ...(entry === "overview" ? {directRepo: 2} : {}),
+    })
+    const button =
+      entry === "overview" ? page.locator("[data-collection-status]") : starButton(page, 2)
+    await expect(button).toHaveAttribute("data-collection-status", "indeterminate")
+    await expect(button).toHaveAttribute("aria-busy", "true")
+    if (entry === "list")
+      await expect(starButton(page, 0)).toHaveAttribute("data-collection-status", "collected")
+
+    await expect(button).toHaveAttribute("data-collection-status", "unavailable", {
+      timeout: 15_000,
+    })
+    await expect(button).toHaveAttribute("aria-busy", "false")
+    await expect(button).toBeEnabled()
+    await expect(button).not.toContainText("?")
+    await expect(button).toHaveAttribute("title", /Some relays did not respond/)
+    if (entry === "list")
+      await expect(starButton(page, 0)).toHaveAttribute("data-collection-status", "collected")
+
+    release("eose")
+    await expect(button).toHaveAttribute("data-collection-status", "collected")
     expect(relay.getPublishedEvents()).toEqual([])
     expect(errors).toEqual([])
   })

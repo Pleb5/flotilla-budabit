@@ -25,14 +25,16 @@ export type RepoCollectionReadState = {
   communityHistoryComplete: boolean
 }
 
-export type RepoCollectionStatus = "collected" | "uncollected" | "indeterminate"
+export type RepoCollectionStatus = "collected" | "uncollected" | "indeterminate" | "unavailable"
 
 export const getRepoCollectionStatus = (
   collected: boolean,
   communityHistoryComplete: boolean,
+  loadingTimedOut = false,
 ): RepoCollectionStatus => {
   if (collected) return "collected"
-  return communityHistoryComplete ? "uncollected" : "indeterminate"
+  if (communityHistoryComplete) return "uncollected"
+  return loadingTimedOut ? "unavailable" : "indeterminate"
 }
 
 export const getDeletedRepoCollectionTargetIds = (
