@@ -104,11 +104,11 @@ describe("fetchRelayEventsWithTimeout", () => {
       onEvent,
     }
     mockLoad.mockImplementation(async options => {
-      options.onEvent({id: "partial"})
+      options.onEvent({id: "partial"}, "wss://relay.example")
       options.onDisconnect("wss://relay.example")
     })
     await expect(fetchRelayEventsWithTimeout(params)).rejects.toThrow("incomplete")
-    expect(onEvent).toHaveBeenCalledWith({id: "partial"})
+    expect(onEvent).toHaveBeenCalledWith({id: "partial"}, "wss://relay.example")
     mockLoad.mockImplementation(async options => {
       options.onClosed("rate-limited: too many subscriptions", "wss://relay.example")
     })

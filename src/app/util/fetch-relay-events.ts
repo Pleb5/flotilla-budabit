@@ -12,7 +12,7 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
   throwOnTimeout?: boolean
   /** Single-relay inventory page: EOSE and an untruncated response are required. */
   requireComplete?: boolean
-  onEvent?: (event: TEvent) => void
+  onEvent?: (event: TEvent, relay: string) => void
   isolated?: boolean
   maxEvents?: number
   maxBytes?: number
@@ -50,7 +50,7 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
       relays,
       filters: params.filters,
       signal: controller.signal,
-      onEvent: event => {
+      onEvent: (event, relay) => {
         if (controller.signal.aborted) return
         if (eventIds.has(event.id)) return
         const eventBytes = params.maxBytes
@@ -64,7 +64,7 @@ export async function fetchRelayEventsWithTimeout<TEvent = any>(params: {
         bytes += eventBytes
         eventIds.add(event.id)
         events.push(event as TEvent)
-        params.onEvent?.(event as TEvent)
+        params.onEvent?.(event as TEvent, relay)
         if (params.maxEvents && events.length >= params.maxEvents) {
           capped = true
           controller.abort()

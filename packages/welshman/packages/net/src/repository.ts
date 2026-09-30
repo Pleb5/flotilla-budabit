@@ -150,6 +150,7 @@ export class Repository {
   private deferredEventFlushAt = 0
   private deferredEventDelayMs = Infinity
   private deferredEventBatchSize = Infinity
+  private deletionEvidenceListeners = new Set<(target: string) => void>()
 
   static get() {
     if (!repositorySingleton) {
@@ -205,6 +206,15 @@ export class Repository {
     route: RepositoryUpdateRoute,
     listener: (update: RepositoryUpdate) => void,
   ) => this.registerUpdateListener(subscriber, route, listener)
+
+  /** Sparse evidence notifications also cover compact restoration and late target
+   * intake, without adding hidden bodies to ordinary content projections. */
+  onDeletionEvidence = (listener: (target: string) => void) => {
+    this.deletionEvidenceListeners.add(listener)
+    return () => {
+      this.deletionEvidenceListeners.delete(listener)
+    }
+  }
 
   private emitUpdate = (update: RepositoryUpdate, affectedKinds: Iterable<number>) => {
     const envelope = {update, affectedKinds: new Set(affectedKinds)}
@@ -474,6 +484,7 @@ export class Repository {
           if (deletedEvent && this.isDeleted(deletedEvent)) {
             removed.add(deletedEvent.id)
           }
+          for (const listener of this.deletionEvidenceListeners) listener(tag[1])
         }
       }
 
@@ -486,8 +497,15 @@ export class Repository {
       }
     }
 
-    // Notify, but only if the event hasn't been deleted
-    if (shouldNotify && !this.isDeleted(event)) {
+    // Hidden intake still matters to positive-evidence persistence, but must not
+    // be added to content projections or trigger a global repository refresh.
+    const deleted =
+      (shouldNotify || this.deletionEvidenceListeners.size > 0) && this.isDeleted(event)
+    if (deleted) {
+      const target = isReplaceable(event) ? getAddress(event) : event.id
+      for (const listener of this.deletionEvidenceListeners) listener(target)
+    }
+    if (shouldNotify && !deleted) {
       const affectedKinds = new Set([event.kind])
       if (duplicate && removed.has(duplicate.id)) affectedKinds.add(duplicate.kind)
       for (const id of removed) {
@@ -601,6 +619,7 @@ export class Repository {
       if (existing) existing.created_at = record.created_at
       else evidence.push({pubkey: record.pubkey, created_at: record.created_at})
       this.deletes.set(record.target, evidence)
+      for (const listener of this.deletionEvidenceListeners) listener(record.target)
       const event = this.getEvent(record.target)
       if (event && this.isDeleted(event)) {
         removed.add(event.id)

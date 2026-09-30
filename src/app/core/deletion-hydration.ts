@@ -58,6 +58,7 @@ type Read = {
   filter: Filter
   wanted: boolean
   through?: number
+  coverageLimit?: number
   head?: number
   until?: number
   limit: number
@@ -185,13 +186,28 @@ export const createDeletionHydration = (dependencies: Dependencies) => {
     scope.dirty = false
   }
 
+  const invalidateCappedCoverage = (read: Read, relayLimit: number) => {
+    // A profile can arrive even after EOSE. Previously short pages are uncertain
+    // when a lower cap is learned, so replay before trusting their watermark.
+    if (read.through !== undefined && relayLimit < (read.coverageLimit ?? PAGE_SIZE)) {
+      read.through = undefined
+      read.head = undefined
+      read.until = undefined
+      read.limit = PAGE_SIZE
+      read.coverageLimit = undefined
+      return true
+    }
+    return false
+  }
   const start = (scope: Scope, read: Read) => {
+    const relayLimit = dependencies.getPageLimit?.(read.relay) || MAX_PAGE_SIZE
+    invalidateCappedCoverage(read, relayLimit)
     const controller = new AbortController()
     read.controller = controller
     read.turn = ++turn
     jobs.add(read)
     read.head ??= Math.floor(now() / 1000)
-    const limit = Math.min(read.limit, dependencies.getPageLimit?.(read.relay) || MAX_PAGE_SIZE)
+    const limit = Math.min(read.limit, relayLimit)
     const filter: Filter = {
       ...read.filter,
       limit,
@@ -227,16 +243,20 @@ export const createDeletionHydration = (dependencies: Dependencies) => {
           read.due = now() + Math.min(60_000, 5_000 * 2 ** read.failures++)
           return
         }
-        if (events.length >= limit) {
+        const currentRelayLimit = dependencies.getPageLimit?.(read.relay) || MAX_PAGE_SIZE
+        if (invalidateCappedCoverage(read, currentRelayLimit)) {
+          read.status = "pending"
+          read.due = 0
+          return
+        }
+        const effectiveLimit = Math.min(limit, currentRelayLimit)
+        if (events.length >= effectiveLimit) {
           const oldest = Math.min(...events.map(event => event.created_at))
           // Inclusive boundary: repeat the oldest second, expanding that bucket if
           // necessary. Never skip a full timestamp bucket and claim completeness.
           if (oldest === read.until) {
-            if (
-              limit <
-              Math.min(MAX_PAGE_SIZE, dependencies.getPageLimit?.(read.relay) || MAX_PAGE_SIZE)
-            ) {
-              read.limit = Math.min(MAX_PAGE_SIZE, limit * 2)
+            if (effectiveLimit < Math.min(MAX_PAGE_SIZE, currentRelayLimit)) {
+              read.limit = Math.min(MAX_PAGE_SIZE, effectiveLimit * 2)
             } else {
               read.status = "partial"
               read.due = Infinity
@@ -256,6 +276,7 @@ export const createDeletionHydration = (dependencies: Dependencies) => {
           return
         }
         read.through = read.head
+        read.coverageLimit = Math.max(read.coverageLimit ?? 0, effectiveLimit)
         read.head = undefined
         read.until = undefined
         read.limit = PAGE_SIZE

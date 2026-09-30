@@ -158,6 +158,46 @@ describe("foreground deletion history", () => {
     expect(coordinator.snapshot()[0].status).toBe("complete")
   })
 
+  it("paginates when a smaller relay cap becomes known during the outstanding request", async () => {
+    let cap = 200
+    const {coordinator, pending, repository, finish} = harness(() => cap)
+    coordinator.register({...demand, relays: [relays[0]]})
+    await vi.advanceTimersByTimeAsync(100)
+    expect(pending[0].options.filters[0].limit).toBe(100)
+    cap = 50
+    await finish(
+      0,
+      Array.from({length: 50}, (_, i) => deletion(i, 1000 - i)),
+    )
+    expect(coordinator.snapshot()[0].through).toBeUndefined()
+    expect(pending[1].options.filters[0]).toMatchObject({limit: 50, until: 951})
+    repository.publish(target(100))
+    await finish(1, [deletion(49, 951), deletion(100, 100)])
+    expect(repository.isDeleted(target(100))).toBe(true)
+    expect(coordinator.snapshot()[0].status).toBe("complete")
+  })
+
+  it("replays uncertain coverage if the smaller cap arrives after EOSE", async () => {
+    let cap = 200
+    const {coordinator, pending, finish} = harness(() => cap)
+    coordinator.register({...demand, relays: [relays[0]]})
+    await vi.advanceTimersByTimeAsync(100)
+    await finish(
+      0,
+      Array.from({length: 50}, (_, i) => deletion(i, 1000 - i)),
+    )
+    cap = 50
+    coordinator.refresh()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(pending[1].options.filters[0].since).toBeUndefined()
+    expect(coordinator.snapshot()[0].through).toBeUndefined()
+    await finish(
+      1,
+      Array.from({length: 50}, (_, i) => deletion(i, 1000 - i)),
+    )
+    expect(pending[2].options.filters[0]).toMatchObject({limit: 50, until: 951})
+  })
+
   it("keeps saturated timestamp buckets incomplete and supports explicit retry", async () => {
     const {coordinator, request, finish} = harness(() => 100)
     coordinator.register({...demand, relays: [relays[0]]})
@@ -171,6 +211,29 @@ describe("foreground deletion history", () => {
     coordinator.refresh()
     await vi.advanceTimersByTimeAsync(100)
     expect(request).toHaveBeenCalledTimes(3)
+  })
+
+  it("drops an uncertain old watermark when the cap is learned during an incremental refresh", async () => {
+    let cap = 200
+    const {coordinator, pending, finish} = harness(() => cap)
+    coordinator.register({...demand, relays: [relays[0]]})
+    await vi.advanceTimersByTimeAsync(100)
+    await finish(
+      0,
+      Array.from({length: 50}, (_, i) => deletion(i, 1000 - i)),
+    )
+    coordinator.refresh()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(pending[1].options.filters[0].since).toBeDefined()
+    cap = 50
+    await finish(1)
+    expect(coordinator.snapshot()[0].through).toBeUndefined()
+    expect(pending[2].options.filters[0].since).toBeUndefined()
+    await finish(
+      2,
+      Array.from({length: 50}, (_, i) => deletion(i, 1000 - i)),
+    )
+    expect(pending[3].options.filters[0].until).toBe(951)
   })
 
   it("does not let broad-history pagination starve exact targets or exceed concurrency", async () => {

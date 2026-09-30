@@ -10,6 +10,7 @@ export type LoadedRepoSearchItem = {
   address: string
   event: RepoAnnouncementEvent
   relayHint: string
+  sourceRelays?: string[]
 }
 
 export type RepoDiscoveryProgress = {

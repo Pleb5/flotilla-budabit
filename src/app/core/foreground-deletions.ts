@@ -8,7 +8,7 @@ import {
   SocketStatus,
   type Socket,
 } from "@welshman/net"
-import {DELETE, type TrustedEvent} from "@welshman/util"
+import {DELETE, getAddress, isReplaceable, type TrustedEvent} from "@welshman/util"
 import {requestFiniteRelay} from "./finite-relay-request"
 import {createDeletionHydration, type DeletionDemand} from "./deletion-hydration"
 import {createDeletionCache, createDeletionStorage} from "./deletion-cache"
@@ -19,6 +19,12 @@ const cache = createDeletionCache({
   storage,
   restore: records => repository.restoreDeletions(records),
 })
+const rememberKnown = (target: TrustedEvent) => {
+  if (target.kind === DELETE) return
+  const key = isReplaceable(target) ? getAddress(target) : target.id
+  // Indexed evidence lookup, never a scan/replay of the deletion archive.
+  for (const evidence of repository.deletes.get(key) || []) cache.rememberKnown(target, evidence)
+}
 const remember = (event: TrustedEvent) => {
   if (event.kind !== DELETE) return
   for (const tag of event.tags) {
@@ -84,11 +90,10 @@ const start = () => {
   }
   const unsubscribePool = Pool.get().subscribe(attach)
   for (const socket of Pool.get()._data.values()) attach(socket)
-  const unsubscribeRepository = repository.onRoutedUpdate(
-    {name: "foreground-delete-cache"},
-    {kinds: [DELETE]},
-    ({added}) => added.forEach(remember),
-  )
+  const unsubscribeRepository = repository.onDeletionEvidence(key => {
+    const target = repository.getEvent(key)
+    if (target) rememberKnown(target)
+  })
   if (typeof window !== "undefined") {
     window.addEventListener("online", updateVisibility)
     window.addEventListener("offline", updateVisibility)
@@ -121,7 +126,10 @@ export const registerForegroundDeletions = (initial: DeletionDemand) => {
       hydrationScope = demand.scope
       hydrationNavigation = demand.navigation
     }
-    if (demand.targets?.length) void cache.hydrate(demand.targets, hydrationController.signal)
+    if (demand.targets?.length) {
+      demand.targets.forEach(rememberKnown)
+      void cache.hydrate(demand.targets, hydrationController.signal)
+    }
   }
   hydrate(initial)
   return {

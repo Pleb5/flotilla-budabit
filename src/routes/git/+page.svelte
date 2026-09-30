@@ -20,6 +20,11 @@
 <script lang="ts">
   import DeletionHydration from "@app/components/DeletionHydration.svelte"
   import {getDeletedTargetEventIds} from "@app/core/deletion-rules"
+  import {
+    deriveRetainedRepoSearchItems,
+    isDeletedRepoAnnouncement as isDeletedAnnouncement,
+    makeRepoDeletionSourcePlans,
+  } from "@app/core/repo-announcement-lifecycle"
   import {page} from "$app/stores"
   import {
     normalizeRelayUrl,
@@ -205,6 +210,7 @@
     type RepoDiscoveryPriorityKey,
     type RepoDiscoveryPrioritySetting,
     type RepoOwnerProfile,
+    type LoadedRepoSearchItem,
   } from "@app/util/repo-discovery-search"
   import {loadBudabitProfile, loadBudabitProfileBatch} from "@app/core/profile-resolver"
   import {peopleDiscoverySearch} from "@app/core/people-discovery-search"
@@ -293,8 +299,8 @@
     return [...freshCards, ...otherCards]
   }
 
-  const isDeletedRepoAnnouncement = (event?: {tags?: string[][]} | null) =>
-    (event?.tags || []).some(tag => tag[0] === "deleted")
+  const isDeletedRepoAnnouncement = (event?: RepoAnnouncementEvent | null) =>
+    isDeletedAnnouncement(repository, event)
 
   type RepoDiscoveryStatus = {
     phase:
@@ -485,9 +491,7 @@
     getDefaultRepoDiscoveryPrioritySettings(),
   )
   let navigatingRepoCardKey = $state("")
-  let discoveredSearchRepoPool = $state<
-    Array<{address: string; event: RepoAnnouncementEvent; relayHint: string}>
-  >([])
+  let discoveredSearchRepoPool = $state<LoadedRepoSearchItem[]>([])
   let discoveredOwnerProfiles = $state<Record<string, RepoOwnerProfile>>({})
   let repoDiscoveryStatus = $state<RepoDiscoveryStatus>(createEmptyRepoDiscoveryStatus())
   let repoDiscoveryController: AbortController | null = null
@@ -1068,6 +1072,7 @@
         events: events as RepoAnnouncementEvent[],
         getCachedEvent: address =>
           repository.getEvent(address) as RepoAnnouncementEvent | undefined,
+        isDeleted: isDeletedRepoAnnouncement,
       })
 
       if (matched.length !== addresses.length) {
@@ -2197,10 +2202,13 @@
     )
   })
 
+  const retainedSearchRepoItems = $derived(
+    deriveRetainedRepoSearchItems(repository, hasRepoSearchInput ? discoveredSearchRepoPool : []),
+  )
   const matchedDiscoveredSearchRepos = $derived.by(() => {
     if (!hasRepoSearchInput) return [] as typeof discoveredSearchRepoPool
 
-    return discoveredSearchRepoPool.filter(item =>
+    return $retainedSearchRepoItems.filter(item =>
       repoMatchesSearchQuery({
         repo: item,
         query: trimmedActiveRepoSearchQuery,
@@ -2223,13 +2231,12 @@
     query,
     repoItemsByAddress,
     nextRepoEvents = [],
+    sourceRelayById,
   }: {
     query: string
-    repoItemsByAddress: Map<
-      string,
-      {address: string; event: RepoAnnouncementEvent; relayHint: string}
-    >
+    repoItemsByAddress: Map<string, LoadedRepoSearchItem>
     nextRepoEvents?: RepoAnnouncementEvent[]
+    sourceRelayById?: Map<string, string>
   }) => {
     for (const event of nextRepoEvents) {
       if (isDeletedRepoAnnouncement(event)) continue
@@ -2241,8 +2248,14 @@
       if (!item) continue
 
       const existing = repoItemsByAddress.get(item.address)
+      const sourceRelay = sourceRelayById?.get(event.id)
+      item.sourceRelays = [
+        ...new Set([...(existing?.sourceRelays || []), ...(sourceRelay ? [sourceRelay] : [])]),
+      ]
       if (!existing || item.event.created_at > existing.event.created_at) {
         repoItemsByAddress.set(item.address, item)
+      } else if (sourceRelay && !existing.sourceRelays?.includes(sourceRelay)) {
+        repoItemsByAddress.set(item.address, {...existing, sourceRelays: item.sourceRelays})
       }
     }
 
@@ -2416,10 +2429,9 @@
     const controller = new AbortController()
     repoDiscoveryController = controller
 
-    const repoItemsByAddress = new Map<
-      string,
-      {address: string; event: RepoAnnouncementEvent; relayHint: string}
-    >(discoveryInputs.existingRepoPool.map(item => [item.address, item]))
+    const repoItemsByAddress = new Map<string, LoadedRepoSearchItem>(
+      discoveryInputs.existingRepoPool.map(item => [item.address, item]),
+    )
     const initialSync = untrack(() => syncDiscoveredSearchRepos({query, repoItemsByAddress}))
     const startedAt = Date.now()
 
@@ -2574,6 +2586,7 @@
             }
 
             if (relays.length > 0) {
+              const sourceRelayById = new Map<string, string>()
               const repoEvents = await fetchRelayEventsWithTimeout<RepoAnnouncementEvent>({
                 relays,
                 filters: [
@@ -2586,6 +2599,7 @@
                 timeoutMs: Math.min(5000, remainingMs),
                 signal: controller.signal,
                 isolated: true,
+                onEvent: (event, relay) => sourceRelayById.set(event.id, relay),
               })
 
               if (controller.signal.aborted) return
@@ -2597,6 +2611,7 @@
                   query,
                   repoItemsByAddress,
                   nextRepoEvents: repoEvents,
+                  sourceRelayById,
                 }),
               )
               foundRepos = repoSync.foundRepos
@@ -3982,6 +3997,34 @@
       pushToast({message: `Failed to open New Repo wizard: ${String(error)}`, theme: "error"})
     }
   }
+  const displayedRepoDeletionTargets = $derived(
+    (isAccountSearch ? sortedAccountSearchRepoCards : sortedRepoCards).flatMap(card =>
+      card.first ? [card.first as TrustedEvent] : [],
+    ),
+  )
+  const displayedRepoDeletionSources = $derived(
+    makeRepoDeletionSourcePlans(
+      displayedRepoDeletionTargets,
+      hasRepoSearchInput
+        ? [
+            ...latestCommunityRepos,
+            ...loadedCommunityStarRepos,
+            ...latestMyRepos,
+            ...loadedStarredRepos,
+            ...discoveredSearchRepoPool,
+          ]
+        : isAccountSearch
+          ? accountSearchRepos
+          : activeMode === "community"
+            ? activeTab === "bookmarks"
+              ? loadedCommunityStarRepos
+              : latestCommunityRepos
+            : activeTab === "bookmarks"
+              ? loadedStarredRepos
+              : latestMyRepos,
+      tracker.getRelays,
+    ),
+  )
 </script>
 
 <DeletionHydration
@@ -3989,16 +4032,19 @@
   relays={isAccountSearch && accountSearch.pubkey
     ? getAccountSearchRelays(accountSearch.pubkey, accountSearch.relayHints)
     : activeTab === "bookmarks"
-      ? starredRepoRelaysToQuery
+      ? activeMode === "community"
+        ? getStarredRepoLoadRelays(communityRepoStarAddresses)
+        : starredRepoRelaysToQuery
       : activeMode === "community"
         ? selectedCommunityListRelays
         : repoListReadRelays}
-  targets={(isAccountSearch ? sortedAccountSearchRepoCards : sortedRepoCards).flatMap(card =>
-    card.first ? [card.first as TrustedEvent] : [],
-  )}
+  targets={displayedRepoDeletionTargets}
+  sourcePlans={displayedRepoDeletionSources}
   ready={$repoListHydrationReadyStore &&
     activeTab !== "snippets" &&
-    (isAccountSearch ? sortedAccountSearchRepoCards.length > 0 : hasRenderedRepoCardsForCurrentScope)} />
+    (isAccountSearch
+      ? sortedAccountSearchRepoCards.length > 0
+      : hasRenderedRepoCardsForCurrentScope)} />
 
 <DeletionHydration
   scope="git-snippets"

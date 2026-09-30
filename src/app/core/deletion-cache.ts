@@ -104,6 +104,23 @@ export const createDeletionCache = ({
       for (const record of records) written.delete(record.key)
     }
   }
+  const rememberKnown = (target: TrustedEvent, evidence: {pubkey: string; created_at: number}) => {
+    if (evidence.pubkey !== target.pubkey) return
+    if (isReplaceable(target) && evidence.created_at < target.created_at) return
+    const {key, target: value} = targetKey(target)
+    if ((written.get(key) ?? -1) >= evidence.created_at) return
+    written.set(key, evidence.created_at)
+    while (written.size > DELETION_CACHE_LIMIT) written.delete(written.keys().next().value!)
+    pending.set(key, {
+      key,
+      target: value,
+      pubkey: target.pubkey,
+      created_at: evidence.created_at,
+      storedAt: now(),
+    })
+    while (pending.size > DELETION_CACHE_LIMIT) pending.delete(pending.keys().next().value!)
+    if (!timer) timer = setTimeout(() => void flush(), 1000)
+  }
   return {
     async hydrate(events: TrustedEvent[], signal?: AbortSignal) {
       const keys = [...new Set(events.map(event => targetKey(event).key))].filter(
@@ -122,6 +139,10 @@ export const createDeletionCache = ({
         try {
           const records = await storage.get(batch)
           if (token !== generation) return
+          for (const record of records) {
+            written.set(record.key, Math.max(written.get(record.key) ?? -1, record.created_at))
+          }
+          while (written.size > DELETION_CACHE_LIMIT) written.delete(written.keys().next().value!)
           // Finish an admitted batch for other consumers sharing its keys, but
           // leaving a page cancels all remaining batches.
           restore(records)
@@ -134,20 +155,9 @@ export const createDeletionCache = ({
     },
     remember(deletion: TrustedEvent, target: TrustedEvent) {
       if (!deletionDeletesEvent(deletion, target)) return
-      const {key, target: value} = targetKey(target)
-      if ((written.get(key) ?? -1) >= deletion.created_at) return
-      written.set(key, deletion.created_at)
-      while (written.size > DELETION_CACHE_LIMIT) written.delete(written.keys().next().value!)
-      pending.set(key, {
-        key,
-        target: value,
-        pubkey: target.pubkey,
-        created_at: deletion.created_at,
-        storedAt: now(),
-      })
-      while (pending.size > DELETION_CACHE_LIMIT) pending.delete(pending.keys().next().value!)
-      if (!timer) timer = setTimeout(() => void flush(), 1000)
+      rememberKnown(target, deletion)
     },
+    rememberKnown,
     flush,
     reset() {
       generation++

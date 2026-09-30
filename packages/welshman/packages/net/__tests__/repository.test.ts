@@ -789,6 +789,42 @@ describe("Repository", () => {
       expect(repo.isDeleted(event)).toBe(false)
     })
 
+    it("exposes sparse evidence for a late hidden target without waking content projections", () => {
+      const event = createEvent(1, {created_at: 100})
+      const update = vi.fn()
+      const evidence = vi.fn()
+      const off = repo.onDeletionEvidence(evidence)
+      repo.onRoutedUpdate({name: "visible-content"}, {kinds: [1]}, update)
+      repo.publish(
+        createEvent(DELETE, {pubkey: event.pubkey, created_at: 101, tags: [["e", event.id]]}),
+      )
+      expect(evidence).toHaveBeenCalledWith(event.id)
+      evidence.mockClear()
+      repo.publish(event)
+      expect(repo.isDeleted(event)).toBe(true)
+      expect(evidence).toHaveBeenCalledWith(event.id)
+      expect(update).not.toHaveBeenCalled()
+      off()
+      evidence.mockClear()
+      repo.restoreDeletions([{target: event.id, pubkey: event.pubkey, created_at: 102}])
+      expect(evidence).not.toHaveBeenCalled()
+    })
+
+    it("notifies compact evidence consumers when the target body is held outside the repository", () => {
+      const event = createEvent(MUTES, {created_at: 100})
+      const target = `${MUTES}:${event.pubkey}:`
+      const evidence = vi.fn()
+      repo.onDeletionEvidence(evidence)
+      const update = vi.fn()
+      repo.onRoutedUpdate({name: "content"}, {kinds: [MUTES]}, update)
+      repo.restoreDeletions([{target, pubkey: event.pubkey, created_at: 101}])
+      expect(repo.isDeleted(event)).toBe(true)
+      expect(evidence).toHaveBeenCalledWith(target)
+      expect(update).not.toHaveBeenCalled()
+      repo.publish({...event, id: randomHex(), created_at: 102})
+      expect(update).toHaveBeenCalledTimes(1)
+    })
+
     it("should keep replaced events suppressed", () => {
       const pubkey = randomHex()
       const original = createEvent(MUTES, {pubkey, created_at: now()})
