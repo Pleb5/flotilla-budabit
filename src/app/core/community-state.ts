@@ -75,7 +75,6 @@ import {
 import {
   COMMUNITY_REPORT_KIND,
   COMMUNITY_REPORT_REVIEW_LABEL_KIND,
-  COMMUNITY_REPORT_REVIEW_NAMESPACE,
   getEffectiveCommunityReportState,
   type EffectiveCommunityReportState,
 } from "@app/core/community-reports"
@@ -2520,7 +2519,9 @@ export const makeCommunityReportReviewFilters = (
           "#h": [community.communityId],
           "#a": [community.address],
           "#e": reportIds,
-          "#L": [COMMUNITY_REPORT_REVIEW_NAMESPACE],
+          // The community relay allows at most three indexed tag keys per filter.
+          // Keep exact community/report scoping here; parseCommunityReportReviewLabel
+          // validates the label namespace and review marker before admission.
           limit: 500,
         },
       ]

@@ -200,7 +200,7 @@ describe("community live filters", () => {
     expect(filters.every(filter => filter.limit !== 0)).toBe(true)
   })
 
-  it("keeps report review discovery on the exact branch", () => {
+  it("keeps report review discovery on the exact branch using three tag keys", () => {
     const filters = buildCommunityFiniteFollowUpFilters({
       authorityDefinition,
       targetingEvents: [],
@@ -215,7 +215,6 @@ describe("community live filters", () => {
       "#h": [communityId],
       "#a": [community.address],
       "#e": ["report-id"],
-      "#L": ["budabit:community-report"],
       limit: 500,
     })
   })
