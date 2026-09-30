@@ -953,7 +953,7 @@ describe("requests", () => {
     expect(publish).toHaveBeenCalledWith(event)
   })
 
-  it("builds exact same-author delete filters without requiring a community tag", async () => {
+  it("groups target deletes across authors without requiring community or kind tags", async () => {
     const {makeSameAuthorDeleteFilters} = await import("./requests")
     const author = "d".repeat(64)
     const otherAuthor = "e".repeat(64)
@@ -983,14 +983,13 @@ describe("requests", () => {
     ])
 
     expect(filters).toEqual([
-      {kinds: [5], authors: [author], "#e": ["reaction", "report", "wrapper"]},
-      {kinds: [5], authors: [author], "#a": [`30222:${author}:targeting-id`]},
-      {kinds: [5], authors: [otherAuthor], "#e": ["other-report"]},
+      {kinds: [5], "#e": ["other-report", "reaction", "report"]},
+      {kinds: [5], "#a": [`30222:${author}:targeting-id`]},
     ])
     expect(filters.every(filter => !("#h" in filter))).toBe(true)
   })
 
-  it("chunks exact delete targets without splitting author identity", async () => {
+  it("bounds target tags per filter", async () => {
     const {makeSameAuthorDeleteFilters} = await import("./requests")
     const author = "1".repeat(64)
     const events = Array.from({length: 201}, (_, index) => ({

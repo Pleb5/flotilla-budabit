@@ -81,6 +81,19 @@ describe("storage hydration", () => {
     }
   })
 
+  it("preserves compact tombstones when the main event cache opens late", () => {
+    const cached = makeEvent({
+      id: "5".repeat(64),
+      createdAt: 10,
+      content: "deleted thread",
+      kind: 11,
+    })
+    repository.restoreDeletions([{target: cached.id, pubkey, created_at: 11}])
+    mergePersistedEvents([cached])
+    expect(repository.query([{ids: [cached.id]}])).toEqual([])
+    expect(repository.isDeleted(cached)).toBe(true)
+  })
+
   it("merges persisted provenance with relays learned after startup", () => {
     tracker.addRelay("event", "wss://live.example")
 

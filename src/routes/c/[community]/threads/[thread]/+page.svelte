@@ -21,6 +21,8 @@
   import RoomComposeEdit from "@app/components/RoomComposeEdit.svelte"
   import RoomComposeParent from "@app/components/RoomComposeParent.svelte"
   import ThreadActions from "@app/components/ThreadActions.svelte"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import PublicationStatus from "@app/components/PublicationStatus.svelte"
   import {pushToast} from "@app/util/toast"
   import {
@@ -511,6 +513,7 @@
   })
 
   const retryHistoricalLoad = () => {
+    refreshForegroundDeletions()
     if (communityBootstrapFailed || communityAuthorityUnavailable) {
       window.location.reload()
       return
@@ -534,6 +537,12 @@
     setChecked(threadPath)
   })
 </script>
+
+<DeletionHydration
+  scope={communityAddress}
+  relays={$activeExactCommunityRelays}
+  targets={[...threadProjection.events, ...replyProjection.events]}
+  ready={communityAuthorityReady} />
 
 <PageBar>
   {#snippet icon()}

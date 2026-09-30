@@ -45,6 +45,8 @@
   } from "@app/core/community-permissions"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {loadBoundedCommunityHistory} from "@app/core/requests"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import {parseExactCommunityRouteParam} from "@app/util/routes"
 
   const routeCommunity = $derived(parseExactCommunityRouteParam($page.params.community))
@@ -254,6 +256,7 @@
           $permalinks.length === 0)),
   )
   const retryHistoricalLoad = () => {
+    refreshForegroundDeletions()
     if (communityBootstrapFailed || communityAuthorityUnavailable) {
       window.location.reload()
       return
@@ -395,6 +398,13 @@
     return () => controller.abort()
   })
 </script>
+
+<DeletionHydration
+  scope={communityAddress}
+  relays={$activeExactCommunityRelays}
+  targets={[...$permalinks, ...$targetingEvents]}
+  sourcePlans={targetedPermalinkRelayHintPlans}
+  ready={communityAuthorityReady} />
 
 <PageBar>
   {#snippet icon()}

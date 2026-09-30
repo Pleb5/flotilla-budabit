@@ -30,7 +30,9 @@
   import {navigating, page} from "$app/stores"
   import PageContent from "@src/lib/components/PageContent.svelte"
   import {pushToast, popToast} from "@src/app/util/toast"
-  import {notifications, hasRepoNotification, checked, setCheckedAt} from "@app/util/notifications"
+  import {notifications, hasRepoNotification} from "@app/util/notifications"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import {notifyCorsProxyIssue} from "@app/util/git-cors-proxy"
   import {pushModal, clearModals} from "@app/util/modal"
   import DeleteRepoConfirm from "@app/components/DeleteRepoConfirm.svelte"
@@ -114,7 +116,6 @@
   import {
     REPORT,
     GIT_ISSUE,
-    DELETE,
     GIT_STATUS_OPEN,
     GIT_STATUS_DRAFT,
     GIT_STATUS_CLOSED,
@@ -479,6 +480,7 @@
     if (retryRoots.length > 0) await loadRootGaps(retryRoots)
   }
   const retryFailedRelays = async () => {
+    refreshForegroundDeletions()
     await Promise.all([retryRootHistory(), refreshRepoAnnouncement()])
   }
 
@@ -944,13 +946,6 @@
   })
 
   const repoAddress = $derived.by(() => $repoAddressStore)
-
-  const normalizeChecked = (value: number) =>
-    value > 10_000_000_000 ? Math.round(value / 1000) : value
-  const deleteSeenKey = $derived.by(() => (repoAddress ? `repoDeleteSeen:${repoAddress}` : ""))
-  const lastDeleteSeen = $derived.by(() =>
-    deleteSeenKey ? normalizeChecked($checked[deleteSeenKey] || 0) : 0,
-  )
 
   const watchOptions = $derived.by(() =>
     repoAddress ? $userRepoWatchValues.repos[repoAddress] : undefined,
@@ -2161,74 +2156,6 @@
     }
   })
 
-  const DELETE_LOOKBACK_SECONDS = 60 * 60 * 24 * 30
-  const DELETE_SINCE_BUFFER_SECONDS = 60
-  const deleteKinds = [
-    GIT_ISSUE,
-    GIT_PULL_REQUEST,
-    GIT_PULL_REQUEST_UPDATE,
-    GIT_LABEL,
-    GIT_COVER_LETTER_KIND,
-    GIT_STATUS_OPEN,
-    GIT_STATUS_DRAFT,
-    GIT_STATUS_CLOSED,
-    GIT_STATUS_COMPLETE,
-    COMMENT,
-    REPORT,
-  ]
-  let deleteLoadKey = ""
-  let latestDeleteSeen = 0
-
-  const hydrateRepoDeleteEvents = async ({
-    relays,
-    since,
-    signal,
-  }: {
-    relays: string[]
-    since: number
-    signal?: AbortSignal
-  }) => {
-    if (relays.length === 0) return []
-
-    return await request({
-      relays,
-      autoClose: true,
-      threshold: 0.5,
-      signal,
-      filters: [
-        {
-          kinds: [DELETE],
-          "#k": deleteKinds.map(String),
-          since,
-        },
-      ],
-      onEvent: event => {
-        if (!repository.getEvent(event.id)) {
-          repository.publish(event as TrustedEvent)
-        }
-        if (event.created_at > latestDeleteSeen) {
-          latestDeleteSeen = event.created_at
-        }
-      },
-    }).catch(() => [])
-  }
-
-  $effect(() => {
-    if (!$repoActivityHydrationReady) return
-    const relays = $repoRelaysStore || []
-    if (relays.length === 0 || !repoAddress) return
-    const since =
-      lastDeleteSeen > 0
-        ? Math.max(0, lastDeleteSeen - DELETE_SINCE_BUFFER_SECONDS)
-        : Math.floor(Date.now() / 1000) - DELETE_LOOKBACK_SECONDS
-    const key = `${relays.slice().sort().join("|")}::${since}`
-    if (deleteLoadKey === key) return
-    deleteLoadKey = key
-    const controller = new AbortController()
-    void hydrateRepoDeleteEvents({relays, since, signal: controller.signal})
-    return () => controller.abort()
-  })
-
   const emptyLabelEvents = derived([], () => [] as LabelEvent[])
 
   let repoJobRunnersLoadKey = ""
@@ -2951,10 +2878,6 @@
     if (routeRepoClass) disposeActiveRepo(routeRepoClass)
     for (const transport of activeRepoPublishTransports) transport.dispose()
     activeRepoPublishTransports.clear()
-
-    if (deleteSeenKey) {
-      setCheckedAt(deleteSeenKey, Math.max(lastDeleteSeen, latestDeleteSeen))
-    }
 
     if (
       autoAppliedRepoCommunityAddress &&
@@ -3942,6 +3865,25 @@
   )
   const back = () => goto(backTarget.path)
 </script>
+
+<DeletionHydration
+  scope={`repo:${repoAddress}`}
+  relays={[...announcementDiscoveryRelays, ...$discoveredAnnouncementRelays]}
+  targets={$repoEventStore ? [$repoEventStore] : []}
+  ready={$repoActivityHydrationReady} />
+<DeletionHydration
+  scope={`repo:${repoAddress}`}
+  relays={$repoRelaysStore || []}
+  targets={[
+    ...($repoStateEventsStore || []),
+    ...($issuesStore || []),
+    ...($pullRequestsStore || []),
+    ...($realPullRequestUpdatesStore || []),
+    ...($mergedStatusEventsStore || []),
+    ...($rawCommentEventsStore || []),
+    ...($repoReportEventsStore || []),
+  ]}
+  ready={$repoActivityHydrationReady} />
 
 <svelte:head>
   <title>{repoClass?.name}</title>

@@ -80,6 +80,8 @@
   import {pushToast} from "@app/util/toast"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {loadBoundedCommunityHistory} from "@app/core/requests"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import {makeExactCommunityGoalPath, parseExactCommunityRouteParam} from "@app/util/routes"
 
   const REQUEST_HARD_TIMEOUT_MS = 10_000
@@ -714,6 +716,7 @@
   })
 
   const retryHistoricalLoad = () => {
+    refreshForegroundDeletions()
     if (communityBootstrapFailed || communityAuthorityUnavailable) {
       window.location.reload()
       return
@@ -726,6 +729,13 @@
     setChecked(goalPath)
   })
 </script>
+
+<DeletionHydration
+  scope={communityAddress}
+  relays={$activeExactCommunityRelays}
+  targets={[...goalProjection.events, ...replyProjection.events, ...$targetingEvents]}
+  sourcePlans={targetedGoalRelayHintPlans}
+  ready={communityAuthorityReady} />
 
 <PageBar>
   {#snippet icon()}

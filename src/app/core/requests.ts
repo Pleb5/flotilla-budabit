@@ -25,6 +25,7 @@ import {
 import {CALENDAR_EVENT_KINDS, getCalendarEventRange} from "@app/core/calendar-events"
 import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
 import {FINITE_RELAY_ADMISSION_TIMEOUT_MS} from "@app/core/finite-relay-request"
+import {makeDeletionTargetFilters} from "@app/core/deletion-hydration"
 
 // Utils
 
@@ -56,7 +57,6 @@ const getRepositoryKindRoute = (filters: Filter[], additionalKinds: number[] = [
     ),
   }
 }
-const COMMUNITY_HISTORY_TAG_CHUNK_SIZE = 100
 
 const filterIncludesKind = (filter: Filter, kind: number) =>
   filter.kinds
@@ -108,40 +108,9 @@ export type BoundedCommunityHistoryOptions = {
   verifyTimestampBoundaries?: boolean
 }
 
-export const makeSameAuthorDeleteFilters = (events: TrustedEvent[]): Filter[] => {
-  const targetsByAuthor = new Map<string, {ids: Set<string>; addresses: Set<string>}>()
-
-  for (const event of events) {
-    if (!event.id || !event.pubkey) continue
-
-    const targets = targetsByAuthor.get(event.pubkey) || {
-      ids: new Set<string>(),
-      addresses: new Set<string>(),
-    }
-    targets.ids.add(event.id)
-    if (event.kind >= 30_000 && event.kind < 40_000) targets.addresses.add(getAddress(event))
-    targetsByAuthor.set(event.pubkey, targets)
-  }
-
-  return Array.from(targetsByAuthor).flatMap(([author, targets]) => {
-    const filters: Filter[] = []
-
-    for (const [tagName, values] of [
-      ["#e", Array.from(targets.ids)],
-      ["#a", Array.from(targets.addresses)],
-    ] as const) {
-      for (let index = 0; index < values.length; index += COMMUNITY_HISTORY_TAG_CHUNK_SIZE) {
-        filters.push({
-          kinds: [DELETE],
-          authors: [author],
-          [tagName]: values.slice(index, index + COMMUNITY_HISTORY_TAG_CHUNK_SIZE),
-        } as Filter)
-      }
-    }
-
-    return filters
-  })
-}
+// Compatibility name for specialized readiness loaders. Author checks happen
+// locally; request count scales with target chunks rather than author count.
+export const makeSameAuthorDeleteFilters = makeDeletionTargetFilters
 
 type CommunityHistoryRequest = (options: RequestOptions) => Promise<unknown>
 

@@ -61,6 +61,8 @@
     isCommunityPersonBanned,
   } from "@app/core/community-reports"
   import {makeFeed} from "@app/core/requests"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import {userSettingsValues} from "@app/core/state"
   import {prependParent} from "@app/core/commands"
   import {
@@ -997,6 +999,7 @@
   })
 
   const retryRoomLookup = async ({automatic = false}: {automatic?: boolean} = {}) => {
+    if (!automatic) refreshForegroundDeletions()
     if (retryingRoomLookup) return
 
     if (!automatic) clearRoomAutoRetry()
@@ -1025,6 +1028,7 @@
   }
 
   const retryMessageFeed = async ({automatic = false}: {automatic?: boolean} = {}) => {
+    if (!automatic) refreshForegroundDeletions()
     if (retryingMessageFeed) return
 
     if (!automatic) clearMessageAutoRetry()
@@ -1202,6 +1206,12 @@
     resetFeed()
   })
 </script>
+
+<DeletionHydration
+  scope={communityAddress}
+  relays={$activeExactCommunityRelays}
+  targets={[...$roomEvents, ...$events, ...hashTargetEvents]}
+  ready={communityAuthorityReady && Boolean(room)} />
 
 <PageBar
   showTopMenuWidgets={Boolean(room) ||

@@ -101,6 +101,7 @@ import {request} from "@welshman/net"
 import type {SmartWidgetEvent} from "@app/extensions/types"
 import {activeRepoClass} from "@app/core/git-state"
 import {clearCashuWalletStorage} from "@app/core/cashu"
+import {clearDeletionCache} from "@app/core/foreground-deletions"
 import {terminateGitWorker} from "@app/core/worker-singleton"
 import {terminateSharedWorkerManager} from "@app/core/worker-manager-singleton"
 import {clearUnlockedLocalKeySecrets} from "@app/core/session-storage"
@@ -525,6 +526,7 @@ export const logout = async () => {
 
   await bestEffortWithTimeout(kv.clear(), "Preferences clear", 2500)
   await bestEffortWithTimeout(db.clear(), "Main IndexedDB clear", 3000)
+  await bestEffortWithTimeout(clearDeletionCache(), "Deletion cache clear", 2500)
   const {clearRepositoryCache} = await import("@app/core/repo-cache")
   await bestEffortWithTimeout(clearRepositoryCache(), "Repository cache clear", 3000)
   await bestEffortWithTimeout(clearCashuWalletStorage(), "Cashu wallet cleanup", 2500)

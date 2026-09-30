@@ -1,11 +1,13 @@
 <script lang="ts">
+  import {getDeletedTargetEventIds} from "@app/core/deletion-rules"
+  import {makeDeletionTargetFilters as makeTargetDeleteFilters} from "@app/core/deletion-hydration"
   import {page} from "$app/stores"
   import {tick} from "svelte"
   import {profilesByPubkey, pubkey, repository, tracker} from "@welshman/app"
   import {Router} from "@welshman/router"
   import {request} from "@welshman/net"
   import {deriveEventsDesc, deriveEventsById} from "@welshman/store"
-  import {DELETE, type Filter, type TrustedEvent} from "@welshman/util"
+  import type {Filter, TrustedEvent} from "@welshman/util"
   import {defaultExtensionWidgets, effectiveExtensionSettings} from "@app/extensions/settings"
   import ExtensionCard from "@app/components/ExtensionCard.svelte"
   import {
@@ -183,31 +185,6 @@
     } catch {
       return []
     }
-  }
-
-  const makeTargetDeleteFilters = (events: TrustedEvent[]): Filter[] => {
-    const ids = events.map(event => event.id).filter(Boolean)
-
-    return ids.length ? [{kinds: [DELETE], "#e": ids, limit: ids.length * 2}] : []
-  }
-
-  const getDeletedTargetEventIds = (targetEvents: TrustedEvent[], deleteEvents: TrustedEvent[]) => {
-    const targetAuthors = new Map(
-      targetEvents.map(event => [event.id, normalizePubkey(event.pubkey)]),
-    )
-    const deleted = new Set<string>()
-
-    for (const event of deleteEvents) {
-      if (event.kind !== DELETE) continue
-      const author = normalizePubkey(event.pubkey)
-
-      for (const tag of event.tags || []) {
-        if (tag[0] !== "e" || !tag[1]) continue
-        if (targetAuthors.get(tag[1]) === author) deleted.add(tag[1])
-      }
-    }
-
-    return deleted
   }
 
   const widgetTargetRelays = $derived.by(() =>

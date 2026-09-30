@@ -21,15 +21,16 @@
   import {pubkey, repository, tracker} from "@welshman/app"
   import {request} from "@welshman/net"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {DELETE, displayRelayUrl, MESSAGE} from "@welshman/util"
+  import {displayRelayUrl, MESSAGE} from "@welshman/util"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import CommunityMenu from "@app/components/CommunityMenu.svelte"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
   import Icon from "@lib/components/Icon.svelte"
   import Page from "@lib/components/Page.svelte"
   import SecondaryNav from "@lib/components/SecondaryNav.svelte"
   import {pushToast} from "@app/util/toast"
   import {pushDrawer} from "@app/util/modal"
-  import {checked, ensureCommunityNotificationBaseline, setCheckedAt} from "@app/util/notifications"
+  import {ensureCommunityNotificationBaseline} from "@app/util/notifications"
   import {deriveRelayAccessError} from "@app/core/state"
   import {makeCanonicalExactCommunityUrl, parseExactCommunityRouteParam} from "@app/util/routes"
   import {
@@ -58,17 +59,8 @@
     normalizePubkey,
   } from "@app/core/community"
   import {filterAuthorizedCommunityTargetingEvents} from "@app/core/community-permissions"
-  import {
-    COMMUNITY_EXCLUSIVE_KINDS,
-    COMMUNITY_TARGETABLE_KINDS,
-    makeCommunityTargetingFilter,
-  } from "@app/core/community-feeds"
-  import {
-    getCommunityDeleteSeenKey,
-    getCommunityDeleteSince,
-    hydrateCommunityDeleteEvents,
-    normalizeDeleteCheckpoint,
-  } from "@app/core/community-deletes"
+  import {makeCommunityTargetingFilter} from "@app/core/community-feeds"
+  import {makeCommunityDeletionFilter} from "@app/core/community-deletes"
   import {
     buildCommunityHistoricalDiscoveryFilters,
     buildCommunityFiniteFollowUpRelayPlans,
@@ -168,12 +160,6 @@
   let communityHistoryLoadController: AbortController | null = null
   let communityHistoryRetryVersion = $state(0)
   let communityHistoryRetryTimer: ReturnType<typeof setTimeout> | null = null
-  let communityDeleteLoadKey = ""
-  let communityDeleteLoadController: AbortController | null = null
-  let communityDeleteRetryVersion = $state(0)
-  let communityDeleteRetryTimer: ReturnType<typeof setTimeout> | null = null
-  const latestCommunityDeleteSeenByKey: Record<string, number> = {}
-  let communityDeleteCheckpointKey = ""
   let communityFollowUpLoadKey = ""
   let communityFollowUpLoadController: AbortController | null = null
   let communityFollowUpRetryVersion = $state(0)
@@ -189,12 +175,6 @@
     onChange: state => (communityMaintenanceAdmission = state),
   })
   const COMMUNITY_HISTORY_LOAD_TIMEOUT_MS = 5_000
-  const COMMUNITY_DELETE_LOAD_TIMEOUT_MS = 5_000
-  const communityDeleteKinds = Array.from(
-    new Set(
-      [...COMMUNITY_EXCLUSIVE_KINDS, ...COMMUNITY_TARGETABLE_KINDS].filter(kind => kind !== DELETE),
-    ),
-  )
 
   const communityTargetingFilters = $derived(
     $activeExactCommunityPointer
@@ -252,9 +232,11 @@
   const admissionResponseIds = $derived(
     normalizeCommunityLiveValues($admissionResponseEventsStore.map(event => event.id)),
   )
-  const communityDeleteSeenKey = $derived(getCommunityDeleteSeenKey(exactCommunity?.address || ""))
-  const lastCommunityDeleteSeen = $derived(
-    communityDeleteSeenKey ? normalizeDeleteCheckpoint($checked[communityDeleteSeenKey] || 0) : 0,
+  const foregroundDeleteReady = $derived(
+    communityBackgroundHydrationReady &&
+      !activeRoomLoadPending &&
+      $activeCommunityDescriptor?.community.address === exactCommunity?.address &&
+      $activeCommunityDescriptor?.authorityReadiness.state === "ready",
   )
 
   const stopCommunityLiveSubscription = () => {
@@ -274,14 +256,6 @@
     communityHistoryLoadController?.abort()
     communityHistoryLoadController = null
     communityHistoryLoadKey = ""
-  }
-
-  const stopCommunityDeleteLoad = () => {
-    if (communityDeleteRetryTimer) clearTimeout(communityDeleteRetryTimer)
-    communityDeleteRetryTimer = null
-    communityDeleteLoadController?.abort()
-    communityDeleteLoadController = null
-    communityDeleteLoadKey = ""
   }
 
   const stopCommunityFollowUpLoad = () => {
@@ -666,103 +640,10 @@
   })
 
   $effect(() => {
-    void communityDeleteRetryVersion
-
-    if (!communityMaintenanceAdmission.deletes) {
-      stopCommunityDeleteLoad()
-      return
-    }
-
-    const definition = $activeExactCommunityDefinition
-    const relays = readableRelays
-    const recovery = readRecovery
-
-    if (
-      !definition ||
-      definition.pointer.address !== exactCommunity?.address ||
-      relays.length === 0
-    ) {
-      stopCommunityDeleteLoad()
-      if (!relays.length) maintenanceAdmission.settle(maintenanceAdmission.getKey(), "deletes")
-      return
-    }
-
-    const since = getCommunityDeleteSince(lastCommunityDeleteSeen)
-    if (!exactCommunity) {
-      stopCommunityDeleteLoad()
-      return
-    }
-    const deleteSeenKey = communityDeleteSeenKey
-    if (communityDeleteCheckpointKey && communityDeleteCheckpointKey !== deleteSeenKey) {
-      setCheckedAt(
-        communityDeleteCheckpointKey,
-        Math.max(
-          normalizeDeleteCheckpoint($checked[communityDeleteCheckpointKey] || 0),
-          latestCommunityDeleteSeenByKey[communityDeleteCheckpointKey] || 0,
-        ),
-      )
-    }
-    communityDeleteCheckpointKey = deleteSeenKey
-    const key = `${exactCommunity.address}::${$pubkey || ""}::${relays.join("|")}::${since}`
-    if (communityDeleteLoadKey === key) return
-
-    communityDeleteLoadController?.abort()
-    communityDeleteLoadKey = key
-    const controller = new AbortController()
-    communityDeleteLoadController = controller
-    const admissionKey = maintenanceAdmission.getKey()
-
-    const scheduleRetry = () => {
-      const retryRelays = recovery.available(relays)
-      if (!retryRelays.length) return
-      if (communityDeleteRetryTimer) clearTimeout(communityDeleteRetryTimer)
-      communityDeleteRetryTimer = setTimeout(() => {
-        communityDeleteRetryTimer = null
-        communityDeleteLoadKey = ""
-        communityDeleteRetryVersion += 1
-      }, recovery.delay(retryRelays))
-    }
-    const timeout = setTimeout(() => {
-      if (communityDeleteLoadController !== controller) return
-
-      controller.abort()
-      communityDeleteLoadController = null
-      maintenanceAdmission.settle(admissionKey, "deletes")
-      relays.forEach(relay => recovery.record(relay, "timeout"))
-      scheduleRetry()
-    }, COMMUNITY_DELETE_LOAD_TIMEOUT_MS)
-
-    void hydrateCommunityDeleteEvents({
-      relays,
-      community: exactCommunity,
-      kinds: communityDeleteKinds,
-      since,
-      signal: controller.signal,
-      onClosed: (reason, relay) => recovery.closed(relay, reason),
-    }).then(
-      latest => {
-        if (communityDeleteLoadController !== controller) return
-        clearTimeout(timeout)
-        communityDeleteLoadController = null
-        maintenanceAdmission.settle(admissionKey, "deletes")
-        if (latest > (latestCommunityDeleteSeenByKey[deleteSeenKey] || 0)) {
-          latestCommunityDeleteSeenByKey[deleteSeenKey] = latest
-        }
-      },
-      error => {
-        if (controller.signal.aborted || communityDeleteLoadController !== controller) return
-
-        clearTimeout(timeout)
-        communityDeleteLoadController = null
-        maintenanceAdmission.settle(admissionKey, "deletes")
-        console.warn("[community-deletes] Failed to load community delete events", error)
-        scheduleRetry()
-      },
-    )
-
-    return () => {
-      clearTimeout(timeout)
-      controller.abort()
+    // Foreground deletion coverage owns its own bounded lifetime. Maintenance
+    // menus must not wait for every relay or a long historical delete archive.
+    if (communityMaintenanceAdmission.deletes) {
+      maintenanceAdmission.settle(maintenanceAdmission.getKey(), "deletes")
     }
   })
 
@@ -876,22 +757,17 @@
   onDestroy(() => {
     maintenanceAdmission.reset()
     stopCommunityHistoryLoad()
-    stopCommunityDeleteLoad()
     stopCommunityFollowUpLoad()
     stopCommunityLiveSubscription()
-    if (communityDeleteSeenKey) {
-      setCheckedAt(
-        communityDeleteSeenKey,
-        Math.max(
-          lastCommunityDeleteSeen,
-          latestCommunityDeleteSeenByKey[communityDeleteSeenKey] || 0,
-        ),
-      )
-    }
   })
 </script>
 
 {#if exactCommunity}
+  <DeletionHydration
+    scope={exactCommunity.address}
+    relays={readableRelays}
+    filters={[makeCommunityDeletionFilter(exactCommunity)]}
+    ready={foregroundDeleteReady} />
   <SecondaryNav>
     <CommunityMenu community={exactCommunity} evidenceReady={communityMaintenanceAdmission.menu} />
   </SecondaryNav>

@@ -77,6 +77,8 @@
     clearActiveCommunityRoomLoad,
   } from "@app/core/community-foreground"
   import {loadBoundedCommunityHistory, type BoundedCommunityHistoryResult} from "@app/core/requests"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import {publicationOperations, startPublication} from "@app/core/publication-operations"
   import {assertReplaceablePublicationIsCurrent} from "@app/core/replaceable-publication"
   import {getModeratorInviteResponseSemanticKey} from "@app/core/governance-publication-operations"
@@ -146,6 +148,7 @@
   const communityDefinitionReady = $derived(Boolean(communityPointer && routeCommunityDefinition))
   const expectedCommunityBootstrapKey = $derived(communityPointer?.address || "")
   const retryCommunityBootstrap = async () => {
+    refreshForegroundDeletions()
     const pointer = $activeExactCommunityPointer
     if (!pointer || retryingCommunityBootstrap) return
 
@@ -882,6 +885,12 @@
     }
   })
 </script>
+
+<DeletionHydration
+  scope={communityPointer?.address || ""}
+  relays={$activeExactCommunityRelays}
+  targets={rooms.map(room => room.event)}
+  ready={communityHomeExtensionsReady} />
 
 <PageBar showTopMenuWidgets={communityHomeExtensionsReady}>
   {#snippet icon()}

@@ -589,6 +589,27 @@ export class Repository {
 
   // API
 
+  /** Restore verified, compact local deletion evidence without manufacturing Nostr
+   * events. Readers receive the same removals as normal deletion intake. */
+  restoreDeletions = (records: Iterable<{target: string; pubkey: string; created_at: number}>) => {
+    const removed = new Set<string>()
+    const kinds = new Set<number>()
+    for (const record of records) {
+      const evidence = this.deletes.get(record.target) || []
+      const existing = evidence.find(item => item.pubkey === record.pubkey)
+      if (existing && existing.created_at >= record.created_at) continue
+      if (existing) existing.created_at = record.created_at
+      else evidence.push({pubkey: record.pubkey, created_at: record.created_at})
+      this.deletes.set(record.target, evidence)
+      const event = this.getEvent(record.target)
+      if (event && this.isDeleted(event)) {
+        removed.add(event.id)
+        kinds.add(event.kind)
+      }
+    }
+    if (removed.size) this.emitUpdate({added: [], removed}, kinds)
+  }
+
   getEvent = (idOrAddress: string) => {
     return idOrAddress.includes(":")
       ? this.eventsByAddress.get(idOrAddress)
@@ -682,12 +703,7 @@ export class Repository {
 
   _isDeleted = (key: string, event: TrustedEvent) => {
     for (const {pubkey, created_at} of this.deletes.get(key) || []) {
-      if (
-        pubkey === event.pubkey &&
-        (this.options.deletionAwareReplaceables
-          ? created_at >= event.created_at
-          : created_at > event.created_at)
-      ) {
+      if (pubkey === event.pubkey && created_at >= event.created_at) {
         return true
       }
     }
@@ -695,13 +711,13 @@ export class Repository {
     return false
   }
 
-  isDeletedByAddress = (event: TrustedEvent) => this._isDeleted(getAddress(event), event)
+  isDeletedByAddress = (event: TrustedEvent) =>
+    isReplaceable(event) && this._isDeleted(getAddress(event), event)
 
   isDeletedById = (event: TrustedEvent) =>
     this.replaced.has(event.id) ||
-    (this.options.deletionAwareReplaceables
-      ? (this.deletes.get(event.id) || []).some(deleteEvent => deleteEvent.pubkey === event.pubkey)
-      : !isReplaceable(event) && this._isDeleted(event.id, event))
+    ((this.options.deletionAwareReplaceables || !isReplaceable(event)) &&
+      (this.deletes.get(event.id) || []).some(deleteEvent => deleteEvent.pubkey === event.pubkey))
 
   isDeleted = (event: TrustedEvent) => this.isDeletedById(event) || this.isDeletedByAddress(event)
 

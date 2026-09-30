@@ -14,7 +14,7 @@ describe("community widgets route history", () => {
     expect(source).toContain("makeSameAuthorDeleteFilters(authorizedTargetingEvents)")
     expect(source).toContain("return {relayFilters: filters, localFilters: filters}")
     expect(source).toContain("filters: targetDeleteFilterPlan.localFilters")
-    expect(source).toContain("targetAuthors.get(tag[1]) === author")
+    expect(source).toContain('import {getDeletedTargetEventIds} from "@app/core/deletion-rules"')
     expect(source).not.toContain("LegacyCommunityTargeting")
     expect(source).not.toContain("LegacyTargetedPublication")
   })
@@ -35,15 +35,11 @@ describe("community widgets route history", () => {
 
     for (const stage of ["target", "targetDelete", "originalWidget"]) {
       expect(source).toContain(`let ${stage}RequestSettled = $state(false)`)
-      expect(source).toContain(`let ${stage}HistoryIncomplete = $state(false)`)
     }
-    expect(source).toContain("targetHistoryIncomplete = !result.complete")
-    expect(source).toContain("targetDeleteHistoryIncomplete = !result.complete")
-    expect(source).toContain("results.some(result => !result.complete)")
-    expect(source).toContain("communityRelaysMissing ||")
-    expect(source).toContain("targetHistoryIncomplete = true")
-    expect(source).toContain("targetDeleteHistoryIncomplete = true")
-    expect(source).toContain("originalWidgetHistoryIncomplete = true")
+    // Reconciliation/retry now belongs to the foreground coordinator; initial
+    // content readiness remains independent of complete deletion history.
+    expect(source).toContain("<DeletionHydration")
+    expect(source).toContain("sourcePlans={widgetRelayHintPlans}")
   })
 
   it("keeps partial-history diagnostics out of the widget UI", () => {

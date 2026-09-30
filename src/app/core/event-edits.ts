@@ -1,15 +1,8 @@
 import {get, writable} from "svelte/store"
 import {ago, MINUTE} from "@welshman/lib"
 import {repository} from "@welshman/app"
-import {
-  COMMENT,
-  DELETE,
-  MESSAGE,
-  getAddress,
-  uniqTags,
-  type EventContent,
-  type TrustedEvent,
-} from "@welshman/util"
+import {deletionDeletesEvent} from "@app/core/deletion-rules"
+import {COMMENT, MESSAGE, uniqTags, type EventContent, type TrustedEvent} from "@welshman/util"
 
 export const EDIT_WINDOW_MINUTES = 5
 
@@ -131,17 +124,7 @@ export const filterVisibleAfterDeletesAndEdits = <T extends TrustedEvent>(
   suppressedIds: Set<string> = get(editedTargetIds),
 ) => (events || []).filter(event => isVisibleAfterDeletesAndEdits(event, suppressedIds)) as T[]
 
-export const deleteEventDeletesTarget = (deleteEvent: TrustedEvent, targetEvent: TrustedEvent) =>
-  deleteEvent.kind === DELETE &&
-  deleteEvent.pubkey === targetEvent.pubkey &&
-  (deleteEvent.tags || []).some(
-    tag =>
-      (tag[0] === "e" && tag[1] === targetEvent.id) ||
-      (tag[0] === "a" &&
-        targetEvent.kind >= 30_000 &&
-        targetEvent.kind < 40_000 &&
-        tag[1] === getAddress(targetEvent)),
-  )
+export const deleteEventDeletesTarget = deletionDeletesEvent
 
 export const deleteEventsDeleteTarget = (deleteEvents: TrustedEvent[], targetEvent: TrustedEvent) =>
   deleteEvents.some(deleteEvent => deleteEventDeletesTarget(deleteEvent, targetEvent))

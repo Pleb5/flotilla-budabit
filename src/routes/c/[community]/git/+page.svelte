@@ -38,6 +38,8 @@
   import {getRepoAddress, isAuthorizedDirectCommunityRepo} from "@app/core/repo-community-context"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {loadBoundedCommunityHistory} from "@app/core/requests"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import {parseExactCommunityRouteParam} from "@app/util/routes"
 
   const routeCommunity = $derived(parseExactCommunityRouteParam($page.params.community))
@@ -194,6 +196,7 @@
   let directRepoLoadSettled = $state(false)
   let directRepoRetryVersion = $state(0)
   const retryDirectRepoHistory = () => {
+    refreshForegroundDeletions()
     if (communityBootstrapFailed || communityAuthorityUnavailable) {
       window.location.reload()
       return
@@ -254,6 +257,12 @@
     return () => controller.abort()
   })
 </script>
+
+<DeletionHydration
+  scope={communityAddress}
+  relays={$activeExactCommunityRelays}
+  targets={$directRepoEventsStore || []}
+  ready={communityAuthorityReady && directRepoLoadSettled} />
 
 <PageBar>
   {#snippet icon()}

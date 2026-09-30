@@ -212,7 +212,7 @@ describe("community curated widgets", () => {
       id: "delete-target-deleted",
       pubkey: managerPubkey,
       kind: DELETE,
-      tags: [["e", deletedTarget.id]],
+      tags: [["a", `30222:${managerPubkey}:${deletedTarget.tags.find(tag => tag[0] === "d")![1]}`]],
     })
     const widgets = [
       makeWidgetEvent("valid-widget"),

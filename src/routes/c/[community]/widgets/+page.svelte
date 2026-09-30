@@ -2,7 +2,7 @@
   import {page} from "$app/stores"
   import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
-  import {DELETE, makeEvent, getTagValue, type TrustedEvent} from "@welshman/util"
+  import {makeEvent, getTagValue, type TrustedEvent} from "@welshman/util"
   import {randomId} from "@welshman/lib"
   import Widget from "@assets/icons/widget.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -28,7 +28,6 @@
   } from "@app/core/community-state"
   import {
     makeCommunityPointer,
-    normalizePubkey,
     parseCommunityDefinition,
     parseCommunityNaddr,
   } from "@app/core/community"
@@ -47,6 +46,8 @@
     getCommunityTargetWriterPubkeys,
   } from "@app/core/community-permissions"
   import {loadBoundedCommunityHistory, makeSameAuthorDeleteFilters} from "@app/core/requests"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {getDeletedTargetEventIds} from "@app/core/deletion-rules"
   import {RELAY_REQUEST_PRIORITY} from "@app/core/relay-policy"
   import {isSecureEmbeddableUrl, SECURE_EMBED_URL_REQUIREMENT} from "@app/extensions/url-policy"
   import type {WidgetCommunitySlotType} from "@app/extensions/types"
@@ -239,25 +240,6 @@
 
     return options
   })
-
-  function getDeletedTargetEventIds(targetEvents: TrustedEvent[], deleteEvents: TrustedEvent[]) {
-    const targetAuthors = new Map(
-      targetEvents.map(event => [event.id, normalizePubkey(event.pubkey)]),
-    )
-    const deleted = new Set<string>()
-
-    for (const event of deleteEvents) {
-      if (event.kind !== DELETE) continue
-      const author = normalizePubkey(event.pubkey)
-
-      for (const tag of event.tags || []) {
-        if (tag[0] !== "e" || !tag[1]) continue
-        if (targetAuthors.get(tag[1]) === author) deleted.add(tag[1])
-      }
-    }
-
-    return deleted
-  }
 
   type WidgetSlotOption = "" | WidgetCommunitySlotType
 
@@ -605,6 +587,13 @@
       : []
   })
 </script>
+
+<DeletionHydration
+  scope={communityAddress}
+  relays={$activeExactCommunityRelays}
+  targets={[...$widgets, ...$targetingEvents]}
+  sourcePlans={widgetRelayHintPlans}
+  ready={communityAuthorityReady} />
 
 <PageBar>
   {#snippet icon()}

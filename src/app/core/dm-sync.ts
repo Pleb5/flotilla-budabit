@@ -22,6 +22,7 @@ import {
 import {getDmRelayUrls, getMessagingRelayHints} from "./dm"
 import {createDmHistory, DM_INBOX, makeDmHistoryFilters, type DmHistorySnapshot} from "./dm-history"
 import {requestFiniteRelay} from "./finite-relay-request"
+import {refreshForegroundDeletions} from "./foreground-deletions"
 import {
   getRelayPolicy,
   RELAY_AUTH_SIGN_TIMEOUT,
@@ -33,6 +34,7 @@ export const dmHistoryState = writable(new Map<string, DmHistorySnapshot>())
 let history: ReturnType<typeof createDmHistory> | undefined
 let retryLive: (() => void) | undefined
 export const retryDmHistory = (key = DM_INBOX) => {
+  refreshForegroundDeletions()
   history?.retry(key)
   retryLive?.()
 }

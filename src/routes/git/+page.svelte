@@ -18,11 +18,12 @@
 </style>
 
 <script lang="ts">
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {getDeletedTargetEventIds} from "@app/core/deletion-rules"
   import {page} from "$app/stores"
   import {
     normalizeRelayUrl,
     Address,
-    DELETE,
     REACTION,
     getRelaysFromList,
     type Filter,
@@ -1256,23 +1257,6 @@
   const snippets = $derived.by(() => ($mySnippetsEvents ? ($mySnippetsEvents as NostrEvent[]) : []))
 
   const snippetQuery = $derived.by(() => normalizeSearchValue(searchQuery.trim()))
-
-  const getDeletedTargetEventIds = (targets: TrustedEvent[], deleteEvents: TrustedEvent[]) => {
-    const targetsById = new Map(targets.map(event => [event.id, event]))
-    const deletedIds = new Set<string>()
-
-    for (const event of deleteEvents) {
-      if (event.kind !== DELETE) continue
-
-      for (const tag of event.tags || []) {
-        if (tag[0] !== "e" || !tag[1]) continue
-        const target = targetsById.get(tag[1])
-        if (target?.pubkey === event.pubkey) deletedIds.add(tag[1])
-      }
-    }
-
-    return deletedIds
-  }
 
   const communityStarTargetFilters = $derived.by(() =>
     selectedCommunityPointer
@@ -3999,6 +3983,31 @@
     }
   }
 </script>
+
+<DeletionHydration
+  scope="git-grid"
+  relays={isAccountSearch && accountSearch.pubkey
+    ? getAccountSearchRelays(accountSearch.pubkey, accountSearch.relayHints)
+    : activeTab === "bookmarks"
+      ? starredRepoRelaysToQuery
+      : activeMode === "community"
+        ? selectedCommunityListRelays
+        : repoListReadRelays}
+  targets={(isAccountSearch ? sortedAccountSearchRepoCards : sortedRepoCards).flatMap(card =>
+    card.first ? [card.first as TrustedEvent] : [],
+  )}
+  ready={$repoListHydrationReadyStore &&
+    activeTab !== "snippets" &&
+    (isAccountSearch ? sortedAccountSearchRepoCards.length > 0 : hasRenderedRepoCardsForCurrentScope)} />
+
+<DeletionHydration
+  scope="git-snippets"
+  relays={activeMode === "community" ? selectedCommunityListRelays : bookmarkRelays}
+  targets={activeMode === "community"
+    ? [...filteredSnippets, ...($communitySnippetTargetEvents || [])]
+    : filteredSnippets}
+  sourcePlans={activeMode === "community" ? communitySnippetRelayHintPlans : []}
+  ready={$repoListHydrationReadyStore && activeTab === "snippets" && filteredSnippets.length > 0} />
 
 <svelte:head>
   <title>Git Repositories</title>

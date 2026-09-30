@@ -130,7 +130,10 @@ export const mergePersistedEvents = (events: TrustedEvent[]) => {
         if (!repository.hasEvent(event)) cachedEvents.push(event)
       }
 
-      if (cachedEvents.length > 0) repository.load([...repository.dump(), ...cachedEvents])
+      // Preserve in-memory deletion evidence (including compact tombstones) and
+      // avoid rebuilding the whole repository when IndexedDB opens late.
+      if (cachedEvents.length > 0)
+        repository.batch(() => cachedEvents.forEach(event => repository.publish(event)))
     },
   )
 }

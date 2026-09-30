@@ -40,6 +40,7 @@
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ChatMessage from "@app/components/ChatMessage.svelte"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
   import ChatCompose from "@app/components/ChatCompose.svelte"
   import DmInboxSetup from "@app/components/DmInboxSetup.svelte"
   import {DM_RELAY_SETTINGS_URL} from "@app/core/dm-inbox-setup"
@@ -457,6 +458,13 @@
     }
   })
 </script>
+
+<DeletionHydration
+  scope={`dm:${recipientPubkey || ""}`}
+  relays={[...selfInboxRelays, ...recipientInboxRelays]}
+  targets={visibleMessages}
+  filters={$pubkey ? [{kinds: [5], authors: [...new Set([$pubkey, ...others])]}] : []}
+  ready={Boolean($pubkey && recipientPubkey && (visibleMessages.length || history.initialComplete))} />
 
 <PageBar>
   {#snippet title()}

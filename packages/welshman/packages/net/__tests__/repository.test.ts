@@ -682,26 +682,20 @@ describe("Repository", () => {
       },
     )
 
-    it("should ignore deletes that are not newer than their targets", () => {
+    it.each([99, 100])("should retract regular IDs with deletion timestamp %i", created_at => {
       const pubkey = randomHex()
       const event = createEvent(1, {pubkey, created_at: 100})
-      const equalDelete = createEvent(DELETE, {
+      const deleteEvent = createEvent(DELETE, {
         pubkey,
         tags: [["e", event.id]],
-        created_at: 100,
-      })
-      const olderDelete = createEvent(DELETE, {
-        pubkey,
-        tags: [["e", event.id]],
-        created_at: 99,
+        created_at,
       })
 
       repo.publish(event)
-      repo.publish(equalDelete)
-      repo.publish(olderDelete)
+      repo.publish(deleteEvent)
 
-      expect(repo.isDeleted(event)).toBe(false)
-      expect(repo.query([{ids: [event.id]}])).toEqual([event])
+      expect(repo.isDeleted(event)).toBe(true)
+      expect(repo.query([{ids: [event.id]}])).toEqual([])
     })
 
     it("should allow a newer replacement after deletion by address", () => {

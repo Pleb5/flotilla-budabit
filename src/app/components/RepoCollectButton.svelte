@@ -1,28 +1,8 @@
 <script module lang="ts">
-  import {DELETE, type Filter, type TrustedEvent as ModuleTrustedEvent} from "@welshman/util"
+  import type {Filter} from "@welshman/util"
+  import {getDeletedTargetEventIds} from "@app/core/deletion-rules"
 
   const loadedFilterRequests = new Map<string, Promise<boolean>>()
-
-  const getDeletedTargetEventIds = (
-    targetEvents: ModuleTrustedEvent[],
-    deleteEvents: ModuleTrustedEvent[],
-  ) => {
-    const targetsById = new Map(targetEvents.map(event => [event.id, event]))
-    const deletedIds = new Set<string>()
-
-    for (const event of deleteEvents) {
-      if (event.kind !== DELETE) continue
-
-      for (const tag of event.tags || []) {
-        if (tag[0] !== "e" || !tag[1]) continue
-
-        const target = targetsById.get(tag[1])
-        if (target?.pubkey === event.pubkey) deletedIds.add(tag[1])
-      }
-    }
-
-    return deletedIds
-  }
 
   const getLoadKey = (
     relays: string[],

@@ -60,6 +60,8 @@
     makeLegacyTargetedPublicationOriginalRelayHintPlans,
   } from "@app/core/community-targeting-legacy"
   import {loadBoundedCommunityHistory, makeCalendarFeed} from "@app/core/requests"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import {publicationOperations} from "@app/core/publication-operations"
   import {projectAuthoredPublicationEvents} from "@app/core/authored-publication-operations"
   import {makeCommunityTargetedPublicationSemanticKey} from "@app/core/community-targeting"
@@ -570,6 +572,7 @@
   })
 
   const retryHistoricalLoad = async () => {
+    refreshForegroundDeletions()
     if (communityBootstrapFailed || communityAuthorityUnavailable) {
       if (!routeCommunity || retryingCommunityAccess) return
 
@@ -607,6 +610,13 @@
     setChecked(calendarPath)
   })
 </script>
+
+<DeletionHydration
+  scope={communityAddress}
+  relays={$activeExactCommunityRelays}
+  targets={[...calendarProjection.events, ...$targetingEvents]}
+  sourcePlans={targetedOriginalRelayHintPlans}
+  ready={communityAuthorityReady} />
 
 <PageBar>
   {#snippet icon()}

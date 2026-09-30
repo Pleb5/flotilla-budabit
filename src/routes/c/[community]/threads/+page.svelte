@@ -13,6 +13,8 @@
   import PublishGate from "@app/components/community/PublishGate.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import ThreadItem from "@app/components/ThreadItem.svelte"
+  import DeletionHydration from "@app/components/DeletionHydration.svelte"
+  import {refreshForegroundDeletions} from "@app/core/foreground-deletions"
   import {
     activeCommunityBootstrapStatus,
     activeCommunityDescriptor,
@@ -357,6 +359,7 @@
   })
 
   const retryFeed = async () => {
+    refreshForegroundDeletions()
     if (communityBootstrapFailed || communityAuthorityUnavailable) {
       if (!routeCommunity || retryingCommunityAccess) return
 
@@ -388,6 +391,12 @@
     setChecked(threadsPath)
   })
 </script>
+
+<DeletionHydration
+  scope={communityAddress}
+  relays={$activeExactCommunityRelays}
+  targets={threadProjection.events}
+  ready={communityAuthorityReady} />
 
 <PageBar>
   {#snippet icon()}
