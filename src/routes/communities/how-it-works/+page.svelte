@@ -40,7 +40,7 @@
     "User-owned accounts",
     "Independent community",
     "Portable content",
-    "Permissionless collaboration",
+    "Open collaboration",
   ]
 
   const defaultSections = [
@@ -52,8 +52,8 @@
     {label: COMMUNITY_SECTION_THREADS, detail: "Who can start new threads"},
     {label: COMMUNITY_SECTION_CALENDAR, detail: "Who can publish calendar events"},
     {label: COMMUNITY_SECTION_GOALS, detail: "Who can publish fundraiser goals"},
-    {label: COMMUNITY_SECTION_REPO_CURATOR, detail: "Repos and permalink curation"},
-    {label: COMMUNITY_SECTION_WIDGETS, detail: "Smart widget curation"},
+    {label: COMMUNITY_SECTION_REPO_CURATOR, detail: "Repositories and code links"},
+    {label: COMMUNITY_SECTION_WIDGETS, detail: "Community widgets"},
     {
       label: COMMUNITY_SECTION_MARKETPLACE,
       detail: "Jobs, services, proposals, orders, reviews, and classifieds",
@@ -61,11 +61,11 @@
   ]
 
   const alternativeSections = [
-    {label: COMMUNITY_SECTION_GENERAL, detail: "Shared discussion and moderation signals"},
-    {label: "Conversation-creator", detail: "Room creators and thread creators together"},
-    {label: "Events-and-goals", detail: "Calendar events and fundraiser goals together"},
-    {label: "Code-and-widget-curator", detail: "Repo, permalink, and widget curation together"},
-    {label: "Trade", detail: "Freelance work and classified listings together"},
+    {label: COMMUNITY_SECTION_GENERAL, detail: "Discussion, reactions, and reports"},
+    {label: "Conversation-creator", detail: "New rooms and threads"},
+    {label: "Events-and-goals", detail: "Calendar events and fundraiser goals"},
+    {label: "Code-and-widget-curator", detail: "Repositories, code links, and widgets"},
+    {label: "Trade", detail: "Freelance work and classifieds"},
   ]
 
   const {showStartCommunityCta = false}: {showStartCommunityCta?: boolean} = $props()
@@ -75,7 +75,7 @@
   <title>How BudaBit communities work</title>
   <meta
     name="description"
-    content="A visual guide for community leaders explaining portable BudaBit communities, default content sections, moderators, client-side moderation, and replaceable infrastructure." />
+    content="Choose what your BudaBit community shares, who can publish, and which tools and servers to use." />
 </svelte:head>
 
 <Page class="cw-full bg-base-300 text-base-content">
@@ -95,8 +95,7 @@
             How BudaBit communities work
           </h1>
           <p class="mt-5 max-w-3xl text-base leading-relaxed text-base-content/90 sm:text-lg">
-            A BudaBit community has a stable community ID, is shaped by content sections, and is
-            free to swap the infrastructure around it.
+            Choose what your community shares, who can publish, and where it is hosted.
           </p>
           <div class="mt-6 flex flex-wrap gap-2">
             {#each benefits as benefit}
@@ -117,8 +116,7 @@
             </div>
             <strong class="text-xl text-base-content">Stable community ID</strong>
             <p class="text-sm leading-relaxed text-base-content/85">
-              An owner key can create multiple communities without making their identities
-              ambiguous.
+              One account can own several communities, each with its own ID.
             </p>
           </div>
           <div class="mt-5 grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-sm">
@@ -131,7 +129,7 @@
             </div>
           </div>
           <p class="mt-3 text-center text-xs text-base-content/75">
-            Same community ID across relays, no confusion.
+            Change servers. Keep your community identity.
           </p>
         </div>
       </div>
@@ -146,8 +144,8 @@
               <h2 class="text-2xl font-bold">Portable is power</h2>
             </div>
             <p class="mt-3 max-w-2xl text-sm leading-relaxed opacity-75 sm:text-base">
-              Nostr is the verifiable backbone. Relays, media servers, mints, git servers, and
-              clients are configurable, redundant, and replaceable.
+              Signed Nostr records let compatible apps verify shared work. Your community chooses
+              its hosting and services.
             </p>
           </div>
           <div class="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -177,15 +175,16 @@
           <h2 class="text-2xl font-bold">Stable ID, explicit owner</h2>
         </div>
         <p class="mt-3 text-sm leading-relaxed opacity-75 sm:text-base">
-          Each community has its own stable ID and a definition signed by its owner key.
+          Each community has a stable ID and settings signed by its owner. Share its community link
+          so people open the right community.
         </p>
         <div class="mt-5 rounded-2xl border border-info/25 bg-info/10 p-4">
           <div class="flex flex-wrap items-center justify-center gap-3 text-sm font-semibold">
             <span class="rounded-full bg-base-100 px-4 py-2">Community ID + owner</span>
             <ArrowRight size={18} />
-            <span class="rounded-full bg-base-100 px-4 py-2">Signed definition</span>
+            <span class="rounded-full bg-base-100 px-4 py-2">Signed settings</span>
             <ArrowRight size={18} />
-            <span class="rounded-full bg-base-100 px-4 py-2">Shared context</span>
+            <span class="rounded-full bg-base-100 px-4 py-2">Community link</span>
           </div>
         </div>
       </article>
@@ -198,15 +197,15 @@
           <h2 class="text-2xl font-bold">Content sections</h2>
         </div>
         <p class="mt-3 text-sm leading-relaxed opacity-75 sm:text-base">
-          BudaBit communities are divided into "Content Sections." They define the types of content
-          the community handles, and moderation is scoped to each section.
+          Sections group content and publishing permissions. New communities start with these eight
+          sections; owners can rename or reorganize them.
         </p>
       </div>
 
       <div class="mt-5 grid gap-4 lg:grid-cols-2">
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
           <div class="mb-4 flex items-center justify-between gap-3">
-            <strong>Default definition</strong>
+            <strong>Default sections</strong>
             <span class="badge badge-primary">editable</span>
           </div>
           <div class="grid gap-3 sm:grid-cols-2">
@@ -215,7 +214,7 @@
                 <strong>{section.label}</strong>
                 <p class="mt-1 text-xs opacity-65">{section.detail}</p>
                 <div class="mt-3 flex flex-wrap gap-1 text-[0.65rem] uppercase tracking-wide">
-                  <span class="rounded-full bg-primary/10 px-2 py-1 text-primary">access</span>
+                  <span class="rounded-full bg-primary/10 px-2 py-1 text-primary">publishing</span>
                   <span class="rounded-full bg-info/10 px-2 py-1 text-info">moderation</span>
                 </div>
               </div>
@@ -225,7 +224,7 @@
 
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
           <div class="mb-4 flex items-center justify-between gap-3">
-            <strong>Alternative definition example</strong>
+            <strong>One way to combine them</strong>
             <span class="badge border border-success/25 bg-success/15 text-success"
               >owner-defined</span>
           </div>
@@ -247,26 +246,30 @@
         </div>
       </div>
 
+      <p class="mt-4 text-sm opacity-75">
+        Existing communities keep their saved sections until the owner updates them.
+      </p>
+
       <div class="mt-5 grid gap-3 md:grid-cols-3">
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
           <FileText class="text-primary" size={24} />
-          <strong class="mt-3 block">Event kinds</strong>
+          <strong class="mt-3 block">Content types</strong>
           <p class="mt-1 text-sm opacity-70">
-            Each section lists the Nostr event kinds it manages.
+            Group related content, such as messages or calendar events.
           </p>
         </div>
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
           <PenLine class="text-info" size={24} />
-          <strong class="mt-3 block">Optional subtype</strong>
+          <strong class="mt-3 block">Flexible sections</strong>
           <p class="mt-1 text-sm opacity-70">
-            Subtypes split one event kind into multiple purposes.
+            Keep room creation and thread creation separate, or combine them.
           </p>
         </div>
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
           <LockKeyhole class="text-warning" size={24} />
-          <strong class="mt-3 block">Policy per section</strong>
+          <strong class="mt-3 block">Publishing rules</strong>
           <p class="mt-1 text-sm opacity-70">
-            Access and moderation can be different for every section.
+            Choose who can publish and manage content in each section.
           </p>
         </div>
       </div>
@@ -278,42 +281,33 @@
         <h2 class="text-2xl font-bold">A marketplace for your community</h2>
       </div>
       <p class="mt-3 max-w-4xl text-sm leading-relaxed opacity-75 sm:text-base">
-        The default Marketplace section brings freelance work and classified listings together.
-        Members can post jobs, offer services, agree on work, review concluded engagements, and sell
-        or give away items through community-targeted Smart Widgets. Section grants control who can
-        publish these event types.
+        Marketplace covers freelance work and classifieds. Enable the Freelance and Classifieds
+        widgets, then grant members publishing access.
       </p>
       <div class="mt-5 grid gap-3 sm:grid-cols-2">
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
           <strong>Find help with a job</strong>
           <p class="mt-2 text-sm opacity-75">
-            Post a job → receive proposals → accept one → record the outcome → exchange reviews.
+            Post a job → choose a proposal → record the outcome → exchange reviews.
           </p>
-          <p class="mt-3 text-xs opacity-65">Jobs: 32767 · Proposals: 32768 · Reviews: 1986</p>
         </div>
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
           <strong>Offer your services</strong>
           <p class="mt-2 text-sm opacity-75">
-            List a service → receive an order → accept it → the client records the outcome →
-            exchange reviews.
+            List a service → accept an order → the client records the outcome → exchange reviews.
           </p>
-          <p class="mt-3 text-xs opacity-65">Services: 32765 · Orders: 32766 · Reviews: 1986</p>
         </div>
         <div class="rounded-2xl border border-base-300 bg-base-200 p-4 sm:col-span-2">
           <strong>Sell or give away an item</strong>
           <p class="mt-2 text-sm opacity-75">
-            Post a listing → contact the seller → arrange payment and handoff → mark it sold or
-            given away.
+            Post a listing → arrange payment and handoff → mark it sold or given away.
           </p>
-          <p class="mt-3 text-xs opacity-65">NIP-99 classified listings: 30402</p>
         </div>
       </div>
       <p class="mt-4 text-sm leading-relaxed opacity-75">
-        New communities include the section automatically. For an existing community, the owner can
-        choose <strong>Add Marketplace</strong> if its kinds are not already assigned, or rename an existing
-        Freelance section and add kind 30402. Configure publishing access and publish the definition.
-        A widget curator targets the Freelance and Classifieds widgets to that exact community. Payment
-        and handoff are arranged directly between participants.
+        New communities include the section. Existing communities can add Marketplace or update
+        their Freelance section in settings. Widgets are added separately; participants arrange
+        payment directly.
       </p>
     </section>
 
@@ -324,8 +318,7 @@
           <h2 class="text-2xl font-bold">Owners delegate by section</h2>
         </div>
         <p class="mt-3 text-sm leading-relaxed opacity-75 sm:text-base">
-          The community owner can add any number of moderators to each section. Moderators help
-          manage publishing access, application forms, reports, and moderation work.
+          Owners appoint section moderators to manage publishing access, applications, and reports.
         </p>
 
         <div class="mt-5 grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-center">
@@ -360,23 +353,24 @@
       <article class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
         <div class="flex items-center gap-3 text-warning">
           <ShieldCheck size={28} />
-          <h2 class="text-2xl font-bold">Moderation works in the client</h2>
+          <h2 class="text-2xl font-bold">Your community sets the rules</h2>
         </div>
         <p class="mt-3 text-sm leading-relaxed opacity-75 sm:text-base">
-          By default, BudaBit enforces community moderation client-side. A community can work on any
-          Nostr relay, while server-side enforcement is left to relay operators.
+          BudaBit applies your community's publishing and moderation rules. Content moderation is
+          section-specific; person bans apply across the community. Relay operators can enforce
+          additional rules.
         </p>
 
         <div class="mt-5 rounded-2xl border border-warning/25 bg-warning/10 p-4">
           <div class="grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
             <div class="rounded-2xl bg-base-100 p-3 text-center text-sm">
               <Server class="mx-auto mb-2 text-base-content/70" size={24} />
-              Any relay
+              Nostr relay
             </div>
             <ArrowRight class="mx-auto opacity-50" size={18} />
             <div class="rounded-2xl bg-base-100 p-3 text-center text-sm">
               <ShieldCheck class="mx-auto mb-2 text-warning" size={24} />
-              BudaBit policy
+              Community rules
             </div>
             <ArrowRight class="mx-auto opacity-50" size={18} />
             <div class="rounded-2xl bg-base-100 p-3 text-center text-sm">
@@ -389,8 +383,7 @@
         <div class="mt-5 rounded-2xl border border-info/25 bg-info/10 p-4">
           <strong class="text-info">Bootstrap faster</strong>
           <p class="mt-1 text-sm leading-relaxed opacity-75">
-            Owners and admins can add members directly without forms when they are starting a new
-            community or onboarding trusted people.
+            Owners and section moderators can grant publishing access directly, without forms.
           </p>
         </div>
       </article>
@@ -401,12 +394,11 @@
         <div>
           <div class="flex items-center gap-3 text-info">
             <Server size={28} />
-            <h2 class="text-2xl font-bold">Run extra infrastructure when it matters</h2>
+            <h2 class="text-2xl font-bold">Choose your hosting</h2>
           </div>
           <p class="mt-3 text-sm leading-relaxed opacity-75 sm:text-base">
-            Communities can use shared infrastructure, run their own, or mix both. This gives
-            leaders trusted files, code, payments, and storage without locking the group to one
-            provider.
+            Use shared servers, run your own, or mix both. Recommend services your community wants
+            to use.
           </p>
         </div>
 
@@ -414,22 +406,22 @@
           <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
             <Network class="text-primary" size={26} />
             <strong class="mt-3 block">Relays</strong>
-            <p class="mt-1 text-xs opacity-65">Community event transport</p>
+            <p class="mt-1 text-xs opacity-65">Store and share community activity</p>
           </div>
           <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
             <Image class="text-info" size={26} />
             <strong class="mt-3 block">Blossom</strong>
-            <p class="mt-1 text-xs opacity-65">Nostr-native media files</p>
+            <p class="mt-1 text-xs opacity-65">Host and mirror media</p>
           </div>
           <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
             <Zap class="text-warning" size={26} />
             <strong class="mt-3 block">Cashu</strong>
-            <p class="mt-1 text-xs opacity-65">Community-trusted eCash</p>
+            <p class="mt-1 text-xs opacity-65">Community-recommended mints</p>
           </div>
           <div class="rounded-2xl border border-base-300 bg-base-200 p-4">
             <GitBranch class="text-success" size={26} />
-            <strong class="mt-3 block">Grasp</strong>
-            <p class="mt-1 text-xs opacity-65">Nostr-native git hosting</p>
+            <strong class="mt-3 block">GRASP</strong>
+            <p class="mt-1 text-xs opacity-65">Git hosting on Nostr</p>
           </div>
         </div>
       </div>
@@ -439,11 +431,11 @@
       <article class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
         <div class="flex items-center gap-3 text-success">
           <Code size={28} />
-          <h2 class="text-2xl font-bold">Community-trusted code</h2>
+          <h2 class="text-2xl font-bold">Code with community context</h2>
         </div>
         <p class="mt-3 text-sm leading-relaxed opacity-75 sm:text-base">
-          Repositories and code snippets can be associated with a community when permissions allow.
-          Repo owners still moderate their own issues, pull requests, comments, and repo content.
+          Repositories can have a community home. Code links can be shared across communities, with
+          publishing permission. Repo owners and maintainers manage their own collaboration.
         </p>
         <div class="mt-5 grid gap-3 sm:grid-cols-[1fr_auto_1fr_auto_1fr] sm:items-center">
           <div class="rounded-2xl bg-base-200 p-3 text-center text-sm">
@@ -453,12 +445,12 @@
           <ArrowRight class="mx-auto opacity-50" size={18} />
           <div class="rounded-2xl bg-base-200 p-3 text-center text-sm">
             <GitBranch class="mx-auto mb-2 text-success" size={24} />
-            Repo association
+            Shared code
           </div>
           <ArrowRight class="mx-auto opacity-50" size={18} />
           <div class="rounded-2xl bg-base-200 p-3 text-center text-sm">
             <ShieldCheck class="mx-auto mb-2 text-info" size={24} />
-            Trusted context
+            Community context
           </div>
         </div>
       </article>
@@ -471,8 +463,8 @@
         <div class="mt-5 grid gap-3 sm:grid-cols-2">
           <div class="rounded-2xl bg-base-200 p-4">
             <CalendarDays class="text-info" size={22} />
-            <strong class="mt-3 block">A living definition</strong>
-            <p class="mt-1 text-sm opacity-70">Sections, infrastructure, and policy can evolve.</p>
+            <strong class="mt-3 block">Community settings</strong>
+            <p class="mt-1 text-sm opacity-70">Sections, servers, and publishing rules.</p>
           </div>
           <div class="rounded-2xl bg-base-200 p-4">
             <UsersRound class="text-success" size={22} />
@@ -481,7 +473,7 @@
           </div>
           <div class="rounded-2xl bg-base-200 p-4">
             <FileText class="text-warning" size={22} />
-            <strong class="mt-3 block">Content access</strong>
+            <strong class="mt-3 block">Publishing access</strong>
             <p class="mt-1 text-sm opacity-70">Who can publish in each section.</p>
           </div>
           <div class="rounded-2xl bg-base-200 p-4">
@@ -497,9 +489,8 @@
       class="rounded-[1.5rem] border border-primary/25 bg-primary/10 p-5 text-center shadow-sm sm:p-6">
       <strong class="text-xl text-primary">The short version</strong>
       <p class="mx-auto mt-2 max-w-3xl text-sm leading-relaxed opacity-80 sm:text-base">
-        A BudaBit community consists of portable Nostr identities, editable content sections,
-        delegated moderation, and optional infrastructure that the group can trust, replace, and
-        share. This enables fully portable and permissionless collaboration over open protocols.
+        Your identity, your community, your publishing rules. Build together on open protocols with
+        the tools and hosting you choose.
       </p>
     </section>
 
