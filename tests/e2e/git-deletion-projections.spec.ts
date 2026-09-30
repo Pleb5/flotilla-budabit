@@ -171,7 +171,10 @@ for (const mode of ["personal-starred", "community-starred", "search"] as const)
     release()
     await expect.poll(() => repositoryDeleted(page)).toBe(true)
     await expect(cards).toHaveCount(0)
-    await page.screenshot({path: info.outputPath("deleted-card-absent.png"), animations: "disabled"})
+    await page.screenshot({
+      path: info.outputPath("deleted-card-absent.png"),
+      animations: "disabled",
+    })
     const targetRequests = (await mock.getTelemetry()).filter(
       entry =>
         entry.type === "req" &&
@@ -218,7 +221,10 @@ for (const mode of ["personal-starred", "community-starred", "search"] as const)
     }, newer)
     await expect(cards).toHaveCount(1)
     await expect(cards.getByText("Review deletion repository", {exact: true})).toBeVisible()
-    await page.screenshot({path: info.outputPath("newer-revision-survives.png"), animations: "disabled"})
+    await page.screenshot({
+      path: info.outputPath("newer-revision-survives.png"),
+      animations: "disabled",
+    })
     expect(errors).toEqual([])
     expect(mock.getPublishedEvents()).toEqual([])
     await writeFile(
@@ -227,3 +233,212 @@ for (const mode of ["personal-starred", "community-starred", "search"] as const)
     )
   })
 }
+
+test("discovery-only cards persist deletions through stale replay and accept a newer isolated result", async ({
+  page,
+}, info) => {
+  const source = "wss://discovery-only-source.test/"
+  const original = signTestEvent(
+    createRepoAnnouncement({
+      identifier: "poolonly",
+      name: "Poolonly discovery repository",
+      pubkey: TEST_PUBKEYS.bob,
+      relays: [source],
+      created_at: 100,
+    }),
+  )
+  const address = `30617:${original.pubkey}:poolonly`
+  const newer = signTestEvent({...original, created_at: 200})
+  const follows = signTestEvent({
+    kind: 3,
+    pubkey: DEV_PUBKEY,
+    created_at: 100,
+    tags: [["p", original.pubkey]],
+    content: "",
+  })
+  const outbox = signTestEvent({
+    kind: 10002,
+    pubkey: original.pubkey,
+    created_at: 100,
+    tags: [["r", source]],
+    content: "",
+  })
+  const deletion = signTestEvent({
+    kind: 5,
+    pubkey: original.pubkey,
+    created_at: 150,
+    tags: [["a", address]],
+    content: "",
+  })
+  let releaseDeletion!: () => void
+  let releaseNewer!: () => void
+  let compactOnly = false
+  let discoverNewer = false
+  let newerRequested = false
+  const deletionGate = new Promise<"eose">(resolve => {
+    releaseDeletion = () => resolve("eose")
+  })
+  const newerGate = new Promise<"eose">(resolve => {
+    releaseNewer = () => resolve("eose")
+  })
+  const mock = new MockRelay({
+    respectLimits: true,
+    seedEvents: [follows, outbox],
+    seedEventsByRelay: {[source]: [original, deletion]},
+    getSubscriptionOutcome: (filters, relay) => {
+      if (filters.some(filter => filter.kinds?.includes(5))) {
+        if (compactOnly) return "denied"
+        if (relay === source) return deletionGate
+      }
+      if (
+        discoverNewer &&
+        relay === source &&
+        filters.some(
+          filter => filter.kinds?.includes(30617) && filter.authors?.includes(original.pubkey),
+        )
+      ) {
+        newerRequested = true
+        return newerGate
+      }
+    },
+  })
+  await page.route("https://**", route =>
+    route.fulfill({status: 503, body: "Fixture external services unavailable"}),
+  )
+  await seedDevSession(page)
+  await page.addInitScript(() => {
+    localStorage.setItem("git:selected-mode", JSON.stringify("personal"))
+    localStorage.setItem("git:selected-tab", JSON.stringify("my-repos"))
+  })
+  await mock.setup(page)
+  const errors: string[] = []
+  page.on("pageerror", error => errors.push(error.message))
+  const repoState = (event = original) =>
+    page.evaluate(async event => {
+      const url = performance
+        .getEntriesByType("resource")
+        .map(entry => entry.name)
+        .find(url =>
+          new URL(url).pathname.endsWith("/packages/welshman/packages/app/src/index.ts"),
+        )!
+      const {repository} = await import(/* @vite-ignore */ url)
+      return {
+        bodyLoaded: Boolean(repository.getEvent(event.id)),
+        deleted: repository.isDeleted(event),
+        rawDeletions: repository.query([{kinds: [5]}]).length,
+      }
+    }, event)
+  const search = async () => {
+    await expect(page.getByPlaceholder("Repo, owner, npub, or naddr")).toBeVisible()
+    await page.evaluate(
+      async events => {
+        const url = performance
+          .getEntriesByType("resource")
+          .map(entry => entry.name)
+          .find(url =>
+            new URL(url).pathname.endsWith("/packages/welshman/packages/app/src/index.ts"),
+          )!
+        const {repository} = await import(/* @vite-ignore */ url)
+        // Deterministic discovery prerequisites, without importing the target body.
+        for (const event of events) repository.publish(event)
+      },
+      [follows, outbox],
+    )
+    await page.getByPlaceholder("Repo, owner, npub, or naddr").fill("poolonly")
+    await expect(page.getByText("Search complete.", {exact: true})).toBeVisible()
+  }
+  const readTombstone = () =>
+    page.evaluate(async key => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const request = indexedDB.open("budabit-deletions-v1")
+        request.onsuccess = () => resolve(request.result)
+        request.onerror = () => reject(request.error)
+      })
+      const record = await new Promise<{target: string; created_at: number} | undefined>(
+        resolve => {
+          const request = db.transaction("deletions").objectStore("deletions").get(key)
+          request.onsuccess = () => resolve(request.result)
+        },
+      )
+      db.close()
+      return record
+    }, `${address}:${original.pubkey}`)
+  await page.goto("/git")
+  await search()
+  const cards = page.getByTestId("repo-card")
+  await expect(cards).toHaveCount(1)
+  expect((await repoState()).bodyLoaded).toBe(false)
+  await expect
+    .poll(async () =>
+      (await mock.getTelemetry()).some(
+        entry =>
+          entry.type === "req" &&
+          entry.relayUrl === source &&
+          entry.filters?.some(
+            filter =>
+              filter.kinds?.includes(5) &&
+              filter["#a"]?.includes(address) &&
+              filter.until !== undefined,
+          ),
+      ),
+    )
+    .toBe(true)
+  releaseDeletion()
+  await expect.poll(async () => (await repoState()).deleted).toBe(true)
+  await expect(cards).toHaveCount(0)
+  await expect.poll(readTombstone).toMatchObject({target: address, created_at: 150})
+  const deletedState = await repoState()
+  expect(deletedState.bodyLoaded).toBe(false)
+  const targetRequests = (await mock.getTelemetry()).filter(
+    entry =>
+      entry.type === "req" &&
+      entry.relayUrl === source &&
+      entry.filters?.some(filter => filter["#a"]?.includes(address)),
+  )
+
+  compactOnly = true
+  await page.reload()
+  await search()
+  await expect.poll(async () => (await repoState()).deleted).toBe(true)
+  await expect(cards).toHaveCount(0)
+  const restartedState = await repoState()
+  expect(restartedState).toEqual({bodyLoaded: false, deleted: true, rawDeletions: 0})
+  await page.screenshot({
+    path: info.outputPath("discovery-only-deleted-after-restart.png"),
+    animations: "disabled",
+  })
+
+  // A fresh isolated read returns the newer revision alongside stale replay.
+  discoverNewer = true
+  await page.getByPlaceholder("Repo, owner, npub, or naddr").fill("poolonly discovery")
+  await expect.poll(() => newerRequested).toBe(true)
+  await mock.injectEvents([newer])
+  releaseNewer()
+  await expect(page.getByText("Search complete.", {exact: true})).toBeVisible()
+  await expect(cards).toHaveCount(1)
+  await expect(cards.getByText("Poolonly discovery repository", {exact: true})).toBeVisible()
+  const newerState = await repoState(newer)
+  expect(newerState).toEqual({bodyLoaded: false, deleted: false, rawDeletions: 0})
+  expect((await repoState()).deleted).toBe(true)
+  await page.screenshot({
+    path: info.outputPath("discovery-only-newer-revision.png"),
+    animations: "disabled",
+  })
+  expect(errors).toEqual([])
+  expect(mock.getPublishedEvents()).toEqual([])
+  await writeFile(
+    info.outputPath("discovery-only-proof.json"),
+    JSON.stringify(
+      {
+        deletedState,
+        restartedState,
+        newerState,
+        record: await readTombstone(),
+        errors,
+        targetRequests,
+      },
+      null,
+      2,
+    ),
+  )
+})

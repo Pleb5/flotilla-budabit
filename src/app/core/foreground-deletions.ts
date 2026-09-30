@@ -19,9 +19,22 @@ const cache = createDeletionCache({
   storage,
   restore: records => repository.restoreDeletions(records),
 })
+const targetKey = (target: TrustedEvent) => (isReplaceable(target) ? getAddress(target) : target.id)
+// Only active foreground consumers retain these references. Isolated discovery
+// bodies need not be imported into the main repository to verify a tombstone.
+const demandedTargets = new Map<string, Map<symbol, TrustedEvent[]>>()
+const getKnownTargets = (key: string) => {
+  const targets = new Map<string, TrustedEvent>()
+  const cached = repository.getEvent(key)
+  if (cached) targets.set(cached.id, cached)
+  for (const group of demandedTargets.get(key)?.values() || []) {
+    for (const target of group) targets.set(target.id, target)
+  }
+  return targets.values()
+}
 const rememberKnown = (target: TrustedEvent) => {
   if (target.kind === DELETE) return
-  const key = isReplaceable(target) ? getAddress(target) : target.id
+  const key = targetKey(target)
   // Indexed evidence lookup, never a scan/replay of the deletion archive.
   for (const evidence of repository.deletes.get(key) || []) cache.rememberKnown(target, evidence)
 }
@@ -29,8 +42,7 @@ const remember = (event: TrustedEvent) => {
   if (event.kind !== DELETE) return
   for (const tag of event.tags) {
     if (tag[0] !== "e" && tag[0] !== "a") continue
-    const target = repository.getEvent(tag[1])
-    if (target) cache.remember(event, target)
+    for (const target of getKnownTargets(tag[1])) cache.remember(event, target)
   }
 }
 const coordinator = createDeletionHydration({
@@ -91,8 +103,7 @@ const start = () => {
   const unsubscribePool = Pool.get().subscribe(attach)
   for (const socket of Pool.get()._data.values()) attach(socket)
   const unsubscribeRepository = repository.onDeletionEvidence(key => {
-    const target = repository.getEvent(key)
-    if (target) rememberKnown(target)
+    for (const target of getKnownTargets(key)) rememberKnown(target)
   })
   if (typeof window !== "undefined") {
     window.addEventListener("online", updateVisibility)
@@ -113,6 +124,36 @@ const start = () => {
 }
 
 export const registerForegroundDeletions = (initial: DeletionDemand) => {
+  const consumer = Symbol()
+  let targetKeys = new Set<string>()
+  const trackTargets = (targets: TrustedEvent[] = []) => {
+    const unique = new Map(
+      targets.filter(target => target.kind !== DELETE).map(target => [target.id, target]),
+    )
+    const groups = new Map<string, TrustedEvent[]>()
+    for (const target of unique.values()) {
+      const key = targetKey(target)
+      const group = groups.get(key) || []
+      group.push(target)
+      groups.set(key, group)
+    }
+    for (const key of targetKeys) {
+      const owners = demandedTargets.get(key)
+      // An earlier evidence subscriber may already be removing its hidden card.
+      // Capture verified evidence before relinquishing its last body reference.
+      for (const target of owners?.get(consumer) || []) {
+        if (!unique.has(target.id)) rememberKnown(target)
+      }
+      owners?.delete(consumer)
+      if (!owners?.size) demandedTargets.delete(key)
+    }
+    for (const [key, group] of groups) {
+      const owners = demandedTargets.get(key) || new Map<symbol, TrustedEvent[]>()
+      owners.set(consumer, group)
+      demandedTargets.set(key, owners)
+    }
+    targetKeys = new Set(groups.keys())
+  }
   if (consumers++ === 0) cleanup = start()
   const registration = coordinator.register(initial)
   let released = false
@@ -120,6 +161,7 @@ export const registerForegroundDeletions = (initial: DeletionDemand) => {
   let hydrationScope = initial.scope
   let hydrationNavigation = initial.navigation
   const hydrate = (demand: DeletionDemand) => {
+    trackTargets(demand.targets)
     if (demand.scope !== hydrationScope || demand.navigation !== hydrationNavigation) {
       hydrationController.abort()
       hydrationController = new AbortController()
@@ -141,6 +183,7 @@ export const registerForegroundDeletions = (initial: DeletionDemand) => {
     release() {
       if (released) return
       released = true
+      trackTargets()
       hydrationController.abort()
       registration.release()
       if (--consumers === 0) {
@@ -155,6 +198,7 @@ export const clearDeletionCache = async () => {
   cleanup?.()
   cleanup = undefined
   coordinator.setActive(false)
+  demandedTargets.clear()
   cache.reset()
   await storage.clear()
 }

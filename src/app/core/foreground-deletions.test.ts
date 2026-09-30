@@ -147,4 +147,102 @@ describe("foreground deletion persistence arrival orders", () => {
     expect(records.size).toBe(0)
     expect(storage.get).toHaveBeenCalledWith([`${target.id}:${target.pubkey}`])
   })
+
+  it.each([11, 30617])(
+    "persists demanded pool-only kind %s before its card and consumer disappear",
+    async kind => {
+      const event = {...target, kind}
+      const key = kind === 11 ? event.id : getAddress(event)
+      const registration = register([event])
+      await vi.advanceTimersByTimeAsync(100)
+      expect(repository.getEvent(key)).toBeUndefined()
+      repository.publish(makeDeletion(event))
+      expect(repository.isDeleted(event)).toBe(true)
+      registration.update({...demand, targets: []})
+      registration.release()
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(records.get(`${key}:${event.pubkey}`)).toMatchObject({target: key, created_at: 11})
+      expect(storage.put).toHaveBeenCalledTimes(1)
+
+      await restart()
+      register([event])
+      await vi.advanceTimersByTimeAsync(100)
+      expect(repository.getEvent(key)).toBeUndefined()
+      expect(repository.isDeleted(event)).toBe(true)
+      if (kind === 30617) {
+        const newer = {...event, id: "3".repeat(64), created_at: 12}
+        register([newer])
+        expect(repository.isDeleted(newer)).toBe(false)
+      }
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(storage.put).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it("retains overlapping pool-only consumers and revisions without duplicate writes or reads", async () => {
+    const event = {...target, kind: 30617}
+    const newer = {...event, id: "3".repeat(64), created_at: 12}
+    const first = register([event, event])
+    register([event])
+    const third = register([newer])
+    first.update({...demand, targets: []})
+    first.release()
+    first.release()
+    await vi.advanceTimersByTimeAsync(100)
+    repository.publish(makeDeletion(event))
+    third.update({...demand, targets: [newer]})
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(repository.isDeleted(event)).toBe(true)
+    expect(repository.isDeleted(newer)).toBe(false)
+    expect(storage.get).toHaveBeenCalledTimes(1)
+    expect(storage.put).toHaveBeenCalledTimes(1)
+    expect(storage.put.mock.calls[0][0]).toHaveLength(1)
+  })
+
+  it.each(["update", "release"])(
+    "forgets pool-only bodies on %s while other consumers remain",
+    async mode => {
+      const registration = register([target])
+      register([{...target, id: "5".repeat(64)}])
+      if (mode === "update") registration.update({...demand, targets: []})
+      else registration.release()
+      repository.publish(makeDeletion(target))
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(storage.put).not.toHaveBeenCalled()
+    },
+  )
+
+  it("forgets a removed coordinate revision and preserves author and timestamp validation", async () => {
+    const event = {...target, kind: 30617}
+    const newer = {...event, id: "3".repeat(64), created_at: 12}
+    const registration = register([event])
+    registration.update({...demand, targets: [newer]})
+    repository.publish(makeDeletion(event))
+    repository.publish({
+      ...makeDeletion(newer),
+      id: "foreign",
+      pubkey: "b".repeat(64),
+      created_at: 13,
+    })
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(repository.isDeleted(newer)).toBe(false)
+    expect(storage.put).not.toHaveBeenCalled()
+    repository.publish({...makeDeletion(newer), id: "new-delete", created_at: 13})
+    registration.release()
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(records.get(`${getAddress(event)}:${event.pubkey}`)?.created_at).toBe(13)
+  })
+
+  it("captures evidence if an earlier subscriber synchronously drops its demanded body", async () => {
+    let registration: ReturnType<typeof register>
+    const off = repository.onDeletionEvidence(() => registration.update({...demand, targets: []}))
+    try {
+      registration = register([target])
+      repository.publish(makeDeletion(target))
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(records.size).toBe(1)
+    } finally {
+      off()
+    }
+  })
 })
