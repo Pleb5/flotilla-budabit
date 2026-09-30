@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - Unreleased
+## [0.2.0] - 2026-09-30
 
 ### Workflows compatibility and NIP-82 packaging
 
@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Accept maintainer co-signed kind 1063 attestations produced by the Workflows tab's Attestations view: a copy of a worker hash is folded into that artifact (`attestedBy`), a maintainer-only hash referencing exactly one authenticated run becomes its own artifact. Outsider copies are ignored.
 - Add `assets.ts`: NIP-82 Appendix A/C classification. Infer the MIME type and platforms of CI artifacts from their filenames, refuse generic archives, `.deb`/`.rpm` packages, unknown platform identifiers, platform/MIME mismatches and native executables without an `f` tag, and warn about unclassified MIME types. The artifact selector exposes MIME/platform controls and blocks non-conforming selections; `buildAssetEvent` re-checks before signing.
 - Publish store-listing metadata on kind 32267 (summary, description, icon, screenshots, website, repository, license, tags, derived `f` platforms) for new applications and for updates of applications the signing account owns.
+
+### Packaging
+
+- Include the release version and changelog in the widget manifest so Budabit can display update details for the existing `budabit-releases` widget.
+
+## [0.1.0] - 2026-09-11
 
 ### Security and correctness
 

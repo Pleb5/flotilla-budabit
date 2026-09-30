@@ -1,6 +1,6 @@
 {
   "name": "budabit-releases-extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Budabit Smart Widget: budabit-releases-extension",
   "type": "module",
@@ -21,7 +21,7 @@
     "format:check": "prettier --check .",
     "clean": "pnpm --filter './packages/*' run clean",
     "verify": "pnpm lint && pnpm typecheck && pnpm test:coverage && pnpm build && pnpm e2e",
-    "manifest:generate": "budabit-generate --title 'Releases' --type tool --app-url \"${WIDGET_APP_URL:-http://localhost:5173}\" --icon \"${WIDGET_ICON_URL:-https://blossom.budabit.club/1bff8e9625479d94b37d6003c597445cc892c65154845c16d7e8dc24a8a553dd.png}\" --image 'https://budabit.dev/images/releases-preview.png' --identifier 'budabit-releases' --permissions 'nostr:sign,nostr:publish,nostr:query,nostr:subscribe,nostr:unsubscribe,storage:get,storage:set,storage:compareAndSet' --nostr-kinds '32267,30063,3063,1063,5401,30617' --slot-type repo-tab --slot-label Releases --slot-path releases",
+    "manifest:generate": "budabit-generate --title 'Releases' --type tool --app-url \"${WIDGET_APP_URL:-http://localhost:5173}\" --icon \"${WIDGET_ICON_URL:-https://blossom.budabit.club/1bff8e9625479d94b37d6003c597445cc892c65154845c16d7e8dc24a8a553dd.png}\" --image 'https://budabit.dev/images/releases-preview.png' --identifier 'budabit-releases' --version '0.2.0' --changelog 'Forge release browsing and import, Zapstore compatibility, repository relay discovery, and Workflows/NIP-82 packaging.' --permissions 'nostr:sign,nostr:publish,nostr:query,nostr:subscribe,nostr:unsubscribe,storage:get,storage:set,storage:compareAndSet' --nostr-kinds '32267,30063,3063,1063,5401,30617' --slot-type repo-tab --slot-label Releases --slot-path releases",
     "manifest:publish": "budabit-publish",
     "widget:build": "pnpm build && pnpm manifest:generate",
     "widget:publish": "pnpm widget:build && pnpm manifest:publish",
