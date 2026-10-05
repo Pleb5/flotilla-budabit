@@ -22,11 +22,23 @@ export const scheduleNotificationBackgroundAdmission = (
   let secondFrame = 0
   let idleHandle = 0
   let fallbackTimer = 0
+  let deadlineTimer = 0
 
+  const cancel = () => {
+    cancelled = true
+    if (firstFrame) target.cancelAnimationFrame(firstFrame)
+    if (secondFrame) target.cancelAnimationFrame(secondFrame)
+    if (idleHandle) target.cancelIdleCallback?.(idleHandle)
+    if (fallbackTimer) target.clearTimeout(fallbackTimer)
+    if (deadlineTimer) target.clearTimeout(deadlineTimer)
+  }
   const admit = () => {
-    if (!cancelled) start()
+    if (cancelled) return
+    cancel()
+    start()
   }
   firstFrame = target.requestAnimationFrame(() => {
+    if (cancelled) return
     secondFrame = target.requestAnimationFrame(() => {
       if (cancelled) return
       if (target.requestIdleCallback) {
@@ -36,14 +48,11 @@ export const scheduleNotificationBackgroundAdmission = (
       }
     })
   })
+  // Background tabs can suspend animation frames altogether. Rendering is a
+  // preferred admission opportunity, not a prerequisite for unread tracking.
+  deadlineTimer = target.setTimeout(admit, idleTimeoutMs)
 
-  return () => {
-    cancelled = true
-    if (firstFrame) target.cancelAnimationFrame(firstFrame)
-    if (secondFrame) target.cancelAnimationFrame(secondFrame)
-    if (idleHandle) target.cancelIdleCallback?.(idleHandle)
-    if (fallbackTimer) target.clearTimeout(fallbackTimer)
-  }
+  return cancel
 }
 
 export const scheduleNotificationBackgroundStages = (
@@ -57,6 +66,7 @@ export const scheduleNotificationBackgroundStages = (
   let cancelled = false
   let index = 0
   let delayTimer = 0
+  let deadlineTimer = 0
   let idleHandle = 0
   let pendingGeneration = 0
 
@@ -68,7 +78,9 @@ export const scheduleNotificationBackgroundStages = (
     idleHandle = 0
   }
   const runNext = () => {
-    idleHandle = 0
+    clearPending()
+    if (deadlineTimer) target.clearTimeout(deadlineTimer)
+    deadlineTimer = 0
     if (cancelled || index >= stages.length) return
     stages[index++]()
     if (index < stages.length) scheduleNext()
@@ -89,6 +101,11 @@ export const scheduleNotificationBackgroundStages = (
   const scheduleNext = () => {
     clearPending()
     delayTimer = target.setTimeout(requestIdle, stageDelayMs)
+    // Yield to input, but never postpone unread tracking indefinitely while the
+    // user is typing. The deadline belongs to the stage, not the latest input.
+    if (!deadlineTimer) {
+      deadlineTimer = target.setTimeout(runNext, stageDelayMs + idleTimeoutMs)
+    }
   }
   const deferForInput = () => {
     if (!cancelled && index < stages.length) scheduleNext()
@@ -101,6 +118,7 @@ export const scheduleNotificationBackgroundStages = (
   return () => {
     cancelled = true
     clearPending()
+    if (deadlineTimer) target.clearTimeout(deadlineTimer)
     target.removeEventListener("pointerdown", deferForInput)
     target.removeEventListener("keydown", deferForInput)
   }

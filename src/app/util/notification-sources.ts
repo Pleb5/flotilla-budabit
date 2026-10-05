@@ -1473,6 +1473,7 @@ export const createBoundedNotificationHistoryLoader = ({
   })
 }
 
+const notificationLiveRecoveries = writable(new Map<string, number>())
 const notificationLiveCoordinator = createBackgroundLiveCoordinator({
   request,
   owner: "notification-background",
@@ -1480,6 +1481,13 @@ const notificationLiveCoordinator = createBackgroundLiveCoordinator({
   onError: (relay, error) => {
     console.warn(`[notification-sources] Failed to subscribe on ${relay}`, error)
   },
+  onReconnect: relay =>
+    notificationLiveRecoveries.update(recoveries => {
+      const normalized = normalizeNotificationRelay(relay)
+      const next = new Map(recoveries)
+      next.set(normalized, (next.get(normalized) || 0) + 1)
+      return next
+    }),
 })
 
 const loadBoundedNotificationHistory = createBoundedNotificationHistoryLoader({
@@ -1543,6 +1551,11 @@ const deriveLoadedNotificationEventGroupsWithStatus = ({
       let completeRelays = new Set<string>()
       let completeScopes = new Set<string>()
       let completeGroupKeys = new Set<string>()
+      const retryRevision = writable(0)
+      let lastRetryRevision = 0
+      let retryAttempt = 0
+      let retryTimer: ReturnType<typeof setTimeout> | undefined
+      let seenLiveRecoveries = get(notificationLiveRecoveries)
       const controllersByRelay = new Map<string, AbortController>()
       let unsubscribeEvents: (() => void) | undefined
       const liveSource = {}
@@ -1558,6 +1571,8 @@ const deriveLoadedNotificationEventGroupsWithStatus = ({
 
       const stopRelaySubscriptions = () => {
         generation += 1
+        if (retryTimer) clearTimeout(retryTimer)
+        retryTimer = undefined
         for (const controller of controllersByRelay.values()) {
           controller.abort()
         }
@@ -1586,16 +1601,33 @@ const deriveLoadedNotificationEventGroupsWithStatus = ({
       }
 
       const unsubscribe = derived(
-        [groups, notificationBackgroundEnabled],
-        ([$groups, $enabled]) => ({
+        [groups, notificationBackgroundEnabled, retryRevision, notificationLiveRecoveries],
+        ([$groups, $enabled, $retryRevision, $liveRecoveries]) => ({
           groups: $groups,
           enabled: $enabled,
+          revision: $retryRevision,
+          liveRecoveries: $liveRecoveries,
         }),
-      ).subscribe(({groups, enabled}) => {
+      ).subscribe(({groups, enabled, revision, liveRecoveries}) => {
+        const recoveredRelays = new Set(
+          groups
+            .map(group => normalizeNotificationRelay(group.relay))
+            .filter(
+              relay => (liveRecoveries.get(relay) || 0) > (seenLiveRecoveries.get(relay) || 0),
+            ),
+        )
+        seenLiveRecoveries = liveRecoveries
         const filters = dedupeNotificationFilters(groups.flatMap(group => group.localFilters))
         const nextFiltersKey = filters.map(getNotificationFilterKey).sort().join("|")
         const nextNetworkKey = JSON.stringify({enabled, groups})
-        if (nextNetworkKey === networkKey) return
+        if (
+          nextNetworkKey === networkKey &&
+          revision === lastRetryRevision &&
+          recoveredRelays.size === 0
+        )
+          return
+        if (nextNetworkKey !== networkKey || recoveredRelays.size > 0) retryAttempt = 0
+        lastRetryRevision = revision
         networkKey = nextNetworkKey
         const completionGroups = groups.filter(
           group => group.filters.length > 0 && group.localFilters.length > 0,
@@ -1609,6 +1641,13 @@ const deriveLoadedNotificationEventGroupsWithStatus = ({
         completeGroupKeys = new Set(
           Array.from(completeGroupKeys).filter(key => nextGroupKeys.has(key)),
         )
+        // Re-establish live coverage first, then fill the gap with bounded history.
+        // A previously completed history query cannot cover events missed offline.
+        for (const group of completionGroups) {
+          if (recoveredRelays.has(normalizeNotificationRelay(group.relay))) {
+            completeGroupKeys.delete(getGroupKey(group))
+          }
+        }
         stopRelaySubscriptions()
         for (const [eventId, event] of loadedEventsById) {
           if (!matchFilters(filters, event)) loadedEventsById.delete(eventId)
@@ -1737,6 +1776,7 @@ const deriveLoadedNotificationEventGroupsWithStatus = ({
               scopeKey: `${group.scope || ""}:${url}`,
               groupKey: getGroupKey(group),
               complete: result.complete,
+              retryable: !result.complete && !result.saturated,
             }
           } catch (error) {
             if (!controller.signal.aborted) {
@@ -1748,6 +1788,7 @@ const deriveLoadedNotificationEventGroupsWithStatus = ({
               scopeKey: `${group.scope || ""}:${url}`,
               groupKey: getGroupKey(group),
               complete: false,
+              retryable: true,
             }
           }
         })
@@ -1761,6 +1802,21 @@ const deriveLoadedNotificationEventGroupsWithStatus = ({
           }
           updateCompletion(completionGroups)
           emit()
+          if (currentGeneration !== generation) return
+          // A disconnect, CLOSED response, or timeout is not permanent evidence
+          // that this community cannot notify. Retry incomplete groups while the
+          // source is mounted; retain completed scopes and keep admission gated
+          // on successful authority loads. Saturated history needs a wider query,
+          // not repeated identical requests.
+          if (results.some(result => result.retryable)) {
+            const delay = Math.min(30_000, 1_000 * 2 ** Math.min(retryAttempt++, 5))
+            retryTimer = setTimeout(() => {
+              retryTimer = undefined
+              if (currentGeneration === generation) retryRevision.update(value => value + 1)
+            }, delay)
+          } else {
+            retryAttempt = 0
+          }
         })
       })
 
@@ -3717,6 +3773,10 @@ export const buildRouteNotificationRows = ({
   }
   for (const path of Array.from(centerPaths).sort()) {
     if (!path) continue
+    // These sections are represented by admitted item rows. During teardown or
+    // authority refresh their candidates may vanish before the badge projection;
+    // a stale section path alone is not evidence for another unread notification.
+    if (/^\/c\/[^/]+\/(?:threads|calendar|goals)\/?$/.test(path)) continue
     if (
       !candidatesByPath.has(path) &&
       candidates.some(candidate => candidate.path === path && candidate.readPath)

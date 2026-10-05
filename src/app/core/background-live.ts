@@ -9,6 +9,7 @@ type BackgroundLiveCoordinatorOptions = {
   owner?: string
   onEvent: (event: TrustedEvent, relay: string) => void
   onError: (relay: string, error: unknown) => void
+  onReconnect?: (relay: string) => void
 }
 
 type BackgroundCatchUpOptions = {
@@ -27,6 +28,7 @@ type BackgroundCatchUpOptions = {
 type ActiveRequest = {
   controller: AbortController
   signature: string
+  retryTimer?: ReturnType<typeof setTimeout>
 }
 
 const getFilterKey = (filter: Filter) =>
@@ -50,9 +52,12 @@ export const createBackgroundLiveCoordinator = ({
   owner = "background-live",
   onEvent,
   onError,
+  onReconnect,
 }: BackgroundLiveCoordinatorOptions) => {
   const filtersByRelayBySource = new Map<object, Map<string, Filter[]>>()
   const activeByRelay = new Map<string, ActiveRequest>()
+  const failuresByRelay = new Map<string, number>()
+  const interruptedRelays = new Set<string>()
 
   const reconcileRelay = (relay: string) => {
     const filters = getLiveFilters(
@@ -66,30 +71,60 @@ export const createBackgroundLiveCoordinator = ({
 
     if (active?.signature === signature) return
 
+    if (active?.retryTimer) clearTimeout(active.retryTimer)
     active?.controller.abort()
     activeByRelay.delete(relay)
 
-    if (filters.length === 0) return
+    if (filters.length === 0) {
+      failuresByRelay.delete(relay)
+      interruptedRelays.delete(relay)
+      return
+    }
 
     const controller = new AbortController()
-    const next = {controller, signature}
+    const next: ActiveRequest = {controller, signature}
     activeByRelay.set(relay, next)
+    let interrupted = false
 
-    void request({
-      relays: [relay],
-      filters,
-      lifetime: "live",
-      priority: RELAY_REQUEST_PRIORITY.background,
-      owner,
-      signal: controller.signal,
-      onEvent,
-      onDuplicate: onEvent,
-    })
+    const start = async () =>
+      request({
+        relays: [relay],
+        filters,
+        lifetime: "live",
+        priority: RELAY_REQUEST_PRIORITY.background,
+        owner,
+        signal: controller.signal,
+        onEvent,
+        onDuplicate: onEvent,
+        onClosed: () => {
+          // One rejected chunk means the combined subscription has lost coverage,
+          // even when other chunks remain open and keep the request pending.
+          interrupted = true
+          controller.abort()
+        },
+        onEose: () => {
+          failuresByRelay.delete(relay)
+          if (interruptedRelays.delete(relay)) onReconnect?.(relay)
+        },
+      })
+    void start()
       .catch(error => {
         if (!controller.signal.aborted) onError(relay, error)
       })
       .finally(() => {
-        if (activeByRelay.get(relay) === next) activeByRelay.delete(relay)
+        if (activeByRelay.get(relay) !== next) return
+        if (controller.signal.aborted && !interrupted) return
+        interruptedRelays.add(relay)
+        const failures = failuresByRelay.get(relay) || 0
+        failuresByRelay.set(relay, failures + 1)
+        next.retryTimer = setTimeout(
+          () => {
+            if (activeByRelay.get(relay) !== next) return
+            activeByRelay.delete(relay)
+            reconcileRelay(relay)
+          },
+          Math.min(30_000, 1_000 * 2 ** Math.min(failures, 5)),
+        )
       })
   }
 
@@ -114,8 +149,13 @@ export const createBackgroundLiveCoordinator = ({
 
   const close = () => {
     filtersByRelayBySource.clear()
-    for (const active of activeByRelay.values()) active.controller.abort()
+    for (const active of activeByRelay.values()) {
+      if (active.retryTimer) clearTimeout(active.retryTimer)
+      active.controller.abort()
+    }
     activeByRelay.clear()
+    failuresByRelay.clear()
+    interruptedRelays.clear()
   }
 
   return {owner, set, clear, close}

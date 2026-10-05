@@ -711,6 +711,13 @@ export class MockRelay {
           window as unknown as {__mockRelayConnections: typeof mockConnections}
         ).__mockRelayConnections = mockConnections
         ;(
+          window as unknown as {__mockRelayRetainEvents: (events: NostrEvent[]) => void}
+        ).__mockRelayRetainEvents = events => {
+          for (const event of events) {
+            if (!seedEvents.some(candidate => candidate.id === event.id)) seedEvents.push(event)
+          }
+        }
+        ;(
           window as unknown as {__mockRelayOriginalWebSocket: typeof OriginalWebSocket}
         ).__mockRelayOriginalWebSocket = OriginalWebSocket
         ;(
@@ -838,6 +845,16 @@ export class MockRelay {
       },
       {events, latency: this.latency},
     )
+  }
+
+  /** Retain relay history without live delivery, including during a connection gap. */
+  async retainEvents(events: NostrEvent[]): Promise<void> {
+    if (!this.page) throw new Error("MockRelay not set up. Call setup(page) first.")
+    await this.page.evaluate(events => {
+      ;(
+        window as unknown as {__mockRelayRetainEvents: (events: NostrEvent[]) => void}
+      ).__mockRelayRetainEvents(events)
+    }, events)
   }
 
   /**

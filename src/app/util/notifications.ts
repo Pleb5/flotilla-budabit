@@ -1,7 +1,7 @@
 import {derived, get, readable, writable, type Readable} from "svelte/store"
-import {deriveEventsAsc, deriveEventsById, synced, throttled} from "@welshman/store"
+import {deriveEventsAsc, deriveEventsById, synced} from "@welshman/store"
 import {pubkey, repository} from "@welshman/app"
-import {identity, now, prop} from "@welshman/lib"
+import {now, prop} from "@welshman/lib"
 import {Address, MESSAGE, type TrustedEvent} from "@welshman/util"
 import {chatsById, userSettingsValues} from "@app/core/state"
 import {
@@ -48,7 +48,10 @@ export const communityNotificationBaselines = synced<CommunityNotificationBaseli
 
 export const deriveChecked = (key: string) => derived(checked, prop(key))
 
-export const setChecked = (key: string) => checked.update(state => ({...state, [key]: now()}))
+export const setChecked = (key: string, itemPaths: string[] = []) => {
+  const timestamp = now()
+  setCheckedAtMany([key, ...itemPaths].map(path => [path, timestamp] as const))
+}
 
 export const setCheckedAt = (key: string, timestamp: number) =>
   checked.update(state => ({...state, [key]: timestamp}))
@@ -284,15 +287,14 @@ export const hasNotificationForPath = ({
   if (!latestEvent) return false
   if (viewer && normalizePubkey(latestEvent.pubkey) === viewer) return false
 
-  return (
-    getNotificationCheckedAt({
-      checked: checkedState,
-      path,
-      readPath,
-      currentPubkey,
-      communityBaselines,
-    }) < latestEvent.created_at
-  )
+  const options = {checked: checkedState, currentPubkey, communityBaselines}
+  const checkedAt = getNotificationCheckedAt({...options, path, readPath})
+  if (!readPath || checkedAt !== latestEvent.created_at) return checkedAt < latestEvent.created_at
+
+  // Relay timestamps have only second precision. A section visit cannot prove
+  // that an item arriving later in that same second was seen. Item-level reads
+  // (including the items actually shown in a list) still acknowledge equality.
+  return getNotificationCheckedAt({...options, path: readPath, readPath}) < latestEvent.created_at
 }
 
 const isNewerEvent = (event: TrustedEvent, current: TrustedEvent) =>
@@ -483,21 +485,17 @@ const budabitNotificationCandidates: Readable<NotificationCandidate[]> = derived
 )
 
 export const notifications = derived(
-  throttled(
-    1000,
-    derived(
-      [
-        pubkey,
-        checked,
-        persistedNotificationStateReady,
-        effectiveCommunityNotificationBaselines,
-        chatsById,
-        notificationsConfig,
-        extraCandidates,
-      ],
-      identity,
-    ),
-  ),
+  // Keep acknowledgement/account changes synchronous with the center. Throttling
+  // this projection leaves stale paths that can briefly relight an already-read bell.
+  [
+    pubkey,
+    checked,
+    persistedNotificationStateReady,
+    effectiveCommunityNotificationBaselines,
+    chatsById,
+    notificationsConfig,
+    extraCandidates,
+  ],
   ([
     $pubkey,
     $checked,

@@ -202,12 +202,83 @@ describe("notifications", () => {
     unsubscribe()
   })
 
+  it.each(["threads", "calendar", "goals"])(
+    "does not mark a later-arriving %s item read at the same second boundary",
+    async section => {
+      const {checked, setChecked, hasNotificationForPath} = await import("./notifications")
+      checked.set({})
+      const path = `/c/community/${section}`
+      setChecked(path, [`${path}/seen`])
+      const timestamp = get(checked)[path]
+      const latestEvent = makeEvent({created_at: timestamp})
+      const options = {path, latestEvent, checked: get(checked)}
+      expect(hasNotificationForPath({...options, readPath: `${path}/seen`})).toBe(false)
+      expect(hasNotificationForPath({...options, readPath: `${path}/arrived-later`})).toBe(true)
+      expect(
+        hasNotificationForPath({
+          ...options,
+          readPath: `${path}/arrived-later`,
+          latestEvent: {...latestEvent, created_at: timestamp - 1},
+        }),
+      ).toBe(false)
+      expect(
+        hasNotificationForPath({
+          ...options,
+          readPath: `${path}/arrived-later`,
+          checked: {"*": timestamp},
+        }),
+      ).toBe(false)
+    },
+  )
+
   it("setupBudabitNotifications returns cleanup", async () => {
     const {setupBudabitNotifications} = await import("./notifications")
     const cleanup = setupBudabitNotifications()
 
     expect(cleanup).toEqual(expect.any(Function))
     cleanup()
+  })
+
+  it("clears a read badge synchronously and never relights it for an own root", async () => {
+    const {pubkey} = await import("@welshman/app")
+    const {
+      checked,
+      communityNotificationBaselines,
+      notifications,
+      setupBudabitNotifications,
+      setCheckedAtMany,
+    } = await import("./notifications")
+    await Promise.all([checked.ready, communityNotificationBaselines.ready])
+    checked.set({})
+    const originalPubkey = get(pubkey)
+    pubkey.set("a".repeat(64))
+    const path = "/c/community/threads"
+    const first = {path, readPath: `${path}/first`, latestEvent: makeEvent({created_at: 10})}
+    const candidates = writable([first])
+    const stop = setupBudabitNotifications(candidates)
+    const seen: boolean[] = []
+    const unsubscribe = notifications.subscribe(paths => seen.push(paths.has(path)))
+    try {
+      await vi.waitFor(() => expect(seen.at(-1)).toBe(true))
+      setCheckedAtMany([[first.readPath, 10]])
+      expect(seen.at(-1)).toBe(false)
+      seen.length = 0
+      candidates.set([
+        first,
+        {
+          path,
+          readPath: `${path}/own`,
+          latestEvent: makeEvent({created_at: 20, pubkey: get(pubkey)!}),
+        },
+      ])
+      expect(seen).not.toContain(true)
+      candidates.set([])
+      expect(get(notifications).has(path)).toBe(false)
+    } finally {
+      unsubscribe()
+      stop()
+      pubkey.set(originalPubkey)
+    }
   })
 
   it("stops and restarts notification candidate ownership without duplicates", async () => {

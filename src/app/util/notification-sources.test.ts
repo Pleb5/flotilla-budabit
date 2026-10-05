@@ -599,6 +599,17 @@ describe("notification sources", () => {
     expect(rows.find(row => row.path === "/git/repo")?.preview).not.toContain("/")
   })
 
+  it("does not invent unread root activity from stale section badges during source teardown", async () => {
+    const {buildRouteNotificationRows} = await import("./notification-sources")
+    expect(
+      buildRouteNotificationRows({
+        paths: ["/c/community/threads", "/c/community/goals", "/c/community/calendar"],
+        candidates: [],
+        currentPubkey: viewer,
+      }),
+    ).toEqual([])
+  })
+
   it("builds community route fallback rows with candidate event timestamps", async () => {
     const {buildRouteNotificationRows} = await import("./notification-sources")
     const {displayProfileByPubkey} = await import("@welshman/app")

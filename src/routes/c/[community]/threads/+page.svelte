@@ -387,8 +387,11 @@
   })
 
   onDestroy(() => {
+    setChecked(
+      threadsPath,
+      threads.map(thread => `${threadsPath}/${thread.id}`),
+    )
     resetFeed()
-    setChecked(threadsPath)
   })
 </script>
 

@@ -604,10 +604,13 @@
   })
 
   onDestroy(() => {
+    setChecked(
+      goalsPath,
+      items.map(event => `${goalsPath}/${event.id}`),
+    )
     resetFeed()
     clearEmptyStateSettleTimer()
     clearEmptyStateCompletionTimer()
-    setChecked(goalsPath)
   })
 </script>
 

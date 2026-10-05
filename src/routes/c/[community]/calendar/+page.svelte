@@ -605,9 +605,12 @@
   })
 
   onDestroy(() => {
+    setChecked(
+      calendarPath,
+      items.map(({event}) => `${calendarPath}/${event.id}`),
+    )
     resetFeed()
     clearEmptyStateSettleTimer()
-    setChecked(calendarPath)
   })
 </script>
 
