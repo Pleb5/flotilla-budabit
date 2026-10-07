@@ -1,5 +1,6 @@
 import * as nip19 from "nostr-tools/nip19"
 import {get} from "svelte/store"
+import {recordFileUpload} from "./attachment-file-events"
 import {
   first,
   sha256,
@@ -1240,6 +1241,7 @@ export type BlossomMirrorUploadResult = {
 export type UploadFileBlobResult = {
   url: string
   sha256: string
+  originalSha256?: string
   tags: string[][]
   size?: number
   type?: string
@@ -1762,12 +1764,14 @@ export const uploadFile = async (
   options: UploadFileOptions = {},
 ): Promise<UploadFileResult> => {
   const setStage = (stage: BlossomUploadStage) => options.onStage?.(stage)
+  const uploadOwner = pubkey.get()
 
   try {
     setStage("preparing")
 
     const {name, type} = file
     const originalSize = file.size
+    const originalSha256 = options.encrypt ? undefined : await sha256(await file.arrayBuffer())
     const {primary, mirrors: mirrorServers} = getBlossomUploadTargets(options)
     const capabilities = options.blossomCapabilities || get(blossomDashboardState).capabilities
     const settings = normalizeBlossomSettings(options.blossomSettings || get(blossomSettings))
@@ -1968,7 +1972,32 @@ export const uploadFile = async (
       })
     }
 
-    const result = {...task, tags, url, sha256: resultHash, size: resultSize, type: resultType}
+    const result = {
+      ...task,
+      tags,
+      url,
+      sha256: resultHash,
+      originalSha256,
+      size: resultSize,
+      type: resultType,
+    }
+    if (!options.encrypt && uploadOwner && pubkey.get() === uploadOwner) {
+      try {
+        recordFileUpload(uploadOwner, {
+          url,
+          sha256: resultHash,
+          originalSha256,
+          size: resultSize,
+          type: resultType,
+          name,
+        })
+      } catch {
+        pushToast({
+          theme: "warning",
+          message: "File uploaded, but its metadata could not be retained for publication.",
+        })
+      }
+    }
 
     setStage("ready")
 

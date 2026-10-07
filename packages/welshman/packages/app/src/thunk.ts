@@ -53,6 +53,21 @@ export type PublicationLifecycleObservation = {
 }
 
 const publicationLifecycleListeners = new Set<(event: PublicationLifecycleObservation) => void>()
+export type AcceptedPublication = {
+  event: SignedEvent
+  relays: string[]
+  acceptedRelays: string[]
+  mode: "non-dm" | "direct-message"
+}
+const acceptedPublicationListeners = new Set<(value: AcceptedPublication) => void>()
+/** Application follow-up work observes a real ACK, including private-presentation
+ * thunks. Recipient/wrapped messages remain explicitly distinguished from posts. */
+export const subscribeAcceptedPublications = (listener: (value: AcceptedPublication) => void) => {
+  acceptedPublicationListeners.add(listener)
+  return () => {
+    acceptedPublicationListeners.delete(listener)
+  }
+}
 let publicationDiagnosticSequence = 0
 
 export const subscribePublicationLifecycle = (
@@ -278,12 +293,34 @@ export class Thunk {
       ? AbortSignal.any([this.controller.signal, this.options.signal])
       : this.controller.signal
 
+    let observedAcceptance = false
     try {
       await publish({
         ...this.options,
         event,
         signal,
-        onSuccess: result => this._setSuccess(result, event.id),
+        onSuccess: result => {
+          this._setSuccess(result, event.id)
+          if (!observedAcceptance) {
+            observedAcceptance = true
+            const value: AcceptedPublication = {
+              event,
+              relays: [...this.options.relays],
+              acceptedRelays: [result.relay],
+              mode:
+                this.options.recipient || [4, 14, 1059, 4444].includes(event.kind)
+                  ? "direct-message"
+                  : "non-dm",
+            }
+            for (const listener of acceptedPublicationListeners) {
+              try {
+                listener(value)
+              } catch {
+                /* Follow-up work cannot undo an accepted parent. */
+              }
+            }
+          }
+        },
         onFailure: this._setFailure,
         onPending: this._setPending,
         onTimeout: this._setTimeout,

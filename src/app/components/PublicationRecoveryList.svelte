@@ -8,6 +8,7 @@
   import {canRetryRelayPublishResults} from "@app/core/relay-publish-outcomes"
   import RelayDeliveryNotice from "./RelayDeliveryNotice.svelte"
   import {relayDeliveryNotices} from "@app/core/relay-publish-delivery"
+  import {filePublicationJobs, filePublicationJournal} from "@app/core/attachment-file-state"
   import {
     cancelPublication,
     discardPublication,
@@ -54,16 +55,42 @@
   <ModalHeader>
     {#snippet title()}Publication recovery{/snippet}
     {#snippet info()}
-      Pending and unconfirmed publications remain available during this app session.
+      File metadata retries are retained across restarts. Other pending publications remain
+      available during this app session.
     {/snippet}
   </ModalHeader>
 
-  {#if operations.length === 0 && $relayDeliveryNotices.size === 0}
+  {#if operations.length === 0 && $relayDeliveryNotices.size === 0 && $filePublicationJobs.length === 0}
     <p class="rounded-box bg-base-200 p-4 text-center text-sm opacity-75">
       No publications currently need attention.
     </p>
   {:else}
     <div class="flex max-h-[60vh] flex-col gap-2 overflow-y-auto pr-1">
+      {#each $filePublicationJobs as job (job.id)}
+        <article class="rounded-box border border-base-300 bg-base-200 p-3">
+          <strong class="block text-sm [overflow-wrap:anywhere]"
+            >File metadata · {job.descriptor.name || job.descriptor.sha256.slice(0, 12)}</strong>
+          <p class="text-xs opacity-75">
+            {job.state} · {job.acceptedRelays.length}/{job.relays.length} relay acknowledgements
+          </p>
+          <p class="my-2 text-sm">
+            {job.error || "The uploaded file and parent post are retained."}
+          </p>
+          {#if job.state === "publishing"}
+            <Button class="btn btn-ghost btn-xs" onclick={() => filePublicationJournal.stop(job.id)}
+              >Stop</Button>
+          {:else if job.relays.length}
+            <Button
+              class="btn btn-ghost btn-xs"
+              onclick={() => {
+                void filePublicationJournal.retry(job.id).catch(error => {
+                  retryErrors = {...retryErrors, [job.id]: String(error)}
+                })
+              }}>Retry file metadata</Button>
+          {/if}
+          {#if retryErrors[job.id]}<p class="text-xs text-error">{retryErrors[job.id]}</p>{/if}
+        </article>
+      {/each}
       {#each [...$relayDeliveryNotices.keys()] as eventId (eventId)}
         <article class="rounded-box border border-base-300 bg-base-200 p-3">
           <RelayDeliveryNotice {eventId} />

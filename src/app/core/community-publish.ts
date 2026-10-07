@@ -22,6 +22,7 @@ import {normalizeRelay, normalizeRelays} from "@app/core/community"
 import {loadCommunityEvents, type CommunityRelayLoadOptions} from "@app/core/community-state"
 import {formatRelayPublishFailure, RelayPublishError} from "@app/core/relay-publish-outcomes"
 import {recordRelayDelivery} from "@app/core/relay-publish-delivery"
+import {recordAttachmentParent} from "./attachment-file-events"
 
 export const COMMUNITY_PUBLISH_TIMEOUT = 12_000
 export const COMMUNITY_PUBLISH_VERIFY_TIMEOUT = 5_000
@@ -146,6 +147,8 @@ export const publishRequiredCommunityEvent = async ({
   )
   if (!accepted)
     throw new RelayPublishError(event.id, results, normalizedRelays, normalizedRequiredRelay)
+
+  recordAttachmentParent({mode: "non-dm", parent: event, relays: normalizedRelays, acceptedRelays})
 
   return {
     results,
@@ -306,6 +309,12 @@ export const publishAndVerifyProfileEvent = async ({
   try {
     const verified = await Promise.any(attempts)
     recordRelayDelivery(event, results, "Profile publication")
+    recordAttachmentParent({
+      mode: "non-dm",
+      parent: event,
+      relays: normalizedRelays,
+      acceptedRelays: getSuccessfulPublishRelays(results),
+    })
     return verified
   } catch (error) {
     if (error instanceof AggregateError) {

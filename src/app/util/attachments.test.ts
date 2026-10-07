@@ -25,7 +25,6 @@ describe("attachment helpers", () => {
       "imeta",
       "m text/markdown",
       "name NIP-B7.md",
-      `ox ${hash}`,
       "size 1234",
       `url ${url}`,
       `x ${hash}`,

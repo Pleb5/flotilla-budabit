@@ -41,6 +41,7 @@
   import NotificationDmContent from "@app/components/NotificationDmContent.svelte"
   import PublicationRecoveryList from "@app/components/PublicationRecoveryList.svelte"
   import {relayDeliveryNotices} from "@app/core/relay-publish-delivery"
+  import {filePublicationJobs} from "@app/core/attachment-file-state"
   import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
   import {DM_KIND} from "@app/core/state"
   import {
@@ -149,10 +150,14 @@
   const loadMoreLabel = $derived(loadMoreHistoryPending ? "Loading..." : "Load more")
   const navigationPending = $derived(Boolean(pendingNavigationKey))
   const publicationOperationCount = $derived(
-    $recoverablePublicationOperations.length + $relayDeliveryNotices.size,
+    $recoverablePublicationOperations.length +
+      $relayDeliveryNotices.size +
+      $filePublicationJobs.length,
   )
   const publicationAttentionCount = $derived(
-    $publicationOperationsNeedingAttention.length + $relayDeliveryNotices.size,
+    $publicationOperationsNeedingAttention.length +
+      $relayDeliveryNotices.size +
+      $filePublicationJobs.length,
   )
   const notificationSettingsTarget: NotificationRowNavigation = {
     label: "Notification settings",

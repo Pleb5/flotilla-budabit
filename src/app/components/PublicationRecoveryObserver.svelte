@@ -1,5 +1,6 @@
 <script lang="ts">
-  import {onDestroy} from "svelte"
+  import {onDestroy, onMount} from "svelte"
+  import {observeAttachmentPublications} from "@app/core/attachment-file-state"
   import PublicationRecoveryToast from "@app/components/PublicationRecoveryToast.svelte"
   import RelayDeliveryNotice from "@app/components/RelayDeliveryNotice.svelte"
   import {relayDeliveryNotices} from "@app/core/relay-publish-delivery"
@@ -9,6 +10,7 @@
   const emittedAttempts = new Map<string, number>()
   const toastIds = new Map<string, string>()
   const deliveryToastIds = new Map<string, string>()
+  onMount(observeAttachmentPublications)
 
   $effect(() => {
     const notices = $relayDeliveryNotices

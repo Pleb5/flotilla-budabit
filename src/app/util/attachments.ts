@@ -17,6 +17,7 @@ export type DraftAttachment = {
 export type PublishedAttachment = {
   url: string
   sha256?: string
+  originalSha256?: string
   name?: string
   size?: number
   type?: string
@@ -71,8 +72,8 @@ export const makeAttachmentImetaTag = (attachment: PublishedAttachment) => {
 
   if (attachment.sha256) {
     meta.x = attachment.sha256
-    meta.ox = attachment.sha256
   }
+  if (attachment.originalSha256) meta.ox = attachment.originalSha256
   if (attachment.type) meta.m = attachment.type
   if (attachment.size) meta.size = String(attachment.size)
   if (attachment.name) meta.name = attachment.name
@@ -94,6 +95,7 @@ export const makePublishedAttachment = ({
 }): PublishedAttachment => ({
   url: result.url,
   sha256: result.sha256,
+  originalSha256: result.originalSha256,
   name,
   size: result.size,
   type: result.type,
@@ -120,6 +122,7 @@ export const getEventAttachments = (event?: Pick<TrustedEvent, "tags">): Publish
       {
         url,
         sha256: getTagValue("x", meta) || undefined,
+        originalSha256: getTagValue("ox", meta) || undefined,
         name: getTagValue("name", meta) || undefined,
         size: Number.isFinite(size) ? size : undefined,
         type: getTagValue("m", meta) || undefined,
