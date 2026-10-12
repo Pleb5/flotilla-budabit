@@ -18,7 +18,7 @@
     checkDmInboxRelayList,
     getDmPublishRelays,
     getDmRelayUrls,
-    getMessagingRelayHints,
+    messagingRelayHints,
   } from "@app/core/dm"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -78,7 +78,7 @@
   const recipientInboxRelays = $derived(recipientPubkey ? getDmRelayUrls(recipientRelayList) : [])
   const hasSelfInbox = $derived.by(() => selfInboxRelays.length > 0)
   const hasRecipientInbox = $derived.by(() => recipientInboxRelays.length > 0)
-  const relayHints = $derived.by(() => getMessagingRelayHints())
+  const relayHints = $derived($messagingRelayHints)
 
   let relayChecks = $state<Record<string, boolean>>({})
   let relayHintKeys = $state<Record<string, string>>({})
@@ -401,14 +401,13 @@
       const request = Symbol(key)
       relayCheckRequests.set(key, request)
 
-      if (!relayTimeouts.has(key)) {
-        relayTimeouts.set(
-          key,
-          setTimeout(() => {
-            markRelayChecked(key, false)
-          }, 8000),
-        )
-      }
+      clearTimeout(relayTimeouts.get(key))
+      relayTimeouts.set(
+        key,
+        setTimeout(() => {
+          if (relayCheckRequests.get(key) === request) markRelayChecked(key, false)
+        }, 8000),
+      )
 
       checkDmInboxRelayList(key, relayHints).then(
         async hasInbox => {

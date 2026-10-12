@@ -645,6 +645,20 @@ describe("dm", () => {
   })
 
   describe("getMessagingRelayHints", () => {
+    it("includes every membership's declared relays without a selected-community or profile cap", () => {
+      const refs = Array.from({length: 7}, (_, i) =>
+        makeCommunityRef({
+          communityPubkey: testPubkey(1),
+          moderatorPubkey: testPubkey(2),
+          relay: `wss://membership-${i}.example`,
+        }),
+      )
+      refs[0].definition.relays.push("wss://membership-6.example/")
+      const hints = getMessagingRelayHints(refs)
+      for (let i = 0; i < 7; i++) expect(hints).toContain(`wss://membership-${i}.example/`)
+      expect(hints.filter(url => url === "wss://membership-6.example/")).toHaveLength(1)
+    })
+
     it("returns array of normalized relay URLs", () => {
       const hints = getMessagingRelayHints()
       expect(Array.isArray(hints)).toBe(true)

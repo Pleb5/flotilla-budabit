@@ -6,8 +6,6 @@ import {
   signer,
   userMessagingRelayList,
   messagingRelayListsByPubkey,
-  forceLoadUserMessagingRelayList,
-  loadMessagingRelayList,
   loadUserRelayList,
 } from "@welshman/app"
 import {
@@ -19,7 +17,7 @@ import {
   request,
   type Socket,
 } from "@welshman/net"
-import {getDmRelayUrls, getMessagingRelayHints} from "./dm"
+import {checkDmInboxRelayList, getDmRelayUrls, messagingRelayHints} from "./dm"
 import {createDmHistory, DM_INBOX, makeDmHistoryFilters, type DmHistorySnapshot} from "./dm-history"
 import {requestFiniteRelay} from "./finite-relay-request"
 import {refreshForegroundDeletions} from "./foreground-deletions"
@@ -76,6 +74,7 @@ export const startDmSync = () => {
   let account: string | undefined
   let previousPath = ""
   let previousSigner: unknown
+  let previousHints = ""
   let relevantRelays = new Set<string>()
   let stopped = false
 
@@ -144,15 +143,27 @@ export const startDmSync = () => {
     document.addEventListener("visibilitychange", updateEnvironment)
   }
   const unsubscribe = derived(
-    [pubkey, signer, userMessagingRelayList, messagingRelayListsByPubkey, page, environment],
+    [
+      pubkey,
+      signer,
+      userMessagingRelayList,
+      messagingRelayListsByPubkey,
+      page,
+      environment,
+      messagingRelayHints,
+    ],
     values => values,
-  ).subscribe(([self, activeSigner, relayList, lists, route, available]) => {
+  ).subscribe(([self, activeSigner, relayList, lists, route, available, hints]) => {
     const pathname = route?.url?.pathname || ""
     const active = isChatPath(pathname)
     const rawPartner = active ? pathname.split("/")[2] : undefined
     const partner =
       rawPartner && /^[0-9a-f]{64}$/i.test(rawPartner) ? rawPartner.toLowerCase() : undefined
     const changedAccount = self !== account
+    const hintKey = [...hints].sort().join("|")
+    const changedHints = hintKey !== previousHints
+    previousHints = hintKey
+    if (changedHints) relayRefreshAt.clear()
     if (changedAccount) {
       stopLive()
       relayRefreshAt.clear()
@@ -186,16 +197,16 @@ export const startDmSync = () => {
     for (const relay of relays) {
       if (!live.has(relay) || entered || signerChanged) ensureLive(relay)
     }
-    if (self && (changedAccount || entered)) {
+    if (self && (changedAccount || entered || changedHints)) {
       const now = Date.now()
       // Refresh metadata separately from reads, and coalesce navigation bursts.
       if (now - (relayRefreshAt.get(self) || 0) > 30_000) {
         relayRefreshAt.set(self, now)
-        void forceLoadUserMessagingRelayList(getMessagingRelayHints()).catch(() => undefined)
+        void checkDmInboxRelayList(self, hints).catch(() => undefined)
       }
       if (partner && now - (relayRefreshAt.get(partner) || 0) > 30_000) {
         relayRefreshAt.set(partner, now)
-        void loadMessagingRelayList(partner, getMessagingRelayHints()).catch(() => undefined)
+        void checkDmInboxRelayList(partner, hints).catch(() => undefined)
       }
     }
   })

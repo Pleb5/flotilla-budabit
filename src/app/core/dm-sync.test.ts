@@ -31,10 +31,15 @@ vi.mock("$app/stores", async () => {
   return {page: writable({url: {pathname: "/home"}})}
 })
 vi.mock("./finite-relay-request", () => ({requestFiniteRelay: mocks.finite}))
-vi.mock("./dm", () => ({
-  getDmRelayUrls: (list: any) => (list?.publicTags || []).map((tag: string[]) => tag[1]),
-  getMessagingRelayHints: () => ["wss://hint.example/"],
-}))
+vi.mock("./dm", async () => {
+  const {writable} = await import("svelte/store")
+  return {
+    getDmRelayUrls: (list: any) => (list?.publicTags || []).map((tag: string[]) => tag[1]),
+    messagingRelayHints: writable(["wss://hint.example/"]),
+    checkDmInboxRelayList: (author: string, hints: string[]) =>
+      author === "a".repeat(64) ? mocks.ownList(hints) : mocks.partnerList(author, hints),
+  }
+})
 vi.mock("./relay-policy", () => ({
   getRelayPolicy: () => ({maxLimit: 100}),
   RELAY_AUTH_SIGN_TIMEOUT: 90_000,
@@ -50,6 +55,7 @@ import {
 } from "@welshman/app"
 import {page} from "$app/stores"
 import {startDmSync, dmHistoryState, retryDmHistory} from "./dm-sync"
+import {messagingRelayHints} from "./dm"
 
 const self = "a".repeat(64),
   partner = "b".repeat(64)
@@ -69,6 +75,7 @@ describe("DM synchronization lifecycle", () => {
     signer.set(undefined)
     userMessagingRelayList.set(undefined)
     messagingRelayListsByPubkey.set(new Map())
+    ;(messagingRelayHints as Writable<string[]>).set(["wss://hint.example/"])
     navigate("/home")
     mocks.request.mockImplementation(
       (options: RequestOptions) =>
@@ -145,6 +152,25 @@ describe("DM synchronization lifecycle", () => {
     expect(mocks.ownList).toHaveBeenCalledTimes(1)
     expect(mocks.partnerList).toHaveBeenCalledTimes(1)
     expect(mocks.finite).toHaveBeenCalledTimes(2)
+  })
+
+  it("rechecks both inbox lists when another membership hydrates, without using it for DM delivery", async () => {
+    login()
+    navigate(`/chat/${partner}`)
+    cleanup = startDmSync()
+    const hints = ["wss://hint.example/", "wss://other-membership.example/"]
+    ;(messagingRelayHints as Writable<string[]>).set(hints)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mocks.ownList).toHaveBeenLastCalledWith(hints)
+    expect(mocks.partnerList).toHaveBeenLastCalledWith(partner, hints)
+    expect(mocks.ownList).toHaveBeenCalledTimes(2)
+    expect(
+      mocks.request.mock.calls.every(([request]) =>
+        request.relays.every((url: string) => url === relay),
+      ),
+    ).toBe(true)
+    ;(messagingRelayHints as Writable<string[]>).set([...hints].reverse())
+    expect(mocks.ownList).toHaveBeenCalledTimes(2)
   })
 
   it("connects finite deadlines to the shared socket AUTH lifecycle and cleans up listeners", async () => {

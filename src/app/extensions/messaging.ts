@@ -1,6 +1,5 @@
 import {get} from "svelte/store"
 import {
-  forceLoadMessagingRelayList,
   getMessagingRelayList,
   pubkey,
   publishThunk,
@@ -9,7 +8,12 @@ import {
 } from "@welshman/app"
 import {makeEvent, MESSAGING_RELAYS, type SignedEvent} from "@welshman/util"
 import {verifyEvent} from "nostr-tools/pure"
-import {getDmRelayUrls, getMessagingRelayHints, normalizeRelayUrls} from "@app/core/dm"
+import {
+  checkDmInboxRelayList,
+  getDmRelayUrls,
+  getMessagingRelayHints,
+  normalizeRelayUrls,
+} from "@app/core/dm"
 import {getUserDataPublishRelays} from "@app/core/community-relays"
 import {signEventForPublication} from "@app/core/publication"
 import type {
@@ -104,7 +108,7 @@ export class ExtensionMessaging {
     if (refresh || !pending || Date.now() - pending.at > CACHE_TIME) {
       let timer: ReturnType<typeof setTimeout>
       const promise = Promise.race([
-        forceLoadMessagingRelayList(author, hints).then(
+        checkDmInboxRelayList(author, hints).then(
           () => true,
           () => false,
         ),

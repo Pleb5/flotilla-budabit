@@ -26,6 +26,7 @@ vi.mock("@welshman/app", () => ({
   repository: {publish: mocks.save},
 }))
 vi.mock("@app/core/dm", () => ({
+  checkDmInboxRelayList: mocks.load,
   getDmRelayUrls: (list: any) =>
     list?.event.tags
       .filter((tag: string[]) => tag[0] === "relay" && /^wss?:\/\//.test(tag[1]))

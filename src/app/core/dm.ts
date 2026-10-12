@@ -1,4 +1,4 @@
-import {get, writable} from "svelte/store"
+import {derived, get, writable} from "svelte/store"
 import {chunk} from "@welshman/lib"
 import {makeLoader} from "@welshman/net"
 import {
@@ -11,6 +11,7 @@ import {
   repository,
   setPlaintext,
   signer,
+  userRelayList,
 } from "@welshman/app"
 import {Router} from "@welshman/router"
 import {decrypt} from "@welshman/signer"
@@ -31,6 +32,7 @@ import type {
 } from "@app/core/community-membership"
 import {isCommunityPersonBanned} from "@app/core/community-reports"
 import {createDmDecryptionQueue} from "@app/core/dm-decryption-queue"
+import {activeUserCommunityRefs} from "@app/core/community-state"
 export {DM_KIND}
 
 export type DmRelayRecommendationSourceKind =
@@ -886,20 +888,20 @@ export const getDmRelayRecommendationsSnapshot = () => get(dmRelayRecommendation
 export const hasDmInbox = (list?: List) => getDmRelayUrls(list).length > 0
 
 export const checkDmInboxRelayList = async (author: string, hints: string[]) => {
-  await forceLoadMessagingRelayList(author, hints)
-  if (hasDmInbox(getMessagingRelayList(author))) return true
-
-  // Discovery can finish before batched startup requests deliver the inbox list.
-  // Confirm absence with an isolated request; a timeout/disconnect is not absence.
+  // The generic outbox loader caps routed hints. Query the complete membership
+  // union directly as well, even when an older inbox list is already cached.
   let receivedEose = false
   const relays = normalizeRelayUrls([...hints, ...Router.get().FromPubkeys([author]).getUrls()])
-  const events = await dmInboxCheckLoad({
-    relays,
-    filters: [{kinds: [MESSAGING_RELAYS], authors: [author], limit: 1}],
-    onEose: () => {
-      receivedEose = true
-    },
-  })
+  const [events] = await Promise.all([
+    dmInboxCheckLoad({
+      relays,
+      filters: [{kinds: [MESSAGING_RELAYS], authors: [author], limit: 1}],
+      onEose: () => {
+        receivedEose = true
+      },
+    }),
+    forceLoadMessagingRelayList(author, hints),
+  ])
   const stored = getMessagingRelayList(author)
   const latest = getLatestMessagingRelayListEventsByPubkey([
     ...events,
@@ -910,8 +912,10 @@ export const checkDmInboxRelayList = async (author: string, hints: string[]) => 
   return false
 }
 
-export const getMessagingRelayHints = () => {
-  const hints: string[] = [...INDEXER_RELAYS]
+export const getMessagingRelayHints = (
+  communities: Pick<ActiveUserCommunityRef, "definition">[] = get(activeUserCommunityRefs),
+) => {
+  const hints: string[] = [...INDEXER_RELAYS, ...communities.flatMap(ref => ref.definition.relays)]
 
   try {
     const router = Router.get()
@@ -923,6 +927,13 @@ export const getMessagingRelayHints = () => {
 
   return normalizeRelayUrls(hints)
 }
+
+// Svelte consumers must subscribe: a synchronous store get inside $derived does
+// not rerun when late membership or personal relay metadata arrives.
+export const messagingRelayHints = derived(
+  [activeUserCommunityRefs, userRelayList],
+  ([communities]) => getMessagingRelayHints(communities),
+)
 
 export const getDmCounterparty = (event: TrustedEvent, selfPubkey: string) => {
   if (event.pubkey === selfPubkey) {
