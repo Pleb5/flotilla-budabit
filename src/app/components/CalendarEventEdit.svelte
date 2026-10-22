@@ -9,10 +9,10 @@
     url: string
     event: TrustedEvent
     relays?: string[]
-    redirectPath?: string
+    getSavedEventPath?: (event: TrustedEvent) => string
   }
 
-  const {url, event, relays = [], redirectPath}: Props = $props()
+  const {url, event, relays = [], getSavedEventPath}: Props = $props()
   const h = getTagValue("h", event.tags)
 
   const getFirstTagValue = (...names: string[]) => {
@@ -41,7 +41,7 @@
   }
 </script>
 
-<CalendarEventForm {url} {h} {relays} {initialValues} {redirectPath}>
+<CalendarEventForm {url} {h} {relays} {initialValues} {getSavedEventPath}>
   {#snippet header()}
     <ModalHeader>
       {#snippet title()}

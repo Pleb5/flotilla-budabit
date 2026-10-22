@@ -62,9 +62,9 @@
     activityLiveCovered = false,
   }: Props = $props()
 
-  const h = getTagValue("h", event.tags)
-  const eventRouteParam = event.id || getTagValue("d", event.tags)
-  const path = community ? makeExactCommunityCalendarPath(community, eventRouteParam) : ""
+  const h = $derived(getTagValue("h", event.tags))
+  const eventRouteParam = $derived(event.id || getTagValue("d", event.tags))
+  const path = $derived(community ? makeExactCommunityCalendarPath(community, eventRouteParam) : "")
   const canExport = $derived(Boolean(makeCalendarEventIcs(event)))
   const actionRelays = $derived(
     publishRelays ?? (relays.length > 0 ? relays : !scopeH && url ? [url] : []),
@@ -92,7 +92,13 @@
       url,
       event,
       relays: actionRelays,
-      redirectPath: redirectOnEdit ? path : undefined,
+      // Detail links name an immutable version. Resolve the edit return target
+      // from the acknowledged replacement rather than the event being edited.
+      getSavedEventPath:
+        redirectOnEdit && community
+          ? (savedEvent: TrustedEvent) =>
+              makeExactCommunityCalendarPath(community, savedEvent.id) + window.location.search
+          : undefined,
     })
 
   const deleteReaction = async (reaction: TrustedEvent) =>

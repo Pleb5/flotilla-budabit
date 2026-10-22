@@ -37,6 +37,7 @@
     h?: string
     relays?: string[]
     redirectPath?: string
+    getSavedEventPath?: (event: TrustedEvent) => string
     header: Snippet
     initialValues?: {
       kind?: number
@@ -53,7 +54,7 @@
     }
   }
 
-  const {url, h, relays = [], redirectPath, header, initialValues}: Props = $props()
+  const {url, h, relays = [], redirectPath, getSavedEventPath, header, initialValues}: Props = $props()
   const community = $derived(parseExactCommunityRouteParam(url))
   const managedTagNames = new Set(["d", "title", "name", "location", "start", "end", "D", "h"])
 
@@ -225,8 +226,9 @@
     failedEditThunks.clear()
     pushToast({message: "Your event has been saved!"})
 
-    if (redirectPath) {
-      goto(redirectPath, {replaceState: true})
+    const savedEventPath = getSavedEventPath?.(thunk.event as TrustedEvent) || redirectPath
+    if (savedEventPath) {
+      goto(savedEventPath, {replaceState: true})
     } else {
       history.back()
     }
