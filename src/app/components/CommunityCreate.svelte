@@ -1,4 +1,9 @@
 <script lang="ts">
+  import {
+    readCommunityJoinEntry,
+    setCommunityJoinEntry,
+    usableJoinForm,
+  } from "@app/core/community-join"
   import {tick, untrack} from "svelte"
   import {browser} from "$app/environment"
   import {goto} from "$app/navigation"
@@ -1845,7 +1850,7 @@
         return {
           prerequisites,
           definition: {
-            ...buildCommunityDefinition({
+            ...buildNewDefinitionWithJoin({
               communityId,
               name: validated.name,
               description: validated.description || undefined,
@@ -2003,6 +2008,12 @@
           {replacement: rebuiltDefinition, originalSectionNames},
         ),
         created_at: getNextReplacementCreatedAt([exactDefinition.event], createdAt),
+      }
+      if (joinEdited || joinDraftKey !== originalJoinDraftKey) {
+        communityDefinition.tags = setCommunityJoinEntry(
+          communityDefinition.tags,
+          selectedJoinName(),
+        )
       }
       const profileListUpdates = mergeProfileListUpdates(migration.profileListUpdates)
       const updatedProfileListAddresses = new Set(
@@ -2176,6 +2187,13 @@
     geohash = originalDraftState.geohash
     pictureUploadStage = "idle"
     sectionDrafts = cloneSectionDrafts(originalDraftState.sectionDrafts)
+    const join = readCommunityJoinEntry(draftDefinition?.event.tags || [])
+    joinDraftKey =
+      join.status === "selected"
+        ? sectionDrafts.find(section => section.name === join.sectionName)?.draftKey || ""
+        : ""
+    originalJoinDraftKey = joinDraftKey
+    joinEdited = false
     bootstrapGrantDrafts = []
     expandedSectionIndex = 0
     errors = {}
@@ -2625,6 +2643,7 @@
   }
 
   const removeSectionAtIndex = (sectionIndex: number) => {
+    if (sectionDrafts[sectionIndex]?.draftKey === joinDraftKey) joinDraftKey = ""
     const nextDrafts = sectionDrafts.filter((_, index) => index !== sectionIndex)
 
     sectionDrafts = nextDrafts
@@ -2644,6 +2663,11 @@
         details: [
           "People with permissions for this section will lose them when the update is published.",
           "Pending requests for this section will not be migrated.",
+          ...(removedSection.draftKey === joinDraftKey
+            ? [
+                "This also removes the default section for new members. Choose another section before saving if you want a default join entry.",
+              ]
+            : []),
         ],
         confirmLabel: "Remove section",
         onConfirm: () => {
@@ -2829,6 +2853,20 @@
   let geohash = $state("")
   let pictureUploadStage = $state<BlossomUploadStage>("idle")
   let sectionDrafts = $state<SectionDraft[]>(makeDefaultSectionDrafts())
+  let joinDraftKey = $state(makeDefaultSectionDraftKey("General"))
+  let originalJoinDraftKey = $state("")
+  let joinEdited = $state(false)
+  const selectedJoinName = () => {
+    if (!joinDraftKey) return null
+    const section = sectionDrafts.find(section => section.draftKey === joinDraftKey)
+    if (!section)
+      throw new Error("Choose a default section for new members to join, or select no default.")
+    return section.name.trim()
+  }
+  const buildNewDefinitionWithJoin = (params: Parameters<typeof buildCommunityDefinition>[0]) => {
+    const definition = buildCommunityDefinition(params)
+    return {...definition, tags: setCommunityJoinEntry(definition.tags, selectedJoinName())}
+  }
   const hasMarketplaceSection = $derived(
     sectionDrafts.some(
       section =>
@@ -2888,6 +2926,8 @@
     Boolean(
       originalDraftState &&
       (JSON.stringify(currentDraftState) !== JSON.stringify(originalDraftState) ||
+        joinEdited ||
+        joinDraftKey !== originalJoinDraftKey ||
         bootstrapGrantDrafts.length > 0 ||
         pictureUploading),
     ),
@@ -3012,6 +3052,9 @@
     geohash = ""
     pictureUploadStage = "idle"
     sectionDrafts = makeDefaultSectionDrafts()
+    joinDraftKey = makeDefaultSectionDraftKey("General")
+    originalJoinDraftKey = ""
+    joinEdited = false
     bootstrapGrantDrafts = []
     expandedSectionIndex = 0
     originalDraftState = undefined
@@ -3272,6 +3315,26 @@
           <div class="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <strong class="text-lg">Content sections</strong>
+              <label class="mt-3 flex flex-col gap-2">
+                <span>Choose a default section for new members to join.</span>
+                <select
+                  class="select select-bordered"
+                  bind:value={joinDraftKey}
+                  onchange={() => (joinEdited = true)}
+                  {disabled}>
+                  <option value="">No default section</option>
+                  {#each sectionDrafts as section (section.draftKey)}
+                    <option value={section.draftKey}>{section.name}</option>
+                  {/each}
+                </select>
+              </label>
+              <p class="mt-2 text-sm opacity-75">
+                {#if !joinDraftKey}New members will need to choose an available application.
+                {:else if !usableJoinForm($activeCommunityAdmissionForms[sectionDrafts.find(section => section.draftKey === joinDraftKey)?.name || ""])}
+                  Set up an application form for this section in Moderation → Forms so new members
+                  can join.
+                {:else}New members fill out this section's application before requesting access.{/if}
+              </p>
               <p class="mt-1 text-sm opacity-65">
                 {SECTION_NAME_HINT}
               </p>
