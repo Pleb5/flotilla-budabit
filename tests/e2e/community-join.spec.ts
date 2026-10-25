@@ -35,6 +35,7 @@ for (const scenario of [
   "legacy",
 ] as const) {
   test(`community home join: ${scenario}`, async ({page}) => {
+    test.setTimeout(60000)
     const relay = new MockRelay()
     const tags = [
       ["d", id],
@@ -102,6 +103,38 @@ for (const scenario of [
       await expect(page.getByText("Review your request", {exact: true})).toBeVisible()
       await expect(page.getByRole("button", {name: "Submit request"})).toBeVisible()
       expect(relay.getPublishedEventsByKind(1069)).toHaveLength(0)
+      if (scenario === "newcomer") {
+        await page.getByRole("button", {name: "Submit request", exact: true}).click()
+        await expect
+          .poll(() => relay.getPublishedEventsByKind(1069).length, {timeout: 30000})
+          .toBe(1)
+        const request = relay.getPublishedEventsByKind(1069)[0]
+        expect(request.pubkey).toBe(DEV_PUBKEY)
+        expect(request.tags).toContainEqual(["h", id])
+        expect(
+          request.tags.some(
+            tag => tag[0] === "a" && tag[1] === `30168:${owner}:general-application`,
+          ),
+        ).toBe(true)
+        expect(
+          request.tags.some(
+            tag =>
+              tag[0] === "response" &&
+              tag[1] === "q1" &&
+              tag[2] === "I want to build useful things.",
+          ),
+        ).toBe(true)
+        await expect(
+          page.getByText("Application submitted for General.", {exact: true}),
+        ).toBeVisible()
+        await expect(
+          page.getByRole("heading", {name: "Review your request", exact: true}),
+        ).toHaveCount(0)
+        await page.goBack()
+        await expect(status.getByRole("status")).toHaveText("Application pending approval")
+        await expect(status.getByRole("button", {name: "Join", exact: true})).toHaveCount(0)
+        expect(relay.getPublishedEventsByKind(1069)).toHaveLength(1)
+      }
     }
     await page.setViewportSize({width: 390, height: 844})
     await page.screenshot({path: test.info().outputPath(`${scenario}-mobile.png`)})
@@ -140,7 +173,10 @@ test("owner sees missing setup on Home and can choose a section without publishi
   await status
     .getByRole("link", {name: "Choose a default section for new members to join."})
     .click()
-  const choice = page.getByRole("combobox", {name: "Choose a default section for new members to join.", exact: true})
+  const choice = page.getByRole("combobox", {
+    name: "Choose a default section for new members to join.",
+    exact: true,
+  })
   await expect(choice).toHaveValue("", {timeout: 15000})
   await choice.selectOption({label: "General"})
   await expect(
