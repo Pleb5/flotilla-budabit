@@ -1,4 +1,8 @@
 <script lang="ts">
+  import {readCommunityJoinEntry, usableJoinForm} from "@app/core/community-join"
+  import {activeExactCommunitySession, recoverCommunityBootstrap} from "@app/core/community-state"
+  import {getAdmissionResponseDisplayValue} from "@app/core/community-forms"
+  import LogIn from "@app/components/LogIn.svelte"
   import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import {onDestroy, tick} from "svelte"
   import {writable} from "svelte/store"
@@ -230,7 +234,22 @@
   // Widget action links carry the descriptor. Resolve it against the current exact
   // definition, since the section hint may have been renamed or reassigned.
   const requestByKind = $derived($page.url.searchParams.has("kind"))
+  const defaultJoin = $derived($page.url.searchParams.get("join") === "1")
+  const joinEntry = $derived(
+    readCommunityJoinEntry($activeExactCommunityDefinition?.event.tags || []),
+  )
+  let joinChoice = $state("")
+  $effect(() => {
+    void $activeExactCommunityDefinition?.event.id
+    void $pubkey
+    joinChoice = ""
+  })
   const requestedSectionName = $derived.by(() => {
+    if (defaultJoin) {
+      if (requestByKind || $page.url.searchParams.has("section") || joinEntry.status === "invalid")
+        return ""
+      return joinEntry.status === "selected" ? joinEntry.sectionName : joinChoice
+    }
     if (!requestByKind) return $page.url.searchParams.get("section") || ""
     const kind = $page.url.searchParams.get("kind") || ""
     const definition = $activeExactCommunityDefinition
@@ -342,7 +361,15 @@
     sectionItems.find(item => item.section.name === requestedSectionName),
   )
   const visibleSectionItems = $derived(
-    requestByKind ? (requestedSectionItem ? [requestedSectionItem] : []) : sectionItems,
+    defaultJoin
+      ? requestedSectionItem
+        ? [requestedSectionItem]
+        : []
+      : requestByKind
+        ? requestedSectionItem
+          ? [requestedSectionItem]
+          : []
+        : sectionItems,
   )
   const showAllPublishingRequests = () => goto(accessPath)
   const accessCheckedAt = $derived.by(() =>
@@ -660,6 +687,19 @@
       return
     }
 
+    if (
+      defaultJoin &&
+      (!usableJoinForm(form) ||
+        requestedSectionName !== sectionName ||
+        sectionItems.find(item => item.section.name === sectionName)?.state.status !== "none")
+    ) {
+      pushToast({
+        theme: "error",
+        message: "This application is no longer available. Review your membership status.",
+      })
+      return
+    }
+
     if (communityPublishRelays.length === 0) {
       pushToast({theme: "error", message: "Community definition must declare at least one relay."})
       return
@@ -719,23 +759,69 @@
       metadata,
     })
 
-    const applicationRelays = communityPublishRelays
-    try {
-      await rememberCommunityOutcomeContexts($pubkey, [
-        {address: form.community.address, relays: applicationRelays},
-      ])
-      await publishGovernanceEvent(
-        `admission-submit:${communityPubkey}:${form.address}`,
-        applicationRelays,
-        template,
-      )
-      pushToast({message: `Application submitted for ${sectionDisplayName}.`})
-    } catch (error) {
-      pushToast({
-        theme: "error",
-        message: `Application submission failed: ${error instanceof Error ? error.message : String(error)}`,
-      })
+    const applicationRelays = [...communityPublishRelays]
+    const account = $pubkey
+    const definitionId = $activeExactCommunityDefinition?.event.id
+    const publish = async () => {
+      if (defaultJoin) {
+        const session = $activeExactCommunitySession
+        if (!session) return
+        await recoverCommunityBootstrap(session, {recoverAuth: true})
+        await tick()
+        if (
+          $pubkey !== account ||
+          $activeExactCommunityDefinition?.event.id !== definitionId ||
+          forms[sectionName]?.event.id !== form.event.id ||
+          requestedSectionName !== sectionName ||
+          communityAuthorityReadiness !== "ready" ||
+          communityAdmissionFormReadiness !== "ready" ||
+          currentUserBanned ||
+          sectionItems.find(item => item.section.name === sectionName)?.state.status !== "none"
+        ) {
+          pushToast({
+            theme: "error",
+            message:
+              "Membership details changed. Review the current application before submitting.",
+          })
+          return
+        }
+      }
+      try {
+        await rememberCommunityOutcomeContexts($pubkey, [
+          {address: form.community.address, relays: applicationRelays},
+        ])
+        await publishGovernanceEvent(
+          `admission-submit:${communityPubkey}:${form.address}`,
+          applicationRelays,
+          template,
+        )
+        pushToast({message: `Application submitted for ${sectionDisplayName}.`})
+        if (defaultJoin) history.back()
+      } catch (error) {
+        pushToast({
+          theme: "error",
+          message: `Application submission failed: ${error instanceof Error ? error.message : String(error)}`,
+        })
+      }
     }
+    if (defaultJoin) {
+      pushModal(Confirm, {
+        title: "Review your request",
+        subtitle: sectionDisplayName,
+        message:
+          "Your answers will be published with your Nostr public key. Copies may remain public. " +
+          form.fieldOrder
+            .map(id => {
+              const field = form.fields[id]
+              return field.type === "label"
+                ? field.label
+                : `${field.label}: ${getAdmissionResponseDisplayValue(field, values[id] || "", metadata[id] || {})}`
+            })
+            .join(" · "),
+        confirmLabel: "Submit request",
+        confirm: publish,
+      })
+    } else await publish()
   }
 
   const setModeratorRequestPublishState = (
@@ -1164,6 +1250,34 @@
       </p>
     </div>
 
+    {#if defaultJoin}
+      <section class="card2 bg-alt p-4" aria-label="Join community">
+        <h2 class="text-lg font-semibold">Join this community</h2>
+        {#if joinEntry.status === "invalid" || requestByKind || $page.url.searchParams.has("section")}
+          <p>
+            The default application is unavailable. Ask the owner to choose one section for new
+            members.
+          </p>
+        {:else if joinEntry.status === "absent"}
+          <p>Choose a section to request access.</p>
+          <div class="mt-2 flex flex-wrap gap-2">
+            {#each sectionItems.filter(item => usableJoinForm(item.form)) as item}
+              <Button
+                class="btn btn-outline btn-sm"
+                onclick={() => (joinChoice = item.section.name)}>{item.displayName}</Button>
+            {/each}
+          </div>
+          {#if communityAdmissionFormReadiness === "ready" && !sectionItems.some( item => usableJoinForm(item.form), )}<p>
+              No application is available yet.
+            </p>{/if}
+        {:else if communityAdmissionFormReadiness === "ready" && !usableJoinForm(forms[joinEntry.sectionName])}
+          <p>The community's join application isn't available yet.</p>
+        {:else}<p>
+            Apply to join {joinEntry.sectionName}. Other sections may need separate access.
+          </p>{/if}
+      </section>
+    {/if}
+
     <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div class="grid grid-cols-2 gap-2 sm:flex sm:w-fit sm:flex-wrap">
         <Button
@@ -1472,6 +1586,9 @@
         <p class="mt-2 text-sm opacity-70">
           Community content remains readable, but applications must be tied to your pubkey.
         </p>
+        {#if defaultJoin}<Button class="btn btn-primary mt-3" onclick={() => pushModal(LogIn)}
+            >Sign in to continue</Button
+          >{/if}
       </div>
     {:else if currentUserAdmin}
       <div class="card2 bg-alt flex flex-col gap-4 p-4 shadow-md">
@@ -1510,7 +1627,9 @@
               <div>
                 <h2 class="text-xl font-semibold">Publishing requests</h2>
                 <p class="mt-1 text-sm opacity-70">
-                  Request normal section-level publishing access with moderator-curated forms.
+                  {defaultJoin
+                    ? "Complete the application, then review your request."
+                    : "Request normal section-level publishing access with moderator-curated forms."}
                 </p>
               </div>
               <span class="badge badge-neutral"
@@ -1547,11 +1666,13 @@
                   <div class="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h3 class="text-lg font-semibold">{item.displayName}</h3>
-                      <p class="text-sm opacity-70">
-                        Grants {item.section.kinds
-                          .map(kind => (kind.subtype ? `${kind.kind}:${kind.subtype}` : kind.kind))
-                          .join(", ")}
-                      </p>
+                      {#if !defaultJoin}<p class="text-sm opacity-70">
+                          Grants {item.section.kinds
+                            .map(kind =>
+                              kind.subtype ? `${kind.kind}:${kind.subtype}` : kind.kind,
+                            )
+                            .join(", ")}
+                        </p>{/if}
                     </div>
                     <span class={`badge ${statusClass(item.state.status)}`}
                       >{item.state.status === "none" ? "No access" : item.state.status}</span>
@@ -1564,7 +1685,9 @@
                       {reviewHistoryLabel(priorReview.status)} by
                       <ProfileLink
                         pubkey={priorReview.event.pubkey}
-                        relays={communityProfileRelays} /> on <DateTimeDisplay value={priorReview.event.created_at * 1000} options={{showTimeZone: true}} />.
+                        relays={communityProfileRelays} /> on <DateTimeDisplay
+                        value={priorReview.event.created_at * 1000}
+                        options={{showTimeZone: true}} />.
                     </p>
                   {/if}
 
@@ -1583,7 +1706,7 @@
                       <Button class="btn btn-neutral btn-sm" onclick={retryCommunityAccess}
                         >Retry</Button>
                     </div>
-                  {:else if item.form}
+                  {:else if item.form && (!defaultJoin || usableJoinForm(item.form))}
                     <form
                       class="flex flex-col gap-3"
                       onsubmit={preventDefault(() =>
@@ -1676,8 +1799,13 @@
                       {/each}
 
                       {#if item.state.status === "none"}
+                        {#if defaultJoin}<p class="text-sm">
+                            Your answers will be published with your Nostr public key. Don't include
+                            private keys or passwords.
+                          </p>{/if}
                         <div class="flex justify-end">
-                          <Button type="submit" class="btn btn-primary">Submit application</Button>
+                          <Button type="submit" class="btn btn-primary"
+                            >{defaultJoin ? "Review request" : "Submit application"}</Button>
                         </div>
                       {:else if item.state.response}
                         <div class="rounded-box bg-base-200 p-3 text-sm">

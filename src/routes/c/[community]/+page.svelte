@@ -27,6 +27,7 @@
   import CommunityRoomCreate from "@app/components/community/CommunityRoomCreate.svelte"
   import CommunityMenuButton from "@app/components/CommunityMenuButton.svelte"
   import CommunityStarButton from "@app/components/community/CommunityStarButton.svelte"
+  import CommunityJoinStatus from "@app/components/community/CommunityJoinStatus.svelte"
   import CommunityShareButton from "@app/components/community/CommunityShareButton.svelte"
   import PerformanceDiagnosticsStatus from "@app/components/PerformanceDiagnosticsStatus.svelte"
   import {PERFORMANCE_DIAGNOSTICS_ENABLED} from "@app/core/feature-flags"
@@ -925,6 +926,7 @@
     {/key}
   {/if}
   <div class="card2 bg-alt relative flex flex-col items-center gap-4 text-left">
+    <CommunityJoinStatus />
     {#if communityPointer}
       <div class="flex w-full justify-end gap-2">
         <CommunityShareButton

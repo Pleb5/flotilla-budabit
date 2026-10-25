@@ -1,4 +1,9 @@
 <script lang="ts">
+  import {joinSetupMessage} from "@app/core/community-join"
+  import {
+    activeCommunityAdmissionForms,
+    activeCommunityAdmissionFormReadiness,
+  } from "@app/core/community-state"
   import DateTimeDisplay from "@lib/components/DateTimeDisplay.svelte"
   import {onDestroy, onMount} from "svelte"
   import {get as getStore, writable} from "svelte/store"
@@ -758,6 +763,12 @@
       Log in as this community owner pubkey to publish community definition updates.
     </p>
   {:else}
+    {#if $activeCommunityAdmissionFormReadiness.state === "ready" && joinSetupMessage($activeExactCommunityDefinition, $activeCommunityAdmissionForms)}
+      <p class="rounded-box bg-warning/10 p-3 text-sm" role="status">
+        {joinSetupMessage($activeExactCommunityDefinition, $activeCommunityAdmissionForms)} Open Community
+        settings below to choose a section; set up its application in Moderation → Forms.
+      </p>
+    {/if}
     <div class="flex flex-wrap gap-2">
       <Button
         class={`btn ${adminTab === "settings" ? "btn-primary" : "btn-ghost"}`}
@@ -828,7 +839,9 @@
                   </p>
                   <p class="text-xs opacity-60">
                     {getRequestTimeLabel(moderatorRequest)}
-                    <DateTimeDisplay value={getRequestTime(moderatorRequest) * 1000} options={{showTimeZone: true}} />
+                    <DateTimeDisplay
+                      value={getRequestTime(moderatorRequest) * 1000}
+                      options={{showTimeZone: true}} />
                   </p>
                 </div>
                 <div class="flex flex-wrap gap-2">

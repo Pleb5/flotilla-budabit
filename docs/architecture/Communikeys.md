@@ -197,7 +197,42 @@ A recognized section-local tag before the first `content` tag invalidates the de
 
 Profile-list tags reference real signer-owned `kind:30000` coordinates. The effective section-specific grant set is the union of current valid `p` tags from all referenced lists. Missing evidence contributes no `p`-tag grant. Referenced non-owner list owners receive structural community-wide member/write access independently of that evidence; publishing a current non-declined list activates the narrower moderator capabilities associated with the referenced section. A section does not require a placeholder profile-list event until it needs member grants or delegated authority.
 
-### Unknown Tags And Editing
+### Default Join Entry (optional)
+
+A content section MAY contain exactly one `['join']` tag (JSON: `["join"]`).
+At most one such tag may occur in the entire definition, and it MUST be inside
+a content section. It designates the community-level Join entry point, not a
+permission, member grant, form, or automatic approval. There is no section-ID
+field: the marker belongs to its containing `content` block.
+
+Readers expose absent, selected, and invalid entry states. Duplicate markers,
+markers before the first section, or markers with extra arguments disable the
+generic Join entry; they MUST NOT invalidate otherwise valid base definitions
+or change permissions. Readers MUST NOT select an older definition or a
+different section as fallback. Absence means no owner-selected default; clients
+may offer an explicit chooser of sections with usable authorized applications.
+
+Join opens the selected section's current authorized kind-30168 application.
+A missing, deleted, unsupported, empty, or unavailable form does not permit an
+automatic request. Required answers and explicit public-answer review precede
+kind-1069 submission. Publication acknowledgement is pending application state,
+not membership. Existing reviews, grants and section-specific publish gates
+retain their normal semantics.
+
+New community editors default the choice to their General section draft and
+allow customization. Existing definitions are not implicitly migrated. Editors
+move the marker with a renamed/reordered section, preserve unrelated unknown
+tags, and explicitly remove old markers when changing the choice **after**
+extension-preserving merges. Deleting the chosen section requires confirmation;
+do not silently choose another. Form names still need to match the resulting
+section name; editing multiple events is not atomic.
+
+Home pages show compact membership status. Only nonmembers with an available
+application and no existing request get a Join button. Members see membership
+status, and pending applicants see their request status. Home navigation is
+unchanged.
+
+### Unknown Tags And Editing Rules
 
 Readers MUST ignore unknown definition tags. Editors MUST preserve them byte-for-byte and in original relative order unless the user explicitly removes them.
 
