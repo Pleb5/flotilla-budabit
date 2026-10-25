@@ -62,9 +62,9 @@
     activityLiveCovered = false,
   }: Props = $props()
 
-  const h = getTagValue("h", event.tags)
-  const eventRouteParam = event.id || getTagValue("d", event.tags)
-  const path = community ? makeExactCommunityCalendarPath(community, eventRouteParam) : ""
+  const h = $derived(getTagValue("h", event.tags))
+  const eventRouteParam = $derived(event.id || getTagValue("d", event.tags))
+  const path = $derived(community ? makeExactCommunityCalendarPath(community, eventRouteParam) : "")
   const canExport = $derived(Boolean(makeCalendarEventIcs(event)))
   const actionRelays = $derived(
     publishRelays ?? (relays.length > 0 ? relays : !scopeH && url ? [url] : []),
@@ -87,13 +87,24 @@
     }
   }
 
-  const editEvent = () =>
+  const editEvent = () => {
+    // Pin the originating community and query before opening the modal. Neither
+    // reactive props nor the current browser URL belong to a later ACK.
+    const returnPath =
+      redirectOnEdit && community ? makeExactCommunityCalendarPath(community) : undefined
+    const returnSearch = window.location.search
     pushModal(CalendarEventEdit, {
       url,
       event,
       relays: actionRelays,
-      redirectPath: redirectOnEdit ? path : undefined,
+      // Detail links name an immutable version. Resolve the edit return target
+      // from the acknowledged replacement rather than the event being edited.
+      getSavedEventPath: returnPath
+        ? (savedEvent: TrustedEvent) =>
+            `${returnPath}/${encodeURIComponent(savedEvent.id)}${returnSearch}`
+        : undefined,
     })
+  }
 
   const deleteReaction = async (reaction: TrustedEvent) =>
     publishReactionDeleteOperation({reaction, targetEvent: event, relays: reactionRelayTargets})

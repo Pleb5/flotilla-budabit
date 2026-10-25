@@ -118,6 +118,248 @@ const communityNaddr = nip19.naddrEncode({
 })
 const eventPath = `/c/${communityNaddr}/calendar/calendar-reaction-scope`
 
+test.describe("calendar edit return navigation", () => {
+  test.beforeEach(async ({page}) => {
+    // Keep HTTP resources local as well as intercepting all relay WebSockets.
+    await page.route("**/*", route =>
+      new URL(route.request().url()).hostname === "localhost" ? route.continue() : route.abort(),
+    )
+  })
+
+  test.afterEach(async ({page}, testInfo) => {
+    const errors = await page.pageErrors()
+    await testInfo.attach("page-errors", {
+      body: JSON.stringify(errors.map(error => error.message)),
+      contentType: "application/json",
+    })
+    const consoleErrors = (await page.consoleMessages())
+      .filter(message => message.type() === "error")
+      .map(message => message.text())
+    await testInfo.attach("console-errors", {
+      body: JSON.stringify(consoleErrors),
+      contentType: "application/json",
+    })
+    // Offline third-party resource requests can reject outside the calendar UI.
+    expect(errors.filter(error => error.message !== "Failed to fetch")).toEqual([])
+  })
+
+  test("mobile list edit returns to the list with the replacement link", async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({width: 390, height: 844})
+    const mockRelay = new MockRelay({
+      seedEvents: [definition, relayList, profileList, calendarEvent],
+    })
+    await seedDevSession(page)
+    await mockRelay.setup(page)
+    const listPath = `/c/${communityNaddr}/calendar?view=calendar`
+    await page.goto(listPath)
+    await page.getByRole("button", {name: "Open event actions", exact: true}).click()
+    await page.getByRole("button", {name: "Edit Event", exact: true}).click()
+    const modal = page.getByRole("dialog")
+    await modal.locator('input[type="text"]').first().fill("Edited from mobile list")
+    await modal.getByRole("button", {name: "Save Event", exact: true}).click()
+    await expect(modal).toBeHidden()
+    await expect(page).toHaveURL(listPath)
+    const replacement = mockRelay.getPublishedEvents().find(event => event.kind === 31922)!
+    const card = page.locator(`[data-event="${replacement.id}"]`)
+    await expect(card.getByText("Edited from mobile list", {exact: true})).toBeVisible()
+    await expect(card.locator("a").first()).toHaveAttribute(
+      "href",
+      `/c/${communityNaddr}/calendar/${replacement.id}`,
+    )
+    await expect(page.locator('[role="dialog"]')).toHaveCount(0)
+    await page.screenshot({path: testInfo.outputPath("edited-mobile-list.png")})
+  })
+
+  for (const kind of [31922, 31923]) {
+    test(`opens the acknowledged replacement after editing kind ${kind}`, async ({
+      page,
+    }, testInfo) => {
+      const original = finalizeEvent(
+        {
+          ...calendarEvent,
+          kind,
+          tags: calendarEvent.tags
+            .map(tag => (tag[0] === "start" && kind === 31923 ? ["start", "4070908800"] : tag))
+            .concat(kind === 31923 ? [["end", "4070912400"]] : []),
+        },
+        communitySecret,
+      )
+      const mockRelay = new MockRelay({
+        seedEvents: [definition, relayList, profileList, original],
+        getPublishResponse: event => (event.kind === kind ? {latency: 800} : undefined),
+      })
+      await seedDevSession(page)
+      await mockRelay.setup(page)
+      const originalPath = `/c/${communityNaddr}/calendar/${original.id}?view=calendar`
+      await page.goto(originalPath)
+      await page.getByRole("button", {name: "Open event actions", exact: true}).click()
+      await page.getByRole("button", {name: "Edit Event", exact: true}).click()
+      const modal = page.getByRole("dialog")
+      await modal.locator('input[type="text"]').first().fill("Edited calendar event")
+      await modal.getByRole("button", {name: "Save Event", exact: true}).click()
+      await expect(modal.getByRole("button", {name: "Save Event", exact: true})).toBeDisabled()
+      expect(new URL(page.url()).pathname).toBe(new URL(originalPath, "http://localhost").pathname)
+      await expect(modal).toBeHidden()
+      const replacement = mockRelay.getPublishedEvents().find(event => event.kind === kind)!
+      expect(replacement.id).not.toBe(original.id)
+      await expect(page).toHaveURL(`/c/${communityNaddr}/calendar/${replacement.id}?view=calendar`)
+      await expect(
+        page.getByRole("article").getByText("Edited calendar event", {exact: true}),
+      ).toBeVisible()
+      await page.screenshot({path: testInfo.outputPath(`edited-${kind}.png`)})
+      // The reused detail actions must edit the replacement on a second edit.
+      await page.getByRole("button", {name: "Open event actions", exact: true}).click()
+      await page.getByRole("button", {name: "Edit Event", exact: true}).click()
+      await expect(modal.locator('input[type="text"]').first()).toHaveValue("Edited calendar event")
+      await modal.getByRole("button", {name: "Go back", exact: true}).click()
+      await expect(modal).toBeHidden()
+      await expect(page).toHaveURL(`/c/${communityNaddr}/calendar/${replacement.id}?view=calendar`)
+    })
+  }
+
+  test("rejected edit stays in the form and cancel restores the original context", async ({
+    page,
+  }) => {
+    const mockRelay = new MockRelay({
+      seedEvents: [definition, relayList, profileList, calendarEvent],
+      getPublishResponse: event =>
+        event.kind === 31922
+          ? {outcome: "reject", message: "Calendar edit rejected for test"}
+          : undefined,
+    })
+    await seedDevSession(page)
+    await mockRelay.setup(page)
+    const originalPath = `/c/${communityNaddr}/calendar/${calendarEvent.id}?view=calendar`
+    await page.goto(originalPath)
+    await page.getByRole("button", {name: "Open event actions", exact: true}).click()
+    await page.getByRole("button", {name: "Edit Event", exact: true}).click()
+    const modal = page.getByRole("dialog")
+    await modal.locator('input[type="text"]').first().fill("Rejected edit")
+    await modal.getByRole("button", {name: "Save Event", exact: true}).click()
+    await expect(page.getByText("Calendar edit rejected for test", {exact: false})).toBeVisible()
+    await expect(modal.locator('input[type="text"]').first()).toHaveValue("Rejected edit")
+    await modal.getByRole("button", {name: "Go back", exact: true}).click()
+    await expect(modal).toBeHidden()
+    await expect(page).toHaveURL(originalPath)
+    await expect(
+      page.getByRole("article").getByText("Calendar reaction scope", {exact: true}),
+    ).toBeVisible()
+  })
+
+  for (const departure of ["query", "community", "reopen"] as const) {
+    test(`late edit ACK retains publication without navigating after ${departure}`, async ({
+      page,
+    }) => {
+      const otherCommunityId = getPublicKey(new Uint8Array(32).fill(3))
+      const otherDefinition = finalizeEvent(
+        {
+          ...definition,
+          tags: definition.tags.map(tag => (tag[0] === "d" ? ["d", otherCommunityId] : tag)),
+        },
+        communitySecret,
+      )
+      const otherCommunityNaddr = nip19.naddrEncode({
+        kind: 32222,
+        pubkey: DEV_PUBKEY,
+        identifier: otherCommunityId,
+        relays: [communityRelay],
+      })
+      const mockRelay = new MockRelay({
+        seedEvents: [definition, otherDefinition, relayList, profileList, calendarEvent],
+      })
+      let releaseAck!: () => void
+      const ackGate = new Promise<void>(resolve => {
+        releaseAck = resolve
+      })
+      await page.exposeFunction("__calendarAckGate", () => ackGate)
+      await seedDevSession(page)
+      await mockRelay.setup(page)
+      const originalPath = `/c/${communityNaddr}/calendar/${calendarEvent.id}?view=calendar`
+      await page.goto(originalPath)
+      // Hold the fixture's publication response until the departure is complete,
+      // so slow CI cannot accidentally ACK before exercising the lifecycle race.
+      await page.evaluate(() => {
+        const fixture = window as unknown as {
+          __mockRelayPublish: (event: {kind: number}, relay: string) => Promise<unknown>
+          __calendarAckGate: () => Promise<void>
+        }
+        const publish = fixture.__mockRelayPublish
+        fixture.__mockRelayPublish = async (event, relay) => {
+          const response = await publish(event, relay)
+          if (event.kind === 31922) await fixture.__calendarAckGate()
+          return response
+        }
+      })
+      await page.getByRole("button", {name: "Open event actions", exact: true}).click()
+      await page.getByRole("button", {name: "Edit Event", exact: true}).click()
+      const modal = page.getByRole("dialog")
+      await modal.locator('input[type="text"]').first().fill("Acknowledged after departure")
+      await modal.getByRole("button", {name: "Save Event", exact: true}).click()
+      await expect
+        .poll(() => mockRelay.getPublishedEvents().filter(event => event.kind === 31922).length)
+        .toBe(1)
+      await expect(modal.getByRole("button", {name: "Save Event", exact: true})).toBeDisabled()
+
+      // Exercise the SvelteKit client router, not a reload that destroys the
+      // pending publication. Fixture links make query/community departures exact.
+      const followFixtureLink = async (path: string) => {
+        await page.evaluate(href => {
+          const link = document.createElement("a")
+          link.href = href
+          link.textContent = "Calendar fixture destination"
+          ;(document.querySelector('[role="dialog"]') || document.body).append(link)
+        }, path)
+        await page.getByRole("link", {name: "Calendar fixture destination", exact: true}).click()
+      }
+
+      let destination: string
+      if (departure === "reopen") {
+        await modal.getByRole("button", {name: "Go back", exact: true}).click()
+        await expect(modal).toBeHidden()
+        await page.getByRole("button", {name: "Open event actions", exact: true}).click()
+        await page.getByRole("button", {name: "Edit Event", exact: true}).click()
+        await modal.locator('input[type="text"]').first().fill("Separate unsaved draft")
+        destination = page.url()
+      } else {
+        destination =
+          departure === "query"
+            ? originalPath.replace("view=calendar", "view=list&returnTo=https%3A%2F%2Fexample.com")
+            : `/c/${otherCommunityNaddr}/calendar?view=list`
+        await followFixtureLink(destination)
+        await expect(page).toHaveURL(destination)
+        await expect(modal).toBeHidden()
+      }
+
+      // The completion toast is emitted only after ACK and repository retention.
+      releaseAck()
+      await expect(page.getByText("Your event has been saved!", {exact: true})).toBeVisible({
+        timeout: 10000,
+      })
+      await expect(page).toHaveURL(destination)
+      const publications = mockRelay.getPublishedEvents().filter(event => event.kind === 31922)
+      expect(publications).toHaveLength(1)
+      const replacement = publications[0]
+      expect(replacement.id).not.toBe(calendarEvent.id)
+      expect(replacement.tags).toContainEqual(["h", communityId])
+      if (departure === "reopen") {
+        await expect(modal.locator('input[type="text"]').first()).toHaveValue(
+          "Separate unsaved draft",
+        )
+        await modal.getByRole("button", {name: "Go back", exact: true}).click()
+        await expect(modal).toBeHidden()
+      }
+      // The mock does not echo or retain the replacement: this checks that ACK
+      // completion still put it in the app repository after the old form left.
+      await followFixtureLink(`/c/${communityNaddr}/calendar/${replacement.id}?view=calendar`)
+      await expect(
+        page.getByRole("article").getByText("Acknowledged after departure", {exact: true}),
+      ).toBeVisible()
+    })
+  }
+})
+
 const openCalendarEvent = async (
   page: Parameters<typeof seedDevSession>[0],
   mockRelay: MockRelay,
