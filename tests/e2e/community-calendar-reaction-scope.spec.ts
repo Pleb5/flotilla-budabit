@@ -247,6 +247,117 @@ test.describe("calendar edit return navigation", () => {
       page.getByRole("article").getByText("Calendar reaction scope", {exact: true}),
     ).toBeVisible()
   })
+
+  for (const departure of ["query", "community", "reopen"] as const) {
+    test(`late edit ACK retains publication without navigating after ${departure}`, async ({
+      page,
+    }) => {
+      const otherCommunityId = getPublicKey(new Uint8Array(32).fill(3))
+      const otherDefinition = finalizeEvent(
+        {
+          ...definition,
+          tags: definition.tags.map(tag => (tag[0] === "d" ? ["d", otherCommunityId] : tag)),
+        },
+        communitySecret,
+      )
+      const otherCommunityNaddr = nip19.naddrEncode({
+        kind: 32222,
+        pubkey: DEV_PUBKEY,
+        identifier: otherCommunityId,
+        relays: [communityRelay],
+      })
+      const mockRelay = new MockRelay({
+        seedEvents: [definition, otherDefinition, relayList, profileList, calendarEvent],
+      })
+      let releaseAck!: () => void
+      const ackGate = new Promise<void>(resolve => {
+        releaseAck = resolve
+      })
+      await page.exposeFunction("__calendarAckGate", () => ackGate)
+      await seedDevSession(page)
+      await mockRelay.setup(page)
+      const originalPath = `/c/${communityNaddr}/calendar/${calendarEvent.id}?view=calendar`
+      await page.goto(originalPath)
+      // Hold the fixture's publication response until the departure is complete,
+      // so slow CI cannot accidentally ACK before exercising the lifecycle race.
+      await page.evaluate(() => {
+        const fixture = window as unknown as {
+          __mockRelayPublish: (event: {kind: number}, relay: string) => Promise<unknown>
+          __calendarAckGate: () => Promise<void>
+        }
+        const publish = fixture.__mockRelayPublish
+        fixture.__mockRelayPublish = async (event, relay) => {
+          const response = await publish(event, relay)
+          if (event.kind === 31922) await fixture.__calendarAckGate()
+          return response
+        }
+      })
+      await page.getByRole("button", {name: "Open event actions", exact: true}).click()
+      await page.getByRole("button", {name: "Edit Event", exact: true}).click()
+      const modal = page.getByRole("dialog")
+      await modal.locator('input[type="text"]').first().fill("Acknowledged after departure")
+      await modal.getByRole("button", {name: "Save Event", exact: true}).click()
+      await expect
+        .poll(() => mockRelay.getPublishedEvents().filter(event => event.kind === 31922).length)
+        .toBe(1)
+      await expect(modal.getByRole("button", {name: "Save Event", exact: true})).toBeDisabled()
+
+      // Exercise the SvelteKit client router, not a reload that destroys the
+      // pending publication. Fixture links make query/community departures exact.
+      const followFixtureLink = async (path: string) => {
+        await page.evaluate(href => {
+          const link = document.createElement("a")
+          link.href = href
+          link.textContent = "Calendar fixture destination"
+          ;(document.querySelector('[role="dialog"]') || document.body).append(link)
+        }, path)
+        await page.getByRole("link", {name: "Calendar fixture destination", exact: true}).click()
+      }
+
+      let destination: string
+      if (departure === "reopen") {
+        await modal.getByRole("button", {name: "Go back", exact: true}).click()
+        await expect(modal).toBeHidden()
+        await page.getByRole("button", {name: "Open event actions", exact: true}).click()
+        await page.getByRole("button", {name: "Edit Event", exact: true}).click()
+        await modal.locator('input[type="text"]').first().fill("Separate unsaved draft")
+        destination = page.url()
+      } else {
+        destination =
+          departure === "query"
+            ? originalPath.replace("view=calendar", "view=list&returnTo=https%3A%2F%2Fexample.com")
+            : `/c/${otherCommunityNaddr}/calendar?view=list`
+        await followFixtureLink(destination)
+        await expect(page).toHaveURL(destination)
+        await expect(modal).toBeHidden()
+      }
+
+      // The completion toast is emitted only after ACK and repository retention.
+      releaseAck()
+      await expect(page.getByText("Your event has been saved!", {exact: true})).toBeVisible({
+        timeout: 10000,
+      })
+      await expect(page).toHaveURL(destination)
+      const publications = mockRelay.getPublishedEvents().filter(event => event.kind === 31922)
+      expect(publications).toHaveLength(1)
+      const replacement = publications[0]
+      expect(replacement.id).not.toBe(calendarEvent.id)
+      expect(replacement.tags).toContainEqual(["h", communityId])
+      if (departure === "reopen") {
+        await expect(modal.locator('input[type="text"]').first()).toHaveValue(
+          "Separate unsaved draft",
+        )
+        await modal.getByRole("button", {name: "Go back", exact: true}).click()
+        await expect(modal).toBeHidden()
+      }
+      // The mock does not echo or retain the replacement: this checks that ACK
+      // completion still put it in the app repository after the old form left.
+      await followFixtureLink(`/c/${communityNaddr}/calendar/${replacement.id}?view=calendar`)
+      await expect(
+        page.getByRole("article").getByText("Acknowledged after departure", {exact: true}),
+      ).toBeVisible()
+    })
+  }
 })
 
 const openCalendarEvent = async (

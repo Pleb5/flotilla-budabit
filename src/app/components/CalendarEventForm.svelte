@@ -1,7 +1,8 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
+  import {onDestroy, onMount} from "svelte"
   import {writable} from "svelte/store"
-  import {goto} from "$app/navigation"
+  import {beforeNavigate, goto} from "$app/navigation"
   import {HOUR, now, randomId} from "@welshman/lib"
   import {EVENT_DATE, EVENT_TIME, getTagValue, makeEvent, type TrustedEvent} from "@welshman/util"
   import {publishThunk, repository, retryThunk, waitForAnyRelayAck} from "@welshman/app"
@@ -30,6 +31,7 @@
   import {startPublication} from "@app/core/publication-operations"
   import {assertReplaceablePublicationIsCurrent} from "@app/core/replaceable-publication"
   import {pushToast} from "@app/util/toast"
+  import {modal} from "@app/util/modal"
   import {makeExactCommunityCalendarPath, parseExactCommunityRouteParam} from "@app/util/routes"
 
   type Props = {
@@ -54,7 +56,15 @@
     }
   }
 
-  const {url, h, relays = [], redirectPath, getSavedEventPath, header, initialValues}: Props = $props()
+  const {
+    url,
+    h,
+    relays = [],
+    redirectPath,
+    getSavedEventPath,
+    header,
+    initialValues,
+  }: Props = $props()
   const community = $derived(parseExactCommunityRouteParam(url))
   const managedTagNames = new Set(["d", "title", "name", "location", "start", "end", "D", "h"])
 
@@ -64,6 +74,24 @@
 
   let isSavingEdit = $state(false)
   let isCreating = $state(false)
+
+  // A pending publication may outlive this edit. Leaving its route (including
+  // query or modal hash), dismissing it, or replacing it permanently relinquishes
+  // navigation ownership, even if the user subsequently returns to the same URL.
+  let editContextActive = true
+  onMount(() => {
+    if (!initialValues) return
+    const editModalId = window.location.hash.slice(1)
+    return modal.subscribe(active => {
+      if (active?.id !== editModalId) editContextActive = false
+    })
+  })
+  beforeNavigate(({from, to}) => {
+    if (from?.url.href !== to?.url.href) editContextActive = false
+  })
+  onDestroy(() => {
+    editContextActive = false
+  })
 
   const back = () => history.back()
 
@@ -226,6 +254,8 @@
     failedEditThunks.clear()
     pushToast({message: "Your event has been saved!"})
 
+    // Retain the acknowledged event above even when its originating UI is gone.
+    if (!editContextActive) return
     const savedEventPath = getSavedEventPath?.(thunk.event as TrustedEvent) || redirectPath
     if (savedEventPath) {
       goto(savedEventPath, {replaceState: true})
