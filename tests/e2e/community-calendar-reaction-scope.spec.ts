@@ -305,13 +305,21 @@ test.describe("calendar edit return navigation", () => {
       // Exercise the SvelteKit client router, not a reload that destroys the
       // pending publication. Fixture links make query/community departures exact.
       const followFixtureLink = async (path: string) => {
-        await page.evaluate(href => {
-          const link = document.createElement("a")
-          link.href = href
-          link.textContent = "Calendar fixture destination"
-          ;(document.querySelector('[role="dialog"]') || document.body).append(link)
-        }, path)
-        await page.getByRole("link", {name: "Calendar fixture destination", exact: true}).click()
+        if (await modal.isVisible()) {
+          await modal.evaluate((dialog, href) => {
+            const link = document.createElement("a")
+            link.href = href
+            link.textContent = "Calendar fixture destination"
+            dialog.append(link)
+          }, path)
+          await modal.getByRole("link", {name: "Calendar fixture destination", exact: true}).click()
+        } else {
+          // Closed modal DOM can remain during its transition. Use a visible
+          // app link rather than appending into an exiting dialog or offscreen body.
+          const link = page.getByRole("link", {name: "Home", exact: true})
+          await link.evaluate((anchor, href) => anchor.setAttribute("href", href), path)
+          await link.click()
+        }
       }
 
       let destination: string
