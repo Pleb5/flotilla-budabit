@@ -28,15 +28,27 @@ Regression coverage: `dm-inbox-discovery.test.ts`, `dm.test.ts`,
 
 The inbox-check boundary always adds `INDEXER_RELAYS` (`VITE_INDEXER_RELAYS`),
 even when a caller supplies only community hints. It uses one deduplicated,
-six-second request across those sources and the recipient's routed hints,
+six-second budget across those sources and the recipient's routed hints,
 instead of an additional independently cached outbox request. Kind 10002
 remains routing metadata, not an inbox list.
 
-Each source must reach EOSE before the check is treated as complete. A timeout,
-disconnect, or saturated 200-event same-author deletion window reports an
-incomplete check, including when a cached list exists. Existing consumers handle
-this through their retry/error path rather than confirming an absent inbox.
-No negative result is cached by this resolver.
+Each source must reach EOSE before the resolver check is treated as complete.
+A timeout, disconnect, or saturated 200-event same-author deletion window reports
+an incomplete check, including when a cached list exists. Raw response accounting
+includes duplicates across sources, invalid signatures, already-deleted events,
+and filtered payloads, using all request-level delivery classifications. Inbox
+and deletion filters use separate requests under the same deadline, so every
+EVENT on a deletion subscription consumes its budget, including unsolicited
+inbox events or malformed payloads. Semantic event selection
+still requires signature and author validation.
+
+The resolver's error is retryable and must not be interpreted as confirmed
+absence or as a reason to configure an inbox or select a fallback delivery relay.
+No negative result is cached by this resolver. **Caller availability policies are
+not uniform:** web Chat and messaging consumers can still use an existing cached
+positive inbox while a fresh check is incomplete. Android's current read path
+throws on incomplete discovery and can block a send despite a cached positive.
+This raw-count correction does not change either client's cached-positive policy.
 
 Kind 10050 candidates require an exact author and valid signature, even on a
 trusted relay. Future-dated candidates are excluded. The newest timestamp wins,

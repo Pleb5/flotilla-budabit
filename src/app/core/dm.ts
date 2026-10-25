@@ -1,6 +1,6 @@
 import {derived, get, writable} from "svelte/store"
 import {chunk} from "@welshman/lib"
-import {makeLoader} from "@welshman/net"
+import {makeLoader, request} from "@welshman/net"
 import {
   getFollows,
   getMessagingRelayList,
@@ -151,12 +151,6 @@ const DM_RELAY_DIRECT_FOLLOW_AUTHOR_LIMIT = 250
 const DM_RELAY_AUTHOR_BATCH_SIZE = 80
 
 const dmRelayRecommendationLoad = makeLoader({delay: 200, timeout: 6000, threshold: 0.5})
-const dmInboxCheckLoad = makeLoader({
-  delay: 0,
-  timeout: 6000,
-  threshold: 1,
-  isEventValid: verifyEvent,
-})
 
 const defaultDmRelayRecommendationState: DmRelayRecommendationState = {
   status: "idle",
@@ -897,6 +891,7 @@ export const checkDmInboxRelayList = async (author: string, hints: string[]) => 
   // union directly as well, even when an older inbox list is already cached.
   if (!/^[0-9a-f]{64}$/.test(author)) throw new Error("Invalid DM inbox author.")
   const completed = new Set<string>()
+  const completedDeletions = new Set<string>()
   const deletionCounts = new Map<string, number>()
   const until = Math.floor(Date.now() / 1000)
   const relays = normalizeRelayUrls([
@@ -904,23 +899,42 @@ export const checkDmInboxRelayList = async (author: string, hints: string[]) => 
     ...hints,
     ...Router.get().FromPubkeys([author]).getUrls(),
   ])
-  // Wait for every source's bounded response, including same-author tombstones.
-  // Multiple filters also prevent the loader's replaceable-cardinality shortcut
-  // from accepting an early event before a newer response has arrived.
-  const events = await dmInboxCheckLoad({
+  // requestOne classifies every raw EVENT into exactly one of these callbacks,
+  // including duplicates (shared across sources), invalid signatures, known
+  // deletions and out-of-filter payloads. Count all classifications, not just
+  // accepted events: semantic deduplication must never establish completeness.
+  // Keep the deletion filter in its own request so even unsolicited inbox events
+  // on that subscription count against its raw response window.
+  const countRaw = (_event: unknown, relay: string) => {
+    const url = normalizeRelayUrl(relay)
+    deletionCounts.set(url, (deletionCounts.get(url) || 0) + 1)
+  }
+  // The request API exposes all raw delivery classifications; makeLoader only
+  // exposes accepted, deduplicated events and cannot measure source saturation.
+  const common = {
     relays,
-    filters: [
-      {kinds: [MESSAGING_RELAYS], authors: [author], until, limit: 1},
-      {kinds: [5], authors: [author], until, limit: 200},
-    ],
-    onEvent: (event, relay) => {
-      if (event.kind === 5) {
-        const url = normalizeRelayUrl(relay)
-        deletionCounts.set(url, (deletionCounts.get(url) || 0) + 1)
-      }
-    },
-    onEose: relay => completed.add(normalizeRelayUrl(relay)),
-  })
+    autoClose: true,
+    signal: AbortSignal.timeout(6000),
+    isEventValid: verifyEvent,
+  }
+  const responses = await Promise.all([
+    request({
+      ...common,
+      filters: [{kinds: [MESSAGING_RELAYS], authors: [author], until, limit: 1}],
+      onEose: relay => completed.add(normalizeRelayUrl(relay)),
+    }),
+    request({
+      ...common,
+      filters: [{kinds: [5], authors: [author], until, limit: 200}],
+      onEvent: countRaw,
+      onDuplicate: countRaw,
+      onInvalid: countRaw,
+      onDeleted: countRaw,
+      onFiltered: countRaw,
+      onEose: relay => completedDeletions.add(normalizeRelayUrl(relay)),
+    }),
+  ])
+  const events = responses.flat()
   const stored = getMessagingRelayList(author)
   const latest = getLatestMessagingRelayListEventsByPubkey(
     [...events, ...(stored ? [stored.event] : [])].filter(
@@ -946,7 +960,12 @@ export const checkDmInboxRelayList = async (author: string, hints: string[]) => 
       ))
   if (
     !relays.length ||
-    relays.some(relay => !completed.has(relay) || (deletionCounts.get(relay) || 0) >= 200)
+    relays.some(
+      relay =>
+        !completed.has(relay) ||
+        !completedDeletions.has(relay) ||
+        (deletionCounts.get(relay) || 0) >= 200,
+    )
   ) {
     throw new Error("Could not check all DM inbox relays. Retry unavailable sources.")
   }

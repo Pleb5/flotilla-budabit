@@ -13,8 +13,7 @@ vi.mock("@welshman/net", async original => {
   const actual = await original<typeof import("@welshman/net")>()
   return {
     ...actual,
-    makeLoader: (options: any) =>
-      options.delay === 0 && options.threshold === 1 ? mocks.load : actual.makeLoader(options),
+    request: mocks.load,
   }
 })
 vi.mock("@welshman/app", async original => ({
@@ -44,7 +43,8 @@ describe("complete DM inbox metadata discovery", () => {
       const latest = finalizeEvent({kind: 10050, created_at: 2, content: "", tags: []}, key)
       mocks.load.mockImplementation(async options => {
         expect(options.relays).toEqual([...new Set([...INDEXER_RELAYS, ...hints])])
-        expect(options.filters[0]).toMatchObject({kinds: [10050], authors: [author], limit: 1})
+        expect(options.filters[0]).toMatchObject({authors: [author]})
+        expect(options.filters[0].limit).toBe(options.filters[0].kinds[0] === 10050 ? 1 : 200)
         options.relays.forEach(options.onEose)
         return [latest]
       })
@@ -146,7 +146,7 @@ describe("complete DM inbox metadata discovery", () => {
   it("treats saturated deletion history as incomplete rather than confirmed absence", async () => {
     vi.spyOn(Router, "get").mockReturnValue({FromPubkeys: () => ({getUrls: () => []})} as any)
     mocks.load.mockImplementation(async options => {
-      for (let i = 0; i < 200; i++) options.onEvent({kind: 5}, options.relays[0])
+      for (let i = 0; i < 200; i++) options.onEvent?.({kind: 5}, options.relays[0])
       options.relays.forEach(options.onEose)
       return []
     })
