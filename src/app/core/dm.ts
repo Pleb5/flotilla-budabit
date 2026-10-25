@@ -3,7 +3,6 @@ import {chunk} from "@welshman/lib"
 import {makeLoader} from "@welshman/net"
 import {
   getFollows,
-  forceLoadMessagingRelayList,
   getMessagingRelayList,
   getMutes,
   getPlaintext,
@@ -22,6 +21,7 @@ import {
   isRelayUrl,
   MESSAGING_RELAYS,
   normalizeRelayUrl,
+  verifyEvent,
 } from "@welshman/util"
 import type {List, TrustedEvent} from "@welshman/util"
 import {DM_KIND, INDEXER_RELAYS} from "@app/core/state"
@@ -151,7 +151,12 @@ const DM_RELAY_DIRECT_FOLLOW_AUTHOR_LIMIT = 250
 const DM_RELAY_AUTHOR_BATCH_SIZE = 80
 
 const dmRelayRecommendationLoad = makeLoader({delay: 200, timeout: 6000, threshold: 0.5})
-const dmInboxCheckLoad = makeLoader({delay: 0, timeout: 6000, threshold: 1})
+const dmInboxCheckLoad = makeLoader({
+  delay: 0,
+  timeout: 6000,
+  threshold: 1,
+  isEventValid: verifyEvent,
+})
 
 const defaultDmRelayRecommendationState: DmRelayRecommendationState = {
   status: "idle",
@@ -890,26 +895,62 @@ export const hasDmInbox = (list?: List) => getDmRelayUrls(list).length > 0
 export const checkDmInboxRelayList = async (author: string, hints: string[]) => {
   // The generic outbox loader caps routed hints. Query the complete membership
   // union directly as well, even when an older inbox list is already cached.
-  let receivedEose = false
-  const relays = normalizeRelayUrls([...hints, ...Router.get().FromPubkeys([author]).getUrls()])
-  const [events] = await Promise.all([
-    dmInboxCheckLoad({
-      relays,
-      filters: [{kinds: [MESSAGING_RELAYS], authors: [author], limit: 1}],
-      onEose: () => {
-        receivedEose = true
-      },
-    }),
-    forceLoadMessagingRelayList(author, hints),
+  if (!/^[0-9a-f]{64}$/.test(author)) throw new Error("Invalid DM inbox author.")
+  const completed = new Set<string>()
+  const deletionCounts = new Map<string, number>()
+  const until = Math.floor(Date.now() / 1000)
+  const relays = normalizeRelayUrls([
+    ...INDEXER_RELAYS,
+    ...hints,
+    ...Router.get().FromPubkeys([author]).getUrls(),
   ])
+  // Wait for every source's bounded response, including same-author tombstones.
+  // Multiple filters also prevent the loader's replaceable-cardinality shortcut
+  // from accepting an early event before a newer response has arrived.
+  const events = await dmInboxCheckLoad({
+    relays,
+    filters: [
+      {kinds: [MESSAGING_RELAYS], authors: [author], until, limit: 1},
+      {kinds: [5], authors: [author], until, limit: 200},
+    ],
+    onEvent: (event, relay) => {
+      if (event.kind === 5) {
+        const url = normalizeRelayUrl(relay)
+        deletionCounts.set(url, (deletionCounts.get(url) || 0) + 1)
+      }
+    },
+    onEose: relay => completed.add(normalizeRelayUrl(relay)),
+  })
   const stored = getMessagingRelayList(author)
-  const latest = getLatestMessagingRelayListEventsByPubkey([
-    ...events,
-    ...(stored ? [stored.event] : []),
-  ])[0]
-  if (latest && getDmRelayUrlsFromEvent(latest).length > 0) return true
-  if (!receivedEose && !latest) throw new Error("Could not check DM inbox relays.")
-  return false
+  const latest = getLatestMessagingRelayListEventsByPubkey(
+    [...events, ...(stored ? [stored.event] : [])].filter(
+      event => event.pubkey === author && event.created_at <= until && verifyEvent(event),
+    ),
+  )[0]
+  const deleted =
+    latest &&
+    (repository.isDeleted(latest) ||
+      events.some(
+        event =>
+          event.kind === 5 &&
+          event.pubkey === author &&
+          event.created_at <= until &&
+          verifyEvent(event) &&
+          event.tags.some(
+            tag =>
+              (tag[0] === "e" && tag[1] === latest.id) ||
+              (tag[0] === "a" &&
+                tag[1] === `${MESSAGING_RELAYS}:${author}:` &&
+                event.created_at >= latest.created_at),
+          ),
+      ))
+  if (
+    !relays.length ||
+    relays.some(relay => !completed.has(relay) || (deletionCounts.get(relay) || 0) >= 200)
+  ) {
+    throw new Error("Could not check all DM inbox relays. Retry unavailable sources.")
+  }
+  return Boolean(latest && !deleted && getDmRelayUrlsFromEvent(latest).length > 0)
 }
 
 export const getMessagingRelayHints = (
