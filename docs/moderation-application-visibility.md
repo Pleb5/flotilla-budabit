@@ -16,16 +16,26 @@ membership change, signing request, or cross-device sync is introduced. Clearing
 site storage clears these preferences. Other browsers/devices have their own
 visibility preferences. The page explicitly labels this limitation.
 
-The storage helper reads the latest saved record before mutation, persists before
-updating the UI, listens for other-tab storage changes, and refuses to overwrite
-unreadable data. Read failures show an alert and disable Hide/Restore. Write
+Each application now has its own atomic localStorage record, so concurrent tabs
+changing different applications cannot lose one another's hides or restores.
+Concurrent intent for the same application is last-write-wins. The unreleased
+scope-wide v1 record is read-only compatibility input; individual true/false
+overrides take precedence without a racy bulk migration. Unknown or malformed
+records are preserved and block writes in that scope. Other accounts' record
+contents are not read. The helper persists before updating the UI, listens for
+scoped storage changes (including removal/clear), and disposes its listener with
+the store subscription. Read failures show an alert and disable Hide/Restore. Write
 failures leave the current view intact and show a toast. Account/community changes
 select a separate store. A hidden record contains no applicant or review status.
 
 ## Verification
 
 - `pnpm check`: zero errors and warnings, using symlinked existing dependencies.
-- Focused Vitest: 23 passing tests (18 resolver + 5 visibility tests), including
+- Focused Vitest: 18 resolver tests passed in the initial change; the follow-up's
+  10 visibility tests pass, including deterministic interleavings using DOM
+  localStorage. Both hide/hide lost-update and restore/hide resurrection tests
+  fail with the old whole-record write and pass with per-application writes.
+  Other coverage includes
   failed/empty profile reads, delayed shared profiles, exact-ID persistence,
   account/community isolation, read corruption, and failed writes.
 - `tests/e2e/moderation-applications.spec.ts`: two mocked Chromium flows exercise

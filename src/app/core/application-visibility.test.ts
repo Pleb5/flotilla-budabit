@@ -1,4 +1,5 @@
-import {describe, expect, it} from "vitest"
+// @vitest-environment jsdom
+import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {get} from "svelte/store"
 import {createApplicationVisibility} from "./application-visibility"
 
@@ -10,6 +11,10 @@ const makeStorage = () => {
   const values = new Map<string, string>()
   return {
     values,
+    get length() {
+      return values.size
+    },
+    key: (index: number) => [...values.keys()][index] ?? null,
     getItem: (key: string) => values.get(key) ?? null,
     setItem: (key: string, value: string) => {
       values.set(key, value)
@@ -18,6 +23,19 @@ const makeStorage = () => {
 }
 
 describe("personal application visibility", () => {
+  let frame: HTMLIFrameElement
+  beforeEach(() => {
+    // The global test setup installs a Map fake. Use a fresh DOM window's real
+    // Storage implementation for deterministic cross-tab interleavings/events.
+    frame = document.createElement("iframe")
+    document.body.appendChild(frame)
+    vi.stubGlobal("localStorage", frame.contentWindow!.localStorage)
+    localStorage.clear()
+  })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    frame.remove()
+  })
   it("persists only the exact application and restores without retaining a review decision", () => {
     const storage = makeStorage()
     const preferences = createApplicationVisibility(account, community, storage)
@@ -78,5 +96,97 @@ describe("personal application visibility", () => {
     expect(get(preferences).error).toContain("could not be read")
     expect(() => preferences.setHidden(second, true)).toThrow()
     expect(storage.values.get(key)).toBe("{broken")
+  })
+
+  it.each(["hide/hide", "restore/hide"])(
+    "preserves interleaved %s intents in actual localStorage",
+    mode => {
+      const otherTab = createApplicationVisibility(account, community, localStorage)
+      if (mode === "restore/hide") otherTab.setHidden(first, true)
+      let interleave = true
+      const storage = {
+        get length() {
+          return localStorage.length
+        },
+        key: (index: number) => localStorage.key(index),
+        getItem: (key: string) => localStorage.getItem(key),
+        setItem: (key: string, value: string) => {
+          // The outer tab has already read. The other tab commits before the
+          // outer write, reproducing the lost-update/resurrected-entry ordering.
+          if (interleave) {
+            interleave = false
+            otherTab.setHidden(first, mode === "hide/hide")
+          }
+          localStorage.setItem(key, value)
+        },
+      }
+      createApplicationVisibility(account, community, storage).setHidden(second, true)
+      const reloaded = get(createApplicationVisibility(account, community, localStorage))
+      expect(reloaded.hiddenIds).toEqual(new Set(mode === "hide/hide" ? [first, second] : [second]))
+    },
+  )
+
+  it("overrides legacy entries per application without rewriting or losing legacy data", () => {
+    const key = `budabit/hidden-applications:v1:${account}:${encodeURIComponent(community)}`
+    const legacy = JSON.stringify({version: 1, hidden: [first]})
+    localStorage.setItem(key, legacy)
+    const one = createApplicationVisibility(account, community)
+    const two = createApplicationVisibility(account, community)
+    one.setHidden(first, false)
+    two.setHidden(second, true)
+    expect(get(createApplicationVisibility(account, community)).hiddenIds).toEqual(
+      new Set([second]),
+    )
+    expect(localStorage.getItem(key)).toBe(legacy)
+    localStorage.setItem(key, JSON.stringify({version: 99, hidden: []}))
+    expect(get(one).error).toContain("could not be read")
+    expect(() => one.setHidden(first, true)).toThrow()
+    expect(JSON.parse(localStorage.getItem(key)!)).toEqual({version: 99, hidden: []})
+  })
+
+  it("refreshes scoped application removals and storage clears and disposes listeners", () => {
+    const store = createApplicationVisibility(account, community)
+    const snapshots: Set<string>[] = []
+    const unsubscribe = store.subscribe(value => snapshots.push(value.hiddenIds))
+    store.setHidden(first, true)
+    const key = localStorage.key(0)!
+    localStorage.removeItem(key)
+    window.dispatchEvent(new StorageEvent("storage", {key, storageArea: localStorage}))
+    expect(snapshots.at(-1)?.size).toBe(0)
+    store.setHidden(second, true)
+    localStorage.clear()
+    window.dispatchEvent(new StorageEvent("storage", {key: null, storageArea: localStorage}))
+    expect(snapshots.at(-1)?.size).toBe(0)
+    const count = snapshots.length
+    unsubscribe()
+    window.dispatchEvent(new StorageEvent("storage", {key, storageArea: localStorage}))
+    expect(snapshots).toHaveLength(count)
+  })
+
+  it("ignores other-account storage events and never reads their record contents", () => {
+    const other = createApplicationVisibility("c".repeat(64), community)
+    other.setHidden(first, true)
+    const otherKey = localStorage.key(0)!
+    localStorage.setItem(otherKey, "{unreadable unrelated account")
+    const reads: string[] = []
+    const storage = {
+      get length() {
+        return localStorage.length
+      },
+      key: (index: number) => localStorage.key(index),
+      getItem: (key: string) => {
+        reads.push(key)
+        return localStorage.getItem(key)
+      },
+      setItem: (key: string, value: string) => localStorage.setItem(key, value),
+    }
+    const store = createApplicationVisibility(account, community, storage)
+    const stop = store.subscribe(() => {})
+    expect(reads).not.toContain(otherKey)
+    const count = reads.length
+    window.dispatchEvent(new StorageEvent("storage", {key: otherKey, storageArea: localStorage}))
+    expect(reads).toHaveLength(count)
+    expect(get(store).error).toBeUndefined()
+    stop()
   })
 })
