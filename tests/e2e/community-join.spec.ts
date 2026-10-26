@@ -173,6 +173,31 @@ test("owner sees missing setup on Home and can choose a section without publishi
   await status
     .getByRole("link", {name: "Choose a default section for new members to join."})
     .click()
+  const editor = page.locator("form").filter({has: page.locator("#community-sections")})
+  await expect(editor.locator("#community-sections")).toBeVisible()
+  await expect(editor.locator("details[open]")).toHaveCount(0)
+  for (const label of ["Mints (optional)", "Email digest providers (optional)"]) {
+    const summary = editor.locator("summary").filter({hasText: label})
+    await summary.focus()
+    await page.keyboard.press("Enter")
+    await expect(summary.locator("..")).toHaveAttribute("open", "")
+    await summary.click()
+    await expect(summary.locator("..")).not.toHaveAttribute("open", "")
+  }
+  await editor
+    .locator("summary")
+    .filter({hasText: /^Community identity$/})
+    .scrollIntoViewIfNeeded()
+  await page.screenshot({path: test.info().outputPath("admin-collapsed-desktop.png")})
+  await editor.locator("#community-sections > summary").click()
+  const general = editor.getByRole("button", {name: /^General/})
+  await expect(general).toHaveAttribute("aria-expanded", "false")
+  await general.focus()
+  await page.keyboard.press("Enter")
+  await expect(general).toHaveAttribute("aria-expanded", "true")
+  await general.click()
+  await expect(editor.getByRole("button", {name: "Add Marketplace", exact: true})).toBeVisible()
+  await expect(editor.getByText(/Marketplace defaults group/)).toHaveCount(0)
   const choice = page.getByRole("combobox", {
     name: "Choose a default section for new members to join.",
     exact: true,
@@ -187,5 +212,28 @@ test("owner sees missing setup on Home and can choose a section without publishi
   await page.setViewportSize({width: 390, height: 844})
   await choice.scrollIntoViewIfNeeded()
   await page.screenshot({path: test.info().outputPath("owner-editor-mobile.png")})
+  const addMarketplace = editor.getByRole("button", {name: "Add Marketplace", exact: true})
+  await addMarketplace.scrollIntoViewIfNeeded()
+  await page.screenshot({path: test.info().outputPath("marketplace-action-mobile.png")})
+  await addMarketplace.click()
+  await expect(editor.getByRole("button", {name: /^Marketplace/})).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  )
+  await expect(addMarketplace).toHaveCount(0)
+  // Invalid fields remain actionable even after the user collapses their panel.
+  await editor
+    .locator("summary")
+    .filter({hasText: /^Community identity$/})
+    .click()
+  await editor.locator("#community-name").fill("")
+  await editor
+    .locator("summary")
+    .filter({hasText: /^Community identity$/})
+    .click()
+  await editor.getByRole("button", {name: "Update", exact: true}).click()
+  await expect(editor.locator("#community-name")).toBeVisible()
+  await expect(editor.locator("#community-name")).toBeFocused()
+  await expect(editor.locator("#community-name")).toHaveAttribute("aria-invalid", "true")
   expect(relay.getPublishedEventsByKind(32222)).toHaveLength(0)
 })

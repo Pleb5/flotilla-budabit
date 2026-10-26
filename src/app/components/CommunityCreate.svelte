@@ -2195,7 +2195,7 @@
     originalJoinDraftKey = joinDraftKey
     joinEdited = false
     bootstrapGrantDrafts = []
-    expandedSectionIndex = 0
+    expandedSectionIndex = -1
     errors = {}
     keptImmediateWarningKeys = []
   }
@@ -2419,8 +2419,11 @@
     if (!browser) return
 
     const control = document.getElementById(controlId(field))
-    const details = control?.closest("details")
-    if (details instanceof HTMLDetailsElement) details.open = true
+    let ancestor = control
+    while (ancestor) {
+      if (ancestor instanceof HTMLDetailsElement) ancestor.open = true
+      ancestor = ancestor.parentElement
+    }
     await tick()
 
     const focusTarget = document.getElementById(controlId(field)) || errorSummaryElement
@@ -2874,7 +2877,7 @@
     ),
   )
   let bootstrapGrantDrafts = $state<CommunityBootstrapGrantDraft[]>([])
-  let expandedSectionIndex = $state(0)
+  let expandedSectionIndex = $state(-1)
   let initializedKey = $state("")
   let errors = $state<FieldErrors>({})
   let errorSummaryElement = $state<HTMLElement>()
@@ -3056,7 +3059,7 @@
     originalJoinDraftKey = ""
     joinEdited = false
     bootstrapGrantDrafts = []
-    expandedSectionIndex = 0
+    expandedSectionIndex = -1
     originalDraftState = undefined
     keptImmediateWarningKeys = []
   })
@@ -3139,11 +3142,12 @@
             <span class="self-center text-xs opacity-60">Opens in a new tab</span>
           </div>
         </div>
-        <div
+        <details
           id={controlId("auth")}
           tabindex="-1"
           class="min-w-0 rounded-2xl border border-warning/35 bg-warning/15 p-4 text-sm leading-relaxed text-base-content shadow-sm shadow-warning/5">
-          <strong class="block text-base font-semibold text-warning">Community signer</strong>
+          <summary class="cursor-pointer text-base font-semibold text-warning"
+            >Community signer</summary>
           <span class="mt-1 block text-base-content/80">
             {#if activeCommunityPubkey}
               <span class="mb-3 block">Publishing as</span>
@@ -3162,7 +3166,7 @@
               Log in with the npub that should control this community.
             {/if}
           </span>
-        </div>
+        </details>
       </div>
     </section>
 
@@ -3198,13 +3202,10 @@
           <p class="rounded-box bg-error/10 p-4 text-sm font-medium text-error">{errors.auth}</p>
         {/if}
 
-        <section
-          id={controlId("sections")}
-          tabindex="-1"
-          class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
-          <div class="mb-5 flex items-start justify-between gap-4">
+        <details class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
+          <summary class="cursor-pointer text-lg font-semibold">Community identity</summary>
+          <div class="mb-5 mt-4 flex items-start justify-between gap-4">
             <div>
-              <strong class="text-lg">Community identity</strong>
               <p class="mt-1 text-sm opacity-65">
                 The active signer controls the exact kind 32222 community definition.
               </p>
@@ -3309,12 +3310,15 @@
               {#snippet info()}Use a public https:// image URL, or upload an image below.{/snippet}
             </Field>
           </div>
-        </section>
+        </details>
 
-        <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
+        <details
+          id={controlId("sections")}
+          tabindex="-1"
+          class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
+          <summary class="mb-4 cursor-pointer text-lg font-semibold">Content sections</summary>
           <div class="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <strong class="text-lg">Content sections</strong>
               <label class="mt-3 flex flex-col gap-2">
                 <span>Choose a default section for new members to join.</span>
                 <select
@@ -3337,10 +3341,6 @@
               </p>
               <p class="mt-1 text-sm opacity-65">
                 {SECTION_NAME_HINT}
-              </p>
-              <p class="mt-1 text-sm opacity-65">
-                Marketplace defaults group freelance jobs, services, proposals, orders, reviews, and
-                NIP-99 classified listings in one section for community-targeted Smart Widgets.
               </p>
             </div>
             <div
@@ -3638,12 +3638,13 @@
               </div>
             {/each}
           </div>
-        </section>
+        </details>
 
-        <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
+        <details class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
+          <summary class="mb-4 cursor-pointer text-lg font-semibold"
+            >Relay and infrastructure</summary>
           <div class="mb-5 flex items-start justify-between gap-4">
             <div>
-              <strong class="text-lg">Relay and infrastructure</strong>
               <p class="mt-1 text-sm opacity-65">
                 One prepared community relay is the minimum requirement.
               </p>
@@ -3721,368 +3722,373 @@
               {#snippet info()}One wss:// URL per line, with or without a trailing slash. Maximum 20
                 relays total.{/snippet}
             </Field>
-            <div class="space-y-3">
-              <Field for={controlId("blossomServers")} error={errors.blossomServers}>
-                {#snippet label()}<p>
-                    Blossom servers <span class="opacity-60">(optional)</span>
-                  </p>{/snippet}
-                {#snippet input()}<textarea
-                    id={controlId("blossomServers")}
-                    bind:value={blossomServers}
-                    class="textarea textarea-bordered {errors.blossomServers
-                      ? 'textarea-error'
-                      : ''}"
-                    onblur={() => validateField("blossomServers")}
-                    aria-invalid={Boolean(errors.blossomServers)}
-                    aria-describedby={describedBy("blossomServers", true)}
-                    rows="2"
-                    placeholder="https://blossom.example.com"></textarea>
-                  >{/snippet}
-                {#snippet info()}One public https:// media server URL per line. Maximum 20 servers.{/snippet}
-              </Field>
-              <div
-                class="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm leading-relaxed text-base-content">
-                <p class="font-semibold text-warning">Blossom media ownership</p>
-                <p class="mt-1 text-base-content/75">
-                  BudaBit comes with a last-resort Blossom media server, but you should run your own
-                  to have full control over media storage, retention, and policy.
-                </p>
-                <a
-                  class="link mt-2 inline-block text-sm font-medium"
-                  href={BLOSSOM_SERVER_URL}
-                  target="_blank"
-                  rel="noopener noreferrer">Blossom server implementation</a>
-              </div>
-            </div>
-            <Field for={controlId("mints")} error={errors.mints}>
-              {#snippet label()}<p>Mints <span class="opacity-60">(optional)</span></p>{/snippet}
-              {#snippet input()}<textarea
-                  id={controlId("mints")}
-                  bind:value={mints}
-                  class="textarea textarea-bordered {errors.mints ? 'textarea-error' : ''}"
-                  onblur={() => validateField("mints")}
-                  aria-invalid={Boolean(errors.mints)}
-                  aria-describedby={describedBy("mints", true)}
-                  rows="2"
-                  placeholder="https://mint.example.com cashu"></textarea>
-                >{/snippet}
-              {#snippet info()}One https:// mint URL per line, optionally followed by a short type
-                such as cashu. Maximum 20.{/snippet}
-            </Field>
-            <Field for={controlId("graspServers")} error={errors.graspServers}>
-              {#snippet label()}<p>
-                  GRASP servers <span class="opacity-60">(optional)</span>
-                </p>{/snippet}
-              {#snippet input()}<textarea
-                  id={controlId("graspServers")}
-                  bind:value={graspServers}
-                  class="textarea textarea-bordered {errors.graspServers ? 'textarea-error' : ''}"
-                  onblur={() => validateField("graspServers")}
-                  aria-invalid={Boolean(errors.graspServers)}
-                  aria-describedby={describedBy("graspServers", true)}
-                  rows="2"
-                  placeholder="wss://grasp.example.com"></textarea>
-                >{/snippet}
-              {#snippet info()}One secure wss:// GRASP endpoint per line. A trailing slash is
-                optional; maximum 20.{/snippet}
-            </Field>
           </div>
-          <section
-            class="mt-5 rounded-2xl border border-base-300 bg-base-200/40 p-4 sm:p-5"
-            aria-labelledby="ci-repo-watchers-heading">
-            <h3 id="ci-repo-watchers-heading" class="font-semibold">
-              CI repository watchers <span class="font-normal opacity-60">(optional)</span>
-            </h3>
-            <p class="mt-2 text-sm leading-relaxed text-base-content/70">
-              Advertise services that watch repositories and trigger CI workflows. Each entry is a
-              community recommendation; repository owners choose their watcher separately.
+        </details>
+        <details class="space-y-3 rounded-2xl border border-base-300 bg-base-100 p-5">
+          <summary class="cursor-pointer font-semibold">Blossom servers (optional)</summary>
+          <Field for={controlId("blossomServers")} error={errors.blossomServers}>
+            {#snippet label()}<p>
+                Blossom servers <span class="opacity-60">(optional)</span>
+              </p>{/snippet}
+            {#snippet input()}<textarea
+                id={controlId("blossomServers")}
+                bind:value={blossomServers}
+                class="textarea textarea-bordered {errors.blossomServers ? 'textarea-error' : ''}"
+                onblur={() => validateField("blossomServers")}
+                aria-invalid={Boolean(errors.blossomServers)}
+                aria-describedby={describedBy("blossomServers", true)}
+                rows="2"
+                placeholder="https://blossom.example.com"></textarea>
+              >{/snippet}
+            {#snippet info()}One public https:// media server URL per line. Maximum 20 servers.{/snippet}
+          </Field>
+          <div
+            class="rounded-2xl border border-warning/30 bg-warning/10 p-4 text-sm leading-relaxed text-base-content">
+            <p class="font-semibold text-warning">Blossom media ownership</p>
+            <p class="mt-1 text-base-content/75">
+              BudaBit comes with a last-resort Blossom media server, but you should run your own to
+              have full control over media storage, retention, and policy.
             </p>
-            <div class="mt-4 space-y-4">
-              {#each ciRepoWatchers as watcher, index}
-                {@const pubkeyField = ciRepoWatcherField(index, "pubkey")}
-                {@const relaysField = ciRepoWatcherField(index, "relays")}
-                <fieldset class="min-w-0 rounded-xl border border-base-300 bg-base-100/60 p-4">
-                  <legend class="px-1 text-sm font-semibold">CI watcher {index + 1}</legend>
-                  <div class="grid min-w-0 gap-4 md:grid-cols-2">
-                    <Field for={controlId(pubkeyField)} error={errors[pubkeyField]} class="min-w-0">
-                      {#snippet label()}<span>Watcher public key</span>{/snippet}
-                      {#snippet input()}
-                        <input
-                          id={controlId(pubkeyField)}
-                          bind:value={watcher.pubkey}
-                          onblur={validateCiRepoWatchers}
-                          class="input input-bordered w-full min-w-0 {errors[pubkeyField]
-                            ? 'input-error'
-                            : ''}"
-                          aria-invalid={Boolean(errors[pubkeyField])}
-                          aria-describedby={describedBy(pubkeyField, true)}
-                          placeholder="npub1… or 64-character hex public key"
-                          autocomplete="off"
-                          spellcheck="false"
-                          {disabled} />
-                      {/snippet}
-                      {#snippet info()}The service's own public key, in npub or hex format.{/snippet}
-                    </Field>
-                    <Field for={controlId(relaysField)} error={errors[relaysField]} class="min-w-0">
-                      {#snippet label()}<span>Watcher relays</span>{/snippet}
-                      {#snippet input()}
-                        <textarea
-                          id={controlId(relaysField)}
-                          bind:value={watcher.relays}
-                          onblur={validateCiRepoWatchers}
-                          class="textarea textarea-bordered w-full min-w-0 {errors[relaysField]
-                            ? 'textarea-error'
-                            : ''}"
-                          aria-invalid={Boolean(errors[relaysField])}
-                          aria-describedby={describedBy(relaysField, true)}
-                          placeholder="wss://relay.example.com"
-                          rows="2"
-                          spellcheck="false"
-                          {disabled}></textarea>
-                      {/snippet}
-                      {#snippet info()}Where clients can discover and contact this watcher. One
-                        wss:// URL per line; at least one, maximum {MAX_CI_REPO_WATCHER_RELAYS}.{/snippet}
-                    </Field>
-                  </div>
-                  <button
-                    type="button"
-                    class="btn btn-ghost btn-sm mt-3"
-                    aria-label={`Remove CI watcher ${index + 1}`}
-                    onclick={() => removeCiRepoWatcher(index)}
-                    {disabled}>Remove watcher</button>
-                </fieldset>
-              {/each}
-              <button
-                id={controlId("ciRepoWatchers")}
-                type="button"
-                class="btn btn-outline btn-sm"
-                disabled={loading || ciRepoWatchers.length >= MAX_COMMUNITY_CI_REPO_WATCHERS}
-                aria-describedby={errors.ciRepoWatchers
-                  ? `${controlId("ciRepoWatchers")}-error`
-                  : undefined}
-                onclick={() => (ciRepoWatchers = [...ciRepoWatchers, {pubkey: "", relays: ""}])}>
-                Add CI watcher
-              </button>
-              {#if errors.ciRepoWatchers}
-                <p
-                  id={`${controlId("ciRepoWatchers")}-error`}
-                  class="text-sm text-error"
-                  role="alert">
-                  {errors.ciRepoWatchers}
+            <a
+              class="link mt-2 inline-block text-sm font-medium"
+              href={BLOSSOM_SERVER_URL}
+              target="_blank"
+              rel="noopener noreferrer">Blossom server implementation</a>
+          </div>
+        </details>
+        <details class="rounded-2xl border border-base-300 bg-base-100 p-5">
+          <summary class="cursor-pointer font-semibold">Mints (optional)</summary>
+          <Field for={controlId("mints")} error={errors.mints}>
+            {#snippet label()}<p>Mints <span class="opacity-60">(optional)</span></p>{/snippet}
+            {#snippet input()}<textarea
+                id={controlId("mints")}
+                bind:value={mints}
+                class="textarea textarea-bordered {errors.mints ? 'textarea-error' : ''}"
+                onblur={() => validateField("mints")}
+                aria-invalid={Boolean(errors.mints)}
+                aria-describedby={describedBy("mints", true)}
+                rows="2"
+                placeholder="https://mint.example.com cashu"></textarea>
+              >{/snippet}
+            {#snippet info()}One https:// mint URL per line, optionally followed by a short type
+              such as cashu. Maximum 20.{/snippet}
+          </Field>
+        </details>
+        <details class="rounded-2xl border border-base-300 bg-base-100 p-5">
+          <summary class="cursor-pointer font-semibold">GRASP servers (optional)</summary>
+          <Field for={controlId("graspServers")} error={errors.graspServers}>
+            {#snippet label()}<p>
+                GRASP servers <span class="opacity-60">(optional)</span>
+              </p>{/snippet}
+            {#snippet input()}<textarea
+                id={controlId("graspServers")}
+                bind:value={graspServers}
+                class="textarea textarea-bordered {errors.graspServers ? 'textarea-error' : ''}"
+                onblur={() => validateField("graspServers")}
+                aria-invalid={Boolean(errors.graspServers)}
+                aria-describedby={describedBy("graspServers", true)}
+                rows="2"
+                placeholder="wss://grasp.example.com"></textarea>
+              >{/snippet}
+            {#snippet info()}One secure wss:// GRASP endpoint per line. A trailing slash is
+              optional; maximum 20.{/snippet}
+          </Field>
+        </details>
+        <details
+          class="mt-5 rounded-2xl border border-base-300 bg-base-200/40 p-4 sm:p-5"
+          aria-labelledby="ci-repo-watchers-heading">
+          <summary id="ci-repo-watchers-heading" class="cursor-pointer font-semibold">
+            CI repository watchers <span class="font-normal opacity-60">(optional)</span>
+          </summary>
+          <p class="mt-2 text-sm leading-relaxed text-base-content/70">
+            Advertise services that watch repositories and trigger CI workflows. Each entry is a
+            community recommendation; repository owners choose their watcher separately.
+          </p>
+          <div class="mt-4 space-y-4">
+            {#each ciRepoWatchers as watcher, index}
+              {@const pubkeyField = ciRepoWatcherField(index, "pubkey")}
+              {@const relaysField = ciRepoWatcherField(index, "relays")}
+              <fieldset class="min-w-0 rounded-xl border border-base-300 bg-base-100/60 p-4">
+                <legend class="px-1 text-sm font-semibold">CI watcher {index + 1}</legend>
+                <div class="grid min-w-0 gap-4 md:grid-cols-2">
+                  <Field for={controlId(pubkeyField)} error={errors[pubkeyField]} class="min-w-0">
+                    {#snippet label()}<span>Watcher public key</span>{/snippet}
+                    {#snippet input()}
+                      <input
+                        id={controlId(pubkeyField)}
+                        bind:value={watcher.pubkey}
+                        onblur={validateCiRepoWatchers}
+                        class="input input-bordered w-full min-w-0 {errors[pubkeyField]
+                          ? 'input-error'
+                          : ''}"
+                        aria-invalid={Boolean(errors[pubkeyField])}
+                        aria-describedby={describedBy(pubkeyField, true)}
+                        placeholder="npub1… or 64-character hex public key"
+                        autocomplete="off"
+                        spellcheck="false"
+                        {disabled} />
+                    {/snippet}
+                    {#snippet info()}The service's own public key, in npub or hex format.{/snippet}
+                  </Field>
+                  <Field for={controlId(relaysField)} error={errors[relaysField]} class="min-w-0">
+                    {#snippet label()}<span>Watcher relays</span>{/snippet}
+                    {#snippet input()}
+                      <textarea
+                        id={controlId(relaysField)}
+                        bind:value={watcher.relays}
+                        onblur={validateCiRepoWatchers}
+                        class="textarea textarea-bordered w-full min-w-0 {errors[relaysField]
+                          ? 'textarea-error'
+                          : ''}"
+                        aria-invalid={Boolean(errors[relaysField])}
+                        aria-describedby={describedBy(relaysField, true)}
+                        placeholder="wss://relay.example.com"
+                        rows="2"
+                        spellcheck="false"
+                        {disabled}></textarea>
+                    {/snippet}
+                    {#snippet info()}Where clients can discover and contact this watcher. One wss://
+                      URL per line; at least one, maximum {MAX_CI_REPO_WATCHER_RELAYS}.{/snippet}
+                  </Field>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-ghost btn-sm mt-3"
+                  aria-label={`Remove CI watcher ${index + 1}`}
+                  onclick={() => removeCiRepoWatcher(index)}
+                  {disabled}>Remove watcher</button>
+              </fieldset>
+            {/each}
+            <button
+              id={controlId("ciRepoWatchers")}
+              type="button"
+              class="btn btn-outline btn-sm"
+              disabled={loading || ciRepoWatchers.length >= MAX_COMMUNITY_CI_REPO_WATCHERS}
+              aria-describedby={errors.ciRepoWatchers
+                ? `${controlId("ciRepoWatchers")}-error`
+                : undefined}
+              onclick={() => (ciRepoWatchers = [...ciRepoWatchers, {pubkey: "", relays: ""}])}>
+              Add CI watcher
+            </button>
+            {#if errors.ciRepoWatchers}
+              <p
+                id={`${controlId("ciRepoWatchers")}-error`}
+                class="text-sm text-error"
+                role="alert">
+                {errors.ciRepoWatchers}
+              </p>
+            {/if}
+          </div>
+        </details>
+        <details class="mt-5 rounded-2xl border border-base-300 bg-base-200/40 p-4 sm:p-5">
+          <summary class="cursor-pointer select-none font-semibold">
+            Email digest providers <span class="opacity-60">(optional)</span>
+          </summary>
+          <div class="mt-4 border-t border-base-300 pt-4">
+            <p class="text-sm leading-relaxed text-base-content/70">
+              Declaring a provider is a community endorsement only. Users opt in separately and
+              share their email address directly with that provider.
+            </p>
+            <p class="mt-2 text-sm leading-relaxed text-base-content/70">
+              See open source email digest provider implementation
+              <a
+                class="link font-medium"
+                href={EMAIL_DIGEST_PROVIDER_IMPLEMENTATION_URL}
+                target="_blank"
+                rel="noopener noreferrer">here</a
+              >.
+            </p>
+
+            <div class="mt-5 rounded-2xl border border-base-300 bg-base-100/60 p-4">
+              <div class="mb-4">
+                <p class="font-semibold">Repository digest provider</p>
+                <p class="mt-1 text-sm leading-relaxed text-base-content/70">
+                  Users receive email digests about watched repositories. Each user selects one
+                  global provider.
                 </p>
-              {/if}
-            </div>
-          </section>
-          <details class="mt-5 rounded-2xl border border-base-300 bg-base-200/40 p-4 sm:p-5">
-            <summary class="cursor-pointer select-none font-semibold">
-              Email digest providers <span class="opacity-60">(optional)</span>
-            </summary>
-            <div class="mt-4 border-t border-base-300 pt-4">
-              <p class="text-sm leading-relaxed text-base-content/70">
-                Declaring a provider is a community endorsement only. Users opt in separately and
-                share their email address directly with that provider.
-              </p>
-              <p class="mt-2 text-sm leading-relaxed text-base-content/70">
-                See open source email digest provider implementation
-                <a
-                  class="link font-medium"
-                  href={EMAIL_DIGEST_PROVIDER_IMPLEMENTATION_URL}
-                  target="_blank"
-                  rel="noopener noreferrer">here</a
-                >.
-              </p>
-
-              <div class="mt-5 rounded-2xl border border-base-300 bg-base-100/60 p-4">
-                <div class="mb-4">
-                  <p class="font-semibold">Repository digest provider</p>
-                  <p class="mt-1 text-sm leading-relaxed text-base-content/70">
-                    Users receive email digests about watched repositories. Each user selects one
-                    global provider.
+                {#if additionalEmailDigestServices.length > 0}
+                  <p class="mt-2 text-xs font-medium text-info">
+                    {additionalEmailDigestServices.length} additional provider declaration{additionalEmailDigestServices.length ===
+                    1
+                      ? " is"
+                      : "s are"} preserved unchanged.
                   </p>
-                  {#if additionalEmailDigestServices.length > 0}
-                    <p class="mt-2 text-xs font-medium text-info">
-                      {additionalEmailDigestServices.length} additional provider declaration{additionalEmailDigestServices.length ===
-                      1
-                        ? " is"
-                        : "s are"} preserved unchanged.
-                    </p>
-                  {/if}
-                </div>
-                <div class="grid gap-4 md:grid-cols-2">
-                  <Field
-                    for={controlId("emailDigestServicePubkey")}
-                    error={errors.emailDigestServicePubkey}>
-                    {#snippet label()}<p>Service pubkey</p>{/snippet}
-                    {#snippet input()}<input
-                        id={controlId("emailDigestServicePubkey")}
-                        bind:value={emailDigestServicePubkey}
-                        class="input input-bordered w-full {errors.emailDigestServicePubkey
-                          ? 'input-error'
-                          : ''}"
-                        onblur={() => validateField("emailDigestServicePubkey")}
-                        aria-invalid={Boolean(errors.emailDigestServicePubkey)}
-                        aria-describedby={describedBy("emailDigestServicePubkey", true)}
-                        type="text"
-                        spellcheck="false"
-                        placeholder="64-character hex pubkey" />{/snippet}
-                    {#snippet info()}The provider's 64-character hexadecimal Nostr public key.{/snippet}
-                  </Field>
-                  <Field
-                    for={controlId("emailDigestRequestRelay")}
-                    error={errors.emailDigestRequestRelay}>
-                    {#snippet label()}<p>Request/status relay</p>{/snippet}
-                    {#snippet input()}<input
-                        id={controlId("emailDigestRequestRelay")}
-                        bind:value={emailDigestRequestRelay}
-                        class="input input-bordered w-full {errors.emailDigestRequestRelay
-                          ? 'input-error'
-                          : ''}"
-                        onblur={() => validateField("emailDigestRequestRelay")}
-                        aria-invalid={Boolean(errors.emailDigestRequestRelay)}
-                        aria-describedby={describedBy("emailDigestRequestRelay", true)}
-                        type="url"
-                        placeholder="wss://digest.example.com" />{/snippet}
-                    {#snippet info()}Secure relay used for provider requests and delivery status.{/snippet}
-                  </Field>
-                  <Field
-                    for={controlId("emailDigestHandlerAddress")}
-                    error={errors.emailDigestHandlerAddress}>
-                    {#snippet label()}<p>Handler address</p>{/snippet}
-                    {#snippet input()}<input
-                        id={controlId("emailDigestHandlerAddress")}
-                        bind:value={emailDigestHandlerAddress}
-                        class="input input-bordered w-full {errors.emailDigestHandlerAddress
-                          ? 'input-error'
-                          : ''}"
-                        onblur={() => validateField("emailDigestHandlerAddress")}
-                        aria-invalid={Boolean(errors.emailDigestHandlerAddress)}
-                        aria-describedby={describedBy("emailDigestHandlerAddress", true)}
-                        type="text"
-                        spellcheck="false"
-                        placeholder="31990:<handler pubkey>:<id>" />{/snippet}
-                    {#snippet info()}Address format: 31990, provider pubkey, and non-empty
-                      identifier separated by colons.{/snippet}
-                  </Field>
-                  <Field
-                    for={controlId("emailDigestHandlerRelay")}
-                    error={errors.emailDigestHandlerRelay}>
-                    {#snippet label()}<p>Handler relay</p>{/snippet}
-                    {#snippet input()}<input
-                        id={controlId("emailDigestHandlerRelay")}
-                        bind:value={emailDigestHandlerRelay}
-                        class="input input-bordered w-full {errors.emailDigestHandlerRelay
-                          ? 'input-error'
-                          : ''}"
-                        onblur={() => validateField("emailDigestHandlerRelay")}
-                        aria-invalid={Boolean(errors.emailDigestHandlerRelay)}
-                        aria-describedby={describedBy("emailDigestHandlerRelay", true)}
-                        type="url"
-                        placeholder="wss://handlers.example.com" />{/snippet}
-                    {#snippet info()}Secure relay where the provider's handler announcement is
-                      published.{/snippet}
-                  </Field>
-                </div>
+                {/if}
               </div>
-
-              <div class="mt-5 rounded-2xl border border-base-300 bg-base-100/60 p-4">
-                <div class="mb-4">
-                  <p class="font-semibold">Community digest provider</p>
-                  <p class="mt-1 text-sm leading-relaxed text-base-content/70">
-                    This provider sends activity digests only about the community that advertises
-                    it. Users opt in per community.
-                  </p>
-                  {#if additionalCommunityAlertServices.length > 0}
-                    <p class="mt-2 text-xs font-medium text-info">
-                      {additionalCommunityAlertServices.length} additional provider declaration{additionalCommunityAlertServices.length ===
-                      1
-                        ? " is"
-                        : "s are"} preserved unchanged.
-                    </p>
-                  {/if}
-                </div>
-                <div class="grid gap-4 md:grid-cols-2">
-                  <Field
-                    for={controlId("communityAlertServicePubkey")}
-                    error={errors.communityAlertServicePubkey}>
-                    {#snippet label()}<p>Service pubkey</p>{/snippet}
-                    {#snippet input()}<input
-                        id={controlId("communityAlertServicePubkey")}
-                        bind:value={communityAlertServicePubkey}
-                        class="input input-bordered w-full {errors.communityAlertServicePubkey
-                          ? 'input-error'
-                          : ''}"
-                        onblur={() => validateField("communityAlertServicePubkey")}
-                        aria-invalid={Boolean(errors.communityAlertServicePubkey)}
-                        aria-describedby={describedBy("communityAlertServicePubkey", true)}
-                        type="text"
-                        spellcheck="false"
-                        placeholder="64-character hex pubkey" />{/snippet}
-                    {#snippet info()}The provider's 64-character hexadecimal Nostr public key.{/snippet}
-                  </Field>
-                  <Field
-                    for={controlId("communityAlertRequestRelay")}
-                    error={errors.communityAlertRequestRelay}>
-                    {#snippet label()}<p>Request/status relay</p>{/snippet}
-                    {#snippet input()}<input
-                        id={controlId("communityAlertRequestRelay")}
-                        bind:value={communityAlertRequestRelay}
-                        class="input input-bordered w-full {errors.communityAlertRequestRelay
-                          ? 'input-error'
-                          : ''}"
-                        onblur={() => validateField("communityAlertRequestRelay")}
-                        aria-invalid={Boolean(errors.communityAlertRequestRelay)}
-                        aria-describedby={describedBy("communityAlertRequestRelay", true)}
-                        type="url"
-                        placeholder="wss://alerts.example.com" />{/snippet}
-                    {#snippet info()}Secure relay used for provider requests and delivery status.{/snippet}
-                  </Field>
-                  <Field
-                    for={controlId("communityAlertHandlerAddress")}
-                    error={errors.communityAlertHandlerAddress}>
-                    {#snippet label()}<p>Handler address</p>{/snippet}
-                    {#snippet input()}<input
-                        id={controlId("communityAlertHandlerAddress")}
-                        bind:value={communityAlertHandlerAddress}
-                        class="input input-bordered w-full {errors.communityAlertHandlerAddress
-                          ? 'input-error'
-                          : ''}"
-                        onblur={() => validateField("communityAlertHandlerAddress")}
-                        aria-invalid={Boolean(errors.communityAlertHandlerAddress)}
-                        aria-describedby={describedBy("communityAlertHandlerAddress", true)}
-                        type="text"
-                        spellcheck="false"
-                        placeholder="31990:<handler pubkey>:<id>" />{/snippet}
-                    {#snippet info()}Address format: 31990, provider pubkey, and non-empty
-                      identifier separated by colons.{/snippet}
-                  </Field>
-                  <Field
-                    for={controlId("communityAlertHandlerRelay")}
-                    error={errors.communityAlertHandlerRelay}>
-                    {#snippet label()}<p>Handler relay</p>{/snippet}
-                    {#snippet input()}<input
-                        id={controlId("communityAlertHandlerRelay")}
-                        bind:value={communityAlertHandlerRelay}
-                        class="input input-bordered w-full {errors.communityAlertHandlerRelay
-                          ? 'input-error'
-                          : ''}"
-                        onblur={() => validateField("communityAlertHandlerRelay")}
-                        aria-invalid={Boolean(errors.communityAlertHandlerRelay)}
-                        aria-describedby={describedBy("communityAlertHandlerRelay", true)}
-                        type="url"
-                        placeholder="wss://handlers.example.com" />{/snippet}
-                    {#snippet info()}Secure relay where the provider's handler announcement is
-                      published.{/snippet}
-                  </Field>
-                </div>
+              <div class="grid gap-4 md:grid-cols-2">
+                <Field
+                  for={controlId("emailDigestServicePubkey")}
+                  error={errors.emailDigestServicePubkey}>
+                  {#snippet label()}<p>Service pubkey</p>{/snippet}
+                  {#snippet input()}<input
+                      id={controlId("emailDigestServicePubkey")}
+                      bind:value={emailDigestServicePubkey}
+                      class="input input-bordered w-full {errors.emailDigestServicePubkey
+                        ? 'input-error'
+                        : ''}"
+                      onblur={() => validateField("emailDigestServicePubkey")}
+                      aria-invalid={Boolean(errors.emailDigestServicePubkey)}
+                      aria-describedby={describedBy("emailDigestServicePubkey", true)}
+                      type="text"
+                      spellcheck="false"
+                      placeholder="64-character hex pubkey" />{/snippet}
+                  {#snippet info()}The provider's 64-character hexadecimal Nostr public key.{/snippet}
+                </Field>
+                <Field
+                  for={controlId("emailDigestRequestRelay")}
+                  error={errors.emailDigestRequestRelay}>
+                  {#snippet label()}<p>Request/status relay</p>{/snippet}
+                  {#snippet input()}<input
+                      id={controlId("emailDigestRequestRelay")}
+                      bind:value={emailDigestRequestRelay}
+                      class="input input-bordered w-full {errors.emailDigestRequestRelay
+                        ? 'input-error'
+                        : ''}"
+                      onblur={() => validateField("emailDigestRequestRelay")}
+                      aria-invalid={Boolean(errors.emailDigestRequestRelay)}
+                      aria-describedby={describedBy("emailDigestRequestRelay", true)}
+                      type="url"
+                      placeholder="wss://digest.example.com" />{/snippet}
+                  {#snippet info()}Secure relay used for provider requests and delivery status.{/snippet}
+                </Field>
+                <Field
+                  for={controlId("emailDigestHandlerAddress")}
+                  error={errors.emailDigestHandlerAddress}>
+                  {#snippet label()}<p>Handler address</p>{/snippet}
+                  {#snippet input()}<input
+                      id={controlId("emailDigestHandlerAddress")}
+                      bind:value={emailDigestHandlerAddress}
+                      class="input input-bordered w-full {errors.emailDigestHandlerAddress
+                        ? 'input-error'
+                        : ''}"
+                      onblur={() => validateField("emailDigestHandlerAddress")}
+                      aria-invalid={Boolean(errors.emailDigestHandlerAddress)}
+                      aria-describedby={describedBy("emailDigestHandlerAddress", true)}
+                      type="text"
+                      spellcheck="false"
+                      placeholder="31990:<handler pubkey>:<id>" />{/snippet}
+                  {#snippet info()}Address format: 31990, provider pubkey, and non-empty identifier
+                    separated by colons.{/snippet}
+                </Field>
+                <Field
+                  for={controlId("emailDigestHandlerRelay")}
+                  error={errors.emailDigestHandlerRelay}>
+                  {#snippet label()}<p>Handler relay</p>{/snippet}
+                  {#snippet input()}<input
+                      id={controlId("emailDigestHandlerRelay")}
+                      bind:value={emailDigestHandlerRelay}
+                      class="input input-bordered w-full {errors.emailDigestHandlerRelay
+                        ? 'input-error'
+                        : ''}"
+                      onblur={() => validateField("emailDigestHandlerRelay")}
+                      aria-invalid={Boolean(errors.emailDigestHandlerRelay)}
+                      aria-describedby={describedBy("emailDigestHandlerRelay", true)}
+                      type="url"
+                      placeholder="wss://handlers.example.com" />{/snippet}
+                  {#snippet info()}Secure relay where the provider's handler announcement is
+                    published.{/snippet}
+                </Field>
               </div>
             </div>
-          </details>
-        </section>
+
+            <div class="mt-5 rounded-2xl border border-base-300 bg-base-100/60 p-4">
+              <div class="mb-4">
+                <p class="font-semibold">Community digest provider</p>
+                <p class="mt-1 text-sm leading-relaxed text-base-content/70">
+                  This provider sends activity digests only about the community that advertises it.
+                  Users opt in per community.
+                </p>
+                {#if additionalCommunityAlertServices.length > 0}
+                  <p class="mt-2 text-xs font-medium text-info">
+                    {additionalCommunityAlertServices.length} additional provider declaration{additionalCommunityAlertServices.length ===
+                    1
+                      ? " is"
+                      : "s are"} preserved unchanged.
+                  </p>
+                {/if}
+              </div>
+              <div class="grid gap-4 md:grid-cols-2">
+                <Field
+                  for={controlId("communityAlertServicePubkey")}
+                  error={errors.communityAlertServicePubkey}>
+                  {#snippet label()}<p>Service pubkey</p>{/snippet}
+                  {#snippet input()}<input
+                      id={controlId("communityAlertServicePubkey")}
+                      bind:value={communityAlertServicePubkey}
+                      class="input input-bordered w-full {errors.communityAlertServicePubkey
+                        ? 'input-error'
+                        : ''}"
+                      onblur={() => validateField("communityAlertServicePubkey")}
+                      aria-invalid={Boolean(errors.communityAlertServicePubkey)}
+                      aria-describedby={describedBy("communityAlertServicePubkey", true)}
+                      type="text"
+                      spellcheck="false"
+                      placeholder="64-character hex pubkey" />{/snippet}
+                  {#snippet info()}The provider's 64-character hexadecimal Nostr public key.{/snippet}
+                </Field>
+                <Field
+                  for={controlId("communityAlertRequestRelay")}
+                  error={errors.communityAlertRequestRelay}>
+                  {#snippet label()}<p>Request/status relay</p>{/snippet}
+                  {#snippet input()}<input
+                      id={controlId("communityAlertRequestRelay")}
+                      bind:value={communityAlertRequestRelay}
+                      class="input input-bordered w-full {errors.communityAlertRequestRelay
+                        ? 'input-error'
+                        : ''}"
+                      onblur={() => validateField("communityAlertRequestRelay")}
+                      aria-invalid={Boolean(errors.communityAlertRequestRelay)}
+                      aria-describedby={describedBy("communityAlertRequestRelay", true)}
+                      type="url"
+                      placeholder="wss://alerts.example.com" />{/snippet}
+                  {#snippet info()}Secure relay used for provider requests and delivery status.{/snippet}
+                </Field>
+                <Field
+                  for={controlId("communityAlertHandlerAddress")}
+                  error={errors.communityAlertHandlerAddress}>
+                  {#snippet label()}<p>Handler address</p>{/snippet}
+                  {#snippet input()}<input
+                      id={controlId("communityAlertHandlerAddress")}
+                      bind:value={communityAlertHandlerAddress}
+                      class="input input-bordered w-full {errors.communityAlertHandlerAddress
+                        ? 'input-error'
+                        : ''}"
+                      onblur={() => validateField("communityAlertHandlerAddress")}
+                      aria-invalid={Boolean(errors.communityAlertHandlerAddress)}
+                      aria-describedby={describedBy("communityAlertHandlerAddress", true)}
+                      type="text"
+                      spellcheck="false"
+                      placeholder="31990:<handler pubkey>:<id>" />{/snippet}
+                  {#snippet info()}Address format: 31990, provider pubkey, and non-empty identifier
+                    separated by colons.{/snippet}
+                </Field>
+                <Field
+                  for={controlId("communityAlertHandlerRelay")}
+                  error={errors.communityAlertHandlerRelay}>
+                  {#snippet label()}<p>Handler relay</p>{/snippet}
+                  {#snippet input()}<input
+                      id={controlId("communityAlertHandlerRelay")}
+                      bind:value={communityAlertHandlerRelay}
+                      class="input input-bordered w-full {errors.communityAlertHandlerRelay
+                        ? 'input-error'
+                        : ''}"
+                      onblur={() => validateField("communityAlertHandlerRelay")}
+                      aria-invalid={Boolean(errors.communityAlertHandlerRelay)}
+                      aria-describedby={describedBy("communityAlertHandlerRelay", true)}
+                      type="url"
+                      placeholder="wss://handlers.example.com" />{/snippet}
+                  {#snippet info()}Secure relay where the provider's handler announcement is
+                    published.{/snippet}
+                </Field>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
 
       <div class="space-y-6">
-        <section class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
-          <strong class="text-lg">Policy and location</strong>
+        <details class="rounded-[1.5rem] border border-base-300 bg-base-100 p-5 shadow-sm sm:p-6">
+          <summary class="cursor-pointer text-lg font-semibold">Policy and location</summary>
           <p class="mt-2 text-sm opacity-65">Optional metadata for rules or regional context.</p>
           <div class="mt-5 space-y-4">
             <Field for={controlId("tosRef")} error={errors.tosRef}>
@@ -4152,22 +4158,25 @@
               </Field>
             </div>
           </div>
-        </section>
+        </details>
 
         {#if isEdit && definition}
-          <CommunityBootstrapPeopleEditor
-            {definition}
-            sections={sectionDrafts
-              .map(section => ({
-                name: section.name.trim(),
-                displayName: section.name.trim() || "Unnamed section",
-                profileLists: section.profileLists,
-              }))
-              .filter(section => section.name)}
-            profileListEvents={$activeCommunityProfileListEvents}
-            relays={activeCommunityRelays}
-            bind:draftGrants={bootstrapGrantDrafts}
-            {disabled} />
+          <details class="rounded-2xl border border-base-300 bg-base-100 p-5">
+            <summary class="cursor-pointer font-semibold">Initial members and moderators</summary>
+            <CommunityBootstrapPeopleEditor
+              {definition}
+              sections={sectionDrafts
+                .map(section => ({
+                  name: section.name.trim(),
+                  displayName: section.name.trim() || "Unnamed section",
+                  profileLists: section.profileLists,
+                }))
+                .filter(section => section.name)}
+              profileListEvents={$activeCommunityProfileListEvents}
+              relays={activeCommunityRelays}
+              bind:draftGrants={bootstrapGrantDrafts}
+              {disabled} />
+          </details>
         {/if}
 
         {#if publishStatus}
