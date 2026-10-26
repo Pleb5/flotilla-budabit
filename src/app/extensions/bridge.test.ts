@@ -3534,6 +3534,114 @@ describe("ExtensionBridge", () => {
     })
   })
 
+  it("returns terminal deletion metadata with incomplete relay coverage, without broad discovery", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeExactCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    const tombstone = finalizeEvent(
+      {kind: 5, created_at: 200, tags: [["a", calendarEventRef]], content: ""},
+      new Uint8Array(32).fill(52),
+    )
+    mocks.loadCommunityEventsWithStatus.mockResolvedValueOnce({
+      events: [tombstone],
+      complete: false,
+      timedOutRelays: ["wss://unavailable.example/"],
+      failedRelays: [],
+    })
+    const extension = makeWidgetStorageExtension({
+      widget: {...makeWidgetStorageExtension().widget, permissions: ["community:queryEvents"]},
+    })
+    const bridge = new ExtensionBridge(extension as any)
+    await expect(
+      sendBridgeRequest(bridge, extension, "community:queryEvents", {
+        descriptors: [{kind: EVENT_TIME}],
+        refs: [calendarEventRef],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      events: [],
+      resolutions: [{ref: calendarEventRef, status: "deleted"}],
+    })
+    expect(mocks.loadCommunityEventsWithStatus).toHaveBeenCalledTimes(1)
+    expect(mocks.loadCommunityEventsWithStatus.mock.calls[0][1]).toContainEqual({
+      kinds: [5],
+      authors: [calendarWriterPubkey],
+      "#a": [calendarEventRef],
+      limit: 100,
+    })
+  })
+
+  it.each([true, false])(
+    "distinguishes complete missing coverage (%s) from a transient timeout",
+    async complete => {
+      const {ExtensionBridge} = await import("./bridge")
+      mocks.activeExactCommunityDefinition.set(communityDefinition)
+      mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+      mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+      mocks.loadCommunityEventsWithStatus.mockResolvedValueOnce({
+        events: [],
+        complete,
+        timedOutRelays: [],
+        failedRelays: [],
+      })
+      const extension = makeWidgetStorageExtension({
+        widget: {...makeWidgetStorageExtension().widget, permissions: ["community:queryEvents"]},
+      })
+      const result = await sendBridgeRequest(
+        new ExtensionBridge(extension as any),
+        extension,
+        "community:queryEvents",
+        {descriptors: [{kind: EVENT_TIME}], refs: [calendarEventRef], limit: 5},
+      )
+      if (complete)
+        expect(result).toMatchObject({
+          status: "ok",
+          events: [],
+          hasMore: false,
+          resolutions: [{ref: calendarEventRef, status: "missing"}],
+        })
+      else expect(result).toMatchObject({code: "COMMUNITY_QUERY_TIMEOUT"})
+    },
+  )
+
+  it("keeps a valid event alongside a deleted pin despite incomplete relay coverage", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeExactCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+    const deletedRef = `${EVENT_TIME}:${calendarWriterPubkey}:deleted`
+    const tombstone = finalizeEvent(
+      {kind: 5, created_at: 200, tags: [["a", deletedRef]], content: ""},
+      new Uint8Array(32).fill(52),
+    )
+    mocks.loadCommunityEventsWithStatus.mockResolvedValueOnce({
+      events: [calendarEvent, tombstone],
+      complete: false,
+      timedOutRelays: [],
+      failedRelays: [],
+    })
+    const extension = makeWidgetStorageExtension({
+      widget: {...makeWidgetStorageExtension().widget, permissions: ["community:queryEvents"]},
+    })
+    await expect(
+      sendBridgeRequest(new ExtensionBridge(extension as any), extension, "community:queryEvents", {
+        descriptors: [{kind: EVENT_TIME}],
+        refs: [calendarEventRef, deletedRef],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      events: [calendarEvent],
+      hasMore: false,
+      resolutions: [
+        {ref: calendarEventRef, status: "found"},
+        {ref: deletedRef, status: "deleted"},
+      ],
+    })
+  })
+
   it("returns fully cached exact refs without waiting for relay refresh", async () => {
     const {ExtensionBridge} = await import("./bridge")
     mocks.activeExactCommunityDefinition.set(communityDefinition)
