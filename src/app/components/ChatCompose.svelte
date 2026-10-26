@@ -32,12 +32,14 @@
     onSubmit: (event: EventContent) => Promise<boolean | void>
     disabled?: boolean
     disabledMessage?: string
+    submitting?: boolean
   }
 
-  const {
+  let {
     onSubmit,
     disabled = false,
     disabledMessage = "Direct messages are unavailable.",
+    submitting = $bindable(false),
   }: Props = $props()
 
   const autofocus = !isMobile && !disabled
@@ -141,6 +143,7 @@
     if (disabled || submitInFlight || $uploading) return
 
     submitInFlight = true
+    submitting = true
 
     try {
       const ed = await editor
@@ -174,6 +177,7 @@
       uploadStage.set("idle")
     } finally {
       submitInFlight = false
+      submitting = false
     }
   }
 
@@ -240,6 +244,7 @@
         params={{trigger: "manual", interactive: true}}>
         <Button
           data-tip="Attach file"
+          aria-label="Attach file"
           class="center tooltip tooltip-right h-10 w-10 min-w-10 rounded-box bg-base-300 transition-colors hover:bg-base-200"
           disabled={submitInFlight || $uploading}
           onclick={showAttachmentPopover}>
@@ -255,6 +260,7 @@
       </div>
       <Button
         data-tip={!isMobile ? sendShortcut : undefined}
+        aria-label="Send message"
         class={`center absolute right-2 h-10 w-10 min-w-10 rounded-full ${!isMobile ? "tooltip tooltip-left" : ""}`}
         disabled={submitInFlight || $uploading}
         onclick={submit}>
