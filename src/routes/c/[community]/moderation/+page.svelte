@@ -88,6 +88,7 @@
   } from "@app/core/governance-publication-operations"
   import {setChecked} from "@app/util/notifications"
   import {makeExactCommunityPath, parseExactCommunityRouteParam} from "@app/util/routes"
+  import {createApplicationVisibility} from "@app/core/application-visibility"
 
   type ReviewApplication = {
     sectionName: string
@@ -107,6 +108,9 @@
   const parsedCommunity = $derived(parseExactCommunityRouteParam($page.params.community))
   const communityAddress = $derived(parsedCommunity?.address || "")
   const communityPubkey = $derived(parsedCommunity?.ownerPubkey || "")
+  const applicationVisibility = $derived(
+    createApplicationVisibility($pubkey || "", communityAddress),
+  )
   const moderationPath = $derived(
     $activeExactCommunityPointer
       ? makeExactCommunityPath($activeExactCommunityPointer, "moderation")
@@ -336,15 +340,26 @@
       })
       .filter((item): item is ReviewApplication => Boolean(item))
   })
-  const newApplications = $derived(applications.filter(item => item.state.status === "pending"))
-  const grantedApplications = $derived(applications.filter(item => item.state.status === "granted"))
+  const visibleApplications = $derived(
+    applications.filter(item => !$applicationVisibility.hiddenIds.has(item.response.event.id)),
+  )
+  const hiddenApplications = $derived(
+    applications.filter(item => $applicationVisibility.hiddenIds.has(item.response.event.id)),
+  )
+  const newApplications = $derived(
+    visibleApplications.filter(item => item.state.status === "pending"),
+  )
+  const grantedApplications = $derived(
+    visibleApplications.filter(item => item.state.status === "granted"),
+  )
   const rejectedApplications = $derived(
-    applications.filter(item => item.state.status === "rejected"),
+    visibleApplications.filter(item => item.state.status === "rejected"),
   )
   const applicationGroups = $derived([
     {label: "New", items: newApplications},
     {label: "Granted", items: grantedApplications},
     {label: "Rejected", items: rejectedApplications},
+    {label: "Hidden", items: hiddenApplications},
   ] satisfies Array<{label: string; items: ReviewApplication[]}>)
   const contentReports = $derived.by(() => {
     if (!$activeExactCommunityDefinition) return []
@@ -675,6 +690,16 @@
     return `Reject this application for ${application.sectionDisplayName}?`
   }
   const isApplicationGroupOpen = (label: string) => applicationGroupOpen[label] ?? label === "New"
+  const setApplicationHidden = (application: ReviewApplication, hidden: boolean) => {
+    try {
+      applicationVisibility.setHidden(application.response.event.id, hidden)
+    } catch {
+      pushToast({
+        theme: "error",
+        message: "Could not save application visibility in this browser. Please try again.",
+      })
+    }
+  }
   const updateApplicationGroupOpen = (label: string, event: Event) => {
     applicationGroupOpen = {
       ...applicationGroupOpen,
@@ -1710,10 +1735,15 @@
             </div>
             <p class="text-sm opacity-70">
               Applications for sections you can grant. New reviews are expanded by default.
+              Hide is personal to this account and browser; it does not grant or reject an
+              application.
             </p>
           </div>
         </div>
 
+        {#if $applicationVisibility.error}
+          <p role="alert" class="rounded-box bg-warning/10 p-3">{$applicationVisibility.error}</p>
+        {/if}
         <div class="flex flex-col gap-3">
           {#each applicationGroups as group (group.label)}
             <details
@@ -1756,10 +1786,17 @@
                             relays={communityProfileRelays} />
                         </div>
                       </div>
-                      <span
-                        class={`badge shrink-0 px-3 ${applicationStatusBadgeClass(displayStatus)}`}>
-                        {applicationStatusLabel(displayStatus)}
-                      </span>
+                      <div class="flex shrink-0 items-center gap-2">
+                        <span class={`badge px-3 ${applicationStatusBadgeClass(displayStatus)}`}>
+                          {applicationStatusLabel(displayStatus)}
+                        </span>
+                        <Button
+                          class="btn btn-ghost btn-sm"
+                          disabled={Boolean($applicationVisibility.error)}
+                          onclick={() => setApplicationHidden(application, group.label !== "Hidden")}>
+                          {group.label === "Hidden" ? "Restore" : "Hide"}
+                        </Button>
+                      </div>
                     </div>
 
                     {#if applicationReviewEvidenceLoading && application.state.status === "pending"}
