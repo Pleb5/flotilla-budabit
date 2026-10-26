@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
-import {EVENT_TIME, THREAD, type TrustedEvent} from "@welshman/util"
+import {EVENT_TIME, THREAD, matchFilters, type TrustedEvent} from "@welshman/util"
 import {finalizeEvent, getPublicKey} from "nostr-tools/pure"
 import {buildRepoExtensionContext, getRepoExtensionInstanceId} from "./repo-context"
 import {
@@ -405,6 +405,13 @@ beforeEach(() => {
   localStorage.clear()
   mocks.publishThunk.mockReturnValue({complete: Promise.resolve(), results: {}})
   mocks.load.mockResolvedValue(undefined)
+  mocks.loadCommunityEventsWithStatus.mockReset()
+  mocks.loadCommunityEventsWithStatus.mockImplementation(async (relays, filters, options) => ({
+    events: await mocks.loadCommunityEvents(relays, filters, options),
+    complete: true,
+    timedOutRelays: [],
+    failedRelays: [],
+  }))
   mocks.request.mockImplementation((options: any) => {
     options.onStart?.(options.relays[0])
     return new Promise(resolve => {
@@ -3640,6 +3647,222 @@ describe("ExtensionBridge", () => {
         {ref: deletedRef, status: "deleted"},
       ],
     })
+  })
+
+  it.each(["id", "address"])(
+    "fetches and honors cross-representation deletion evidence for a %s pin",
+    async representation => {
+      const {ExtensionBridge} = await import("./bridge")
+      mocks.activeExactCommunityDefinition.set(communityDefinition)
+      mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+      mocks.activeCommunityRelays.set(["wss://relay.example.com/"])
+      const original = finalizeEvent(
+        {kind: EVENT_TIME, created_at: 100, tags: [["d", "event-1"]], content: ""},
+        new Uint8Array(32).fill(52),
+      )
+      const ref = representation === "id" ? original.id : calendarEventRef
+      const tombstone = finalizeEvent(
+        {
+          kind: 5,
+          created_at: 200,
+          tags: [representation === "id" ? ["a", calendarEventRef] : ["e", original.id]],
+          content: "",
+        },
+        new Uint8Array(32).fill(52),
+      )
+      mocks.loadCommunityEventsWithStatus.mockImplementation(async (_relays, filters) => ({
+        events: [original, tombstone].filter(event => matchFilters(filters as any, event)),
+        complete: false,
+        timedOutRelays: ["wss://unavailable.example/"],
+        failedRelays: [],
+      }))
+      const extension = makeWidgetStorageExtension({
+        widget: {...makeWidgetStorageExtension().widget, permissions: ["community:queryEvents"]},
+      })
+      await expect(
+        sendBridgeRequest(
+          new ExtensionBridge(extension as any),
+          extension,
+          "community:queryEvents",
+          {descriptors: [{kind: EVENT_TIME}], refs: [ref], limit: 5},
+        ),
+      ).resolves.toMatchObject({status: "ok", events: [], resolutions: [{ref, status: "deleted"}]})
+      expect(mocks.loadCommunityEventsWithStatus).toHaveBeenCalledTimes(2)
+      const [initial, followup] = mocks.loadCommunityEventsWithStatus.mock.calls
+      expect(followup[0]).toEqual(initial[0])
+      expect(followup[1]).toEqual([
+        {
+          kinds: [5],
+          authors: [calendarWriterPubkey],
+          [representation === "id" ? "#a" : "#e"]: [
+            representation === "id" ? calendarEventRef : original.id,
+          ],
+          limit: 100,
+        },
+      ])
+      expect(followup[2]).toMatchObject({timeout: 5_000, settle: "all"})
+    },
+  )
+
+  it("does not derive candidate authority or follow-up filters from an unknown ID tombstone", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeExactCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    const ref = "a".repeat(64)
+    const tombstone = finalizeEvent(
+      {
+        kind: 5,
+        created_at: 200,
+        tags: [
+          ["e", ref],
+          ["a", calendarEventRef],
+        ],
+        content: "",
+      },
+      new Uint8Array(32).fill(52),
+    )
+    mocks.loadCommunityEventsWithStatus.mockResolvedValueOnce({
+      events: [tombstone],
+      complete: false,
+      timedOutRelays: [],
+      failedRelays: [],
+    })
+    const extension = makeWidgetStorageExtension({
+      widget: {...makeWidgetStorageExtension().widget, permissions: ["community:queryEvents"]},
+    })
+    await expect(
+      sendBridgeRequest(new ExtensionBridge(extension as any), extension, "community:queryEvents", {
+        descriptors: [{kind: EVENT_TIME}],
+        refs: [ref],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({code: "COMMUNITY_QUERY_TIMEOUT"})
+    expect(mocks.loadCommunityEventsWithStatus).toHaveBeenCalledTimes(1)
+    expect(mocks.loadCommunityEventsWithStatus.mock.calls[0][1]).toEqual([
+      {ids: [ref], limit: 1},
+      {kinds: [5], "#e": [ref], limit: 100},
+    ])
+  })
+
+  it("normalizes uppercase ID filters and resolution matching while preserving the caller ref", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeExactCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    const original = finalizeEvent(
+      {kind: EVENT_TIME, created_at: 100, tags: [["d", "event-1"]], content: ""},
+      new Uint8Array(32).fill(52),
+    )
+    const ref = original.id.toUpperCase()
+    mocks.loadCommunityEventsWithStatus.mockImplementation(async (_relays, filters) => ({
+      events: [original].filter(event => matchFilters(filters as any, event)),
+      complete: true,
+      timedOutRelays: [],
+      failedRelays: [],
+    }))
+    const extension = makeWidgetStorageExtension({
+      widget: {...makeWidgetStorageExtension().widget, permissions: ["community:queryEvents"]},
+    })
+    await expect(
+      sendBridgeRequest(new ExtensionBridge(extension as any), extension, "community:queryEvents", {
+        descriptors: [{kind: EVENT_TIME}],
+        refs: [ref],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      events: [original],
+      resolutions: [{ref, status: "found"}],
+    })
+    expect(mocks.loadCommunityEventsWithStatus.mock.calls[0][1]).toContainEqual({
+      ids: [original.id],
+      limit: 1,
+    })
+  })
+
+  it("normalizes address pubkeys but does not case-fold d identifiers", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeExactCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    const original = finalizeEvent(
+      {kind: EVENT_TIME, created_at: 100, tags: [["d", "Case:Sensitive"]], content: ""},
+      new Uint8Array(32).fill(52),
+    )
+    const ref = `${EVENT_TIME}:${calendarWriterPubkey.toUpperCase()}:Case:Sensitive`
+    const wrongCase = `${EVENT_TIME}:${calendarWriterPubkey}:case:sensitive`
+    mocks.loadCommunityEventsWithStatus.mockImplementation(async (_relays, filters) => ({
+      events: [original].filter(event => matchFilters(filters as any, event)),
+      // A later tombstone-only timeout must not undo the completed missing-event lookup.
+      complete: filters.some((filter: any) => filter.kinds?.includes(EVENT_TIME)),
+      timedOutRelays: [],
+      failedRelays: [],
+    }))
+    const extension = makeWidgetStorageExtension({
+      widget: {...makeWidgetStorageExtension().widget, permissions: ["community:queryEvents"]},
+    })
+    await expect(
+      sendBridgeRequest(new ExtensionBridge(extension as any), extension, "community:queryEvents", {
+        descriptors: [{kind: EVENT_TIME}],
+        refs: [ref, wrongCase],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      events: [original],
+      resolutions: [
+        {ref, status: "found"},
+        {ref: wrongCase, status: "missing"},
+      ],
+    })
+  })
+
+  it("applies a cached e deletion only to its version and keeps a newer address replacement", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeExactCommunityDefinition.set(communityDefinition)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    const original = finalizeEvent(
+      {kind: EVENT_TIME, created_at: 100, tags: [["d", "event-1"]], content: "old"},
+      new Uint8Array(32).fill(52),
+    )
+    const newer = finalizeEvent(
+      {kind: EVENT_TIME, created_at: 150, tags: [["d", "event-1"]], content: "new"},
+      new Uint8Array(32).fill(52),
+    )
+    const tombstone = finalizeEvent(
+      {kind: 5, created_at: 200, tags: [["e", original.id]], content: ""},
+      new Uint8Array(32).fill(52),
+    )
+    mocks.repository.query.mockImplementation((filters: any[]) =>
+      [original, tombstone].filter(event => matchFilters(filters, event)),
+    )
+    mocks.loadCommunityEventsWithStatus.mockImplementation(async (_relays, filters) => ({
+      events: [newer, tombstone].filter(event => matchFilters(filters as any, event)),
+      complete: true,
+      timedOutRelays: [],
+      failedRelays: [],
+    }))
+    const extension = makeWidgetStorageExtension({
+      widget: {...makeWidgetStorageExtension().widget, permissions: ["community:queryEvents"]},
+    })
+    await expect(
+      sendBridgeRequest(new ExtensionBridge(extension as any), extension, "community:queryEvents", {
+        descriptors: [{kind: EVENT_TIME}],
+        refs: [calendarEventRef],
+        limit: 5,
+      }),
+    ).resolves.toMatchObject({
+      status: "ok",
+      events: [newer],
+      resolutions: [{ref: calendarEventRef, status: "found"}],
+    })
+    expect(mocks.loadCommunityEventsWithStatus.mock.calls[0][1]).toContainEqual({
+      kinds: [5],
+      authors: [calendarWriterPubkey],
+      "#e": [original.id],
+      limit: 100,
+    })
+    expect(mocks.loadCommunityEventsWithStatus.mock.calls[1][1]).toEqual([
+      {kinds: [5], authors: [calendarWriterPubkey], "#e": [newer.id], limit: 100},
+    ])
   })
 
   it("returns fully cached exact refs without waiting for relay refresh", async () => {

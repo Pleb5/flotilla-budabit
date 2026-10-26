@@ -1,6 +1,10 @@
 import {describe, expect, it} from "vitest"
 import {finalizeEvent, getPublicKey} from "nostr-tools/pure"
-import {exactRefDeletionFilters, resolveExactRefs} from "./exact-ref-resolution"
+import {
+  candidateDeletionFilters,
+  exactRefDeletionFilters,
+  resolveExactRefs,
+} from "./exact-ref-resolution"
 
 const key = new Uint8Array(32).fill(52)
 const author = getPublicKey(key)
@@ -22,6 +26,51 @@ const deletion = (created_at = 200, signer = key, tags = [["a", ref]]) =>
   finalizeEvent({kind: 5, created_at, tags, content: ""}, signer)
 
 describe("exact reference terminal evidence", () => {
+  it("applies an address deletion to an ID pin but keeps a newer version", () => {
+    const old = event()
+    const newer = event(201)
+    expect(
+      resolveExactRefs([old.id.toUpperCase(), newer.id], [old, newer], [deletion()], false, 300),
+    ).toEqual({
+      events: [newer],
+      resolutions: [
+        {ref: old.id.toUpperCase(), status: "deleted"},
+        {ref: newer.id, status: "found"},
+      ],
+    })
+  })
+
+  it("applies an e deletion only to the exact candidate version of an address pin", () => {
+    const old = event()
+    const newer = event(150)
+    const tombstone = deletion(200, key, [["e", old.id]])
+    expect(resolveExactRefs([ref], [old], [tombstone], false, 300).resolutions[0].status).toBe(
+      "deleted",
+    )
+    expect(resolveExactRefs([ref], [old, newer], [tombstone], false, 300).events).toEqual([newer])
+    // Unlike an a tag's cutoff, an e tag references exactly this ID (NIP-09).
+    expect(
+      resolveExactRefs([ref], [old], [deletion(50, key, [["e", old.id]])], false, 300).events,
+    ).toEqual([])
+  })
+
+  it("derives no candidate authority from invalid signatures and coalesces covered filters", () => {
+    const original = event()
+    expect(candidateDeletionFilters([{...original, sig: "0".repeat(128)}], [])).toEqual([])
+    expect(
+      candidateDeletionFilters(
+        [original, original],
+        [{kinds: [5], "#e": [original.id], limit: 100}],
+      ),
+    ).toEqual([{kinds: [5], authors: [author], "#a": [ref], limit: 100}])
+  })
+
+  it("does not treat an a tombstone as authority for an unknown ID", () => {
+    expect(resolveExactRefs([event().id], [], [deletion()], false, 300).resolutions[0].status).toBe(
+      "unavailable",
+    )
+  })
+
   it("preserves an explicitly selected future calendar event", () => {
     const future = finalizeEvent(
       {
