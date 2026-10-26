@@ -29,7 +29,10 @@
   import {onDestroy} from "svelte"
 
   type Props = {
-    onSubmit: (event: EventContent) => Promise<boolean | void>
+    onSubmit: (
+      event: EventContent,
+      submission: {revision: string; isCurrent: () => boolean},
+    ) => Promise<boolean | void>
     disabled?: boolean
     disabledMessage?: string
     submitting?: boolean
@@ -49,6 +52,12 @@
   const uploadStage = writable<BlossomUploadStage>("idle")
   let attachments = $state<DraftAttachment[]>([])
   let submitInFlight = $state(false)
+  const draftId = crypto.randomUUID()
+  let revision = 0
+  let alive = true
+  const edited = () => {
+    revision++
+  }
 
   export const focus = () => {
     if (disabled) return
@@ -59,6 +68,7 @@
     if (disabled || submitInFlight || !files?.length) return
 
     attachments = [...attachments, ...Array.from(files).map(makeDraftAttachment)]
+    edited()
   }
 
   const removeAttachment = (id: string) => {
@@ -66,6 +76,7 @@
     if (attachment) revokeDraftAttachment(attachment)
 
     attachments = attachments.filter(attachment => attachment.id !== id)
+    edited()
   }
 
   const clearAttachments = () => {
@@ -148,6 +159,9 @@
     try {
       const ed = await editor
       const messageText = ed.getText({blockSeparator: "\n"}).trim()
+      const tags = ed.storage.nostr.getEditorTags()
+      const submittedRevision = revision
+      const isCurrent = () => alive && revision === submittedRevision
 
       if (!messageText && attachments.length === 0) return
 
@@ -161,20 +175,25 @@
         return
       }
 
-      const tags = ed.storage.nostr.getEditorTags()
+      if (!alive) return
       tags.push(...uploadedAttachments.map(makeAttachmentImetaTag))
       const content = appendAttachmentUrlsToContent(messageText, uploadedAttachments)
 
       try {
-        const submitted = await onSubmit({content, tags})
+        const submitted = await onSubmit(
+          {content, tags},
+          {revision: `${draftId}:${submittedRevision}`, isCurrent},
+        )
         if (submitted === false) return
       } catch {
         return
       }
 
-      ed.chain().clearContent().run()
-      clearAttachments()
-      uploadStage.set("idle")
+      if (isCurrent()) {
+        ed.chain().clearContent().run()
+        clearAttachments()
+        uploadStage.set("idle")
+      }
     } finally {
       submitInFlight = false
       submitting = false
@@ -190,12 +209,19 @@
     encryptFiles: false,
     inlineUploads: false,
   })
+  editor.then(ed => {
+    if (alive) ed.on("update", edited)
+  })
 
   let attachmentPopover: Instance | undefined = $state()
   let mediaInput: HTMLInputElement | undefined = $state()
   let fileInput: HTMLInputElement | undefined = $state()
 
-  onDestroy(clearAttachments)
+  onDestroy(() => {
+    alive = false
+    editor.then(ed => ed.off("update", edited))
+    clearAttachments()
+  })
 </script>
 
 {#if disabled}

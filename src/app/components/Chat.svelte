@@ -1,6 +1,7 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
   import {onMount, tick} from "svelte"
+  import {SvelteMap} from "svelte/reactivity"
   import {int, sortBy, remove, formatTimestampAsDate, MINUTE} from "@welshman/lib"
   import type {TrustedEvent, EventContent, EventTemplate} from "@welshman/util"
   import {makeEvent} from "@welshman/util"
@@ -149,7 +150,7 @@
     }
   }
 
-  const failedDmPublishThunks = new Map<string, ReturnType<typeof publishThunk>>()
+  const failedDmPublishThunks = new SvelteMap<string, ReturnType<typeof publishThunk>>()
   let replyTarget = $state<TrustedEvent | undefined>()
   let sendingReply = $state(false)
   let composingSend = $state(false)
@@ -175,8 +176,11 @@
   }
   const dmPublishToastIds = new Map<string, string>()
 
-  const onSubmit = async (params: EventContent) => {
-    if (!recipientPubkey || !canSend) return false
+  const onSubmit = async (
+    params: EventContent,
+    submission: {revision: string; isCurrent: () => boolean},
+  ) => {
+    if (!recipientPubkey || !$pubkey) return false
     const sender = $pubkey
     const recipient = recipientPubkey
 
@@ -186,16 +190,12 @@
     const parent = replyTarget
     if (parent && (!$pubkey || !isDmReplyTarget(parent, $pubkey, recipientPubkey))) return false
 
-    const sendRelays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
-
-    if (sendRelays.length === 0) return false
-
     const publishKey = JSON.stringify({
       sender: $pubkey,
       recipient: recipientPubkey,
       reply: parent?.id,
+      revision: submission.revision,
       payload: {content, tags: params.tags},
-      relays: [...new Set(sendRelays)].sort(),
     })
     let thunk = failedDmPublishThunks.get(publishKey)
 
@@ -204,6 +204,9 @@
       if (thunk) {
         thunk = retryThunk(thunk) as ReturnType<typeof publishThunk>
       } else {
+        if (!canSend) return false
+        const sendRelays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
+        if (sendRelays.length === 0) return false
         const activeSigner = signer.get()
 
         if (!activeSigner) {
@@ -255,7 +258,7 @@
     failedDmPublishThunks.delete(publishKey)
     dmPublishToastIds.delete(publishKey)
     repository.publish(thunk.event as TrustedEvent)
-    if (replyTarget === parent) replyTarget = undefined
+    if (submission.isCurrent() && replyTarget === parent) replyTarget = undefined
     showLatestMessages()
     return true
   }
@@ -642,6 +645,6 @@
     bind:this={compose}
     bind:submitting={composingSend}
     {onSubmit}
-    disabled={!canSend}
+    disabled={!canSend && failedDmPublishThunks.size === 0}
     disabledMessage={composeDisabledMessage} />
 </div>

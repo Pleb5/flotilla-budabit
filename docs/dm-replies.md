@@ -17,6 +17,15 @@ flight. A failed send retains both editor content and selected parent; retry use
 the retained event. A successful send clears the selection and reveals the latest
 message window.
 
+Each editor/attachment edit advances the local draft revision, including editing
+back to the same text. A submission captures its text, tags, attachment set and
+revision before upload. Its ACK clears the composer and reply only if that
+revision is still current; newly typed text remains editable and is preserved.
+Destroying the account/conversation composer invalidates pending upload callbacks.
+Retry identity includes account, peer, parent and draft revision, but never the
+current inbox relay lists: an unchanged failed submission reuses its saved signed
+event and destination snapshot even after participant inbox updates.
+
 Rendered quotes use only loaded same-conversation events and local decryption,
 with no rich-content renderer or profile fetch. Clicking a loaded parent reveals
 a bounded existing message window. Missing parents say “Original message
