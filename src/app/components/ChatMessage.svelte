@@ -4,6 +4,7 @@
   import type {TrustedEvent} from "@welshman/util"
   import {pubkey, getPlaintext} from "@welshman/app"
   import {ensureDmPlaintext} from "@app/core/dm"
+  import DmReplyQuote from "./DmReplyQuote.svelte"
   import {isMobile} from "@lib/html"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
@@ -22,9 +23,13 @@
   interface Props {
     event: TrustedEvent
     showPubkey?: boolean
+    reply?: () => void
+    parentId?: string
+    parent?: TrustedEvent
+    locateParent?: () => void
   }
 
-  const {event, showPubkey = false}: Props = $props()
+  const {event, showPubkey = false, reply, parentId, parent, locateParent}: Props = $props()
 
   const isOwn = event.pubkey === $pubkey
   const profileDisplay = deriveBudabitProfileDisplay(event.pubkey)
@@ -32,7 +37,8 @@
 
   const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey})
 
-  const showMobileMenu = () => pushModal(ChatMessageMenuMobile, {event, content: displayContent})
+  const showMobileMenu = () =>
+    pushModal(ChatMessageMenuMobile, {event, content: displayContent, reply})
 
   const togglePopover = () => {
     if (popoverIsVisible) {
@@ -102,7 +108,7 @@
     <Tippy
       bind:popover
       component={ChatMessageMenu}
-      props={{event, popover}}
+      props={{event, popover, reply}}
       params={{
         interactive: true,
         trigger: "manual",
@@ -115,7 +121,8 @@
       }}>
       <button
         type="button"
-        class="opacity-0 transition-all"
+        aria-label="Open message actions"
+        class="opacity-0 transition-all focus:opacity-100"
         class:group-hover:opacity-100={!isMobile}
         onclick={togglePopover}>
         <Icon icon={MenuDots} size={4} />
@@ -146,6 +153,19 @@
         </div>
       {/if}
       <div class="text-sm">
+        {#if parentId}
+          <button
+            type="button"
+            class="mb-2 block w-full text-left"
+            disabled={!parent}
+            onclick={e => {
+              e.stopPropagation()
+              locateParent?.()
+            }}
+            aria-label="Go to original message">
+            <DmReplyQuote {parent} />
+          </button>
+        {/if}
         {#if decrypting}
           <div class="flex flex-col gap-2">
             <div class="h-4 w-40 animate-pulse rounded bg-base-200"></div>

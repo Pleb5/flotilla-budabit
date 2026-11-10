@@ -1,6 +1,7 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
   import {onMount, tick} from "svelte"
+  import {SvelteMap} from "svelte/reactivity"
   import {int, sortBy, remove, formatTimestampAsDate, MINUTE} from "@welshman/lib"
   import type {TrustedEvent, EventContent, EventTemplate} from "@welshman/util"
   import {makeEvent} from "@welshman/util"
@@ -40,6 +41,8 @@
   import ProfileName from "@app/components/ProfileName.svelte"
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ChatMessage from "@app/components/ChatMessage.svelte"
+  import DmReplyQuote from "./DmReplyQuote.svelte"
+  import {dmReplyId, isDmReplyTarget} from "@app/core/dm-replies"
   import DeletionHydration from "@app/components/DeletionHydration.svelte"
   import ChatCompose from "@app/components/ChatCompose.svelte"
   import DmInboxSetup from "@app/components/DmInboxSetup.svelte"
@@ -147,32 +150,63 @@
     }
   }
 
-  const failedDmPublishThunks = new Map<string, ReturnType<typeof publishThunk>>()
+  const failedDmPublishThunks = new SvelteMap<string, ReturnType<typeof publishThunk>>()
+  let replyTarget = $state<TrustedEvent | undefined>()
+  let sendingReply = $state(false)
+  let composingSend = $state(false)
+  const selectReply = (event: TrustedEvent) => {
+    if (
+      sendingReply ||
+      composingSend ||
+      !$pubkey ||
+      !recipientPubkey ||
+      !isDmReplyTarget(event, $pubkey, recipientPubkey)
+    )
+      return
+    replyTarget = event
+    compose?.focus()
+  }
+  const locateParent = async (id: string) => {
+    const index = sortedMessages.findIndex(message => message.id === id)
+    if (index < 0) return
+    messageWindowEnd = sortedMessages[Math.min(sortedMessages.length - 1, index + 10)].id
+    visibleMessageCount = INITIAL_MESSAGE_COUNT
+    await tick()
+    void scrollToEvent(id)
+  }
   const dmPublishToastIds = new Map<string, string>()
 
-  const onSubmit = async (params: EventContent) => {
-    if (!recipientPubkey || !canSend) return false
+  const onSubmit = async (
+    params: EventContent,
+    submission: {revision: string; isCurrent: () => boolean},
+  ) => {
+    if (!recipientPubkey || !$pubkey) return false
+    const sender = $pubkey
+    const recipient = recipientPubkey
 
     const content = params.content.trim()
 
     if (!content) return false
-
-    const sendRelays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
-
-    if (sendRelays.length === 0) return false
+    const parent = replyTarget
+    if (parent && (!$pubkey || !isDmReplyTarget(parent, $pubkey, recipientPubkey))) return false
 
     const publishKey = JSON.stringify({
       sender: $pubkey,
       recipient: recipientPubkey,
+      reply: parent?.id,
+      revision: submission.revision,
       payload: {content, tags: params.tags},
-      relays: [...new Set(sendRelays)].sort(),
     })
     let thunk = failedDmPublishThunks.get(publishKey)
 
     try {
+      sendingReply = true
       if (thunk) {
         thunk = retryThunk(thunk) as ReturnType<typeof publishThunk>
       } else {
+        if (!canSend) return false
+        const sendRelays = getDmPublishRelays(selfInboxRelays, recipientInboxRelays)
+        if (sendRelays.length === 0) return false
         const activeSigner = signer.get()
 
         if (!activeSigner) {
@@ -180,11 +214,15 @@
         }
 
         const encrypted = await activeSigner.nip44.encrypt(recipientPubkey, content)
+        if ($pubkey !== sender || recipientPubkey !== recipient || signer.get() !== activeSigner)
+          throw new Error("Conversation changed. Message was not sent.")
         const template: EventTemplate = makeEvent(DM_KIND, {
           content: encrypted,
-          tags: [["p", recipientPubkey]],
+          tags: [["p", recipientPubkey], ...(parent ? [["e", parent.id, "", "reply"]] : [])],
         })
         const signedEvent = await signEventForPublication(template)
+        if ($pubkey !== sender || recipientPubkey !== recipient || signedEvent.pubkey !== sender)
+          throw new Error("Account changed. Message was not sent.")
 
         thunk = publishThunk({
           event: signedEvent,
@@ -213,11 +251,15 @@
         message: error instanceof Error ? error.message : "Failed to send message.",
       })
       return false
+    } finally {
+      sendingReply = false
     }
 
     failedDmPublishThunks.delete(publishKey)
     dmPublishToastIds.delete(publishKey)
     repository.publish(thunk.event as TrustedEvent)
+    if (submission.isCurrent() && replyTarget === parent) replyTarget = undefined
+    showLatestMessages()
     return true
   }
 
@@ -367,6 +409,7 @@
     const chatId = `${$pubkey}:${recipientPubkey}`
     if (chatId !== activeChatId) {
       activeChatId = chatId
+      replyTarget = undefined
       visibleMessageCount = INITIAL_MESSAGE_COUNT
       messageWindowEnd = undefined
     }
@@ -463,7 +506,9 @@
   relays={[...selfInboxRelays, ...recipientInboxRelays]}
   targets={visibleMessages}
   filters={$pubkey ? [{kinds: [5], authors: [...new Set([$pubkey, ...others])]}] : []}
-  ready={Boolean($pubkey && recipientPubkey && (visibleMessages.length || history.initialComplete))} />
+  ready={Boolean(
+    $pubkey && recipientPubkey && (visibleMessages.length || history.initialComplete),
+  )} />
 
 <PageBar>
   {#snippet title()}
@@ -548,7 +593,18 @@
     {#if type === "date"}
       <Divider>{value}</Divider>
     {:else}
-      <ChatMessage event={value as TrustedEvent} {showPubkey} />
+      {@const event = value as TrustedEvent}
+      {@const parentId = dmReplyId(event)}
+      {@const parent = sortedMessages.find(
+        message => message.id === parentId && isDmReplyTarget(message, $pubkey!, recipientPubkey!),
+      )}
+      <ChatMessage
+        {event}
+        {showPubkey}
+        {parentId}
+        {parent}
+        reply={() => selectReply(event)}
+        locateParent={() => parentId && locateParent(parentId)} />
     {/if}
   {/each}
   <div class="m-auto flex max-w-sm flex-col items-center justify-center gap-4 py-8 text-center">
@@ -573,9 +629,22 @@
 </PageContent>
 
 <div class="chat__compose bg-base-200" bind:this={chatCompose}>
+  {#if replyTarget}
+    <div class="flex items-center gap-2 px-4 pt-2">
+      <div class="min-w-0 flex-1">
+        <div class="text-xs">Replying to</div>
+        <DmReplyQuote parent={replyTarget} />
+      </div>
+      <Button
+        class="btn btn-ghost btn-sm"
+        disabled={sendingReply || composingSend}
+        onclick={() => (replyTarget = undefined)}>Cancel reply</Button>
+    </div>
+  {/if}
   <ChatCompose
     bind:this={compose}
+    bind:submitting={composingSend}
     {onSubmit}
-    disabled={!canSend}
+    disabled={!canSend && failedDmPublishThunks.size === 0}
     disabledMessage={composeDisabledMessage} />
 </div>

@@ -356,4 +356,43 @@ describe("Budabit profile resolver", () => {
 
     unsubscribe()
   })
+
+  it.each(["empty", "failed"])(
+    "retries %s explicit metadata reads after the cooldown",
+    async outcome => {
+      const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000)
+      try {
+        const {loadBudabitProfile} = await import("./profile-resolver")
+        if (outcome === "failed") mocks.request.mockRejectedValueOnce(new Error("offline"))
+        await loadBudabitProfile(pubkey, {relays: ["wss://community.example"]})
+        await loadBudabitProfile(pubkey, {relays: ["wss://community.example"]})
+        expect(mocks.request).toHaveBeenCalledTimes(1)
+        clock.mockReturnValue(1_060_001)
+        await loadBudabitProfile(pubkey, {relays: ["wss://community.example"]})
+        expect(mocks.request).toHaveBeenCalledTimes(2)
+      } finally {
+        clock.mockRestore()
+      }
+    },
+  )
+
+  it("shares late exact-author metadata across groups and a newly opened modal", async () => {
+    const {deriveBudabitProfile} = await import("./profile-resolver")
+    const values: any[] = []
+    const unsubscribers = [0, 1, 2].map(index =>
+      deriveBudabitProfile(pubkey, {relays: ["wss://community.example"]}).subscribe(value => {
+        values[index] = value
+      }),
+    )
+    const profile = {name: "Same applicant", event: {pubkey}}
+    mocks.profilesByPubkey.set(new Map([[pubkey, profile]]))
+    unsubscribers.push(
+      deriveBudabitProfile(pubkey).subscribe(value => {
+        values[3] = value
+      }),
+    )
+    expect(values).toEqual([profile, profile, profile, profile])
+    expect(mocks.request).toHaveBeenCalledTimes(1)
+    unsubscribers.forEach(unsubscribe => unsubscribe())
+  })
 })

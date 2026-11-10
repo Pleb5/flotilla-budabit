@@ -8,7 +8,7 @@
   import Code2 from "@assets/icons/code-2.svg?dataurl"
   import TrashBin2 from "@assets/icons/trash-bin-2.svg?dataurl"
 
-  const {event, popover} = $props()
+  const {event, popover, reply} = $props()
 
   const showInfo = () => {
     popover.hide()
@@ -22,6 +22,13 @@
 </script>
 
 <div class="join border border-solid border-neutral text-xs">
+  {#if reply}<Button
+      class="btn join-item btn-xs"
+      onclick={() => {
+        popover.hide()
+        reply()
+      }}>Reply</Button
+    >{/if}
   {#if event.pubkey === $pubkey}
     <Button class="btn join-item btn-xs text-error" onclick={showDelete}>
       <Icon size={4} icon={TrashBin2} />

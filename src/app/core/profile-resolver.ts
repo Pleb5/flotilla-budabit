@@ -27,7 +27,7 @@ export type ProfileResolutionOptions = {
 // Bounded LRUs: profile attempt/completion bookkeeping is keyed by pubkey and
 // pubkey-plus-relay-list permutations, which otherwise grow for the app lifetime.
 const attemptedRelaysByPubkey = new LRUCache<string, Set<string>>(2000)
-const attemptedExplicitRelaysByPubkey = new LRUCache<string, Set<string>>(2000)
+const attemptedExplicitRelaysByPubkey = new LRUCache<string, Map<string, number>>(2000)
 const profileLoadPromisesByKey = new Map<string, Promise<PublishedProfile | undefined>>()
 const explicitProfileLoadPromisesByKey = new Map<string, Promise<void>>()
 const completedProfileLoadTimesByKey = new LRUCache<string, number>(2000)
@@ -161,11 +161,20 @@ const getBudabitProfileLoadRelays = (
   ])
 
 const requestNewExplicitProfileRelays = (pubkey: string, relays: string[]) => {
-  const attemptedRelays = attemptedExplicitRelaysByPubkey.get(pubkey) || new Set<string>()
-  const newRelays = relays.filter(relay => !attemptedRelays.has(relay))
+  const attemptedRelays = attemptedExplicitRelaysByPubkey.get(pubkey) || new Map<string, number>()
+  const missingProfile = !hasProfileDisplayData(get(profilesByPubkey).get(pubkey))
+  const newRelays = relays.filter(relay => {
+    const completedAt = attemptedRelays.get(relay)
+    return (
+      completedAt === undefined ||
+      (missingProfile && Date.now() - completedAt >= PROFILE_LOAD_RETRY_MS)
+    )
+  })
   if (newRelays.length === 0) return undefined
 
-  for (const relay of newRelays) attemptedRelays.add(relay)
+  // In-flight reads must not expire. Empty/failed reads may be retried by a later
+  // row or profile modal, without permanently negative-caching community hints.
+  for (const relay of newRelays) attemptedRelays.set(relay, Infinity)
   attemptedExplicitRelaysByPubkey.set(pubkey, attemptedRelays)
 
   const key = `${pubkey}\n${newRelays.join("\n")}`
@@ -174,7 +183,10 @@ const requestNewExplicitProfileRelays = (pubkey: string, relays: string[]) => {
 
   const promise = requestProfileGroup({pubkeys: [pubkey], relays: newRelays})
     .catch(() => undefined)
-    .finally(() => explicitProfileLoadPromisesByKey.delete(key)) as Promise<void>
+    .finally(() => {
+      for (const relay of newRelays) attemptedRelays.set(relay, Date.now())
+      explicitProfileLoadPromisesByKey.delete(key)
+    }) as Promise<void>
   explicitProfileLoadPromisesByKey.set(key, promise)
   return promise
 }

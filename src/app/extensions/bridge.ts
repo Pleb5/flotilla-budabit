@@ -11,6 +11,12 @@ import {
   type TrustedEvent,
 } from "@welshman/util"
 import {verifyEvent} from "nostr-tools/pure"
+import {
+  candidateDeletionFilters,
+  exactRefDeletionFilters,
+  normalizeExactRef,
+  resolveExactRefs,
+} from "./exact-ref-resolution"
 import {pushToast} from "@app/util/toast"
 import {activeRepoClass} from "@app/core/git-state"
 import {
@@ -1336,7 +1342,7 @@ const exactCommunityRefsCovered = (refs: string[], events: any[]) =>
     events.some(event => {
       if (HEX_EVENT_ID.test(ref)) return String(event?.id || "").toLowerCase() === ref.toLowerCase()
 
-      return getBridgeEventAddress(event).toLowerCase() === ref.toLowerCase()
+      return normalizeExactRef(getBridgeEventAddress(event)) === normalizeExactRef(ref)
     }),
   )
 
@@ -1854,14 +1860,22 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       snapshot.community.communityId,
       descriptorInfos,
     )
+    const baseDeletionFilters = exactRefDeletionFilters(exactRefFilters)
+    const deletionFilters = [
+      ...baseDeletionFilters,
+      ...candidateDeletionFilters(authorizedCachedExactRefEvents, baseDeletionFilters),
+    ]
+    const exactLookupFilters = [...exactRefFilters, ...deletionFilters]
+    const cachedDeletions = queryCachedBridgeEvents(deletionFilters)
 
     if (
       request.refs?.length &&
-      exactCommunityRefsCovered(request.refs, authorizedCachedExactRefEvents)
+      exactCommunityRefsCovered(request.refs, authorizedCachedExactRefEvents) &&
+      !cachedDeletions.length
     ) {
       void loadBridgeEventsWithStatus({
         relays: exactRefRelays,
-        filters: exactRefFilters,
+        filters: exactLookupFilters,
         authenticate: true,
         priorityAuthRelays: snapshot.relayHints,
         settle: "all",
@@ -1887,7 +1901,7 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
 
     const loadedExactRefResult = await loadBridgeEventsWithStatus({
       relays: exactRefRelays,
-      filters: exactRefFilters,
+      filters: exactLookupFilters,
       authenticate: true,
       priorityAuthRelays: snapshot.relayHints,
       settle: "all",
@@ -1900,17 +1914,47 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
     )
 
     if (request.refs?.length) {
+      // One follow-up on the same relay set for the other representation of newly
+      // discovered verified candidates. No broad discovery or recursive lookups.
+      const followupFilters = candidateDeletionFilters(exactRefEvents, deletionFilters)
+      const cachedFollowup = queryCachedBridgeEvents(followupFilters)
+      const followup = followupFilters.length
+        ? await loadBridgeEventsWithStatus({
+            relays: exactRefRelays,
+            filters: followupFilters,
+            authenticate: true,
+            priorityAuthRelays: snapshot.relayHints,
+            settle: "all",
+          })
+        : {events: [], complete: true}
+      const resolved = resolveExactRefs(
+        request.refs,
+        exactRefEvents,
+        [
+          ...cachedDeletions,
+          ...cachedFollowup,
+          ...loadedExactRefResult.events,
+          ...followup.events,
+        ].filter(event => matchFilters([...deletionFilters, ...followupFilters] as any, event)),
+        // Only the original event query establishes absence. Follow-up tombstone
+        // queries cannot discover an otherwise missing event or revoke that EOSE.
+        loadedExactRefResult.complete,
+      )
       const allEvents = sortCommunityQueryEvents(
         filterCommunityDescriptorEvents(
-          exactRefEvents as any,
+          resolved.events as any,
           snapshot.community.communityId,
           descriptorInfos.map(info => info.descriptor),
         ),
       )
-      const page = makeCommunityQueryPage(allEvents, request.limit, loadedExactRefResult.complete)
+      const page = makeCommunityQueryPage(
+        allEvents,
+        request.limit,
+        resolved.resolutions.every(item => item.status !== "unavailable"),
+      )
       const events = page.events
 
-      if (!exactCommunityRefsCovered(request.refs, events) && !loadedExactRefResult.complete) {
+      if (resolved.resolutions.some(item => item.status === "unavailable")) {
         throw makeCommunityQueryTimeoutError()
       }
 
@@ -1925,6 +1969,7 @@ registerBridgeHandler("community:queryEvents", async (payload, ext) => {
       return {
         status: "ok",
         ...page,
+        resolutions: resolved.resolutions,
         relays: snapshot.relays,
         descriptors: descriptorInfos.map(info => info.descriptor),
         contextSessionId: snapshot.contextSessionId,

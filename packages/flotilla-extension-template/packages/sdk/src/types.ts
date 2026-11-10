@@ -337,6 +337,8 @@ export type CommunityQueryEventsResponse =
   | {
       status: 'ok';
       events: NostrEvent[];
+      /** Exact-ref evidence only; absent on older hosts. Missing requires completed coverage. */
+      resolutions?: Array<{ref: string; status: 'found' | 'deleted' | 'missing' | 'unavailable'}>;
       hasMore: boolean;
       nextUntil?: number;
       relays: string[];

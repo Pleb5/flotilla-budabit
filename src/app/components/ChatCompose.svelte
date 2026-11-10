@@ -29,15 +29,20 @@
   import {onDestroy} from "svelte"
 
   type Props = {
-    onSubmit: (event: EventContent) => Promise<boolean | void>
+    onSubmit: (
+      event: EventContent,
+      submission: {revision: string; isCurrent: () => boolean},
+    ) => Promise<boolean | void>
     disabled?: boolean
     disabledMessage?: string
+    submitting?: boolean
   }
 
-  const {
+  let {
     onSubmit,
     disabled = false,
     disabledMessage = "Direct messages are unavailable.",
+    submitting = $bindable(false),
   }: Props = $props()
 
   const autofocus = !isMobile && !disabled
@@ -47,6 +52,12 @@
   const uploadStage = writable<BlossomUploadStage>("idle")
   let attachments = $state<DraftAttachment[]>([])
   let submitInFlight = $state(false)
+  const draftId = crypto.randomUUID()
+  let revision = 0
+  let alive = true
+  const edited = () => {
+    revision++
+  }
 
   export const focus = () => {
     if (disabled) return
@@ -57,6 +68,7 @@
     if (disabled || submitInFlight || !files?.length) return
 
     attachments = [...attachments, ...Array.from(files).map(makeDraftAttachment)]
+    edited()
   }
 
   const removeAttachment = (id: string) => {
@@ -64,6 +76,7 @@
     if (attachment) revokeDraftAttachment(attachment)
 
     attachments = attachments.filter(attachment => attachment.id !== id)
+    edited()
   }
 
   const clearAttachments = () => {
@@ -141,10 +154,14 @@
     if (disabled || submitInFlight || $uploading) return
 
     submitInFlight = true
+    submitting = true
 
     try {
       const ed = await editor
       const messageText = ed.getText({blockSeparator: "\n"}).trim()
+      const tags = ed.storage.nostr.getEditorTags()
+      const submittedRevision = revision
+      const isCurrent = () => alive && revision === submittedRevision
 
       if (!messageText && attachments.length === 0) return
 
@@ -158,22 +175,28 @@
         return
       }
 
-      const tags = ed.storage.nostr.getEditorTags()
+      if (!alive) return
       tags.push(...uploadedAttachments.map(makeAttachmentImetaTag))
       const content = appendAttachmentUrlsToContent(messageText, uploadedAttachments)
 
       try {
-        const submitted = await onSubmit({content, tags})
+        const submitted = await onSubmit(
+          {content, tags},
+          {revision: `${draftId}:${submittedRevision}`, isCurrent},
+        )
         if (submitted === false) return
       } catch {
         return
       }
 
-      ed.chain().clearContent().run()
-      clearAttachments()
-      uploadStage.set("idle")
+      if (isCurrent()) {
+        ed.chain().clearContent().run()
+        clearAttachments()
+        uploadStage.set("idle")
+      }
     } finally {
       submitInFlight = false
+      submitting = false
     }
   }
 
@@ -186,12 +209,19 @@
     encryptFiles: false,
     inlineUploads: false,
   })
+  editor.then(ed => {
+    if (alive) ed.on("update", edited)
+  })
 
   let attachmentPopover: Instance | undefined = $state()
   let mediaInput: HTMLInputElement | undefined = $state()
   let fileInput: HTMLInputElement | undefined = $state()
 
-  onDestroy(clearAttachments)
+  onDestroy(() => {
+    alive = false
+    editor.then(ed => ed.off("update", edited))
+    clearAttachments()
+  })
 </script>
 
 {#if disabled}
@@ -240,6 +270,7 @@
         params={{trigger: "manual", interactive: true}}>
         <Button
           data-tip="Attach file"
+          aria-label="Attach file"
           class="center tooltip tooltip-right h-10 w-10 min-w-10 rounded-box bg-base-300 transition-colors hover:bg-base-200"
           disabled={submitInFlight || $uploading}
           onclick={showAttachmentPopover}>
@@ -255,6 +286,7 @@
       </div>
       <Button
         data-tip={!isMobile ? sendShortcut : undefined}
+        aria-label="Send message"
         class={`center absolute right-2 h-10 w-10 min-w-10 rounded-full ${!isMobile ? "tooltip tooltip-left" : ""}`}
         disabled={submitInFlight || $uploading}
         onclick={submit}>
