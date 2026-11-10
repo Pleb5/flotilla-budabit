@@ -53,8 +53,8 @@ const mocks = vi.hoisted(() => {
     async (relays: string[], filters: any[], options?: any) => ({
       events: await loadCommunityEvents(relays, filters, options),
       complete: true,
-      timedOutRelays: [],
-      failedRelays: [],
+      timedOutRelays: [] as string[],
+      failedRelays: [] as string[],
     }),
   )
   const authenticateCommunityRelays = vi.fn(async () => undefined)
@@ -3831,7 +3831,7 @@ describe("ExtensionBridge", () => {
       {kind: 5, created_at: 200, tags: [["e", original.id]], content: ""},
       new Uint8Array(32).fill(52),
     )
-    mocks.repository.query.mockImplementation((filters: any[]) =>
+    mocks.repository.query.mockImplementation((filters: any[] = []) =>
       [original, tombstone].filter(event => matchFilters(filters, event)),
     )
     mocks.loadCommunityEventsWithStatus.mockImplementation(async (_relays, filters) => ({
