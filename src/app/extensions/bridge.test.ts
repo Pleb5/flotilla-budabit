@@ -69,7 +69,7 @@ const mocks = vi.hoisted(() => {
     authenticateCommunityRelays,
     getPubkeyOutboxRelays,
     pushToast: vi.fn(),
-    repository: {query: vi.fn((_filters?: any[]) => [] as any[])},
+    repository: {query: vi.fn((_filters?: any[]) => [] as any[]), publish: vi.fn()},
     signer: createStore(null),
     pubkey: createStore(undefined as string | undefined),
     goto: vi.fn(),
@@ -2480,11 +2480,53 @@ describe("ExtensionBridge", () => {
       }),
     ).resolves.toMatchObject({status: "ok", eventId: "published-config"})
     expect(mocks.publishThunk).toHaveBeenCalledTimes(1)
+    expect(mocks.publishThunk).toHaveBeenCalledWith(expect.objectContaining({optimistic: false}))
+    expect(mocks.repository.publish).toHaveBeenCalledWith({id: "published-config"})
     expect(mocks.loadCommunityEventsWithStatus).toHaveBeenCalledWith(
       ["wss://relay.example.com/"],
       expect.any(Array),
       expect.objectContaining({authenticate: true}),
     )
+  })
+
+  it("returns relay rejection details without caching an unaccepted shared config", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    mocks.activeExactCommunityDefinition.set(communityDefinitionWithRelays)
+    mocks.activeCommunityProfileListEvents.set([calendarProfileList])
+    mocks.pubkey.set(calendarWriterPubkey)
+    mocks.publishThunk.mockReturnValue({
+      complete: Promise.resolve(),
+      results: {
+        "wss://relay.example.com/": {
+          status: "failure",
+          detail: "blocked: not a current writer for section",
+        },
+      },
+      event: {id: "unaccepted-config"},
+    })
+    const extension = makeWidgetStorageExtension({
+      widget: {
+        ...makeWidgetStorageExtension().widget,
+        permissions: ["community:publishSharedConfig"],
+      },
+    })
+    const response = await sendBridgeRequest(
+      new ExtensionBridge(extension as any),
+      extension,
+      "community:publishSharedConfig",
+      {
+        namespace: "budabit-community-call",
+        key: "active-call",
+        descriptors: [{kind: EVENT_TIME}],
+        config: {status: "live"},
+      },
+    )
+    expect(response).toMatchObject({
+      code: "COMMUNITY_CONFIG_PUBLISH_FAILED",
+      error: expect.stringContaining("blocked: not a current writer for section"),
+    })
+    expect(mocks.publishThunk).toHaveBeenCalledWith(expect.objectContaining({optimistic: false}))
+    expect(mocks.repository.publish).not.toHaveBeenCalled()
   })
 
   it("rejects stale shared config revisions without publishing", async () => {

@@ -18,6 +18,7 @@ import {
   resolveExactRefs,
 } from "./exact-ref-resolution"
 import {pushToast} from "@app/util/toast"
+import {formatRelayPublishFailure} from "@app/core/relay-publish-outcomes"
 import {activeRepoClass} from "@app/core/git-state"
 import {
   activeExactCommunityDefinition,
@@ -2427,14 +2428,34 @@ registerBridgeHandler("community:publishSharedConfig", async (payload, ext) => {
       }
     }
 
-    const thunk = (publishThunk as any)({event, relays: snapshot.publishRelays})
+    // Shared state is authoritative only after relay acceptance. An optimistic
+    // repository entry would be returned by querySharedConfig after a failure.
+    const thunk = (publishThunk as any)({event, relays: snapshot.publishRelays, optimistic: false})
     await thunk.complete
     const successCount = Object.values(thunk.results || {}).filter(
       (result: any) => result?.status === PublishStatus.Success,
     ).length
     if (successCount === 0) {
-      throw new Error("Shared community config was not accepted by any relay")
+      throw Object.assign(
+        new Error(
+          formatRelayPublishFailure(
+            Object.fromEntries(
+              Object.entries(thunk.results || {}).map(([relay, result]) => [
+                safeRelayEndpoint(relay),
+                result,
+              ]),
+            ) as any,
+            {
+              expectedRelays: snapshot.publishRelays.map(safeRelayEndpoint),
+              fallback: "Shared community config was not accepted by any relay",
+            },
+          ),
+        ),
+        {code: "COMMUNITY_CONFIG_PUBLISH_FAILED"},
+      )
     }
+
+    if (thunk.event) repository.publish(thunk.event)
 
     return {
       status: "ok",
