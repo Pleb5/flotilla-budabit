@@ -121,7 +121,9 @@
   const appUrl = $derived(appUrls[appUrlIndex])
   const frameAllow = $derived.by(() => {
     const permissions = new Set(widget.permissions || [])
-    const allow = new Set(["autoplay", "clipboard-write", "fullscreen"])
+    // Widget artifacts can redirect to a CDN and contain nested call frames.
+    // Clipboard and native sharing must be delegated through both boundaries.
+    const allow = new Set(["autoplay", "clipboard-write *", "web-share *", "fullscreen"])
 
     if (permissions.has("media:camera")) allow.add("camera *")
     if (permissions.has("media:microphone")) allow.add("microphone *")
