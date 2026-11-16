@@ -29,6 +29,7 @@
     SECURE_EMBED_URL_REQUIREMENT,
   } from "@app/extensions/url-policy"
   import {theme} from "@app/util/theme"
+  import WidgetPresentation from "./WidgetPresentation.svelte"
 
   type Props = {
     widget: SmartWidgetEvent
@@ -123,7 +124,7 @@
     const permissions = new Set(widget.permissions || [])
     // Widget artifacts can redirect to a CDN and contain nested call frames.
     // Clipboard and native sharing must be delegated through both boundaries.
-    const allow = new Set(["autoplay", "clipboard-write *", "web-share *", "fullscreen"])
+    const allow = new Set(["autoplay", "clipboard-write *", "web-share *", "fullscreen *"])
 
     if (permissions.has("media:camera")) allow.add("camera *")
     if (permissions.has("media:microphone")) allow.add("microphone *")
@@ -757,65 +758,71 @@
   })
 </script>
 
-<div
-  bind:this={frameWrapperRef}
-  class={`relative overflow-hidden bg-transparent ${className}`}
-  data-widget-visibility={visibility}
-  data-widget-state={presentationFailed ? "error" : presentationReady ? "ready" : "loading"}
-  aria-busy={surfaceVisible && !presentationReady && !presentationFailed}
-  style={frameWrapperStyle}>
-  {#if surfaceVisible && (!presentationReady || presentationFailed)}
-    <div class="z-10 absolute inset-0 flex items-center justify-center bg-base-200">
-      {#if presentationFailed}
-        <div class="flex max-w-sm flex-col items-center gap-3 p-4 text-center text-sm">
-          <p role="status" class="opacity-75">
-            {appUrl
-              ? `${widgetTitle} is taking too long to load.`
-              : widget.appUrl
-                ? `This widget cannot be opened. ${SECURE_EMBED_URL_REQUIREMENT}`
-                : "This widget does not have an app URL."}
-          </p>
-          {#if appUrl}
-            <button
-              type="button"
-              class="btn btn-primary btn-sm"
-              onclick={() => retryIframeLoad(true)}>
-              Retry widget
-            </button>
-          {/if}
-        </div>
-      {:else if autoHeight}
-        <div
-          class="w-full max-w-lg space-y-4 p-6 motion-safe:animate-pulse"
-          role="status"
-          aria-label={`Loading ${widgetTitle}`}>
-          <span class="sr-only">Loading {widgetTitle}…</span>
-          <div aria-hidden="true" class="h-5 w-2/5 rounded bg-base-content/25"></div>
-          <div aria-hidden="true" class="h-4 w-full rounded bg-base-content/20"></div>
-          <div aria-hidden="true" class="h-4 w-4/5 rounded bg-base-content/20"></div>
-          <div aria-hidden="true" class="h-10 w-32 rounded-box bg-base-content/25"></div>
-        </div>
-      {:else}
-        <div role="status" class="flex flex-col items-center gap-3">
-          <span aria-hidden="true" class="loading loading-spinner loading-lg"></span>
-          <span class="text-sm opacity-75">Loading {widgetTitle}…</span>
-        </div>
-      {/if}
-    </div>
-  {/if}
-  {#if appUrl}
-    <iframe
-      bind:this={iframeRef}
-      src={frameSrc}
-      title={widget.content || widget.identifier}
-      class={frameClass}
-      style={`background: transparent; ${!surfaceVisible ? `height: ${Math.max(minHeight, 220)}px; visibility: hidden;` : ""}`}
-      inert={!surfaceVisible || !presentationReady || presentationFailed}
-      aria-hidden={!surfaceVisible || !presentationReady || presentationFailed}
-      allow={frameAllow}
-      allowtransparency={true}
-      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation"
-      onload={onIframeLoad}
-      onerror={onIframeError}></iframe>
-  {/if}
-</div>
+<WidgetPresentation
+  title={widgetTitle}
+  enabled={surfaceVisible &&
+    presentationReady &&
+    ["community-call", "community-stream"].includes(widget.identifier || "")}>
+  <div
+    bind:this={frameWrapperRef}
+    class={`relative overflow-hidden bg-transparent ${className}`}
+    data-widget-visibility={visibility}
+    data-widget-state={presentationFailed ? "error" : presentationReady ? "ready" : "loading"}
+    aria-busy={surfaceVisible && !presentationReady && !presentationFailed}
+    style={frameWrapperStyle}>
+    {#if surfaceVisible && (!presentationReady || presentationFailed)}
+      <div class="z-10 absolute inset-0 flex items-center justify-center bg-base-200">
+        {#if presentationFailed}
+          <div class="flex max-w-sm flex-col items-center gap-3 p-4 text-center text-sm">
+            <p role="status" class="opacity-75">
+              {appUrl
+                ? `${widgetTitle} is taking too long to load.`
+                : widget.appUrl
+                  ? `This widget cannot be opened. ${SECURE_EMBED_URL_REQUIREMENT}`
+                  : "This widget does not have an app URL."}
+            </p>
+            {#if appUrl}
+              <button
+                type="button"
+                class="btn btn-primary btn-sm"
+                onclick={() => retryIframeLoad(true)}>
+                Retry widget
+              </button>
+            {/if}
+          </div>
+        {:else if autoHeight}
+          <div
+            class="w-full max-w-lg space-y-4 p-6 motion-safe:animate-pulse"
+            role="status"
+            aria-label={`Loading ${widgetTitle}`}>
+            <span class="sr-only">Loading {widgetTitle}…</span>
+            <div aria-hidden="true" class="h-5 w-2/5 rounded bg-base-content/25"></div>
+            <div aria-hidden="true" class="h-4 w-full rounded bg-base-content/20"></div>
+            <div aria-hidden="true" class="h-4 w-4/5 rounded bg-base-content/20"></div>
+            <div aria-hidden="true" class="h-10 w-32 rounded-box bg-base-content/25"></div>
+          </div>
+        {:else}
+          <div role="status" class="flex flex-col items-center gap-3">
+            <span aria-hidden="true" class="loading loading-spinner loading-lg"></span>
+            <span class="text-sm opacity-75">Loading {widgetTitle}…</span>
+          </div>
+        {/if}
+      </div>
+    {/if}
+    {#if appUrl}
+      <iframe
+        bind:this={iframeRef}
+        src={frameSrc}
+        title={widget.content || widget.identifier}
+        class={frameClass}
+        style={`background: transparent; ${!surfaceVisible ? `height: ${Math.max(minHeight, 220)}px; visibility: hidden;` : ""}`}
+        inert={!surfaceVisible || !presentationReady || presentationFailed}
+        aria-hidden={!surfaceVisible || !presentationReady || presentationFailed}
+        allow={frameAllow}
+        allowtransparency={true}
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation-by-user-activation"
+        onload={onIframeLoad}
+        onerror={onIframeError}></iframe>
+    {/if}
+  </div>
+</WidgetPresentation>

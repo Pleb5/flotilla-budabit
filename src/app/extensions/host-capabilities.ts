@@ -84,6 +84,7 @@ export const getHostCapabilitySnapshot = ({
       "profiles.liveUpdates": true,
       "storage.compareAndSet": supportsAtomicStorage(),
       "community.sharedConfigRefresh": true,
+      "community.localMediaState": true,
       "widget.theme": true,
       "widget.visibility": true,
     },
@@ -94,7 +95,8 @@ export const getHostCapabilitySnapshot = ({
       nostrSubscriptionsPerRelay: MAX_EXTENSION_SUBSCRIPTIONS_PER_RELAY,
       storageKeyLength: MAX_STORAGE_KEY_LENGTH,
       storageValueBytes: MAX_STORAGE_VALUE_SIZE,
-      widgetResizeHeight: slot === "repo-tab" ? MAX_REPO_TAB_RESIZE_HEIGHT : MAX_WIDGET_RESIZE_HEIGHT,
+      widgetResizeHeight:
+        slot === "repo-tab" ? MAX_REPO_TAB_RESIZE_HEIGHT : MAX_WIDGET_RESIZE_HEIGHT,
       profilePubkeys: MAX_WIDGET_PROFILE_PUBKEYS,
     },
     surface: {

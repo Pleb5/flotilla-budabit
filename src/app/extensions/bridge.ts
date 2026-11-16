@@ -11,6 +11,7 @@ import {
   type TrustedEvent,
 } from "@welshman/util"
 import {verifyEvent} from "nostr-tools/pure"
+import {communityMediaCoordinator} from "./community-media-state"
 import {
   candidateDeletionFilters,
   exactRefDeletionFilters,
@@ -570,6 +571,15 @@ export class ExtensionBridge {
     communityRuntimeContext?: CommunityWidgetRuntimeContext | null,
   ): void {
     if (this.extension.type === "widget") {
+      const previous = this.extension.communityContext
+      if (
+        previous?.definitionAddress !== communityContext?.definitionAddress ||
+        previous?.viewer.pubkey !== communityContext?.viewer.pubkey ||
+        previous?.contextSessionId !== communityContext?.contextSessionId ||
+        previous?.contextVersion !== communityContext?.contextVersion
+      ) {
+        communityMediaCoordinator.remove(this)
+      }
       this.extension.communityContext = communityContext || undefined
       this.extension.communityRuntimeContext = communityRuntimeContext || undefined
       this.profiles?.contextChanged()
@@ -579,6 +589,7 @@ export class ExtensionBridge {
 
   detach(): void {
     this.detached = true
+    communityMediaCoordinator.remove(this)
     if (this.listener) window.removeEventListener("message", this.listener)
     cleanupExtensionSubscriptions(this.extension.id)
     this.profiles?.close()
@@ -700,6 +711,32 @@ export class ExtensionBridge {
       ...new Set([...(context?.relays || []), ...(context?.relayHints || [])]),
     ])
     return {status: "ok" as const}
+  }
+
+  communityMediaState(payload: any, write = false) {
+    const context = this.extension.type === "widget" ? this.extension.communityContext : undefined
+    if (
+      this.detached ||
+      !context?.definitionAddress ||
+      payload?.contextSessionId !== context.contextSessionId ||
+      payload?.contextVersion !== context.contextVersion
+    ) {
+      throw Object.assign(new Error("Community media context is not current"), {
+        code: "COMMUNITY_CONTEXT_CHANGED",
+      })
+    }
+    if (!write) {
+      return communityMediaCoordinator.watch(this, context, state =>
+        this.post("community:mediaStateChanged", state),
+      )
+    }
+    if (!["call", "broadcast"].includes(payload.activity) || typeof payload.active !== "boolean") {
+      throw new Error("Invalid local media activity")
+    }
+    if (payload.active && (!context.viewer.pubkey || context.viewer.isBanned)) {
+      throw new Error("A current signed-in community viewer is required")
+    }
+    return communityMediaCoordinator.set(this, context, payload.activity, payload.active)
   }
 
   async messagingRequest(
@@ -1796,6 +1833,16 @@ const hydrateCommunityRequestSnapshot = async (
 
 const getHydratedCommunityRequestSnapshot = async (ext: LoadedExtension) =>
   hydrateCommunityRequestSnapshot(getCommunityRequestSnapshot(ext))
+
+registerBridgeHandler("community:getMediaState", (payload, _ext, bridge) => {
+  if (!bridge) throw new Error("Widget bridge required")
+  return bridge.communityMediaState(payload)
+})
+
+registerBridgeHandler("community:setMediaState", (payload, _ext, bridge) => {
+  if (!bridge) throw new Error("Widget bridge required")
+  return bridge.communityMediaState(payload, true)
+})
 
 registerBridgeHandler("community:checkWriteCapabilities", async (payload, ext) => {
   if (ext) console.log(`[bridge] community:checkWriteCapabilities from ${ext.id}`, payload)

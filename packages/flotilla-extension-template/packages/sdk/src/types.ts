@@ -348,6 +348,24 @@ export type CommunityQueryEventsResponse =
     }
   | BridgeError;
 
+// --- community local media state (page/tab only; never OBS output status) ---
+
+export type CommunityMediaStateRequest = {
+  contextSessionId: string;
+  contextVersion: number;
+};
+export type CommunitySetMediaStateRequest = CommunityMediaStateRequest & {
+  activity: 'call' | 'broadcast';
+  active: boolean;
+};
+export type CommunityMediaState = CommunityMediaStateRequest & {
+  status: 'ok';
+  revision: number;
+  callActive: boolean;
+  broadcastPrepared: boolean;
+};
+export type CommunityMediaStateResponse = CommunityMediaState | BridgeError;
+
 // --- community:queryLiveStreams ---
 
 export type CommunityQueryLiveStreamsRequest = {
@@ -434,6 +452,17 @@ export type UiSetVisibilityResponse = { status: 'ok' } | BridgeError;
 // ---------------------------------------------------------------------------
 
 export interface WidgetActionMap {
+  'community:getMediaState': {
+    req: CommunityMediaStateRequest;
+    res: CommunityMediaStateResponse;
+  };
+  'community:setMediaState': {
+    req: CommunitySetMediaStateRequest;
+    res: CommunityMediaStateResponse;
+  };
+  'community:mediaStateChanged': {
+    event: CommunityMediaState;
+  };
   // Request → Response actions
   'nostr:publish': {
     req: NostrPublishRequest;

@@ -396,6 +396,117 @@ const sendBridgeRequest = async (
   return source.postMessage.mock.calls.at(-1)?.[0].payload
 }
 
+describe("community local media bridge", () => {
+  const mediaContext = () => ({
+    definitionAddress: "32222:test:community",
+    contextSessionId: "media-page",
+    contextVersion: 1,
+    viewer: {pubkey: testPubkey(51), isOwner: true, isBanned: false},
+  })
+  const mediaExtension = (permissions = ["community:getMediaState", "community:setMediaState"]) =>
+    makeExtension({communityContext: mediaContext(), widget: {permissions}})
+  const identity = {contextSessionId: "media-page", contextVersion: 1}
+
+  beforeEach(() => sessionStorage.clear())
+
+  it("requires explicit permission even for local media-state requests", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const ext = mediaExtension([])
+    const bridge = new ExtensionBridge(ext as any)
+    expect(await sendBridgeRequest(bridge, ext, "community:getMediaState", identity)).toMatchObject(
+      {code: "CAPABILITY_NOT_AUTHORIZED"},
+    )
+    expect(
+      await sendBridgeRequest(bridge, ext, "community:setMediaState", {
+        ...identity,
+        activity: "call",
+        active: true,
+      }),
+    ).toMatchObject({code: "CAPABILITY_NOT_AUTHORIZED"})
+    bridge.detach()
+  })
+
+  it("broadcasts scoped changes to a sibling bridge, then clears a detached call", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const call = mediaExtension(),
+      viewer = mediaExtension(["community:getMediaState"])
+    const caller = new ExtensionBridge(call as any),
+      watcher = new ExtensionBridge(viewer as any)
+    expect(
+      await sendBridgeRequest(watcher, viewer, "community:getMediaState", identity),
+    ).toMatchObject({callActive: false, broadcastPrepared: false})
+    await sendBridgeRequest(caller, call, "community:setMediaState", {
+      ...identity,
+      activity: "call",
+      active: true,
+    })
+    const events = () =>
+      viewer.iframeWindow.postMessage.mock.calls
+        .map(([message]: any[]) => message)
+        .filter((message: any) => message.action === "community:mediaStateChanged")
+    expect(events().at(-1)?.payload.callActive).toBe(true)
+    caller.detach()
+    expect(events().at(-1)?.payload.callActive).toBe(false)
+    watcher.detach()
+  })
+
+  it("rejects stale contexts and malformed writes before changing state", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const ext = mediaExtension(),
+      bridge = new ExtensionBridge(ext as any)
+    expect(
+      await sendBridgeRequest(bridge, ext, "community:setMediaState", {
+        ...identity,
+        contextVersion: 0,
+        activity: "call",
+        active: true,
+      }),
+    ).toMatchObject({code: "COMMUNITY_CONTEXT_CHANGED"})
+    expect(
+      await sendBridgeRequest(bridge, ext, "community:setMediaState", {
+        ...identity,
+        activity: "recording",
+        active: "true",
+      }),
+    ).toHaveProperty("error")
+    expect(await sendBridgeRequest(bridge, ext, "community:getMediaState", identity)).toMatchObject(
+      {callActive: false, broadcastPrepared: false},
+    )
+    bridge.detach()
+  })
+
+  it("clears participation when a bridge changes community and rejects the old context", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const ext = mediaExtension(),
+      viewer = mediaExtension()
+    const bridge = new ExtensionBridge(ext as any),
+      watcher = new ExtensionBridge(viewer as any)
+    await sendBridgeRequest(watcher, viewer, "community:getMediaState", identity)
+    await sendBridgeRequest(bridge, ext, "community:setMediaState", {
+      ...identity,
+      activity: "call",
+      active: true,
+    })
+    bridge.updateCommunityContext({
+      ...mediaContext(),
+      definitionAddress: "32222:test:other",
+      contextVersion: 2,
+    } as any)
+    expect(
+      await sendBridgeRequest(watcher, viewer, "community:getMediaState", identity),
+    ).toMatchObject({callActive: false})
+    expect(
+      await sendBridgeRequest(bridge, ext, "community:setMediaState", {
+        ...identity,
+        activity: "call",
+        active: true,
+      }),
+    ).toMatchObject({code: "COMMUNITY_CONTEXT_CHANGED"})
+    bridge.detach()
+    watcher.detach()
+  })
+})
+
 const getLocalStorageKeys = () =>
   Array.from({length: localStorage.length}, (_, index) => localStorage.key(index)).filter(Boolean)
 

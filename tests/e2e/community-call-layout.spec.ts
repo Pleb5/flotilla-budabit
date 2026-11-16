@@ -53,6 +53,7 @@ const permissions = [
   "community:checkWriteCapabilities",
   "community:querySharedConfig",
   "community:publishSharedConfig",
+  "community:setMediaState",
   "ui:resize",
   "ui:toast",
   "media:camera",
@@ -98,6 +99,7 @@ const peerWidget = {
       ["slot", "community-home-before-quicklinks", "Peer widget"],
       ["permission", "community:querySharedConfig"],
       ["permission", "ui:resize"],
+      ["permission", "community:getMediaState"],
     ],
     "Peer widget",
   ),
@@ -105,11 +107,21 @@ const peerWidget = {
   appUrl: peerUrl,
   appUrls: [peerUrl],
   slot: {type: "community-home-before-quicklinks", label: "Peer widget"},
+  permissions: ["community:querySharedConfig", "ui:resize", "community:getMediaState"],
 }
-const peerBundle = `<!doctype html><style>body{margin:0}</style><p>Same-origin resize fixture</p><script>
+const peerBundle = `<!doctype html><style>body{margin:0}</style><p>Same-origin resize fixture</p><p id="activity">Checking call</p><script>
 let n = 0;
 function resize() { parent.postMessage({type:'request', action:'ui:resize', id:'peer-'+(++n), payload:{height:n%2 ? 43 : 91}}, '*') }
-addEventListener('message', e => { if(e.data?.action === 'widget:init') { resize(); setInterval(resize, 1000) } });
+ addEventListener('message', e => {
+   if(e.data?.action === 'widget:init') {
+     resize(); setInterval(resize, 1000);
+     const c=e.data.payload.communityContext;
+     parent.postMessage({type:'request',action:'community:getMediaState',id:'presence',payload:{contextSessionId:c.contextSessionId,contextVersion:c.contextVersion}}, '*');
+   }
+   if(['community:getMediaState','community:mediaStateChanged'].includes(e.data?.action) && e.data.payload?.status==='ok') {
+     document.querySelector('#activity').textContent='Call active: '+e.data.payload.callActive;
+   }
+ });
 parent.postMessage({type:'event',action:'widget:ready'}, '*');
 </script>`
 const homePath = `/c/${nip19.naddrEncode({kind: 32222, pubkey: owner, identifier: communityId, relays: [relayUrl]})}`
@@ -132,7 +144,11 @@ type DebugWindow = typeof window & {
 }
 const callFrame = (page: Page) => page.frameLocator('iframe[title="Community Call"]')
 
-for (const scenario of ["polls and form expansion", "offscreen width changes"]) {
+for (const scenario of [
+  "polls and form expansion",
+  "offscreen width changes",
+  "embedded presentation",
+]) {
   test(`real home: ${scenario}`, async ({page, context}, testInfo) => {
     const errors: string[] = []
     const originalViewport = page.viewportSize()!
@@ -200,8 +216,26 @@ for (const scenario of ["polls and form expansion", "offscreen width changes"]) 
       },
       {owner, widgetId, widget, hostOrigin, peerId, peerWidget},
     )
+    const activeConfig =
+      scenario === "embedded presentation"
+        ? sign(
+            30078,
+            13,
+            sharedConfig.tags,
+            JSON.stringify({
+              status: "live",
+              title: "Embedded presentation call",
+              room: "budabit-presentation",
+              hivetalkBase: "https://call-widget.example",
+              startedAt: Math.floor(Date.now() / 1000),
+              expiresAt: Math.floor(Date.now() / 1000) + 3600,
+              audio: 0,
+              video: 0,
+            }),
+          )
+        : sharedConfig
     const relay = new MockRelay({
-      seedEvents: [definition, members, ...rooms, sharedConfig, widget, peerWidget],
+      seedEvents: [definition, members, ...rooms, activeConfig, widget, peerWidget],
     })
     await relay.setup(page)
     await context.route(/^https:\/\//, route =>
@@ -211,7 +245,19 @@ for (const scenario of ["polls and form expansion", "offscreen width changes"]) 
           ? route.fulfill({status: 200, contentType: "text/html", body: peerBundle})
           : route.request().url() === appUrl
             ? route.fulfill({status: 200, contentType: "text/html", body: bundle})
-            : route.fulfill({status: 503, body: "External service blocked by fixture"}),
+            : new URL(route.request().url()).origin === "https://call-widget.example" &&
+                new URL(route.request().url()).pathname === "/join"
+              ? route.fulfill({
+                  contentType: "text/html",
+                  body: `<!doctype html>
+                <style>body{background:#151c23;color:white}</style>
+                <h1>Local nested call</h1>
+                <div id="screen">
+                  <button onclick="this.parentElement.requestFullscreen()">Full screen shared screen</button>
+                  <button onclick="document.exitFullscreen()">Back to call</button>
+                </div>`,
+                })
+              : route.fulfill({status: 503, body: "External service blocked by fixture"}),
     )
     await page.goto(homePath)
     const host = page.locator('[data-perf="community-home"]')
@@ -219,6 +265,33 @@ for (const scenario of ["polls and form expansion", "offscreen width changes"]) 
     const iframe = page.locator('iframe[title="Community Call"]')
     const idle = callFrame(page).getByRole("heading", {name: "No call in progress"})
     try {
+      if (scenario === "embedded presentation") {
+        await callFrame(page).getByRole("button", {name: "Join call", exact: true}).click()
+        const call = callFrame(page).frameLocator('iframe[title="HiveTalk community call"]')
+        await expect(call.getByRole("heading", {name: "Local nested call"})).toBeVisible()
+        const peer = page.frameLocator('iframe[title="Peer widget"]')
+        await expect(peer.locator("#activity")).toHaveText("Call active: true")
+        await call.locator("body").evaluate(el => el.setAttribute("data-retained", "yes"))
+        await page.getByRole("button", {name: "Enlarge Community call", exact: true}).click()
+        await page.screenshot({path: testInfo.outputPath("call-enlarged.png")})
+        await page.getByRole("button", {name: "Full screen Community call", exact: true}).click()
+        await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true)
+        await call.getByRole("button", {name: "Full screen shared screen", exact: true}).click()
+        await expect
+          .poll(() => page.evaluate(() => document.fullscreenElement?.tagName))
+          .toBe("IFRAME")
+        await expect(call.getByRole("button", {name: "Back to call", exact: true})).toBeVisible()
+        await expect(call.locator("body")).toHaveAttribute("data-retained", "yes")
+        await call.getByRole("button", {name: "Back to call", exact: true}).click()
+        await expect(call.locator("body")).toHaveAttribute("data-retained", "yes")
+        const back = page.getByRole("button", {name: "Back to community", exact: true})
+        if (await back.isVisible()) await back.click()
+        await callFrame(page).getByRole("button", {name: "Leave call", exact: true}).click()
+        await expect(peer.locator("#activity")).toHaveText("Call active: false")
+        expect(relay.getPublishedEvents()).toEqual([])
+        expect(errors).toEqual([])
+        return
+      }
       await expect(idle).toBeVisible()
       const frame = page.frames().find(frame => frame.url() === appUrl)!
       const fitted = async () => {
@@ -291,6 +364,20 @@ for (const scenario of ["polls and form expansion", "offscreen width changes"]) 
           ),
         ),
       ).toEqual([])
+      await frame.locator("main").evaluate(el => el.setAttribute("data-retained", "presentation"))
+      await page.getByRole("button", {name: "Enlarge Community call", exact: true}).click()
+      await expect(page.getByRole("button", {name: "Back to community", exact: true})).toBeVisible()
+      await expect(frame.locator("main")).toHaveAttribute("data-retained", "presentation")
+      await expect
+        .poll(() => iframe.evaluate(el => el.getBoundingClientRect().height))
+        .toBeGreaterThan(250)
+      await page.getByRole("button", {name: "Full screen Community call", exact: true}).click()
+      await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true)
+      await expect(frame.locator("main")).toHaveAttribute("data-retained", "presentation")
+      await page.getByRole("button", {name: "Back to community", exact: true}).click()
+      await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(false)
+      await expect.poll(fitted).toBeLessThanOrEqual(1)
+      await expect(frame.locator("main")).toHaveAttribute("data-retained", "presentation")
       await callFrame(page).getByRole("button", {name: "Start community call"}).click()
       await expect(
         callFrame(page).getByRole("heading", {name: "Start a call", exact: true}),
