@@ -101,7 +101,7 @@ const homePath = `/c/${nip19.naddrEncode({kind: 32222, pubkey: DEV_PUBKEY, ident
 
 async function openWidget(
   page: Page,
-  options: {sellerReady?: boolean; rejectDm?: () => boolean} = {},
+  options: {sellerReady?: boolean; rejectDm?: () => boolean; sandboxed?: boolean} = {},
 ) {
   await seedDevSession(page)
   await page.addInitScript(
@@ -148,21 +148,26 @@ async function openWidget(
         : {outcome: "accept"},
   })
   await relay.setup(page)
-  await page
-    .context()
-    .route(/^https:\/\//, route =>
-      route.fulfill(
-        route.request().url() === appUrl
-          ? {status: 200, contentType: "text/html", body: bundle}
-          : route.request().url() === iconUrl
-            ? {
-                status: 200,
-                contentType: "image/svg+xml",
-                body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="green"/></svg>',
-              }
-            : {status: 503, body: "External service blocked by fixture"},
-      ),
-    )
+  await page.context().route(/^https:\/\//, route =>
+    route.fulfill(
+      route.request().url() === appUrl
+        ? {
+            status: 200,
+            contentType: "text/html",
+            body: bundle,
+            headers: options.sandboxed
+              ? {"Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups"}
+              : {},
+          }
+        : route.request().url() === iconUrl
+          ? {
+              status: 200,
+              contentType: "image/svg+xml",
+              body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="green"/></svg>',
+            }
+          : {status: 503, body: "External service blocked by fixture"},
+    ),
+  )
   await page.goto(homePath)
   const launcher = page
     .locator('[data-perf="community-home"]')
@@ -173,6 +178,18 @@ async function openWidget(
   await expect(frame.getByRole("button", {name: "+ Post an item"})).toBeEnabled({timeout: 15000})
   return {frame, relay, launcher}
 }
+
+test("CSP-sandboxed Classifieds loads listings and opens its editor through the host bridge", async ({
+  page,
+}, info) => {
+  const {frame, relay} = await openWidget(page, {sandboxed: true})
+  await expect(frame.getByRole("button", {name: "View Seller lamp"})).toBeVisible()
+  await frame.getByRole("button", {name: "+ Post an item"}).click()
+  await frame.getByLabel("Title", {exact: true}).fill("Sandboxed draft")
+  await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Sandboxed draft")
+  await page.screenshot({path: info.outputPath("classifieds-sandboxed.png")})
+  expect(relay.getPublishedEvents()).toEqual([])
+})
 
 test("publishing preloads DM settings, opens the messaging accordion, and resumes only after inline setup succeeds", async ({
   page,

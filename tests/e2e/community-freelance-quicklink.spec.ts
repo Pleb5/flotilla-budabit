@@ -97,7 +97,9 @@ const switchAccount = (page: Page, account: string) =>
   page.evaluate(async account => {
     const moduleUrl = "/tests/e2e/fixtures/freelance-access-browser.ts"
     const fixture = await import(/* @vite-ignore */ moduleUrl)
-    fixture.switchFreelanceFixtureAccount(account)
+    // Finish the evaluation before account reactivity can replace frame contexts.
+    // Each caller waits for the resulting account UI, rather than this callback.
+    setTimeout(() => fixture.switchFreelanceFixtureAccount(account), 0)
   }, account)
 
 test.afterEach(async ({page}, info) => {
@@ -180,7 +182,15 @@ for (const mobile of [false, true]) {
       const url = new URL(route.request().url())
       if (url.origin + url.pathname === appUrl) {
         bundleRequests += 1
-        return route.fulfill({status: 200, contentType: "text/html", body: bundle})
+        return route.fulfill({
+          status: 200,
+          contentType: "text/html",
+          body: bundle,
+          headers:
+            process.env.WIDGET_CSP_SANDBOX === "1"
+              ? {"Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups"}
+              : {},
+        })
       }
       if (url.origin + url.pathname === iconUrl)
         return route.fulfill({status: 200, contentType: "image/svg+xml", body: icon})

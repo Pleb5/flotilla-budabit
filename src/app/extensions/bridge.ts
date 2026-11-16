@@ -146,8 +146,11 @@ const deepSnapshot = (value: unknown, seen: WeakMap<object, unknown> = new WeakM
  * a deep-snapshotted copy and warns so the offending site can be tracked down.
  */
 const safePostMessage = (target: Window, message: unknown, origin: string): void => {
+  // Opaque sandbox origins serialize as "null", which is not a valid targetOrigin.
+  // Callers have already bound delivery to the extension's exact Window object.
+  const targetOrigin = origin === "null" ? "*" : origin
   try {
-    target.postMessage(message, origin)
+    target.postMessage(message, targetOrigin)
   } catch (err) {
     if (err instanceof DOMException && err.name === "DataCloneError") {
       console.warn(
@@ -155,7 +158,7 @@ const safePostMessage = (target: Window, message: unknown, origin: string): void
         err.message,
         message,
       )
-      target.postMessage(deepSnapshot(message), origin)
+      target.postMessage(deepSnapshot(message), targetOrigin)
     } else {
       throw err
     }
@@ -541,7 +544,10 @@ export class ExtensionBridge {
   private profiles?: import("./profiles").ExtensionProfileResolver
   private messaging?: import("./messaging").ExtensionMessaging
 
-  constructor(private extension: LoadedExtension) {
+  constructor(
+    private extension: LoadedExtension,
+    private options: {allowOpaqueOrigin?: boolean} = {},
+  ) {
     this.entrypointOrigin = extension.origin
     // Widgets default to empty permissions, denying privileged bridge actions.
     const permissions = extension.widget.permissions
@@ -718,7 +724,10 @@ export class ExtensionBridge {
       this.detached ||
       !expectedWindow ||
       event.source !== expectedWindow ||
-      !isAllowedExtensionOrigin(this.entrypointOrigin, event.origin)
+      !(
+        isAllowedExtensionOrigin(this.entrypointOrigin, event.origin) ||
+        (this.options.allowOpaqueOrigin && event.origin === "null")
+      )
     )
       return false
     this.extension.origin = event.origin

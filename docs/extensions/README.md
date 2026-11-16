@@ -107,7 +107,7 @@ Smart Widgets declare one supported slot with a `slot` tag in the `kind:30033` e
 | `repo-tab`                         | `["slot", "repo-tab", label, path]`                   | Full repository tab iframe                              |
 | `community-home-before-quicklinks` | `["slot", "community-home-before-quicklinks", label]` | Community home card/launcher                            |
 | `community-home-after-quicklinks`  | `["slot", "community-home-after-quicklinks", label]`  | Community home card/launcher                            |
-| `community-home-quicklinks`        | `["slot", "community-home-quicklinks", label]`        | Home quicklink button; opens a wide modal on demand      |
+| `community-home-quicklinks`        | `["slot", "community-home-quicklinks", label]`        | Home quicklink button; opens a wide modal on demand     |
 | `chat-message-actions`             | `["slot", "chat-message-actions", label]`             | Compact message action launcher that opens a modal      |
 | `global-menu`                      | `["slot", "global-menu", label]`                      | Community-route top control launcher that opens a modal |
 
@@ -174,3 +174,20 @@ The widget template in [`packages/flotilla-extension-template`](../../packages/f
 - YakiHonne Smart Widget tooling: https://yakihonne.com/docs/sw/intro
 
 _Last updated: 2026-06-27_
+
+## Blossom-hosted widget artifacts
+
+On Blossom servers supporting authenticated widget publication, the widget HTML
+upload flow uploads the bytes, then signs a separate kind-24242 authorization
+(`t=publish-widget`, exact `x` hash and `server` hostname) for `PUT /widgets/<hash>`.
+Only the returned `/widgets/<hash>.html` executable URL is used in the manifest;
+successful raw uploads and mirrors alone are not executable app URLs. Each mirror
+must independently authorize publication. Blossom automatically resolves current
+Widget publishing permission from its configured community authority; no separate
+per-publisher allowlist is required.
+
+Published documents use a response CSP sandbox without `allow-same-origin`.
+`WidgetFrame` supports their opaque-origin ready/init handshake and binds bridge
+requests to the exact iframe window. Directly hosted widget URLs remain supported.
+Existing manifests must be updated to the published URL; uploading or registering
+a blob does not change a signed manifest automatically.

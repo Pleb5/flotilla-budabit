@@ -565,6 +565,33 @@ describe("ExtensionBridge", () => {
     expect(bridge.acceptOrigin(message("https://r2a.primal.net"))).toBe(false)
   })
 
+  it("allows opaque iframe origins only with host opt-in and exact source binding", async () => {
+    const {ExtensionBridge} = await import("./bridge")
+    const extension = makeExtension({origin: "https://blossom.example"})
+    const message = (source = extension.iframeWindow) =>
+      ({origin: "null", source}) as unknown as MessageEvent
+    expect(new ExtensionBridge(extension as any).acceptOrigin(message())).toBe(false)
+    const bridge = new ExtensionBridge(extension as any, {allowOpaqueOrigin: true})
+    expect(bridge.acceptOrigin(message(makeSourceWindow()))).toBe(false)
+    expect(bridge.acceptOrigin(message())).toBe(true)
+    bridge.post("widget:init", {theme: "light"})
+    expect(extension.iframeWindow.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({action: "widget:init"}),
+      "*",
+    )
+    await bridge.handleMessage({
+      origin: "null",
+      source: extension.iframeWindow,
+      data: {type: "request", id: "opaque-request", action: "ui:resize", payload: {height: 180}},
+    } as unknown as MessageEvent)
+    expect(extension.iframeWindow.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({id: "opaque-request", type: "response"}),
+      "*",
+    )
+    bridge.detach()
+    expect(bridge.acceptOrigin(message())).toBe(false)
+  })
+
   it("enforces declared write kinds and pins signing, publication and storage scope", async () => {
     const {ExtensionBridge} = await import("./bridge")
     const owner = testPubkey(1)

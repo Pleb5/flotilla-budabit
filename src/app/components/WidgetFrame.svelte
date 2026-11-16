@@ -494,7 +494,8 @@
   const postLegacyContext = () => {
     if (!iframeRef?.contentWindow || !appUrl) return
 
-    const targetOrigin = bridgeExtension?.origin || getAppOrigin()
+    const origin = bridgeExtension?.origin || getAppOrigin()
+    const targetOrigin = origin === "null" ? "*" : origin
     const user = getUserContext()
 
     try {
@@ -519,8 +520,12 @@
   }
 
   const sendContext = (originOverride = "") => {
-    if (originOverride && bridgeExtension && isAllowedWidgetOrigin(originOverride)) {
-      syncBridgeOrigin(originOverride)
+    if (
+      originOverride &&
+      bridgeExtension &&
+      isAllowedWidgetOrigin(originOverride, iframeRef?.contentWindow)
+    ) {
+      syncBridgeOrigin(originOverride, iframeRef?.contentWindow)
     }
 
     const payload = makeInitPayload()
@@ -562,7 +567,9 @@
 
     if (iframeRef?.contentWindow && appUrl) {
       const origin =
-        readyOrigin && isAllowedWidgetOrigin(readyOrigin) ? readyOrigin : getAppOrigin()
+        readyOrigin && isAllowedWidgetOrigin(readyOrigin, iframeRef.contentWindow)
+          ? readyOrigin
+          : getAppOrigin()
       const ext: LoadedWidgetExtension = {
         type: "widget" as const,
         id: widgetLineId,
@@ -583,7 +590,7 @@
         ...(deferredVisibility ? {onVisibilityRequest: handleVisibilityRequest} : {}),
       }
       bridgeExtension = ext
-      bridge = new ExtensionBridge(ext)
+      bridge = new ExtensionBridge(ext, {allowOpaqueOrigin: true})
       bridge.attachHandlers(iframeRef.contentWindow)
     }
 

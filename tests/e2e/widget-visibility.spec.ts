@@ -57,7 +57,12 @@ addEventListener('message', e => {
 parent.postMessage({type:'event', action:'widget:ready'}, '*');
 </script>`
 
-const setup = async (page: Page, slot: string, visibility: "host" | "widget") => {
+const setup = async (
+  page: Page,
+  slot: string,
+  visibility: "host" | "widget",
+  readyDelay?: number,
+) => {
   const event = sign(
     30033,
     [
@@ -101,7 +106,20 @@ const setup = async (page: Page, slot: string, visibility: "host" | "widget") =>
   await page.context().route(/^https:\/\//, route => {
     if (route.request().url() === appUrl) {
       requests += 1
-      return route.fulfill({contentType: "text/html", body: fixture})
+      return route.fulfill({
+        contentType: "text/html",
+        headers:
+          readyDelay === undefined
+            ? {}
+            : {"Content-Security-Policy": "sandbox allow-scripts allow-forms allow-popups"},
+        body:
+          readyDelay === undefined
+            ? fixture
+            : fixture.replace(
+                "parent.postMessage({type:'event', action:'widget:ready'}, '*');",
+                `setTimeout(() => parent.postMessage({type:'event', action:'widget:ready'}, '*'), ${readyDelay});`,
+              ),
+      })
     }
     return route.fulfill({status: 503, body: "Blocked by fixture"})
   })
@@ -112,6 +130,37 @@ const setup = async (page: Page, slot: string, visibility: "host" | "widget") =>
     {timeout: 15_000},
   )
   return {relay, requests: () => requests}
+}
+
+for (const readyDelay of [0, 200]) {
+  test(`CSP-sandboxed widget initializes and exchanges bridge requests (${readyDelay}ms ready)`, async ({
+    page,
+  }, info) => {
+    const {relay} = await setup(page, "community-home-before-quicklinks", "host", readyDelay)
+    await expect(page.locator(`iframe[src="${appUrl}"]`)).toHaveCount(1, {timeout: 15_000})
+    const frame = page.frames().find(frame => frame.url() === appUrl)!
+    await frame.waitForFunction(() => Boolean((window as any).context))
+    expect(await frame.evaluate(() => window.origin)).toBe("null")
+    expect(
+      await frame.evaluate(() => {
+        try {
+          void parent.document.body
+          return false
+        } catch {
+          return true
+        }
+      }),
+    ).toBe(true)
+    expect(await frame.evaluate(() => (window as any).request("ui:resize", {height: 180}))).toEqual(
+      {status: "ok"},
+    )
+    await expect(page.locator("[data-widget-state]")).toHaveAttribute("data-widget-state", "ready")
+    await expect(
+      page.frameLocator(`iframe[src="${appUrl}"]`).getByRole("heading", {name: "Widget content"}),
+    ).toBeVisible()
+    await page.screenshot({path: info.outputPath(`sandbox-${readyDelay}.png`)})
+    expect(relay.getPublishedEvents()).toEqual([])
+  })
 }
 
 for (const width of [390, 1100]) {
