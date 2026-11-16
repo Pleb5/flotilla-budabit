@@ -223,6 +223,10 @@ for (const mobile of [false, true]) {
     const frame = page.frameLocator('iframe[title="Community Freelance · SatShoot"]')
     await expect(frame.getByRole("navigation", {name: "Freelance workspace"})).toBeVisible()
     await expect(frame.getByText("Community relay connection ready", {exact: true})).toBeVisible()
+    await expect(iframe.locator("..")).toHaveAttribute("data-widget-state", "ready")
+    await expect
+      .poll(() => iframe.evaluate(el => el.getBoundingClientRect().height))
+      .toBeGreaterThan(250)
     await expect(
       frame.getByText("You need Freelance publishing access to post a job.", {exact: false}),
     ).toBeVisible()

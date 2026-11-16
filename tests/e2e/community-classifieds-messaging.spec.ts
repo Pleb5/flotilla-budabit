@@ -179,17 +179,25 @@ async function openWidget(
   return {frame, relay, launcher}
 }
 
-test("CSP-sandboxed Classifieds loads listings and opens its editor through the host bridge", async ({
-  page,
-}, info) => {
-  const {frame, relay} = await openWidget(page, {sandboxed: true})
-  await expect(frame.getByRole("button", {name: "View Seller lamp"})).toBeVisible()
-  await frame.getByRole("button", {name: "+ Post an item"}).click()
-  await frame.getByLabel("Title", {exact: true}).fill("Sandboxed draft")
-  await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Sandboxed draft")
-  await page.screenshot({path: info.outputPath("classifieds-sandboxed.png")})
-  expect(relay.getPublishedEvents()).toEqual([])
-})
+for (const mobile of [false, true]) {
+  test(`CSP-sandboxed Classifieds loads listings and opens its editor through the host bridge (${mobile ? "mobile" : "desktop"})`, async ({
+    page,
+  }, info) => {
+    await page.setViewportSize(mobile ? {width: 390, height: 844} : {width: 1280, height: 800})
+    const {frame, relay} = await openWidget(page, {sandboxed: true})
+    const iframe = page.locator(`iframe[src="${appUrl}"]`)
+    await expect(iframe.locator("..")).toHaveAttribute("data-widget-state", "ready")
+    await expect
+      .poll(() => iframe.evaluate(el => el.getBoundingClientRect().height))
+      .toBeGreaterThan(250)
+    await expect(frame.getByRole("button", {name: "View Seller lamp"})).toBeVisible()
+    await frame.getByRole("button", {name: "+ Post an item"}).click()
+    await frame.getByLabel("Title", {exact: true}).fill("Sandboxed draft")
+    await expect(frame.getByLabel("Title", {exact: true})).toHaveValue("Sandboxed draft")
+    await page.screenshot({path: info.outputPath("classifieds-sandboxed.png")})
+    expect(relay.getPublishedEvents()).toEqual([])
+  })
+}
 
 test("publishing preloads DM settings, opens the messaging accordion, and resumes only after inline setup succeeds", async ({
   page,

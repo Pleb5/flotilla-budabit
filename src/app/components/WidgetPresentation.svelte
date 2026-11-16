@@ -1,4 +1,11 @@
 <style>
+  /* Ordinary widgets must retain their parent's height/flex layout. Keep these
+     nodes mounted so enabling call/stream controls never replaces the iframe. */
+  .passthrough,
+  .passthrough .presentation-surface,
+  .passthrough .presentation-content {
+    display: contents;
+  }
   .presentation-controls {
     display: flex;
     justify-content: flex-end;
@@ -137,6 +144,7 @@
   bind:this={overlay}
   popover={expanded ? "manual" : undefined}
   class:expanded
+  class:passthrough={!enabled && !expanded}
   class="widget-presentation">
   <div bind:this={surface} class="presentation-surface">
     {#if enabled}
