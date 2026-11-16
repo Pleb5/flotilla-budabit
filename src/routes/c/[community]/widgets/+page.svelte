@@ -1,6 +1,6 @@
 <script lang="ts">
   import {page} from "$app/stores"
-  import {pubkey, repository, signer} from "@welshman/app"
+  import {pubkey, repository} from "@welshman/app"
   import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
   import {makeEvent, getTagValue, type TrustedEvent} from "@welshman/util"
   import {randomId} from "@welshman/lib"
@@ -55,7 +55,6 @@
     buildCommunityWidgetEventTags,
     filterSelectedWidgetCommunityOptions,
     getWidgetAppUrlsFromUpload,
-    publishBlossomWidget,
   } from "@app/extensions/widget-publisher"
   import {
     getWidgetTargetPublishRelays,
@@ -283,13 +282,6 @@
     widgetUploadMirrors = []
 
     try {
-      const publisher = signer.get()
-      if (!publisher) throw new Error("Log in with a signing account to publish a widget artifact.")
-      const signArtifact = (template: Parameters<typeof publisher.sign>[0]) => {
-        if (signer.get() !== publisher)
-          throw new Error("Signing account changed. Retry the widget upload.")
-        return publisher.sign(template)
-      }
       const {error, result, mirrors} = await uploadFile(file, {
         blossomContext: {
           type: "generic",
@@ -300,37 +292,17 @@
 
       if (error || !result?.url) throw new Error(error || "Widget artifact upload failed.")
 
-      // A raw upload URL can be a forced download. Only advertise URLs whose
-      // separate authenticated widget publication has succeeded.
-      const url = await publishBlossomWidget(result, signArtifact)
-      const publishedMirrors: BlossomMirrorUploadResult[] = []
-      for (const mirror of mirrors || []) {
-        if (!mirror.ok || !mirror.url) continue
-        try {
-          publishedMirrors.push({
-            ...mirror,
-            url: await publishBlossomWidget({url: mirror.url, sha256: result.sha256}, signArtifact),
-          })
-        } catch (error) {
-          publishedMirrors.push({
-            ...mirror,
-            ok: false,
-            url: undefined,
-            error: error instanceof Error ? error.message : String(error),
-          })
-        }
-      }
-      const urls = getWidgetAppUrlsFromUpload({result: {...result, url}, mirrors: publishedMirrors})
+      // Use the ordinary Blossom descriptor. The server evaluates the uploader's
+      // current Widget grant; no custom publication request or URL is needed.
+      const urls = getWidgetAppUrlsFromUpload({result, mirrors})
       if (urls.length === 0) throw new Error("Upload did not return a secure widget app URL.")
 
-      if (signer.get() !== publisher)
-        throw new Error("Signing account changed. Retry the widget upload.")
       appUrl = urls[0]
       fallbackAppUrls = urls.slice(1).join("\n")
-      widgetUploadMirrors = publishedMirrors
+      widgetUploadMirrors = mirrors || []
       pushToast({
         theme: "success",
-        message: "Widget artifact uploaded and published for execution.",
+        message: "Widget artifact uploaded.",
       })
     } catch (error) {
       widgetUploadStage = "failed"
@@ -675,14 +647,12 @@
           disabled={!canCreateWidget || widgetUploading}
           onchange={event => uploadWidgetArtifact(event.currentTarget)} />
         <p class="mt-1 text-xs opacity-70">
-          Upload and publish a built widget artifact on a supporting Blossom server, or paste a
-          hosted app URL above.
+          Upload a built HTML widget to your community Blossom server, or paste a hosted app URL
+          above. The server serves it as a sandboxed widget while your Widget grant is current.
         </p>
         {#if widgetUploading}
           <p class="mt-1 text-xs opacity-70">
-            {widgetUploadStage === "ready"
-              ? "Publishing executable widget…"
-              : `Uploading: ${widgetUploadStage}`}
+            Uploading: {widgetUploadStage}
           </p>
         {:else if widgetUploadError}
           <p class="mt-1 text-xs text-error">{widgetUploadError}</p>

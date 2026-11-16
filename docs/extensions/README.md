@@ -177,17 +177,18 @@ _Last updated: 2026-06-27_
 
 ## Blossom-hosted widget artifacts
 
-On Blossom servers supporting authenticated widget publication, the widget HTML
-upload flow uploads the bytes, then signs a separate kind-24242 authorization
-(`t=publish-widget`, exact `x` hash and `server` hostname) for `PUT /widgets/<hash>`.
-Only the returned `/widgets/<hash>.html` executable URL is used in the manifest;
-successful raw uploads and mirrors alone are not executable app URLs. Each mirror
-must independently authorize publication. Blossom automatically resolves current
-Widget publishing permission from its configured community authority; no separate
-per-publisher allowlist is required.
+Widget HTML uses normal Blossom uploads and the ordinary content-addressed URL in
+the returned descriptor. No separate publication request, client flag, or executable
+path is required. Each server records the uploader's current community Widget
+permission after the authenticated upload or mirror commits.
 
-Published documents use a response CSP sandbox without `allow-same-origin`.
-`WidgetFrame` supports their opaque-origin ready/init handshake and binds bridge
-requests to the exact iframe window. Directly hosted widget URLs remain supported.
-Existing manifests must be updated to the published URL; uploading or registering
-a blob does not change a signed manifest automatically.
+The same URL displays sandboxed HTML while an approved owner retains the grant;
+otherwise it returns a download attachment. Missing or stale authority also
+downgrades delivery to attachment. Ordinary members can still store HTML under the
+usual upload rules, without obtaining permission to host executable pages.
+
+The response CSP sandbox omits `allow-same-origin`. `WidgetFrame` adds its own
+iframe sandbox, supports the opaque-origin ready/init handshake, and binds bridge
+requests to the exact iframe window. Previously published `/widgets/<hash>.html`
+URLs remain server-side compatibility aliases. A signed widget manifest is still
+separate metadata; uploading bytes does not change an existing manifest automatically.

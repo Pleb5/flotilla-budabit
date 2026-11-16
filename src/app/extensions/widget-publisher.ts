@@ -3,54 +3,6 @@ import {isSecureEmbeddableUrl} from "@app/extensions/url-policy"
 import type {UploadFileResult} from "@app/core/commands"
 import type {WidgetCommunitySlotType} from "@app/extensions/types"
 import type {WidgetCommunityOption} from "@app/extensions/widget-targeting"
-import type {StampedEvent, SignedEvent} from "@welshman/util"
-import {makeBudabitBlossomAuthEvent, makeBudabitBlossomAuthHeader} from "@app/util/blossom-auth"
-
-/** Upload stores bytes; this separate signed operation enables executable delivery. */
-export const publishBlossomWidget = async (
-  blob: {url: string; sha256: string},
-  sign: (template: StampedEvent) => Promise<SignedEvent>,
-  fetcher: typeof fetch = fetch,
-) => {
-  const source = new URL(blob.url)
-  const hash = blob.sha256
-  if (
-    !/^[0-9a-f]{64}$/.test(hash) ||
-    !isSecureEmbeddableUrl(blob.url) ||
-    source.username ||
-    source.password ||
-    source.search ||
-    source.hash ||
-    !new RegExp(`^/${hash}(?:\\.[a-z0-9]{1,10})?$`).test(source.pathname)
-  ) {
-    throw new Error("Widget publication requires a secure, content-addressed Blossom blob URL.")
-  }
-  const endpoint = new URL(`/widgets/${hash}`, source.origin)
-  const auth = await sign(
-    makeBudabitBlossomAuthEvent({
-      action: "publish-widget",
-      server: source.origin,
-      hashes: [hash],
-    }),
-  )
-  const response = await fetcher(endpoint, {
-    method: "PUT",
-    headers: {Authorization: makeBudabitBlossomAuthHeader(auth)},
-    credentials: "omit",
-    redirect: "error",
-    signal: AbortSignal.timeout(15_000),
-  })
-  if (!response.ok)
-    throw new Error(
-      `Widget publication at ${source.host} failed (${response.status}). ${response.headers.get("X-Reason") || "The server must support widget publication and authorize your account."}`,
-    )
-  const result = await response.json()
-  const expectedUrl = new URL(`/widgets/${hash}.html`, source.origin).href
-  if (result.sha256 !== hash || result.url !== expectedUrl) {
-    throw new Error("Widget server returned an unexpected publication URL or hash.")
-  }
-  return expectedUrl
-}
 
 export type WidgetPublisherDraft = {
   identifier: string

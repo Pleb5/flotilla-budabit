@@ -1,14 +1,7 @@
 import {now} from "@welshman/lib"
 import {BLOSSOM_AUTH, makeEvent} from "@welshman/util"
 
-export type BudabitBlossomAuthAction =
-  | "get"
-  | "upload"
-  | "list"
-  | "delete"
-  | "media"
-  | "publish-widget"
-  | "unpublish-widget"
+export type BudabitBlossomAuthAction = "get" | "upload" | "list" | "delete" | "media"
 
 export type BudabitBlossomAuthOptions = {
   action: BudabitBlossomAuthAction
