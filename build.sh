@@ -64,7 +64,7 @@ const DEFAULTS = {
   name: "Budabit",
   shortName: "Budabit",
   accent: "#8B5CF6",
-  description: "Social Git collaboration on Nostr",
+  description: "Builders of Freedom tech",
   url: "https://budabit.club",
 }
 
