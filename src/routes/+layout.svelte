@@ -128,7 +128,19 @@
     "contextmenu",
   ]
   if (browser && APP_UPDATE_MODE === "auto") {
-    const markUserInput = () => {
+    const markUserInput = (event: Event) => {
+      // Browsers focus <body> when page content gains focus (e.g. after an address-bar
+      // navigation). Only focus landing on a real element counts as interaction.
+      if (event.type === "focusin") {
+        const target = event.target
+        if (
+          !(target instanceof Element) ||
+          target === document.body ||
+          target === document.documentElement
+        ) {
+          return
+        }
+      }
       appUserInputSeen = true
       for (const type of APP_USER_INPUT_EVENTS) {
         window.removeEventListener(type, markUserInput, true)

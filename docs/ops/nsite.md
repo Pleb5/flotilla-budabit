@@ -98,7 +98,9 @@ renders: no page, widget iframe, wallet, signer, or session has started in that
 document yet. It is skipped unless all of these hold:
 
 - the page is visible and has had no input: pointer, touch, keys, IME
-  composition, input, click, focus, paste, drop, or context menu;
+  composition, input, click, focus moving to a page element, paste, drop, or
+  context menu. The browser's own focus of the page body after an
+  address-bar navigation is not input;
 - no reload is already in progress, this tab has no prepared local broadcast
   (restored from session storage), and this build was not already attempted in
   this tab;
