@@ -1252,10 +1252,12 @@
 
       // Recheck immediately before activation; the worker rechecks other windows itself.
       if (!decide().apply || registration?.waiting !== waiting) return false
-      sessionStorage.setItem(APP_AUTO_UPDATE_ATTEMPT_KEY, waitingBuildId)
       const activation = await requestSoleClientActivation(waiting)
       recordAppUpdateDebugDiagnostic("startup-update-activation", {...activation, waitingBuildId})
       if (!activation.accepted || activation.version !== waitingBuildId) return false
+      // Only an accepted activation counts as an attempt: a refusal (another window open)
+      // leaves the build eligible at this tab's next startup.
+      sessionStorage.setItem(APP_AUTO_UPDATE_ATTEMPT_KEY, waitingBuildId)
 
       const controlled = await Promise.race([
         waitForControllerBuild(waitingBuildId),

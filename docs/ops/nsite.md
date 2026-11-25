@@ -102,8 +102,8 @@ document yet. It is skipped unless all of these hold:
   context menu. The browser's own focus of the page body after an
   address-bar navigation is not input;
 - no reload is already in progress, this tab has no prepared local broadcast
-  (restored from session storage), and this build was not already attempted in
-  this tab;
+  (restored from session storage), and this build's activation was not already
+  accepted in this tab (a refused activation does not count);
 - the waiting build is still the published `/_app/version.json` build;
 - the waiting service worker reports, at activation time, that this page is the
   only window of the site.
