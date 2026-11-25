@@ -19,6 +19,29 @@ type Entry = {
   notify?: (state: CommunityMediaState) => void
 }
 
+const BROADCAST_PREVIEW_STORAGE_PREFIX = "budabit:broadcast-preview:"
+
+/**
+ * True when this tab restored any prepared local broadcast intent, or when that cannot be
+ * determined. Used to keep a broadcaster's tab on its running build.
+ */
+export const hasStoredBroadcastPreparation = () => {
+  try {
+    for (let index = 0; index < sessionStorage.length; index++) {
+      const key = sessionStorage.key(index)
+      if (
+        key?.startsWith(BROADCAST_PREVIEW_STORAGE_PREFIX) &&
+        sessionStorage.getItem(key) === "prepared"
+      ) {
+        return true
+      }
+    }
+    return false
+  } catch {
+    return true
+  }
+}
+
 /** Ephemeral call presence and tab-local broadcast intent. Never an OBS status API. */
 export class CommunityMediaCoordinator {
   private entries = new Map<object, Entry>()
@@ -28,7 +51,7 @@ export class CommunityMediaCoordinator {
     return JSON.stringify([context.definitionAddress, context.viewer.pubkey || ""])
   }
   private storageKey(scope: string) {
-    return `budabit:broadcast-preview:${scope}`
+    return `${BROADCAST_PREVIEW_STORAGE_PREFIX}${scope}`
   }
   private broadcast(scope: string) {
     if (!this.broadcasts.has(scope)) {

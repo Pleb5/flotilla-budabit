@@ -58,10 +58,12 @@
     setNotificationBackgroundEnabled,
   } from "@app/util/notification-background"
   import {
+    APP_UPDATE_MODE,
     CASHU_WALLET_ENABLED,
     DIAGNOSTICS_ENABLED,
     PERFORMANCE_DIAGNOSTICS_ENABLED,
   } from "@app/core/feature-flags"
+  import {hasStoredBroadcastPreparation} from "@app/extensions/community-media-state"
   import {
     ensureAppUpdateDebugDiagnosticsCapture,
     isAppUpdateDebugDiagnosticsActive,
@@ -82,6 +84,7 @@
   import {
     getErrorText,
     getExpectedBuildAction,
+    getStartupUpdateDecision,
     isDynamicAppShellFailure,
     shouldPrepareAppUpdate,
   } from "@app/core/app-update"
@@ -106,6 +109,36 @@
   import {resolvePrivateCommunityScope} from "@app/core/private-community-scope"
 
   const {children} = $props()
+
+  // Startup auto-update gate (APP_UPDATE_MODE=auto): any user input in this document, including
+  // assistive-technology activation (click/focus) and IME composition, keeps the running build.
+  let appUserInputSeen = false
+  const APP_USER_INPUT_EVENTS = [
+    "pointerdown",
+    "mousedown",
+    "touchstart",
+    "keydown",
+    "compositionstart",
+    "beforeinput",
+    "input",
+    "click",
+    "focusin",
+    "paste",
+    "drop",
+    "contextmenu",
+  ]
+  if (browser && APP_UPDATE_MODE === "auto") {
+    const markUserInput = () => {
+      appUserInputSeen = true
+      for (const type of APP_USER_INPUT_EVENTS) {
+        window.removeEventListener(type, markUserInput, true)
+      }
+    }
+    for (const type of APP_USER_INPUT_EVENTS) {
+      window.addEventListener(type, markUserInput, {capture: true, passive: true})
+    }
+  }
+
   if (browser) {
     resolvePrivateCommunityScope(new URL(window.location.href))
   }
@@ -1095,10 +1128,137 @@
   const notifyUpdateReady = (buildId: string) => {
     if (!buildId || buildId === APP_BUILD_ID) return
 
+    if (APP_UPDATE_MODE === "auto") {
+      // No prompt: the prepared build waits and is applied before the app renders at a later
+      // startup (applyPreparedUpdateAtStartup), or by the browser once no window remains.
+      recordAppUpdateDebugDiagnostic("update-prepared-for-startup", {expectedBuildId: buildId})
+      return
+    }
+
     readyAppUpdateBuildId = buildId
     appUpdateRecoveryMessage = ""
     appUpdateActivationDelayed = false
     recordAppUpdateDebugDiagnostic("update-ready", {expectedBuildId: buildId})
+  }
+
+  const APP_AUTO_UPDATE_ATTEMPT_KEY = "appAutoUpdateAttemptBuildId"
+  const APP_STARTUP_UPDATE_TIMEOUT = 3_000
+  const APP_STARTUP_ACTIVATION_TIMEOUT = 10_000
+
+  const fetchPublishedVersionForStartup = async () => {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), APP_STARTUP_UPDATE_TIMEOUT)
+    try {
+      const response = await fetch(getVersionUrl(), {
+        cache: "no-store",
+        headers: {pragma: "no-cache", "cache-control": "no-cache"},
+        signal: controller.signal,
+      })
+      if (!response.ok) return ""
+      const data = await response.json()
+      return typeof data?.version === "string" && data?.status !== "deploying" ? data.version : ""
+    } catch {
+      return ""
+    } finally {
+      window.clearTimeout(timer)
+    }
+  }
+
+  const requestSoleClientActivation = async (worker: ServiceWorker) =>
+    await new Promise<{accepted: boolean; windowClients: number; version: string}>(resolve => {
+      const channel = new MessageChannel()
+      let settled = false
+      const finish = (result: {accepted: boolean; windowClients: number; version: string}) => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timeout)
+        channel.port1.close()
+        resolve(result)
+      }
+      // Workers from builds without this handler never answer: keep the running build.
+      const timeout = window.setTimeout(
+        () => finish({accepted: false, windowClients: -1, version: ""}),
+        2_000,
+      )
+      channel.port1.onmessage = event => {
+        const data = event.data
+        finish(
+          data?.type === "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT_RESULT"
+            ? {
+                accepted: data.accepted === true,
+                windowClients: Number(data.windowClients) || 0,
+                version: typeof data.version === "string" ? data.version : "",
+              }
+            : {accepted: false, windowClients: -1, version: ""},
+        )
+      }
+      try {
+        worker.postMessage({type: "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT"}, [channel.port2])
+      } catch {
+        finish({accepted: false, windowClients: -1, version: ""})
+      }
+    })
+
+  /**
+   * Auto-update mode only. Runs before the app renders: no page, widget iframe, wallet, signer
+   * or session has started in this document. If a newer build is already prepared (waiting)
+   * and still published, it replaces the running build with one reload. Otherwise the running
+   * build continues and the prepared build waits for a later startup.
+   */
+  const applyPreparedUpdateAtStartup = async () => {
+    if (!browser || dev || APP_UPDATE_MODE !== "auto") return false
+    if (!("serviceWorker" in navigator) || typeof sessionStorage === "undefined") return false
+
+    try {
+      const registration = await navigator.serviceWorker.getRegistration(getAppBaseUrl().pathname)
+      const waiting = registration?.waiting
+      if (!waiting) return false
+
+      const waitingBuildId = await getServiceWorkerVersion(waiting, "startup-waiting")
+      const publishedBuildId = waitingBuildId ? await fetchPublishedVersionForStartup() : ""
+      const decide = () =>
+        getStartupUpdateDecision({
+          autoUpdate: true,
+          visible: document.visibilityState === "visible",
+          userInputSeen: appUserInputSeen,
+          reloadInProgress:
+            serviceWorkerReloadInFlight ||
+            Boolean(sessionStorage.getItem(APP_EXPECTED_BUILD_STORAGE_KEY)),
+          broadcastPrepared: hasStoredBroadcastPreparation(),
+          attemptedBuildId: sessionStorage.getItem(APP_AUTO_UPDATE_ATTEMPT_KEY) || "",
+          runningBuildId: APP_BUILD_ID,
+          waitingBuildId,
+          publishedBuildId,
+        })
+      const decision = decide()
+      recordAppUpdateDebugDiagnostic("startup-update-decision", {
+        ...decision,
+        waitingBuildId,
+        publishedBuildId,
+      })
+      if (!decision.apply) return false
+
+      // Recheck immediately before activation; the worker rechecks other windows itself.
+      if (!decide().apply || registration?.waiting !== waiting) return false
+      sessionStorage.setItem(APP_AUTO_UPDATE_ATTEMPT_KEY, waitingBuildId)
+      const activation = await requestSoleClientActivation(waiting)
+      recordAppUpdateDebugDiagnostic("startup-update-activation", {...activation, waitingBuildId})
+      if (!activation.accepted || activation.version !== waitingBuildId) return false
+
+      const controlled = await Promise.race([
+        waitForControllerBuild(waitingBuildId),
+        new Promise<boolean>(resolve =>
+          window.setTimeout(() => resolve(false), APP_STARTUP_ACTIVATION_TIMEOUT),
+        ),
+      ])
+      if (!controlled) return false
+
+      reloadIntoBuild(waitingBuildId)
+      return true
+    } catch (error) {
+      console.warn("[app-update] Startup update check failed", error)
+      return false
+    }
   }
 
   const resetAppUpdateRetry = () => {
@@ -1532,6 +1692,11 @@
     const unsubscribers: Unsubscriber[] = []
 
     await prepareDevNavigation()
+
+    // Before sessions, storage, wallet or any page/widget starts: apply a prepared update.
+    if (await applyPreparedUpdateAtStartup()) {
+      await new Promise<never>(() => {})
+    }
 
     // Sync stuff to localstorage
     await Promise.all([

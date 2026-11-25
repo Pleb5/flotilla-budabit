@@ -288,6 +288,29 @@ self.addEventListener("message", event => {
     return
   }
 
+  if (data?.type === "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT") {
+    // Startup auto-update: activate only if the requesting window is the only window of this
+    // origin at this moment. Other windows may hold drafts or live calls, and activation makes
+    // every older open window reload into the new build.
+    const port = event.ports?.[0]
+    const requesterId = event.source && "id" in event.source ? event.source.id : ""
+    event.waitUntil(
+      (async () => {
+        const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true})
+        const accepted =
+          Boolean(requesterId) && windows.length === 1 && windows[0].id === requesterId
+        if (accepted) void self.skipWaiting()
+        port?.postMessage({
+          type: "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT_RESULT",
+          version,
+          accepted,
+          windowClients: windows.length,
+        })
+      })(),
+    )
+    return
+  }
+
   if (data?.type === "SKIP_WAITING") {
     const activationStartedAt = Date.now()
     const requestId = typeof data.requestId === "string" ? data.requestId.slice(0, 200) : ""

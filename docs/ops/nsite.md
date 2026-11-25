@@ -37,7 +37,8 @@ identical `.json` staging copy (same hash, `application/json`).
 ## Release procedure
 
 Build exactly like `scripts/deploy-main.sh` (production URLs, diagnostics off) from
-a committed, clean checkout. Then:
+a committed, clean checkout, adding `VITE_APP_UPDATE_MODE=auto` (see "Updates
+without a button" below). Then:
 
 ```bash
 # Previous manifest, so old tabs can still lazy-load their content-hashed chunks.
@@ -83,6 +84,48 @@ it.
 Rollback means publishing a new manifest containing the older path map. Never
 delete release blobs while a published manifest, snapshot, or open client may
 still need them.
+
+## Updates without a button
+
+nsite builds set `VITE_APP_UPDATE_MODE=auto`. Other builds keep the Reload prompt.
+
+In auto mode, an open page detects and downloads the new build in the background:
+`/_app/version.json` is checked every 30 seconds and on focus, visibility, and
+reconnect. The downloaded build waits; the page shows no prompt and is never
+replaced while in use. The prepared build is applied only at the next startup
+(new tab, reload, link open, or browser restart). This happens before the app
+renders: no page, widget iframe, wallet, signer, or session has started in that
+document yet. It is skipped unless all of these hold:
+
+- the page is visible and has had no input: pointer, touch, keys, IME
+  composition, input, click, focus, paste, drop, or context menu;
+- no reload is already in progress, this tab has no prepared local broadcast
+  (restored from session storage), and this build was not already attempted in
+  this tab;
+- the waiting build is still the published `/_app/version.json` build;
+- the waiting service worker reports, at activation time, that this page is the
+  only window of the site.
+
+Otherwise the running build continues. The prepared build waits for a later
+qualifying startup, or the browser activates it once no window of the site
+remains open.
+
+Limitations:
+
+- A returning visitor's first startup after a release usually runs the previous
+  build while the new one downloads; the following startup applies it. First-time
+  visitors load the published build directly.
+- Builds published before auto mode (including `3599d872c-20261125172754`) keep
+  their Reload prompt. Their users move to an auto-mode build after tapping
+  Reload, or once every tab of the site has been closed. The auto-mode build
+  then handles later releases.
+- Activation still makes every older window of the site reload. The
+  single-window check narrows this to windows that open during activation
+  itself, which are fresh. A page held in the back/forward cache is not a
+  window client. As with any service-worker activation, it can be evicted and
+  reload when revisited.
+- A waiting worker from a build without this handler never answers, so nothing
+  is applied automatically.
 
 ## Gateway findings (2026-11-25)
 
