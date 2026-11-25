@@ -11,12 +11,13 @@
 
   type Props = {
     result: PeopleSearchResult
+    relays?: string[]
     class?: string
   }
 
-  const {result, class: className = ""}: Props = $props()
+  const {result, relays = [], class: className = ""}: Props = $props()
 
-  const openProfile = () => pushModal(ProfileDetail, {pubkey: result.pubkey})
+  const openProfile = () => pushModal(ProfileDetail, {pubkey: result.pubkey, relays})
   const chatPath = $derived(makeChatPath(result.pubkey))
 </script>
 
@@ -25,10 +26,10 @@
     type="button"
     class="flex min-w-0 flex-1 items-center gap-2 rounded-box text-left"
     onclick={openProfile}>
-    <ProfileCircle pubkey={result.pubkey} size={5} />
+    <ProfileCircle pubkey={result.pubkey} {relays} size={5} />
     <div class="min-w-0 flex-1">
       <div class="truncate text-sm font-semibold">
-        <ProfileName pubkey={result.pubkey} />
+        <ProfileName pubkey={result.pubkey} {relays} />
       </div>
       <div class="truncate text-[11px] leading-4 opacity-60">
         {result.evidenceLabels.join(" · ") || result.label}

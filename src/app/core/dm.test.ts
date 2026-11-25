@@ -18,6 +18,7 @@ import {
   getDmPublishRelays,
   hasDmInbox,
   getDmCounterparty,
+  getChatProfileRelays,
   getMessagingRelayHints,
 } from "./dm"
 
@@ -663,6 +664,28 @@ describe("dm", () => {
       const hints = getMessagingRelayHints()
       expect(Array.isArray(hints)).toBe(true)
       expect(hints.every(url => typeof url === "string")).toBe(true)
+    })
+  })
+
+  describe("getChatProfileRelays", () => {
+    it("combines active community profile relays with self and partner DM inbox relays", () => {
+      const ref = makeCommunityRef({
+        communityPubkey: testPubkey(10),
+        moderatorPubkey: testPubkey(11),
+        relay: "wss://community.example",
+      })
+
+      expect(
+        getChatProfileRelays({
+          communities: [ref],
+          selfInboxRelays: ["wss://community.example/", "wss://self-dm.example"],
+          partnerInboxRelays: ["wss://partner-dm.example", "wss://self-dm.example/"],
+        }),
+      ).toEqual([
+        "wss://community.example/",
+        "wss://self-dm.example/",
+        "wss://partner-dm.example/",
+      ])
     })
   })
 })

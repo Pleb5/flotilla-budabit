@@ -1,12 +1,14 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
   import {onMount, tick} from "svelte"
+  import {get} from "svelte/store"
   import {SvelteMap} from "svelte/reactivity"
   import {int, sortBy, remove, formatTimestampAsDate, MINUTE} from "@welshman/lib"
   import type {TrustedEvent, EventContent, EventTemplate} from "@welshman/util"
   import {makeEvent} from "@welshman/util"
   import {
     pubkey,
+    profilesByPubkey,
     publishThunk,
     repository,
     retryThunk,
@@ -16,11 +18,14 @@
   } from "@welshman/app"
   import {
     DM_KIND,
+    chatProfileRelays,
     checkDmInboxRelayList,
     getDmPublishRelays,
     getDmRelayUrls,
     messagingRelayHints,
+    normalizeRelayUrls,
   } from "@app/core/dm"
+  import {hydratePubkeyProfiles} from "@app/core/community-state"
   import Danger from "@assets/icons/danger-triangle.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Link from "@lib/components/Link.svelte"
@@ -42,7 +47,7 @@
   import ProfileCircle from "@app/components/ProfileCircle.svelte"
   import ChatMessage from "@app/components/ChatMessage.svelte"
   import DmReplyQuote from "./DmReplyQuote.svelte"
-  import {dmReplyId, isDmReplyTarget} from "@app/core/dm-replies"
+  import {dmReplyId, isDmReplyTarget, orderDmMessages} from "@app/core/dm-replies"
   import DeletionHydration from "@app/components/DeletionHydration.svelte"
   import ChatCompose from "@app/components/ChatCompose.svelte"
   import DmInboxSetup from "@app/components/DmInboxSetup.svelte"
@@ -82,6 +87,31 @@
   const hasSelfInbox = $derived.by(() => selfInboxRelays.length > 0)
   const hasRecipientInbox = $derived.by(() => recipientInboxRelays.length > 0)
   const relayHints = $derived($messagingRelayHints)
+  const profileRelays = $derived(
+    normalizeRelayUrls([...$chatProfileRelays, ...selfInboxRelays, ...recipientInboxRelays]),
+  )
+
+  $effect(() => {
+    const relayHints = profileRelays
+    const candidates = pubkeys.filter(Boolean)
+    if (relayHints.length === 0 || candidates.length === 0) return
+
+    const cached = get(profilesByPubkey)
+    const missing = candidates.filter(pk => {
+      const profile = cached.get(pk)
+      return !(profile?.display_name || profile?.name || profile?.picture)
+    })
+    if (missing.length === 0) return
+
+    const controller = new AbortController()
+    void hydratePubkeyProfiles({
+      pubkeys: missing,
+      relayHints,
+      signal: controller.signal,
+    }).catch(() => undefined)
+
+    return () => controller.abort()
+  })
 
   let relayChecks = $state<Record<string, boolean>>({})
   let relayHintKeys = $state<Record<string, string>>({})
@@ -146,7 +176,7 @@
 
   const showMembers = () => {
     if (others.length > 0) {
-      pushModal(ProfileDetail, {pubkey: others[0]})
+      pushModal(ProfileDetail, {pubkey: others[0], relays: profileRelays})
     }
   }
 
@@ -154,6 +184,17 @@
   let replyTarget = $state<TrustedEvent | undefined>()
   let sendingReply = $state(false)
   let composingSend = $state(false)
+  let returnToMessageId = $state<string | undefined>()
+  let highlightedMessageId = $state<string | undefined>()
+  let pendingParentId = $state<string | undefined>()
+  let highlightTimer: ReturnType<typeof setTimeout> | undefined
+  const flashHighlight = (id: string) => {
+    highlightedMessageId = id
+    if (highlightTimer) clearTimeout(highlightTimer)
+    highlightTimer = setTimeout(() => {
+      if (highlightedMessageId === id) highlightedMessageId = undefined
+    }, 3000)
+  }
   const selectReply = (event: TrustedEvent) => {
     if (
       sendingReply ||
@@ -166,13 +207,32 @@
     replyTarget = event
     compose?.focus()
   }
-  const locateParent = async (id: string) => {
+  const jumpToMessage = async (id: string) => {
     const index = sortedMessages.findIndex(message => message.id === id)
-    if (index < 0) return
+    if (index < 0) return false
     messageWindowEnd = sortedMessages[Math.min(sortedMessages.length - 1, index + 10)].id
     visibleMessageCount = INITIAL_MESSAGE_COUNT
     await tick()
+    flashHighlight(id)
     void scrollToEvent(id)
+    return true
+  }
+  const locateParent = async (id: string, fromId?: string) => {
+    returnToMessageId = fromId
+    if (await jumpToMessage(id)) {
+      pendingParentId = undefined
+      return
+    }
+    if (recipientPubkey) {
+      pendingParentId = id
+      loadDmHistoryEvent(recipientPubkey, id)
+    }
+  }
+  const returnToReply = async () => {
+    const target = returnToMessageId
+    returnToMessageId = undefined
+    pendingParentId = undefined
+    if (target) await jumpToMessage(target)
   }
   const dmPublishToastIds = new Map<string, string>()
 
@@ -292,7 +352,9 @@
   let revealedHashTargetKey = ""
 
   const sortedMessages = $derived.by(() =>
-    sortBy((e: TrustedEvent) => e.created_at, $chat?.messages || []),
+    $pubkey && recipientPubkey
+      ? orderDmMessages($chat?.messages || [], $pubkey, recipientPubkey)
+      : sortBy((e: TrustedEvent) => e.created_at, $chat?.messages || []),
   )
   const windowEndIndex = $derived(
     messageWindowEnd
@@ -406,10 +468,22 @@
   })
 
   $effect(() => {
+    if (!pendingParentId) return
+    const target = pendingParentId
+    if (sortedMessages.some(message => message.id === target)) {
+      pendingParentId = undefined
+      void jumpToMessage(target)
+    }
+  })
+
+  $effect(() => {
     const chatId = `${$pubkey}:${recipientPubkey}`
     if (chatId !== activeChatId) {
       activeChatId = chatId
       replyTarget = undefined
+      returnToMessageId = undefined
+      highlightedMessageId = undefined
+      pendingParentId = undefined
       visibleMessageCount = INITIAL_MESSAGE_COUNT
       messageWindowEnd = undefined
     }
@@ -492,6 +566,7 @@
     observer.observe(dynamicPadding!)
 
     return () => {
+      if (highlightTimer) clearTimeout(highlightTimer)
       for (const timeout of relayTimeouts.values()) clearTimeout(timeout)
       relayTimeouts.clear()
       relayCheckRequests.clear()
@@ -515,13 +590,13 @@
     <Button class="flex flex-col gap-1 sm:flex-row sm:gap-2" onclick={showMembers}>
       {#if others.length === 0}
         <div class="row-2">
-          <ProfileCircle pubkey={$pubkey!} size={5} />
-          <ProfileName pubkey={$pubkey!} />
+          <ProfileCircle pubkey={$pubkey!} relays={profileRelays} size={5} />
+          <ProfileName pubkey={$pubkey!} relays={profileRelays} />
         </div>
       {:else}
         <div class="row-2">
-          <ProfileCircle pubkey={others[0]} size={5} />
-          <ProfileName pubkey={others[0]} />
+          <ProfileCircle pubkey={others[0]} relays={profileRelays} size={5} />
+          <ProfileName pubkey={others[0]} relays={profileRelays} />
         </div>
       {/if}
     </Button>
@@ -540,9 +615,20 @@
 
 <PageContent class="flex flex-col-reverse gap-2 pt-4">
   <div bind:this={dynamicPadding}></div>
-  {#if hasNewerMessages}
-    <Button class="btn btn-neutral btn-sm mx-auto" onclick={showLatestMessages}
-      >Back to latest messages</Button>
+  {#if returnToMessageId || hasNewerMessages}
+    <div class="mx-auto flex items-center gap-2">
+      {#if returnToMessageId}
+        <Button class="btn btn-primary btn-sm" onclick={returnToReply}>Return to reply</Button>
+      {/if}
+      {#if hasNewerMessages}
+        <Button
+          class="btn btn-neutral btn-sm"
+          onclick={() => {
+            returnToMessageId = undefined
+            showLatestMessages()
+          }}>Back to latest messages</Button>
+      {/if}
+    </div>
   {/if}
   {#if relayCheckPending}
     <div class="py-12">
@@ -601,10 +687,12 @@
       <ChatMessage
         {event}
         {showPubkey}
+        relays={profileRelays}
+        highlighted={highlightedMessageId === event.id}
         {parentId}
         {parent}
         reply={() => selectReply(event)}
-        locateParent={() => parentId && locateParent(parentId)} />
+        locateParent={() => parentId && locateParent(parentId, event.id)} />
     {/if}
   {/each}
   <div class="m-auto flex max-w-sm flex-col items-center justify-center gap-4 py-8 text-center">
@@ -633,7 +721,7 @@
     <div class="flex items-center gap-2 px-4 pt-2">
       <div class="min-w-0 flex-1">
         <div class="text-xs">Replying to</div>
-        <DmReplyQuote parent={replyTarget} />
+        <DmReplyQuote parent={replyTarget} relays={profileRelays} />
       </div>
       <Button
         class="btn btn-ghost btn-sm"

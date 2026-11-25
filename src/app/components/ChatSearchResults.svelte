@@ -1,8 +1,12 @@
 <script lang="ts">
   import type {Snippet} from "svelte"
+  import {get} from "svelte/store"
+  import {profilesByPubkey} from "@welshman/app"
   import Button from "@lib/components/Button.svelte"
   import LazyChatItem from "@app/components/LazyChatItem.svelte"
   import DmHistoryStatus from "@app/components/DmHistoryStatus.svelte"
+  import {chatProfileRelays} from "@app/core/dm"
+  import {hydratePubkeyProfiles} from "@app/core/community-state"
   import {dmHistoryState, retryDmHistory} from "@app/core/dm-sync"
   import {DM_INBOX, emptyDmHistory} from "@app/core/dm-history"
   import PeopleSearchResultItem from "@app/components/PeopleSearchResultItem.svelte"
@@ -46,6 +50,10 @@
     shownCount = 30
   })
   const chats = $derived($chatSearch.searchOptions(debouncedTerm))
+  const visibleChats = $derived(chats.slice(0, shownCount))
+  const visibleChatPubkeys = $derived(
+    Array.from(new Set(visibleChats.flatMap(chat => chat.pubkeys).filter(Boolean))),
+  )
   const shownChatPubkeys = $derived(new Set(chats.map(chat => chat.id)))
   const recentConversationPubkeys = $derived($chatSearch.searchOptions("").map(chat => chat.id))
   const peopleResults = $derived.by(() =>
@@ -58,14 +66,36 @@
         })
       : [],
   )
+
+  $effect(() => {
+    const relayHints = $chatProfileRelays
+    const candidates = visibleChatPubkeys
+    if (relayHints.length === 0 || candidates.length === 0) return
+
+    const cached = get(profilesByPubkey)
+    const missing = candidates.filter(pk => {
+      const profile = cached.get(pk)
+      return !(profile?.display_name || profile?.name || profile?.picture)
+    })
+    if (missing.length === 0) return
+
+    const controller = new AbortController()
+    void hydratePubkeyProfiles({
+      pubkeys: missing,
+      relayHints,
+      signal: controller.signal,
+    }).catch(() => undefined)
+
+    return () => controller.abort()
+  })
 </script>
 
 {#if chats.length > 0}
   <div class="px-6 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide opacity-60">
     Recent conversations
   </div>
-  {#each chats.slice(0, shownCount) as chat (chat.id)}
-    <LazyChatItem {chat} class={chatItemClass} />
+  {#each visibleChats as chat (chat.id)}
+    <LazyChatItem {chat} relays={$chatProfileRelays} class={chatItemClass} />
   {/each}
   {#if chats.length > shownCount}
     <Button class="btn btn-ghost btn-sm mx-4" onclick={() => (shownCount += 30)}>
@@ -77,7 +107,7 @@
 {#if normalizedTerm && peopleResults.length > 0}
   <div class="px-6 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide opacity-60">People</div>
   {#each peopleResults as result (result.pubkey)}
-    <PeopleSearchResultItem {result} class={peopleItemClass} />
+    <PeopleSearchResultItem {result} relays={$chatProfileRelays} class={peopleItemClass} />
   {/each}
 {/if}
 

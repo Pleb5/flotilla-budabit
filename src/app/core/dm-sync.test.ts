@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from "vitest"
 import {get, writable, type Writable} from "svelte/store"
-import {Pool, AuthStatus, type RequestOptions} from "@welshman/net"
+import {Pool, AuthStatus, SocketEvent, SocketStatus, type RequestOptions} from "@welshman/net"
 import type {FiniteRelayRequestOptions} from "./finite-relay-request"
 
 const mocks = vi.hoisted(() => ({
@@ -202,5 +202,125 @@ describe("DM synchronization lifecycle", () => {
     expect(signal.aborted).toBe(true)
     expect(get(dmHistoryState).size).toBe(0)
     retryDmHistory()
+  })
+
+  it("resubscribes after a clean disconnect resolution and catches up missed history on EOSE", async () => {
+    const activeRequests: Array<{options: RequestOptions; resolve: () => void}> = []
+    mocks.request.mockImplementation(
+      (options: RequestOptions) =>
+        new Promise(resolve => {
+          const entry = {options, resolve: () => resolve([])}
+          activeRequests.push(entry)
+          options.signal?.addEventListener("abort", () => resolve([]))
+        }),
+    )
+    login()
+    navigate(`/chat/${partner}`)
+    cleanup = startDmSync()
+    await vi.advanceTimersByTimeAsync(500)
+    expect(mocks.request).toHaveBeenCalledTimes(1)
+    mocks.finite.mockClear()
+
+    // Simulate requestOne's disconnect path: calls onDisconnect + onClose and resolves cleanly.
+    const first = activeRequests[0]
+    first.options.onDisconnect?.(relay)
+    first.options.onClose?.()
+    first.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // Exponential backoff schedules a reconnect at 1s even if nothing else touches the socket.
+    await vi.advanceTimersByTimeAsync(1_000)
+    expect(mocks.request).toHaveBeenCalledTimes(2)
+
+    // EOSE after interruption triggers finite recent catch-up to close the disconnect gap.
+    activeRequests[1].options.onEose?.(relay)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(mocks.finite).toHaveBeenCalled()
+
+    // Another disconnect is also revived immediately when the socket emits Open.
+    const second = activeRequests[1]
+    second.options.onDisconnect?.(relay)
+    second.options.onClose?.()
+    second.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    const socket = Pool.get().get(relay)
+    socket.emit(SocketEvent.Status, SocketStatus.Open, relay)
+    expect(mocks.request).toHaveBeenCalledTimes(3)
+  })
+
+  it("subscribes live to partner-only DM relays while in a conversation and cleans up on leave", async () => {
+    const partnerRelay = "wss://partner-dm.example/"
+    const otherPartner = "c".repeat(64)
+    const otherRelay = "wss://other-partner.example/"
+    login()
+    messagingRelayListsByPubkey.set(
+      new Map([
+        [partner, {event: {pubkey: partner}, publicTags: [["relay", relay], ["relay", partnerRelay]]}],
+        [otherPartner, {event: {pubkey: otherPartner}, publicTags: [["relay", otherRelay]]}],
+      ]),
+    )
+    cleanup = startDmSync()
+    await vi.advanceTimersByTimeAsync(200)
+    // Away from /chat, only self's inbox relay has a live subscription.
+    expect(mocks.request).toHaveBeenCalledTimes(1)
+    expect(mocks.request.mock.calls[0][0].relays).toEqual([relay])
+
+    // Entering /chat/<partner> adds a partner-scoped live tail only for partnerRelay (not duplicating relay).
+    navigate(`/chat/${partner}`)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(mocks.request).toHaveBeenCalledTimes(2)
+    expect(mocks.request.mock.calls[1][0]).toMatchObject({
+      relays: [partnerRelay],
+      lifetime: "live",
+      filters: [
+        expect.objectContaining({limit: 0, authors: [partner], "#p": [self]}),
+        expect.objectContaining({limit: 0, authors: [self], "#p": [partner]}),
+      ],
+    })
+    const partnerSignal = mocks.request.mock.calls[1][0].signal as AbortSignal
+    expect(partnerSignal.aborted).toBe(false)
+
+    // Switching conversations aborts the old partner live tail and opens the new one.
+    navigate(`/chat/${otherPartner}`)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(partnerSignal.aborted).toBe(true)
+    expect(mocks.request).toHaveBeenCalledTimes(3)
+    expect(mocks.request.mock.calls[2][0].relays).toEqual([otherRelay])
+    const otherSignal = mocks.request.mock.calls[2][0].signal as AbortSignal
+
+    // Leaving /chat aborts the partner live tail while keeping self's inbox live tail open.
+    navigate("/home")
+    await vi.advanceTimersByTimeAsync(200)
+    expect(otherSignal.aborted).toBe(true)
+    expect((mocks.request.mock.calls[0][0].signal as AbortSignal).aborted).toBe(false)
+  })
+
+  it("aborts partial chunk closures, avoids timer spam during pending AUTH, and revives on AuthStatus.Ok", async () => {
+    const activeRequests: Array<{options: RequestOptions; resolve: () => void}> = []
+    mocks.request.mockImplementation(
+      (options: RequestOptions) =>
+        new Promise(resolve => {
+          activeRequests.push({options, resolve: () => resolve([])})
+          options.signal?.addEventListener("abort", () => resolve([]))
+        }),
+    )
+    login()
+    cleanup = startDmSync()
+    await vi.advanceTimersByTimeAsync(200)
+    const socket = Pool.get().get(relay)
+    socket.auth.setStatus(AuthStatus.PendingSignature)
+
+    const first = activeRequests[0]
+    first.options.onClosed?.("auth-required: authenticate", relay)
+    expect(first.options.signal?.aborted).toBe(true)
+    await vi.advanceTimersByTimeAsync(60_000)
+    // Does not spin a retry timer while AUTH is pending.
+    expect(mocks.request).toHaveBeenCalledTimes(1)
+
+    // Revives immediately once AUTH succeeds.
+    socket.auth.setStatus(AuthStatus.Ok)
+    expect(mocks.request).toHaveBeenCalledTimes(2)
   })
 })

@@ -10,6 +10,7 @@ import {
   repository,
   setPlaintext,
   signer,
+  userMessagingRelayList,
   userRelayList,
 } from "@welshman/app"
 import {Router} from "@welshman/router"
@@ -32,6 +33,7 @@ import type {
 } from "@app/core/community-membership"
 import {isCommunityPersonBanned} from "@app/core/community-reports"
 import {createDmDecryptionQueue} from "@app/core/dm-decryption-queue"
+import {getProfileCommunityRelaysFromRefs} from "@app/core/community-relays"
 import {activeUserCommunityRefs} from "@app/core/community-state"
 export {DM_KIND}
 
@@ -993,6 +995,30 @@ export const getMessagingRelayHints = (
 export const messagingRelayHints = derived(
   [activeUserCommunityRefs, userRelayList],
   ([communities]) => getMessagingRelayHints(communities),
+)
+
+export const getChatProfileRelays = ({
+  communities = get(activeUserCommunityRefs),
+  selfInboxRelays = getDmRelayUrls(get(userMessagingRelayList)),
+  partnerInboxRelays = [],
+}: {
+  communities?: Pick<ActiveUserCommunityRef, "community" | "definition">[]
+  selfInboxRelays?: string[]
+  partnerInboxRelays?: string[]
+} = {}) =>
+  normalizeRelayUrls([
+    ...getProfileCommunityRelaysFromRefs(communities),
+    ...selfInboxRelays,
+    ...partnerInboxRelays,
+  ])
+
+export const chatProfileRelays = derived(
+  [activeUserCommunityRefs, userMessagingRelayList],
+  ([communities, selfRelayList]) =>
+    getChatProfileRelays({
+      communities,
+      selfInboxRelays: getDmRelayUrls(selfRelayList),
+    }),
 )
 
 export const getDmCounterparty = (event: TrustedEvent, selfPubkey: string) => {

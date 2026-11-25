@@ -1,6 +1,6 @@
 import {describe, expect, it} from "vitest"
 import {finalizeEvent, getPublicKey, nip44} from "nostr-tools"
-import {dmReplyId, isDmReplyTarget} from "./dm-replies"
+import {dmReplyId, isDmReplyTarget, orderDmMessages} from "./dm-replies"
 
 describe("Freedom Builders kind4444 reply contract", () => {
   const key = new Uint8Array(32).fill(61)
@@ -54,5 +54,25 @@ describe("Freedom Builders kind4444 reply contract", () => {
       ),
     ).toBe(false)
     expect(isDmReplyTarget(event([["p", peer]]), "f".repeat(64), account)).toBe(false)
+  })
+  it("keeps replies after their parent even when reply timestamps skew earlier", () => {
+    const parent = finalizeEvent(
+      {kind: 4444, created_at: 200, tags: [["p", peer]], content: "p"},
+      key,
+    )
+    const reply = finalizeEvent(
+      {
+        kind: 4444,
+        created_at: 195,
+        tags: [
+          ["p", account],
+          ["e", parent.id, "", "reply"],
+        ],
+        content: "r",
+      },
+      other,
+    )
+    const ordered = orderDmMessages([reply, parent], account, peer)
+    expect(ordered.map(e => e.id)).toEqual([parent.id, reply.id])
   })
 })

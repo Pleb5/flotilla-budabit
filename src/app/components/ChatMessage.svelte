@@ -2,11 +2,12 @@
   import type {Instance} from "tippy.js"
   import {hash, formatTimestampAsTime} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {pubkey, getPlaintext} from "@welshman/app"
+  import {pubkey, signer, getPlaintext} from "@welshman/app"
   import {ensureDmPlaintext} from "@app/core/dm"
   import DmReplyQuote from "./DmReplyQuote.svelte"
   import {isMobile} from "@lib/html"
   import MenuDots from "@assets/icons/menu-dots.svg?dataurl"
+  import ReplyIcon from "@assets/icons/reply-2.svg?dataurl"
   import Icon from "@lib/components/Icon.svelte"
   import Button from "@lib/components/Button.svelte"
   import Tippy from "@lib/components/Tippy.svelte"
@@ -23,19 +24,30 @@
   interface Props {
     event: TrustedEvent
     showPubkey?: boolean
+    relays?: string[]
+    highlighted?: boolean
     reply?: () => void
     parentId?: string
     parent?: TrustedEvent
     locateParent?: () => void
   }
 
-  const {event, showPubkey = false, reply, parentId, parent, locateParent}: Props = $props()
+  const {
+    event,
+    showPubkey = false,
+    relays = [],
+    highlighted = false,
+    reply,
+    parentId,
+    parent,
+    locateParent,
+  }: Props = $props()
 
   const isOwn = event.pubkey === $pubkey
-  const profileDisplay = deriveBudabitProfileDisplay(event.pubkey)
+  const profileDisplay = $derived(deriveBudabitProfileDisplay(event.pubkey, {relays}))
   const [_, colorValue] = colors[hash(event.pubkey) % colors.length]
 
-  const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey})
+  const openProfile = () => pushModal(ProfileDetail, {pubkey: event.pubkey, relays})
 
   const showMobileMenu = () =>
     pushModal(ChatMessageMenuMobile, {event, content: displayContent, reply})
@@ -65,7 +77,7 @@
     decrypting = false
     decryptFailed = false
 
-    if ($pubkey && existing === undefined && event.content) {
+    if ($pubkey && $signer && existing === undefined && event.content) {
       decrypting = true
       ensureDmPlaintext(event, $pubkey, {priority: 100, signal: controller.signal})
         .then(result => {
@@ -105,33 +117,43 @@
   class:flex-row-reverse={!isOwn}
   class:chat-end={isOwn}>
   {#if !isMobile}
-    <Tippy
-      bind:popover
-      component={ChatMessageMenu}
-      props={{event, popover, reply}}
-      params={{
-        interactive: true,
-        trigger: "manual",
-        onShow() {
-          popoverIsVisible = true
-        },
-        onHidden() {
-          popoverIsVisible = false
-        },
-      }}>
-      <button
-        type="button"
-        aria-label="Open message actions"
-        class="opacity-0 transition-all focus:opacity-100"
-        class:group-hover:opacity-100={!isMobile}
-        onclick={togglePopover}>
-        <Icon icon={MenuDots} size={4} />
-      </button>
-    </Tippy>
+    <div class="flex items-center gap-0.5 opacity-0 transition-all focus-within:opacity-100 group-hover:opacity-100">
+      {#if reply}
+        <button
+          type="button"
+          aria-label="Reply to message"
+          class="btn btn-ghost btn-xs px-1"
+          onclick={reply}>
+          <Icon icon={ReplyIcon} size={4} />
+        </button>
+      {/if}
+      <Tippy
+        bind:popover
+        component={ChatMessageMenu}
+        props={{event, popover, reply}}
+        params={{
+          interactive: true,
+          trigger: "manual",
+          onShow() {
+            popoverIsVisible = true
+          },
+          onHidden() {
+            popoverIsVisible = false
+          },
+        }}>
+        <button
+          type="button"
+          aria-label="Open message actions"
+          class="btn btn-ghost btn-xs px-1"
+          onclick={togglePopover}>
+          <Icon icon={MenuDots} size={4} />
+        </button>
+      </Tippy>
+    </div>
   {/if}
   <div class="flex min-w-0 flex-col" class:items-end={isOwn}>
     <TapTarget
-      class="bg-alt chat-bubble mx-1 mb-2 flex cursor-auto flex-col gap-1 text-left lg:max-w-2xl"
+      class="bg-alt chat-bubble mx-1 mb-2 flex cursor-auto flex-col gap-1 text-left transition-colors lg:max-w-2xl {highlighted ? 'ring-2 ring-primary' : ''}"
       onTap={showMobileMenu}>
       {#if showPubkey}
         <div class="flex items-center gap-2">
@@ -139,6 +161,7 @@
             <Button onclick={openProfile} class="flex items-center gap-1">
               <ProfileCircle
                 pubkey={event.pubkey}
+                {relays}
                 class="border border-solid border-base-content"
                 size={4} />
               <div class="flex items-center gap-2">
@@ -157,13 +180,12 @@
           <button
             type="button"
             class="mb-2 block w-full text-left"
-            disabled={!parent}
             onclick={e => {
               e.stopPropagation()
               locateParent?.()
             }}
             aria-label="Go to original message">
-            <DmReplyQuote {parent} />
+            <DmReplyQuote {parent} {parentId} {relays} />
           </button>
         {/if}
         {#if decrypting}

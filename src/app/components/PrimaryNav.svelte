@@ -16,7 +16,7 @@
   import {publicationOperationsNeedingAttention} from "@app/core/publication-operations"
   import {relayDeliveryNotices} from "@app/core/relay-publish-delivery"
   import {filePublicationJobs} from "@app/core/attachment-file-state"
-  import {badgeCount} from "@app/util/notifications"
+  import {badgeCount, notifications} from "@app/util/notifications"
   import {pushModal} from "@app/util/modal"
   import {
     NOTIFICATION_CENTER_MODAL_KIND,
@@ -57,6 +57,7 @@
     if ($pubkey) goto("/chat")
     else pushModal(LogIn)
   }
+  const hasChatNotification = $derived($notifications.has("/chat"))
   const hasTopLevelNotification = $derived(
     !$notificationCenterOpen &&
       (Boolean($pubkey && $notificationUnreadHints[$pubkey]) ||
@@ -86,7 +87,12 @@
       </PrimaryNavItem>
     </div>
     <div>
-      <PrimaryNavItem title="Messages" onclick={openChat} class="tooltip-right">
+      <PrimaryNavItem
+        title="Messages"
+        onclick={openChat}
+        prefix="/chat"
+        class="tooltip-right"
+        notification={hasChatNotification}>
         <ImageIcon alt="Messages" src={Letter} size={7} />
       </PrimaryNavItem>
       <PrimaryNavItem title="Git" href={gitPath} prefix="/git" class="tooltip-right">
@@ -150,7 +156,12 @@
         <ImageIcon alt="Settings" src={UserRounded} size={5} class="rounded-full" />
       {/if}
     </PrimaryNavItem>
-    <PrimaryNavItem compact title="Messages" onclick={openChat}>
+    <PrimaryNavItem
+      compact
+      title="Messages"
+      onclick={openChat}
+      prefix="/chat"
+      notification={hasChatNotification}>
       <ImageIcon alt="Messages" src={Letter} size={5} />
     </PrimaryNavItem>
     <PrimaryNavItem compact title="Search" href="/people">

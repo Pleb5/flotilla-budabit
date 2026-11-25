@@ -3,7 +3,8 @@
   import type {Chat} from "@app/core/state"
   import ChatItem from "./ChatItem.svelte"
 
-  const {chat, class: className = ""}: {chat: Chat; class?: string} = $props()
+  const {chat, relays = [], class: className = ""}: {chat: Chat; relays?: string[]; class?: string} =
+    $props()
   let element: HTMLDivElement
   let visible = $state(false)
   let height = $state(92)
@@ -33,6 +34,7 @@
       id={chat.id}
       pubkeys={chat.pubkeys}
       latestMessage={chat.latestMessage}
+      {relays}
       class={className} />
   {/if}
 </div>

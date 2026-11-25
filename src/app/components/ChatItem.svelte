@@ -2,8 +2,8 @@
   import {page} from "$app/stores"
   import {remove, formatTimestamp} from "@welshman/lib"
   import type {TrustedEvent} from "@welshman/util"
-  import {pubkey, getPlaintext} from "@welshman/app"
-  import {ensureDmPlaintext} from "@app/core/dm"
+  import {pubkey, getPlaintext, messagingRelayListsByPubkey} from "@welshman/app"
+  import {chatProfileRelays, ensureDmPlaintext, getDmRelayUrls, normalizeRelayUrls} from "@app/core/dm"
   import NotificationDot from "@lib/components/NotificationDot.svelte"
   import Link from "@lib/components/Link.svelte"
   import ProfileName from "@app/components/ProfileName.svelte"
@@ -15,12 +15,20 @@
     id: string
     pubkeys: string[]
     latestMessage?: TrustedEvent
+    relays?: string[]
     [key: string]: any
   }
 
   const {...props}: Props = $props()
 
-  const others = remove($pubkey!, props.pubkeys)
+  const others = $derived(remove($pubkey!, props.pubkeys))
+  const peerPubkey = $derived(others[0])
+  const profileRelays = $derived(
+    normalizeRelayUrls([
+      ...(props.relays?.length ? props.relays : $chatProfileRelays),
+      ...(peerPubkey ? getDmRelayUrls($messagingRelayListsByPubkey.get(peerPubkey)) : []),
+    ]),
+  )
   const active = $derived($page.params.chat === props.id)
   const path = makeChatPath(props.id)
   const latestMessage = $derived(props.latestMessage)
@@ -84,11 +92,11 @@
       <div class="flex items-center justify-between gap-2">
         <div class="flex min-w-0 items-center gap-2">
           {#if others.length === 0}
-            <ProfileCircle pubkey={$pubkey!} size={5} />
+            <ProfileCircle pubkey={$pubkey!} relays={profileRelays} size={5} />
             Note to self
           {:else}
-            <ProfileCircle pubkey={others[0]} size={5} />
-            <ProfileName pubkey={others[0]} />
+            <ProfileCircle pubkey={others[0]} relays={profileRelays} size={5} />
+            <ProfileName pubkey={others[0]} relays={profileRelays} />
           {/if}
         </div>
         {#if !active && $notifications.has(path)}

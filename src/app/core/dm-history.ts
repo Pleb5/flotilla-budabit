@@ -7,6 +7,7 @@ export const DM_INBOX = "inbox"
 export const DM_HISTORY_PAGE_SIZE = 100
 export const DM_HISTORY_CONCURRENCY = 2
 export const DM_HISTORY_FRESH_MS = 30_000
+const DM_HISTORY_CLOCK_SKEW_SECONDS = 60
 const PAGE_YIELD_MS = 100
 const RETRY_DELAYS = [1_000, 4_000]
 const MAX_RETAINED_SCOPES = 24
@@ -191,7 +192,13 @@ export const createDmHistory = (dependencies: Dependencies) => {
   const refresh = (stream: Stream) => {
     if (stream.refresh || now() - stream.refreshedAt < DM_HISTORY_FRESH_MS) return
     const head = Math.floor(now() / 1000)
-    stream.refresh = {head, until: head, ...(stream.head === undefined ? {} : {since: stream.head})}
+    stream.refresh = {
+      head,
+      until: head + DM_HISTORY_CLOCK_SKEW_SECONDS,
+      ...(stream.head === undefined
+        ? {}
+        : {since: Math.max(0, stream.head - DM_HISTORY_CLOCK_SKEW_SECONDS)}),
+    }
   }
 
   const ensureScope = (key: string, relays: string[]) => {

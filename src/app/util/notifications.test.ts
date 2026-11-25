@@ -624,4 +624,11 @@ describe("notifications", () => {
       }),
     ).toBe(0)
   })
+
+  it("wires the PrimaryNav Messages icon to unread /chat notifications on desktop and mobile", () => {
+    const primaryNav = readFileSync("src/app/components/PrimaryNav.svelte", "utf8")
+
+    expect(primaryNav).toContain('const hasChatNotification = $derived($notifications.has("/chat"))')
+    expect(primaryNav.match(/title="Messages"[\s\S]*?prefix="\/chat"[\s\S]*?notification=\{hasChatNotification\}/g)).toHaveLength(2)
+  })
 })

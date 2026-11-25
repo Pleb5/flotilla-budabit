@@ -14,6 +14,7 @@
   import ModalHeader from "@lib/components/ModalHeader.svelte"
   import ModalFooter from "@lib/components/ModalFooter.svelte"
   import ProfileSingleSelect from "@app/components/ProfileSingleSelect.svelte"
+  import {chatProfileRelays} from "@app/core/dm"
   import {makeChatPath} from "@app/util/routes"
 
   const back = () => history.back()
@@ -68,7 +69,7 @@
   </ModalHeader>
   <Field>
     {#snippet input()}
-      <ProfileSingleSelect autofocus bind:value={recipient} {term} />
+      <ProfileSingleSelect autofocus bind:value={recipient} {term} relays={$chatProfileRelays} />
     {/snippet}
   </Field>
   <ModalFooter>

@@ -43,6 +43,7 @@
   import {relayDeliveryNotices} from "@app/core/relay-publish-delivery"
   import {filePublicationJobs} from "@app/core/attachment-file-state"
   import {deriveBudabitProfileDisplay} from "@app/core/profile-resolver"
+  import {chatProfileRelays} from "@app/core/dm"
   import {DM_KIND} from "@app/core/state"
   import {
     publicationOperationsNeedingAttention,
@@ -258,9 +259,10 @@
           .filter((value): value is string => Boolean(value)),
       ),
     )
+    const relayHints = $chatProfileRelays
     actorNamesByPubkey = {}
     const unsubscribers = actorPubkeys.map(pubkey =>
-      deriveBudabitProfileDisplay(pubkey).subscribe(actorName => {
+      deriveBudabitProfileDisplay(pubkey, {relays: relayHints}).subscribe(actorName => {
         const normalized = String(actorName || "").trim()
         if (normalized) {
           actorNamesByPubkey = untrack(() => ({...actorNamesByPubkey, [pubkey]: normalized}))
@@ -333,7 +335,7 @@
     event.preventDefault()
     event.stopPropagation()
     if (navigationPending) return
-    pushModal(ProfileDetail, {pubkey})
+    pushModal(ProfileDetail, {pubkey, relays: $chatProfileRelays})
   }
 
   const activateRow = (
@@ -550,7 +552,7 @@
                     disabled={navigationPending}
                     onkeydown={stopKeyboardPropagation}
                     onclick={event => openProfile(event, row.actorPubkey!)}>
-                    <ProfileCircle pubkey={row.actorPubkey} size={8} />
+                    <ProfileCircle pubkey={row.actorPubkey} relays={$chatProfileRelays} size={8} />
                   </Button>
                 {:else}
                   <div
@@ -566,7 +568,7 @@
                         class="flex min-w-0 flex-wrap items-baseline gap-x-1 text-sm leading-snug">
                         {#if row.actorPubkey}
                           <strong class="max-w-[9rem] truncate sm:max-w-[12rem]">
-                            <ProfileName pubkey={row.actorPubkey} />
+                            <ProfileName pubkey={row.actorPubkey} relays={$chatProfileRelays} />
                           </strong>
                           <span class="text-muted-foreground">{display.action}</span>
                           <span class="truncate text-muted-foreground">{display.context}</span>
@@ -627,7 +629,10 @@
                         <div class="flex items-start justify-between gap-2">
                           <div class="flex min-w-0 items-center gap-1.5 text-muted-foreground">
                             {#if section.event?.pubkey}
-                              <ProfileCircle pubkey={section.event.pubkey} size={5} />
+                              <ProfileCircle
+                                pubkey={section.event.pubkey}
+                                relays={$chatProfileRelays}
+                                size={5} />
                             {:else}
                               <Icon icon={getSectionIcon(section, display)} size={3.5} />
                             {/if}

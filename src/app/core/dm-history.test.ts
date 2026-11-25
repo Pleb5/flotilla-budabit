@@ -299,4 +299,22 @@ describe("DM history recovery", () => {
     await advance()
     expect(request).not.toHaveBeenCalled()
   })
+
+  it("recovers clock-skewed messages around refresh boundaries", async () => {
+    const startSec = Math.floor(Date.now() / 1000)
+    const ahead = event(1, startSec + 25)
+    const messages = [ahead]
+    const {coordinator, delivered} = make(messages)
+    coordinator.configure(context)
+    await advance()
+    expect(delivered.has(ahead.id)).toBe(true)
+
+    // After a gap, a peer with a slightly slow clock publishes a message 30s before the previous head.
+    await advance(40_000)
+    const behind = event(2, startSec - 30)
+    messages.push(behind)
+    coordinator.recover(relay, true)
+    await advance()
+    expect(delivered.has(behind.id)).toBe(true)
+  })
 })
