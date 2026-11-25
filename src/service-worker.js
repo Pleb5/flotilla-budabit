@@ -23,6 +23,11 @@ const toAppPath = path => {
 const INDEX_PATH = toAppPath("/index.html")
 const VERSION_PATH = toAppPath("/_app/version.json")
 const CACHE_COMPLETE_PATH = toAppPath("/__budabit_app_cache_complete__")
+// Durable record, in this worker's own build cache, that it accepted a startup activation that
+// has not finished yet. Written before skipWaiting() and reported in every version reply, so a
+// document that starts while activation is still blocked (same-tab reload, new tab) holds
+// instead of rendering. Cleared at install (stale record of the same build) and on activation.
+const ACTIVATION_PENDING_PATH = toAppPath("/__budabit_startup_activation_pending__")
 const NETWORK_ONLY_PATHS = new Set([
   VERSION_PATH,
   toAppPath("/service-worker.js"),
@@ -97,6 +102,37 @@ const assertPublishedVersion = async () => {
   }
 }
 
+// Browsers end stuck service-worker events within minutes, so an older record is stale and
+// must not hold documents indefinitely.
+const ACTIVATION_PENDING_MAX_AGE = 10 * 60_000
+
+const readActivationPending = async () => {
+  try {
+    const cache = await caches.open(APP_CACHE_NAME)
+    const response = await cache.match(toAbsoluteUrl(ACTIVATION_PENDING_PATH))
+    if (!response) return false
+    const record = await response.json().catch(() => null)
+    const acceptedAt = Number(record?.acceptedAt) || 0
+    return Date.now() - acceptedAt < ACTIVATION_PENDING_MAX_AGE
+  } catch {
+    return false
+  }
+}
+
+const setActivationPending = async pending => {
+  const cache = await caches.open(APP_CACHE_NAME)
+  if (!pending) {
+    await cache.delete(toAbsoluteUrl(ACTIVATION_PENDING_PATH))
+    return
+  }
+  await cache.put(
+    toAbsoluteUrl(ACTIVATION_PENDING_PATH),
+    new Response(JSON.stringify({version, acceptedAt: Date.now()}), {
+      headers: {"content-type": "application/json"},
+    }),
+  )
+}
+
 // Static hosts and nsite gateways can answer a missing file with the HTML app shell and
 // status 200. Never cache that as a script, stylesheet or JSON file.
 const NON_HTML_ASSET_PATH = /\.(?:m?js|css|json|webmanifest)$/
@@ -108,6 +144,9 @@ const cacheAppShell = async () => {
   try {
     await assertPublishedVersion()
     const cache = await caches.open(APP_CACHE_NAME)
+    // A worker that is installing has accepted nothing. Drop a record left by an earlier worker
+    // of the same build (rollback or reinstall).
+    await cache.delete(toAbsoluteUrl(ACTIVATION_PENDING_PATH))
     const reusableCaches = await getCompletedAppCaches()
 
     for (let index = 0; index < APP_SHELL_PATHS.length; index += CACHE_BATCH_SIZE) {
@@ -283,7 +322,18 @@ self.addEventListener("message", event => {
 
   if (data && data.type === "APP_CACHE_GET_VERSION") {
     // startupActivation: this worker handles APP_CACHE_ACTIVATE_IF_SOLE_CLIENT.
-    event.ports?.[0]?.postMessage({type: "APP_CACHE_VERSION", version, startupActivation: true})
+    // activationPending: this worker accepted a startup activation that has not finished.
+    const port = event.ports?.[0]
+    event.waitUntil(
+      readActivationPending().then(activationPending =>
+        port?.postMessage({
+          type: "APP_CACHE_VERSION",
+          version,
+          startupActivation: true,
+          activationPending,
+        }),
+      ),
+    )
     return
   }
 
@@ -310,13 +360,14 @@ self.addEventListener("message", event => {
     const port = event.ports?.[0]
     const requesterId = event.source && "id" in event.source ? event.source.id : ""
     const deadline = typeof data.deadline === "number" ? data.deadline : 0
-    const reply = (accepted, reason, windowClients) =>
+    const reply = (accepted, reason, windowClients, activationPending) =>
       port?.postMessage({
         type: "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT_RESULT",
         version,
         accepted,
         reason,
         windowClients,
+        activationPending,
       })
     const countWindows = async () => {
       const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true})
@@ -327,10 +378,15 @@ self.addEventListener("message", event => {
     }
     event.waitUntil(
       (async () => {
+        let recorded = false
+        let skipped = false
         try {
+          // Already accepted for another document: every new document must hold as well.
+          if (await readActivationPending()) return reply(false, "activation-pending", -1, true)
+
           // Cheap check first: refuse without a network request while another window is open.
           let windows = await countWindows()
-          if (!windows.sole) return reply(false, "other-windows", windows.count)
+          if (!windows.sole) return reply(false, "other-windows", windows.count, false)
 
           const marker = new AbortController()
           const markerTimer = setTimeout(() => marker.abort(), STARTUP_ACTIVATION_MARKER_TIMEOUT)
@@ -341,19 +397,33 @@ self.addEventListener("message", event => {
             clearTimeout(markerTimer)
           }
           if (publishedVersion !== version) {
-            return reply(false, "not-published", windows.count)
+            return reply(false, "not-published", windows.count, false)
           }
 
-          // Recheck after the network round trip, then decide without awaiting anything.
           windows = await countWindows()
-          if (!windows.sole) return reply(false, "other-windows", windows.count)
+          if (!windows.sole) return reply(false, "other-windows", windows.count, false)
           if (!deadline || Date.now() > deadline) {
-            return reply(false, "deadline", windows.count)
+            return reply(false, "deadline", windows.count, false)
           }
+
+          // Record acceptance durably before skipWaiting(), then recheck what may have changed
+          // during the write, and decide without awaiting anything further.
+          await setActivationPending(true)
+          recorded = true
+          windows = await countWindows()
+          if (!windows.sole || Date.now() > deadline) {
+            await setActivationPending(false)
+            recorded = false
+            return reply(false, windows.sole ? "deadline" : "other-windows", windows.count, false)
+          }
+          skipped = true
           void self.skipWaiting()
-          reply(true, "accepted", windows.count)
+          reply(true, "accepted", windows.count, true)
         } catch {
-          reply(false, "error", -1)
+          if (recorded && !skipped) {
+            await setActivationPending(false).catch(() => {})
+          }
+          reply(false, "error", -1, skipped || (await readActivationPending()))
         }
       })(),
     )
@@ -402,6 +472,13 @@ self.addEventListener("activate", event => {
     (async () => {
       await self.clients.claim()
       await notifyClients({type: "APP_CACHE_ACTIVATED", version})
+
+      try {
+        // The accepted startup activation has happened; documents now see this worker active.
+        await setActivationPending(false)
+      } catch (error) {
+        console.warn("Service Worker: Failed to clear the pending activation record", error)
+      }
 
       try {
         await cleanupOldAppCaches()
