@@ -32,6 +32,10 @@ vi.mock("@app/core/state", () => ({
   SMART_WIDGET_RELAYS: ["wss://widgets.example/"],
 }))
 
+vi.mock("@app/core/community-state", () => ({
+  activeUserCommunityRefs: readable([]),
+}))
+
 vi.mock("@app/util/notification-center", () => ({
   notificationReadState: readable({version: 3, readRowIdsByPubkey: {}}),
   setNotificationUnreadHint: vi.fn(),
@@ -112,6 +116,7 @@ describe("widget update notifications", () => {
       buildInstalledWidgetUpdateTargets({
         settings,
         defaultWidgets: [defaultWidget],
+        communityRelays: ["wss://relay.budabit.club"],
         fallbackRelays: ["wss://fallback.example"],
       }),
     ).toEqual([
@@ -119,7 +124,11 @@ describe("widget update notifications", () => {
         id: installedId,
         installed,
         filter: {kinds: [30033], authors: [widgetPubkey], "#d": ["weather"], limit: 1},
-        relays: ["wss://source.example/", "wss://fallback.example/"],
+        relays: [
+          "wss://source.example/",
+          "wss://relay.budabit.club/",
+          "wss://fallback.example/",
+        ],
       }),
     ])
   })

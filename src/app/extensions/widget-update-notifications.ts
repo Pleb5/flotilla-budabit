@@ -4,6 +4,7 @@ import {request} from "@welshman/net"
 import {deriveEventsAsc, deriveEventsById} from "@welshman/store"
 import {isRelayUrl, normalizeRelayUrl, type Filter, type TrustedEvent} from "@welshman/util"
 import {INDEXER_RELAYS, SMART_WIDGET_RELAYS} from "@app/core/state"
+import {activeUserCommunityRefs} from "@app/core/community-state"
 import {
   catchUpThenSetBackgroundLive,
   createBackgroundLiveCoordinator,
@@ -165,13 +166,16 @@ export const groupInstalledWidgetUpdateTargetsByRelay = (
 export const buildInstalledWidgetUpdateTargets = ({
   settings,
   defaultWidgets = [],
+  communityRelays = [],
   fallbackRelays = fallbackWidgetUpdateRelays,
 }: {
   settings: ExtensionSettings
   defaultWidgets?: SmartWidgetEvent[]
+  communityRelays?: string[]
   fallbackRelays?: string[]
 }): InstalledWidgetUpdateTarget[] => {
   const defaultIds = new Set(defaultWidgets.map(getWidgetLineId).filter(Boolean))
+  const combinedFallbackRelays = Array.from(new Set([...communityRelays, ...fallbackRelays]))
 
   return Object.entries(settings.installed?.widget || {}).flatMap(([id, installed]) => {
     if (!installed || defaultIds.has(id)) return []
@@ -181,7 +185,7 @@ export const buildInstalledWidgetUpdateTargets = ({
 
     const relays = getWidgetUpdateRelays({
       source: settings.widgetInstallSources?.[id],
-      fallbackRelays,
+      fallbackRelays: combinedFallbackRelays,
     }).slice(0, MAX_WIDGET_NOTIFICATION_RELAYS_PER_TARGET)
     if (relays.length === 0) return []
 
@@ -218,11 +222,12 @@ export const buildInstalledWidgetUpdates = ({
 }
 
 export const installedWidgetUpdateTargets = derived(
-  [effectiveExtensionSettings, defaultExtensionWidgets],
-  ([$effectiveExtensionSettings, $defaultExtensionWidgets]) =>
+  [effectiveExtensionSettings, defaultExtensionWidgets, activeUserCommunityRefs],
+  ([$effectiveExtensionSettings, $defaultExtensionWidgets, $activeUserCommunityRefs]) =>
     buildInstalledWidgetUpdateTargets({
       settings: $effectiveExtensionSettings,
       defaultWidgets: $defaultExtensionWidgets,
+      communityRelays: $activeUserCommunityRefs.flatMap(ref => ref.definition.relays || []),
     }),
 )
 
