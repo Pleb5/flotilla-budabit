@@ -125,7 +125,9 @@ This holds through a slow controller switch, an error, a storage failure, or a
 missing reply. It also holds at any startup where another document's activation
 is already in progress, meaning a newer worker is active but does not yet
 control this page. In that state, the persistent update notice shows "still
-activating" with Retry. After about 30 seconds it adds Reset cache. Nothing can
+activating" with Retry. After about 30 seconds it adds Reset cache. The same
+notice appears if the reload into the new build is still waiting for the
+worker's activation 10 seconds later. Nothing can
 be typed, so the eventual automatic reload loses nothing.
 
 Otherwise the running build continues. The prepared build waits for a later

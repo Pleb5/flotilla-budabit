@@ -1248,12 +1248,16 @@
    * The global controllerchange/APP_CACHE_ACTIVATED handlers reload it into the new build.
    * Meanwhile the persistent update notice offers Retry, then Reset after a bounded delay.
    */
+  let startupHoldShown = false
   const holdForPendingActivation = (buildId: string) => {
+    if (startupHoldShown) return
+    startupHoldShown = true
     recordAppUpdateDebugDiagnostic("startup-update-hold", {expectedBuildId: buildId})
     readyAppUpdateBuildId = buildId || "pending"
     appUpdateActivationDelayed = true
     window.setTimeout(() => {
-      if (serviceWorkerReloadInFlight || appUpdateRecoveryMessage) return
+      // Still here: the activation, or the reload waiting for it, has not finished.
+      if (appUpdateRecoveryMessage) return
       appUpdateRecoveryMessage =
         "The app update has not finished yet. Retry, or reset the app cache to start again."
     }, APP_STARTUP_HOLD_RECOVERY_DELAY)
@@ -1363,6 +1367,12 @@
       ])
       if (controlled) {
         reloadIntoBuild(acceptedBuildId)
+        // The reload navigation waits while the new worker finishes activating. If this
+        // document is still here after the timeout, show the same bounded notice.
+        window.setTimeout(
+          () => holdForPendingActivation(acceptedBuildId),
+          APP_STARTUP_ACTIVATION_TIMEOUT,
+        )
         return "reloading"
       }
 
