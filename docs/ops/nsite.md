@@ -139,6 +139,14 @@ input, or visibility. It holds while:
 - the state cannot be determined: the registration lookup (3-second bound) or
   the worker handshake does not answer.
 
+When none of these applies, one more check runs before the document requests
+anything. If its controller already serves another build, the document reloads
+into that build before rendering. This happens when the controller switched
+before the document could observe `controllerchange`, and this build's lazy
+chunks would no longer load. The check never runs while an activation is
+pending, so it never messages an old controller that the activation is waiting
+on.
+
 A held document shows "Finishing the app update. This tab reloads
 automatically." (or "Checking the app update…" when the state is unknown). It
 re-inspects every 5 seconds, and nothing can be typed. The activation then

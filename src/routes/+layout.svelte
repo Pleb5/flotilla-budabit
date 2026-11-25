@@ -1192,6 +1192,8 @@
         registration: ServiceWorkerRegistration | null
         waiting: ServiceWorker | null
         handshake: WorkerHandshake | null
+        // Build of a controller that already switched away from this document's build.
+        reloadInto?: string
       }
 
   const STARTUP_HOLD_MESSAGES: Record<StartupHoldReason, string> = {
@@ -1318,7 +1320,7 @@
    * state comes from the browser registration and the waiting worker's durable pending record,
    * so it also covers documents started after another document's activation was accepted.
    */
-  const inspectStartupUpdate = async (): Promise<StartupInspection> => {
+  const inspectStartupUpdate = async (checkController = false): Promise<StartupInspection> => {
     const registration = await withTimeout(
       navigator.serviceWorker.getRegistration(getAppBaseUrl().pathname),
       APP_STARTUP_REGISTRATION_TIMEOUT,
@@ -1334,10 +1336,25 @@
     }
 
     const waiting = registration.waiting
-    if (!waiting) return {hold: null, registration, waiting: null, handshake: null}
-    const handshake = await getWorkerHandshake(waiting)
-    if (!handshake.answered) return {hold: "uncertain"}
-    if (handshake.activationPending) return {hold: "pending"}
+    let handshake: WorkerHandshake | null = null
+    if (waiting) {
+      handshake = await getWorkerHandshake(waiting)
+      if (!handshake.answered) return {hold: "uncertain"}
+      if (handshake.activationPending) return {hold: "pending"}
+    }
+
+    // Only before this document requests anything, and only with nothing pending or running
+    // (so an old controller that an activation waits on is never messaged): if the controller
+    // switched to another build before this document could observe controllerchange, this
+    // build's lazy chunks will not load from it. Reload into that build before rendering.
+    const controller = navigator.serviceWorker.controller
+    if (checkController && controller) {
+      const controlling = await getWorkerHandshake(controller)
+      if (controlling.answered && controlling.version && controlling.version !== APP_BUILD_ID) {
+        return {hold: null, registration, waiting, handshake, reloadInto: controlling.version}
+      }
+    }
+
     return {hold: null, registration, waiting, handshake}
   }
 
@@ -1386,8 +1403,12 @@
   ): Promise<StartupUpdateOutcome | "recheck"> => {
     let acceptedBuildId = ""
     try {
-      const inspection = await inspectStartupUpdate()
+      const inspection = await inspectStartupUpdate(true)
       if (inspection.hold) return await holdUntilSettled(inspection.hold)
+      if (inspection.reloadInto) {
+        reloadIntoBuild(inspection.reloadInto)
+        return await holdUntilSettled("activating", APP_STARTUP_ACTIVATION_TIMEOUT)
+      }
       const {registration, waiting, handshake} = inspection
       if (!mayRequestActivation || !registration || !waiting || !handshake) return "continue"
 
