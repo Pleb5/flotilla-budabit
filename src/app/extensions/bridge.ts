@@ -1291,13 +1291,21 @@ const selectCommunitySharedConfigEvent = (
     )
 }
 
-const SHARED_CONFIG_REFRESH_TTL_MS = 30_000
+const SHARED_CONFIG_REFRESH_TTL_MS = 8_000
 const MAX_SHARED_CONFIG_REFRESH_SCOPES = 100
 const sharedConfigRefreshCache = new BoundedRefreshCache<CommunityRelayLoadResult>(
   SHARED_CONFIG_REFRESH_TTL_MS,
   MAX_SHARED_CONFIG_REFRESH_SCOPES,
   Date.now,
   result => result.complete && result.events.length > 0,
+)
+const LIVE_STREAMS_REFRESH_TTL_MS = 8_000
+const MAX_LIVE_STREAMS_REFRESH_SCOPES = 100
+const liveStreamsRefreshCache = new BoundedRefreshCache<CommunityRelayLoadResult>(
+  LIVE_STREAMS_REFRESH_TTL_MS,
+  MAX_LIVE_STREAMS_REFRESH_SCOPES,
+  Date.now,
+  result => result.complete,
 )
 
 const queryCachedCommunitySharedConfigEvents = ({
@@ -2219,16 +2227,32 @@ registerBridgeHandler("community:queryLiveStreams", async (payload, ext) => {
         until: request.until,
         limit: request.limit || 100,
       })
-    const cachedEvents = queryCachedBridgeEvents(filters)
+    const refreshKey = JSON.stringify([
+      communityId,
+      Array.from(moderatorPubkeys).sort(),
+      snapshot.relays.slice().sort(),
+      request.since ?? null,
+      request.until ?? null,
+    ])
+    const refreshedResult = liveStreamsRefreshCache.getLatest(refreshKey)
+    const cachedEvents = dedupeEvents([
+      ...queryCachedBridgeEvents(filters),
+      ...(refreshedResult?.events || []),
+    ])
     const cachedStreams = selectEvents(cachedEvents)
 
+    const refreshStreams = () =>
+      liveStreamsRefreshCache.refresh(refreshKey, () =>
+        loadBridgeEventsWithStatus({
+          relays: snapshot.relays,
+          filters,
+          authenticate: true,
+          priorityAuthRelays: snapshot.relayHints,
+        }),
+      )
+
     if (cachedStreams.length > 0) {
-      void loadBridgeEventsWithStatus({
-        relays: snapshot.relays,
-        filters,
-        authenticate: true,
-        priorityAuthRelays: snapshot.relayHints,
-      })
+      void refreshStreams()
 
       return {
         status: "ok",
@@ -2240,12 +2264,7 @@ registerBridgeHandler("community:queryLiveStreams", async (payload, ext) => {
       }
     }
 
-    const loadedResult = await loadBridgeEventsWithStatus({
-      relays: snapshot.relays,
-      filters,
-      authenticate: true,
-      priorityAuthRelays: snapshot.relayHints,
-    })
+    const loadedResult = await refreshStreams()
     const events = selectEvents([...cachedEvents, ...loadedResult.events])
 
     if (events.length === 0 && !loadedResult.complete) throw makeCommunityQueryTimeoutError()

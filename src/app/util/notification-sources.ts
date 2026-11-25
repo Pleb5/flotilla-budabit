@@ -167,6 +167,7 @@ import {
   installedWidgetUpdates,
   type InstalledWidgetUpdate,
 } from "@app/extensions/widget-update-notifications"
+import {createCommunityLiveNotificationRows} from "@app/util/community-live-notifications"
 import {hasUnreadNotificationRowsState, notificationReadState} from "@app/util/notification-center"
 import {
   notificationHistoryFilterLimit,
@@ -5625,6 +5626,12 @@ const widgetUpdateNotificationRows = derived(installedWidgetUpdates, $installedW
   buildWidgetUpdateNotificationRows({updates: $installedWidgetUpdates}),
 )
 
+const communityLiveNotificationRows = createCommunityLiveNotificationRows({
+  communityRefs: notificationCommunityRefs,
+  profileListEvents: globalCommunityProfileListEvents,
+  reportStates: globalCommunityReportStates,
+})
+
 const engagementNotificationFilters = derived(
   [pubkey, notificationHistorySince, notificationHistoryFilterLimit],
   ([$pubkey, $notificationHistorySince, $notificationHistoryFilterLimit]) => {
@@ -5792,6 +5799,7 @@ export const notificationCenterRows = derived(
     globalCommunityModerationRows,
     repoWatchNotificationRows,
     widgetUpdateNotificationRows,
+    communityLiveNotificationRows,
     engagementNotificationRows,
   ],
   ([
@@ -5809,6 +5817,7 @@ export const notificationCenterRows = derived(
     $globalCommunityModerationRows,
     $repoWatchNotificationRows,
     $widgetUpdateNotificationRows,
+    $communityLiveNotificationRows,
     $engagementNotificationRows,
   ]) => {
     const chatRows = buildChatNotificationRows({
@@ -5824,6 +5833,7 @@ export const notificationCenterRows = derived(
       ...$globalCommunityModerationRows,
       ...$repoWatchNotificationRows,
       ...$widgetUpdateNotificationRows,
+      ...$communityLiveNotificationRows,
       ...$engagementNotificationRows,
     ]
     const excludedPaths = new Set(sourceRows.flatMap(row => [row.path, row.readPath]))
