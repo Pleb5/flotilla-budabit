@@ -91,13 +91,17 @@ nsite builds set `VITE_APP_UPDATE_MODE=auto`. Other builds keep the Reload promp
 
 In auto mode, an open page detects and downloads the new build in the background:
 `/_app/version.json` is checked every 30 seconds and on focus, visibility, and
-reconnect. The downloaded build waits; the page shows no prompt and is never
-replaced while in use. The prepared build is applied only at the next startup
-(new tab, reload, link open, or browser restart). This happens before the app
-renders: no page, widget iframe, wallet, signer, or session has started in that
-document yet. During startup, the steps run in order: legacy worker cleanup,
-expected-build check, startup gate, then update polling. No update check or
-preparation message runs while the gate may activate.
+reconnect. The downloaded build waits, and the page shows no prompt. The
+automatic path itself never replaces a page in use: its startup gate applies the
+prepared build only at the next startup (new tab, reload, link open, or browser
+restart). This happens before the app renders: no page, widget iframe, wallet,
+signer, or session has started in that document yet. Some pages never pass that
+gate, and an activation can still reload them and lose unsaved input. These are
+pages restored from the back/forward cache, pages the worker does not control,
+and tabs of builds from before auto mode (see Limitations). During startup, the
+steps run in order: legacy worker cleanup, expected-build check, startup gate,
+then update polling. No update check or preparation message runs while the gate
+may activate.
 
 The gate checks local conditions first, without messaging or network. It is
 skipped unless all of these hold:
@@ -188,13 +192,25 @@ Limitations:
   visitors load the published build directly.
 - Builds published before auto mode (including `3599d872c-20261125172754`) keep
   their Reload prompt. Their users move to an auto-mode build after tapping
-  Reload, or once every tab of the site has been closed. The auto-mode build
-  then handles later releases.
+  Reload, or once every tab of the site has been closed. Tapping Reload
+  activates the new worker for the whole site, so every open tab of the site
+  reloads, including tabs with unsaved input. The auto-mode build then handles
+  later releases.
 - Activation still makes every older window of the site reload. The
-  single-window check narrows this to windows that open during activation
-  itself, which are fresh. A page held in the back/forward cache is not a
-  window client. As with any service-worker activation, it can be evicted and
-  reload when revisited.
+  single-window check narrows this to windows that open while the activation is
+  pending, and those hold unrendered. A page held in the back/forward cache is
+  not a window client, so the check cannot see it. If it is restored while an
+  accepted activation is still pending, it returns already rendered, without
+  passing the startup gate. Its unsaved input, including anything typed after
+  the restore, is lost when the activation completes and reloads it. If the
+  browser evicts it instead, it simply reloads when revisited.
+- A page the worker does not control is still an open window, but it does not
+  use the registration. One example is a page opened with a hard reload, which
+  bypasses the worker. A newer worker can then activate, for example once every
+  controlled tab has closed, or after Reload in another tab in prompt mode. Its
+  `clients.claim()` takes control of the page, and its activation broadcast
+  reaches it. If the new build differs from the one the page runs, the page
+  reloads into it and loses unsaved input. This applies in both modes.
 - A waiting worker from a build without startup activation, such as a rollback
   to an older build, is never asked. Nothing is applied automatically.
 - While an accepted activation is blocked, every document of the site stays on
