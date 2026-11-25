@@ -68,6 +68,8 @@ On timeout:
 
 After a reload, one additional cache-busted reload is safe only when the controlling worker already reports the expected build. Otherwise the app stays on the current build and presents recovery UI.
 
+Auto update mode (`VITE_APP_UPDATE_MODE=auto`, used for nsite builds) is a deliberate exception. It activates only from the pre-render startup gate, with no user to confirm the transition. Once the worker has accepted that activation, a timeout must not render the running build: the late activation would reload it and discard unsaved input. That document stays unrendered behind the persistent update notice, which offers Retry and then Reset. The same applies at startup while another document's activation is already in progress. The gate and its worker handshake still follow the rule above: after activation is requested, no update check or preparation message runs until the gate finishes. See `docs/ops/nsite.md`.
+
 ## Update Controls Are Not Ordinary Toasts
 
 An update or recovery action must survive normal notifications. It cannot live in a capped, dismissible toast queue while internal state assumes it remains visible.

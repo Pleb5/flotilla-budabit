@@ -84,7 +84,8 @@
   import {
     getErrorText,
     getExpectedBuildAction,
-    getStartupUpdateDecision,
+    getPreparedBuildBlocker,
+    getStartupUpdateBlocker,
     isDynamicAppShellFailure,
     shouldPrepareAppUpdate,
   } from "@app/core/app-update"
@@ -244,6 +245,8 @@
   let appUpdateRecoveryMessage = $state("")
   let appUpdateReloading = $state(false)
   let appUpdateActivationDelayed = $state(false)
+  // Auto mode: no update check runs before the startup gate has finished (prompt mode: always).
+  let autoUpdateStartupGateDone = APP_UPDATE_MODE !== "auto"
   let loadedUserModeratorRequestsKey = ""
   let loadingUserModeratorRequestsKey = ""
   let userProfileHydrationIdentity = ""
@@ -1154,82 +1157,138 @@
   }
 
   const APP_AUTO_UPDATE_ATTEMPT_KEY = "appAutoUpdateAttemptBuildId"
-  const APP_STARTUP_UPDATE_TIMEOUT = 3_000
+  // The worker decides (window count, published marker with a 3 s timeout, window recheck)
+  // before this deadline and refuses after it, so a missed reply cannot activate later.
+  const APP_STARTUP_ACTIVATION_DECISION_WINDOW = 6_000
+  const APP_STARTUP_ACTIVATION_REPLY_MARGIN = 1_500
   const APP_STARTUP_ACTIVATION_TIMEOUT = 10_000
+  const APP_STARTUP_HOLD_RECOVERY_DELAY = 20_000
 
-  const fetchPublishedVersionForStartup = async () => {
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => controller.abort(), APP_STARTUP_UPDATE_TIMEOUT)
-    try {
-      const response = await fetch(getVersionUrl(), {
-        cache: "no-store",
-        headers: {pragma: "no-cache", "cache-control": "no-cache"},
-        signal: controller.signal,
-      })
-      if (!response.ok) return ""
-      const data = await response.json()
-      return typeof data?.version === "string" && data?.status !== "deploying" ? data.version : ""
-    } catch {
-      return ""
-    } finally {
-      window.clearTimeout(timer)
-    }
+  type StartupUpdateOutcome = "continue" | "reloading" | "hold"
+  type StartupActivationReply = {
+    answered: boolean
+    accepted: boolean
+    reason: string
+    version: string
   }
 
-  const requestSoleClientActivation = async (worker: ServiceWorker) =>
-    await new Promise<{accepted: boolean; windowClients: number; version: string}>(resolve => {
+  // Version handshake that also reports whether the worker supports startup activation.
+  const getWorkerHandshake = async (worker: ServiceWorker) =>
+    await new Promise<{version: string; startupActivation: boolean}>(resolve => {
       const channel = new MessageChannel()
       let settled = false
-      const finish = (result: {accepted: boolean; windowClients: number; version: string}) => {
+      const finish = (version = "", startupActivation = false) => {
         if (settled) return
         settled = true
         window.clearTimeout(timeout)
         channel.port1.close()
-        resolve(result)
+        resolve({version, startupActivation})
       }
-      // Workers from builds without this handler never answer: keep the running build.
+      const timeout = window.setTimeout(() => finish(), 2_000)
+      channel.port1.onmessage = event => {
+        const data = event.data
+        if (data?.type === "APP_CACHE_VERSION" && typeof data.version === "string") {
+          finish(data.version, data.startupActivation === true)
+        } else {
+          finish()
+        }
+      }
+      try {
+        worker.postMessage({type: "APP_CACHE_GET_VERSION"}, [channel.port2])
+      } catch {
+        finish()
+      }
+    })
+
+  const requestStartupActivation = async (worker: ServiceWorker) =>
+    await new Promise<StartupActivationReply>(resolve => {
+      const deadline = Date.now() + APP_STARTUP_ACTIVATION_DECISION_WINDOW
+      const channel = new MessageChannel()
+      let settled = false
+      const finish = (reply: StartupActivationReply) => {
+        if (settled) return
+        settled = true
+        window.clearTimeout(timeout)
+        channel.port1.close()
+        resolve(reply)
+      }
       const timeout = window.setTimeout(
-        () => finish({accepted: false, windowClients: -1, version: ""}),
-        2_000,
+        () => finish({answered: false, accepted: false, reason: "no-reply", version: ""}),
+        APP_STARTUP_ACTIVATION_DECISION_WINDOW + APP_STARTUP_ACTIVATION_REPLY_MARGIN,
       )
       channel.port1.onmessage = event => {
         const data = event.data
         finish(
           data?.type === "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT_RESULT"
             ? {
+                answered: true,
                 accepted: data.accepted === true,
-                windowClients: Number(data.windowClients) || 0,
+                reason: typeof data.reason === "string" ? data.reason : "",
                 version: typeof data.version === "string" ? data.version : "",
               }
-            : {accepted: false, windowClients: -1, version: ""},
+            : {answered: true, accepted: false, reason: "unexpected-reply", version: ""},
         )
       }
       try {
-        worker.postMessage({type: "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT"}, [channel.port2])
+        worker.postMessage({type: "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT", deadline}, [channel.port2])
       } catch {
-        finish({accepted: false, windowClients: -1, version: ""})
+        finish({answered: true, accepted: false, reason: "post-error", version: ""})
       }
     })
+
+  // True when a newer worker already became active but has not yet taken control of this page:
+  // its claim will make this page reload, so the running build must not render.
+  const isActivationInProgress = (registration: ServiceWorkerRegistration) => {
+    const controller = navigator.serviceWorker.controller
+    return Boolean(controller && registration.active && registration.active !== controller)
+  }
+
+  /**
+   * Keep this document unrendered while an accepted or already running activation finishes.
+   * The global controllerchange/APP_CACHE_ACTIVATED handlers reload it into the new build.
+   * Meanwhile the persistent update notice offers Retry, then Reset after a bounded delay.
+   */
+  const holdForPendingActivation = (buildId: string) => {
+    recordAppUpdateDebugDiagnostic("startup-update-hold", {expectedBuildId: buildId})
+    readyAppUpdateBuildId = buildId || "pending"
+    appUpdateActivationDelayed = true
+    window.setTimeout(() => {
+      if (serviceWorkerReloadInFlight || appUpdateRecoveryMessage) return
+      appUpdateRecoveryMessage =
+        "The app update has not finished yet. Retry, or reset the app cache to start again."
+    }, APP_STARTUP_HOLD_RECOVERY_DELAY)
+  }
 
   /**
    * Auto-update mode only. Runs before the app renders: no page, widget iframe, wallet, signer
    * or session has started in this document. If a newer build is already prepared (waiting)
    * and still published, it replaces the running build with one reload. Otherwise the running
    * build continues and the prepared build waits for a later startup.
+   *
+   * Once a worker has accepted activation (irreversible), or another document's activation is
+   * already in progress, this document never renders the running build: a late activation
+   * would reload it and discard anything typed. It holds with the update notice instead.
    */
-  const applyPreparedUpdateAtStartup = async () => {
-    if (!browser || dev || APP_UPDATE_MODE !== "auto") return false
-    if (!("serviceWorker" in navigator) || typeof sessionStorage === "undefined") return false
+  const applyPreparedUpdateAtStartup = async (): Promise<StartupUpdateOutcome> => {
+    if (!browser || dev || APP_UPDATE_MODE !== "auto") return "continue"
 
+    let acceptedBuildId = ""
     try {
+      if (!("serviceWorker" in navigator)) return "continue"
       const registration = await navigator.serviceWorker.getRegistration(getAppBaseUrl().pathname)
-      const waiting = registration?.waiting
-      if (!waiting) return false
+      if (!registration) return "continue"
 
-      const waitingBuildId = await getServiceWorkerVersion(waiting, "startup-waiting")
-      const publishedBuildId = waitingBuildId ? await fetchPublishedVersionForStartup() : ""
-      const decide = () =>
-        getStartupUpdateDecision({
+      if (isActivationInProgress(registration)) {
+        const pending = registration.active
+          ? await getWorkerHandshake(registration.active)
+          : {version: ""}
+        holdForPendingActivation(pending.version)
+        return "hold"
+      }
+
+      // Cheap local checks before any worker messaging or network.
+      const readLocalBlocker = () =>
+        getStartupUpdateBlocker({
           autoUpdate: true,
           visible: document.visibilityState === "visible",
           userInputSeen: appUserInputSeen,
@@ -1237,41 +1296,85 @@
             serviceWorkerReloadInFlight ||
             Boolean(sessionStorage.getItem(APP_EXPECTED_BUILD_STORAGE_KEY)),
           broadcastPrepared: hasStoredBroadcastPreparation(),
-          attemptedBuildId: sessionStorage.getItem(APP_AUTO_UPDATE_ATTEMPT_KEY) || "",
-          runningBuildId: APP_BUILD_ID,
-          waitingBuildId,
-          publishedBuildId,
         })
-      const decision = decide()
-      recordAppUpdateDebugDiagnostic("startup-update-decision", {
-        ...decision,
-        waitingBuildId,
-        publishedBuildId,
-      })
-      if (!decision.apply) return false
+      const waiting = registration.waiting
+      if (!waiting) return "continue"
+      const localBlocker = readLocalBlocker()
+      if (localBlocker) {
+        recordAppUpdateDebugDiagnostic("startup-update-skipped", {reason: localBlocker})
+        return "continue"
+      }
 
-      // Recheck immediately before activation; the worker rechecks other windows itself.
-      if (!decide().apply || registration?.waiting !== waiting) return false
-      const activation = await requestSoleClientActivation(waiting)
-      recordAppUpdateDebugDiagnostic("startup-update-activation", {...activation, waitingBuildId})
-      if (!activation.accepted || activation.version !== waitingBuildId) return false
-      // Only an accepted activation counts as an attempt: a refusal (another window open)
-      // leaves the build eligible at this tab's next startup.
-      sessionStorage.setItem(APP_AUTO_UPDATE_ATTEMPT_KEY, waitingBuildId)
+      const handshake = await getWorkerHandshake(waiting)
+      const buildBlocker = getPreparedBuildBlocker({
+        runningBuildId: APP_BUILD_ID,
+        waitingBuildId: handshake.version,
+        attemptedBuildId: sessionStorage.getItem(APP_AUTO_UPDATE_ATTEMPT_KEY) || "",
+        startupActivation: handshake.startupActivation,
+      })
+      if (buildBlocker) {
+        recordAppUpdateDebugDiagnostic("startup-update-skipped", {
+          reason: buildBlocker,
+          waitingBuildId: handshake.version,
+        })
+        return "continue"
+      }
+
+      // Recheck local state immediately before asking; the worker checks the published marker
+      // and other windows itself, and refuses after its deadline.
+      if (readLocalBlocker() || registration.waiting !== waiting) return "continue"
+      const activation = await requestStartupActivation(waiting)
+      recordAppUpdateDebugDiagnostic("startup-update-activation", {
+        ...activation,
+        waitingBuildId: handshake.version,
+      })
+
+      if (!activation.answered) {
+        // A supporting worker did not answer in time: it may already have accepted.
+        holdForPendingActivation(handshake.version)
+        return "hold"
+      }
+      if (!activation.accepted) {
+        if (isActivationInProgress(registration)) {
+          const pending = registration.active
+            ? await getWorkerHandshake(registration.active)
+            : {version: ""}
+          holdForPendingActivation(pending.version)
+          return "hold"
+        }
+        return "continue"
+      }
+
+      // Accepted means skipWaiting() already ran: from here on this document never renders.
+      acceptedBuildId = activation.version || handshake.version
+      try {
+        // Only an accepted activation counts as an attempt: a refusal leaves the build
+        // eligible at this tab's next startup.
+        sessionStorage.setItem(APP_AUTO_UPDATE_ATTEMPT_KEY, acceptedBuildId)
+      } catch {
+        // Storage failure must not render the running build after acceptance.
+      }
 
       const controlled = await Promise.race([
-        waitForControllerBuild(waitingBuildId),
+        waitForControllerBuild(acceptedBuildId),
         new Promise<boolean>(resolve =>
           window.setTimeout(() => resolve(false), APP_STARTUP_ACTIVATION_TIMEOUT),
         ),
       ])
-      if (!controlled) return false
+      if (controlled) {
+        reloadIntoBuild(acceptedBuildId)
+        return "reloading"
+      }
 
-      reloadIntoBuild(waitingBuildId)
-      return true
+      holdForPendingActivation(acceptedBuildId)
+      return "hold"
     } catch (error) {
       console.warn("[app-update] Startup update check failed", error)
-      return false
+      if (acceptedBuildId) {
+        holdForPendingActivation(acceptedBuildId)
+        return "hold"
+      }
+      return "continue"
     }
   }
 
@@ -1590,6 +1693,33 @@
     setupAppUpdatePolling()
   }
 
+  /**
+   * Auto mode replacement for initAppUpdates, awaited before the app renders. The same steps
+   * run in order; update polling (version checks through the controller, preparation messages)
+   * starts only after the startup gate has finished without activating. Returns false when this
+   * document must stay unrendered (reloading, or holding for an activation).
+   */
+  const initAutoModeUpdatesBeforeRender = async () => {
+    setupAppShellFailureRecovery()
+    try {
+      await cleanupLegacyServiceWorkers()
+    } catch (error) {
+      console.warn("[app-update] Legacy service-worker cleanup failed", error)
+    }
+
+    try {
+      if (!(await verifyExpectedBuildAfterReload())) return false
+    } catch (error) {
+      console.warn("[app-update] Expected-build verification failed", error)
+    }
+
+    if ((await applyPreparedUpdateAtStartup()) !== "continue") return false
+
+    autoUpdateStartupGateDone = true
+    setupAppUpdatePolling()
+    return true
+  }
+
   // Listen for navigation messages from service worker
   serviceWorkerMessageHandler = event => {
     const data = event.data
@@ -1607,7 +1737,8 @@
         workerBuildId: data.version,
         controller: describeAppUpdateWorker(navigator.serviceWorker?.controller),
       })
-      void checkForAppUpdate()
+      // Auto mode: never start an update check while the startup gate may be activating.
+      if (autoUpdateStartupGateDone) void checkForAppUpdate()
       return
     }
 
@@ -1661,7 +1792,8 @@
     serviceWorkerControllerChangeHandler,
   )
 
-  void initAppUpdates()
+  // Auto mode runs these steps before rendering instead (initAutoModeUpdatesBeforeRender).
+  if (APP_UPDATE_MODE !== "auto") void initAppUpdates()
 
   // Cleanup on page close
   window.addEventListener("beforeunload", () => db.close())
@@ -1707,8 +1839,9 @@
 
     await prepareDevNavigation()
 
-    // Before sessions, storage, wallet or any page/widget starts: apply a prepared update.
-    if (await applyPreparedUpdateAtStartup()) {
+    // Auto mode: settle update state before sessions, storage, wallet or any page/widget
+    // starts. A document that is reloading or holding for an activation never renders.
+    if (APP_UPDATE_MODE === "auto" && !(await initAutoModeUpdatesBeforeRender())) {
       await new Promise<never>(() => {})
     }
 

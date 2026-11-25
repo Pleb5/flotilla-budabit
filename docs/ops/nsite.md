@@ -95,22 +95,48 @@ reconnect. The downloaded build waits; the page shows no prompt and is never
 replaced while in use. The prepared build is applied only at the next startup
 (new tab, reload, link open, or browser restart). This happens before the app
 renders: no page, widget iframe, wallet, signer, or session has started in that
-document yet. It is skipped unless all of these hold:
+document yet. During startup, the steps run in order: legacy worker cleanup,
+expected-build check, startup gate, then update polling. No update check or
+preparation message runs while the gate may activate.
+
+The gate checks local conditions first, without messaging or network. It is
+skipped unless all of these hold:
 
 - the page is visible and has had no input: pointer, touch, keys, IME
   composition, input, click, focus moving to a page element, paste, drop, or
   context menu. The browser's own focus of the page body after an
   address-bar navigation is not input;
-- no reload is already in progress, this tab has no prepared local broadcast
-  (restored from session storage), and this build's activation was not already
-  accepted in this tab (a refused activation does not count);
-- the waiting build is still the published `/_app/version.json` build;
-- the waiting service worker reports, at activation time, that this page is the
-  only window of the site.
+- no reload is already in progress, and this tab has no prepared local
+  broadcast (restored from session storage);
+- the waiting worker reports a newer build and supports startup activation,
+  shown by `startupActivation` in its version reply. Its activation must not
+  already have been accepted in this tab; a refused activation does not count.
+
+Only then does the page ask the waiting worker. The worker refuses at once if
+another window of the site is open; this needs no network request. Otherwise it
+checks that its build is still the published `/_app/version.json` (3-second
+timeout). It then rechecks the windows and the page's deadline, and only then
+calls `skipWaiting()`. The worker never activates after the deadline, so a reply
+the page did not receive cannot lead to a later activation.
+
+Once activation has been accepted it cannot be undone, and activation reloads
+every older window. So from that point the page never renders the running build.
+This holds through a slow controller switch, an error, a storage failure, or a
+missing reply. It also holds at any startup where another document's activation
+is already in progress, meaning a newer worker is active but does not yet
+control this page. In that state, the persistent update notice shows "still
+activating" with Retry. After about 30 seconds it adds Reset cache. Nothing can
+be typed, so the eventual automatic reload loses nothing.
 
 Otherwise the running build continues. The prepared build waits for a later
 qualifying startup, or the browser activates it once no window of the site
 remains open.
+
+While precaching a release, any worker (prompt or auto mode) refuses an
+`text/html` response for `.js`, `.mjs`, `.css`, `.json`, or `.webmanifest`
+paths. Gateways and static hosts can answer a missing file with the app shell
+and status 200. The install then fails and is retried, rather than caching HTML
+as a script. Fonts and images are not covered.
 
 Limitations:
 
@@ -126,8 +152,11 @@ Limitations:
   itself, which are fresh. A page held in the back/forward cache is not a
   window client. As with any service-worker activation, it can be evicted and
   reload when revisited.
-- A waiting worker from a build without this handler never answers, so nothing
-  is applied automatically.
+- A waiting worker from a build without startup activation, such as a rollback
+  to an older build, is never asked. Nothing is applied automatically.
+- An activation that never completes leaves that tab on the notice until
+  Retry or Reset cache is chosen. That is the price of never exposing a page
+  that a late reload could wipe.
 
 ## Gateway findings (2026-11-25)
 

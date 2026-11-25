@@ -24,47 +24,50 @@ export const getExpectedBuildAction = ({
   return "recover"
 }
 
-export type StartupUpdateDecision = {apply: boolean; reason: string}
-
 /**
- * Decide whether an already prepared (installed and waiting) build may replace the running
- * build before the app renders. Missing or uncertain signals keep the running build. The
- * service worker separately rechecks, at activation, that the requester is its only window.
+ * Cheap local reasons for a startup (auto mode) not to apply a prepared build, checked before
+ * any worker messaging or network. Returns "" when none applies.
  */
-export const getStartupUpdateDecision = ({
+export const getStartupUpdateBlocker = ({
   autoUpdate,
   visible,
   userInputSeen,
   reloadInProgress,
   broadcastPrepared,
-  attemptedBuildId,
-  runningBuildId,
-  waitingBuildId,
-  publishedBuildId,
 }: {
   autoUpdate: boolean
   visible: boolean
   userInputSeen: boolean
   reloadInProgress: boolean
   broadcastPrepared: boolean
-  attemptedBuildId: string
+}) => {
+  if (!autoUpdate) return "prompt-mode"
+  if (reloadInProgress) return "reload-in-progress"
+  if (!visible) return "not-visible"
+  if (userInputSeen) return "user-input"
+  if (broadcastPrepared) return "broadcast-prepared"
+  return ""
+}
+
+/**
+ * Whether a waiting worker's build may be requested at startup. The worker itself rechecks the
+ * published marker and other windows at activation time. Returns "" when eligible.
+ */
+export const getPreparedBuildBlocker = ({
+  runningBuildId,
+  waitingBuildId,
+  attemptedBuildId,
+  startupActivation,
+}: {
   runningBuildId: string
   waitingBuildId: string
-  publishedBuildId: string
-}): StartupUpdateDecision => {
-  if (!autoUpdate) return {apply: false, reason: "prompt-mode"}
-  if (reloadInProgress) return {apply: false, reason: "reload-in-progress"}
-  if (!visible) return {apply: false, reason: "not-visible"}
-  if (userInputSeen) return {apply: false, reason: "user-input"}
-  if (broadcastPrepared) return {apply: false, reason: "broadcast-prepared"}
-  if (!waitingBuildId || waitingBuildId === runningBuildId) {
-    return {apply: false, reason: "no-newer-prepared-build"}
-  }
-  if (!publishedBuildId || waitingBuildId !== publishedBuildId) {
-    return {apply: false, reason: "prepared-build-not-published"}
-  }
-  if (attemptedBuildId === waitingBuildId) return {apply: false, reason: "already-attempted"}
-  return {apply: true, reason: "prepared-build-at-startup"}
+  attemptedBuildId: string
+  startupActivation: boolean
+}) => {
+  if (!waitingBuildId || waitingBuildId === runningBuildId) return "no-newer-prepared-build"
+  if (!startupActivation) return "worker-without-startup-activation"
+  if (attemptedBuildId === waitingBuildId) return "already-attempted"
+  return ""
 }
 
 export const getErrorText = (value: unknown): string => {

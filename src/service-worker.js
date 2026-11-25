@@ -4,6 +4,7 @@ const APP_CACHE_PREFIX = "budabit-app-"
 const APP_CACHE_NAME = `${APP_CACHE_PREFIX}${version}`
 const APP_BASE = new URL(self.registration.scope).pathname.replace(/\/$/, "")
 const CACHE_BATCH_SIZE = 12
+const STARTUP_ACTIVATION_MARKER_TIMEOUT = 3_000
 const FETCH_DIAGNOSTICS_AVAILABLE = import.meta.env.VITE_DIAGNOSTICS === "1"
 const activeFetchDiagnostics = new Map()
 let fetchDiagnosticsEnabled = false
@@ -68,13 +69,14 @@ const notifyClients = async message => {
   }
 }
 
-const getPublishedVersion = async () => {
+const getPublishedVersion = async signal => {
   const versionUrl = new URL(toAbsoluteUrl(VERSION_PATH))
   versionUrl.searchParams.set("_budabitWorker", version)
   const response = await fetch(
     new Request(versionUrl, {
       cache: "no-store",
       headers: {"cache-control": "no-cache", pragma: "no-cache"},
+      signal,
     }),
   )
 
@@ -95,6 +97,13 @@ const assertPublishedVersion = async () => {
   }
 }
 
+// Static hosts and nsite gateways can answer a missing file with the HTML app shell and
+// status 200. Never cache that as a script, stylesheet or JSON file.
+const NON_HTML_ASSET_PATH = /\.(?:m?js|css|json|webmanifest)$/
+const isHtmlForNonHtmlAsset = (pathname, response) =>
+  NON_HTML_ASSET_PATH.test(pathname) &&
+  (response.headers.get("content-type") || "").toLowerCase().startsWith("text/html")
+
 const cacheAppShell = async () => {
   try {
     await assertPublishedVersion()
@@ -108,7 +117,7 @@ const cacheAppShell = async () => {
           if (pathname.startsWith(IMMUTABLE_PATH_PREFIX)) {
             for (const reusableCache of reusableCaches) {
               const response = await reusableCache.match(toAbsoluteUrl(pathname))
-              if (response) {
+              if (response && !isHtmlForNonHtmlAsset(pathname, response)) {
                 await cache.put(toAbsoluteUrl(pathname), response)
                 return
               }
@@ -119,6 +128,10 @@ const cacheAppShell = async () => {
 
           if (!response.ok) {
             throw new Error(`Failed to cache ${pathname}: ${response.status}`)
+          }
+
+          if (isHtmlForNonHtmlAsset(pathname, response)) {
+            throw new Error(`Refusing to cache HTML for ${pathname}`)
           }
 
           await cache.put(toAbsoluteUrl(pathname), response)
@@ -269,7 +282,8 @@ self.addEventListener("message", event => {
   const data = event.data
 
   if (data && data.type === "APP_CACHE_GET_VERSION") {
-    event.ports?.[0]?.postMessage({type: "APP_CACHE_VERSION", version})
+    // startupActivation: this worker handles APP_CACHE_ACTIVATE_IF_SOLE_CLIENT.
+    event.ports?.[0]?.postMessage({type: "APP_CACHE_VERSION", version, startupActivation: true})
     return
   }
 
@@ -290,22 +304,57 @@ self.addEventListener("message", event => {
 
   if (data?.type === "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT") {
     // Startup auto-update: activate only if the requesting window is the only window of this
-    // origin at this moment. Other windows may hold drafts or live calls, and activation makes
-    // every older open window reload into the new build.
+    // origin and this worker's build is still published. Other windows may hold drafts or live
+    // calls, and activation makes every older open window reload into the new build. The page
+    // stops waiting after `deadline`, so this worker never activates after it.
     const port = event.ports?.[0]
     const requesterId = event.source && "id" in event.source ? event.source.id : ""
+    const deadline = typeof data.deadline === "number" ? data.deadline : 0
+    const reply = (accepted, reason, windowClients) =>
+      port?.postMessage({
+        type: "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT_RESULT",
+        version,
+        accepted,
+        reason,
+        windowClients,
+      })
+    const countWindows = async () => {
+      const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true})
+      return {
+        sole: Boolean(requesterId) && windows.length === 1 && windows[0].id === requesterId,
+        count: windows.length,
+      }
+    }
     event.waitUntil(
       (async () => {
-        const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true})
-        const accepted =
-          Boolean(requesterId) && windows.length === 1 && windows[0].id === requesterId
-        if (accepted) void self.skipWaiting()
-        port?.postMessage({
-          type: "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT_RESULT",
-          version,
-          accepted,
-          windowClients: windows.length,
-        })
+        try {
+          // Cheap check first: refuse without a network request while another window is open.
+          let windows = await countWindows()
+          if (!windows.sole) return reply(false, "other-windows", windows.count)
+
+          const marker = new AbortController()
+          const markerTimer = setTimeout(() => marker.abort(), STARTUP_ACTIVATION_MARKER_TIMEOUT)
+          let publishedVersion = ""
+          try {
+            publishedVersion = await getPublishedVersion(marker.signal)
+          } finally {
+            clearTimeout(markerTimer)
+          }
+          if (publishedVersion !== version) {
+            return reply(false, "not-published", windows.count)
+          }
+
+          // Recheck after the network round trip, then decide without awaiting anything.
+          windows = await countWindows()
+          if (!windows.sole) return reply(false, "other-windows", windows.count)
+          if (!deadline || Date.now() > deadline) {
+            return reply(false, "deadline", windows.count)
+          }
+          void self.skipWaiting()
+          reply(true, "accepted", windows.count)
+        } catch {
+          reply(false, "error", -1)
+        }
       })(),
     )
     return
