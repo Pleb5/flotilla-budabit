@@ -1177,6 +1177,8 @@
     version: string
     startupActivation: boolean
     activationPending: boolean
+    // The worker could not read its activation record: treated like no answer.
+    activationUnknown: boolean
   }
   type StartupActivationReply = {
     answered: boolean
@@ -1184,6 +1186,7 @@
     reason: string
     version: string
     activationPending: boolean
+    activationUnknown: boolean
   }
   type StartupInspection =
     | {hold: StartupHoldReason}
@@ -1216,6 +1219,7 @@
         version: "",
         startupActivation: false,
         activationPending: false,
+        activationUnknown: false,
       }
       const channel = new MessageChannel()
       let settled = false
@@ -1236,6 +1240,7 @@
                 version: data.version,
                 startupActivation: data.startupActivation === true,
                 activationPending: data.activationPending === true,
+                activationUnknown: data.activationUnknown === true,
               }
             : unanswered,
         )
@@ -1267,6 +1272,7 @@
             reason: "no-reply",
             version: "",
             activationPending: false,
+            activationUnknown: false,
           }),
         APP_STARTUP_ACTIVATION_DECISION_WINDOW + APP_STARTUP_ACTIVATION_REPLY_MARGIN,
       )
@@ -1280,6 +1286,7 @@
                 reason: typeof data.reason === "string" ? data.reason : "",
                 version: typeof data.version === "string" ? data.version : "",
                 activationPending: data.activationPending === true,
+                activationUnknown: data.activationUnknown === true,
               }
             : {
                 answered: true,
@@ -1287,6 +1294,7 @@
                 reason: "unexpected-reply",
                 version: "",
                 activationPending: false,
+                activationUnknown: false,
               },
         )
       }
@@ -1299,6 +1307,7 @@
           reason: "post-error",
           version: "",
           activationPending: false,
+          activationUnknown: false,
         })
       }
     })
@@ -1339,7 +1348,7 @@
     let handshake: WorkerHandshake | null = null
     if (waiting) {
       handshake = await getWorkerHandshake(waiting)
-      if (!handshake.answered) return {hold: "uncertain"}
+      if (!handshake.answered || handshake.activationUnknown) return {hold: "uncertain"}
       if (handshake.activationPending) return {hold: "pending"}
     }
 
@@ -1361,9 +1370,12 @@
   /**
    * Keep this document unrendered while an activation may still reload it. The global
    * controllerchange/APP_CACHE_ACTIVATED handlers reload it into the new build. It re-inspects
-   * periodically and returns "recheck" only once nothing is pending or activating, so stale
-   * records, replaced workers and unanswered requests cannot hold it indefinitely. The notice
-   * states what is known; its only action reloads this tab, never other windows.
+   * periodically and returns "recheck" only once nothing is pending, activating or unknown. A
+   * replaced worker or an unanswered request that was never accepted therefore releases it.
+   * An accepted activation holds it until that activation reloads it, with no time limit:
+   * there is deliberately no timeout that renders the running build. Each re-inspection also
+   * lets the waiting worker re-assert skipWaiting(). The notice states what is known; its only
+   * action reloads this tab, never other windows.
    */
   const holdUntilSettled = async (reason: StartupHoldReason, quietMs = 0) => {
     const startedAt = Date.now()
@@ -1457,6 +1469,7 @@
       if (!activation.answered) return await holdUntilSettled("uncertain")
       if (!activation.accepted) {
         if (activation.activationPending) return await holdUntilSettled("pending")
+        if (activation.activationUnknown) return await holdUntilSettled("uncertain")
         if (isActivationInProgress(registration)) return await holdUntilSettled("activating")
         return "continue"
       }

@@ -24,9 +24,10 @@ const INDEX_PATH = toAppPath("/index.html")
 const VERSION_PATH = toAppPath("/_app/version.json")
 const CACHE_COMPLETE_PATH = toAppPath("/__budabit_app_cache_complete__")
 // Durable record, in this worker's own build cache, that it accepted a startup activation that
-// has not finished yet. Written before skipWaiting() and reported in every version reply, so a
+// has not happened yet. Written before skipWaiting() and reported in every version reply, so a
 // document that starts while activation is still blocked (same-tab reload, new tab) holds
-// instead of rendering. Cleared at install (stale record of the same build) and on activation.
+// instead of rendering. It has no expiry. It is removed only when this worker activates, when
+// a worker of the same build installs, or by the refusing path before acceptance.
 const ACTIVATION_PENDING_PATH = toAppPath("/__budabit_startup_activation_pending__")
 const NETWORK_ONLY_PATHS = new Set([
   VERSION_PATH,
@@ -102,21 +103,49 @@ const assertPublishedVersion = async () => {
   }
 }
 
-// Browsers end stuck service-worker events within minutes, so an older record is stale and
-// must not hold documents indefinitely.
-const ACTIVATION_PENDING_MAX_AGE = 10 * 60_000
+// Startup activation decisions in this worker thread. From just before the final window count
+// until the decision, version replies report "pending", so a document that starts in that
+// window holds even before the record exists. A running decision can still refuse and remove
+// the record, so skipWaiting() is never re-asserted from a read that overlapped a decision.
+let startupDecisionsInFlight = 0
+let startupDecisionsStarted = 0
 
-const readActivationPending = async () => {
+// Re-assert an accepted activation. Repeating skipWaiting() is harmless. Its flag is not
+// guaranteed to outlive a browser restart, but the record is. Its promise can stay pending
+// until activation starts, so it is never awaited, or passed to waitUntil, before a reply.
+const reassertSkipWaiting = () => {
+  try {
+    self.skipWaiting().catch(() => {})
+  } catch {
+    // The next version report re-asserts it.
+  }
+}
+
+/**
+ * This worker's startup activation state, as reported to documents:
+ * - "pending": accepted (the record exists) or being decided. Documents hold. For a record
+ *   read while no decision ran, skipWaiting() is re-asserted.
+ * - "unknown": the record could not be read. Documents hold.
+ * - "none": nothing accepted.
+ * There is no expiry. Once skipWaiting() may have run, activation can reload every open
+ * document however late it happens, and browsers give no wall-clock bound on that delay.
+ */
+const readActivationState = async () => {
+  const startedBefore = startupDecisionsStarted
+  const decidingBefore = startupDecisionsInFlight > 0
+  let recorded = false
   try {
     const cache = await caches.open(APP_CACHE_NAME)
-    const response = await cache.match(toAbsoluteUrl(ACTIVATION_PENDING_PATH))
-    if (!response) return false
-    const record = await response.json().catch(() => null)
-    const acceptedAt = Number(record?.acceptedAt) || 0
-    return Date.now() - acceptedAt < ACTIVATION_PENDING_MAX_AGE
+    recorded = Boolean(await cache.match(toAbsoluteUrl(ACTIVATION_PENDING_PATH)))
   } catch {
-    return false
+    return startupDecisionsInFlight > 0 ? "pending" : "unknown"
   }
+  if (decidingBefore || startupDecisionsInFlight > 0 || startupDecisionsStarted !== startedBefore) {
+    return "pending"
+  }
+  if (!recorded) return "none"
+  reassertSkipWaiting()
+  return "pending"
 }
 
 const setActivationPending = async pending => {
@@ -127,7 +156,8 @@ const setActivationPending = async pending => {
   }
   await cache.put(
     toAbsoluteUrl(ACTIVATION_PENDING_PATH),
-    new Response(JSON.stringify({version, acceptedAt: Date.now()}), {
+    // Diagnostic content only: presence is the record, and its age is never consulted.
+    new Response(JSON.stringify({version, recordedAt: Date.now()}), {
       headers: {"content-type": "application/json"},
     }),
   )
@@ -322,15 +352,16 @@ self.addEventListener("message", event => {
 
   if (data && data.type === "APP_CACHE_GET_VERSION") {
     // startupActivation: this worker handles APP_CACHE_ACTIVATE_IF_SOLE_CLIENT.
-    // activationPending: this worker accepted a startup activation that has not finished.
+    // activationPending / activationUnknown: see readActivationState(). Documents hold on either.
     const port = event.ports?.[0]
     event.waitUntil(
-      readActivationPending().then(activationPending =>
+      readActivationState().then(state =>
         port?.postMessage({
           type: "APP_CACHE_VERSION",
           version,
           startupActivation: true,
-          activationPending,
+          activationPending: state === "pending",
+          activationUnknown: state === "unknown",
         }),
       ),
     )
@@ -360,14 +391,15 @@ self.addEventListener("message", event => {
     const port = event.ports?.[0]
     const requesterId = event.source && "id" in event.source ? event.source.id : ""
     const deadline = typeof data.deadline === "number" ? data.deadline : 0
-    const reply = (accepted, reason, windowClients, activationPending) =>
+    const reply = (accepted, reason, windowClients, state) =>
       port?.postMessage({
         type: "APP_CACHE_ACTIVATE_IF_SOLE_CLIENT_RESULT",
         version,
         accepted,
         reason,
         windowClients,
-        activationPending,
+        activationPending: state === "pending",
+        activationUnknown: state === "unknown",
       })
     const countWindows = async () => {
       const windows = await self.clients.matchAll({type: "window", includeUncontrolled: true})
@@ -378,15 +410,18 @@ self.addEventListener("message", event => {
     }
     event.waitUntil(
       (async () => {
+        let deciding = false
         let recorded = false
         let skipped = false
         try {
-          // Already accepted for another document: every new document must hold as well.
-          if (await readActivationPending()) return reply(false, "activation-pending", -1, true)
+          // Already accepted, being decided, or unreadable: accept nothing, and the requester
+          // holds like every other document.
+          const state = await readActivationState()
+          if (state !== "none") return reply(false, `activation-${state}`, -1, state)
 
           // Cheap check first: refuse without a network request while another window is open.
           let windows = await countWindows()
-          if (!windows.sole) return reply(false, "other-windows", windows.count, false)
+          if (!windows.sole) return reply(false, "other-windows", windows.count, "none")
 
           const marker = new AbortController()
           const markerTimer = setTimeout(() => marker.abort(), STARTUP_ACTIVATION_MARKER_TIMEOUT)
@@ -397,13 +432,18 @@ self.addEventListener("message", event => {
             clearTimeout(markerTimer)
           }
           if (publishedVersion !== version) {
-            return reply(false, "not-published", windows.count, false)
+            return reply(false, "not-published", windows.count, "none")
           }
 
+          // Final window count. From here until the decision, version replies report "pending",
+          // so a document that starts now holds even before the record below exists.
+          deciding = true
+          startupDecisionsStarted++
+          startupDecisionsInFlight++
           windows = await countWindows()
-          if (!windows.sole) return reply(false, "other-windows", windows.count, false)
+          if (!windows.sole) return reply(false, "other-windows", windows.count, "none")
           if (!deadline || Date.now() > deadline) {
-            return reply(false, "deadline", windows.count, false)
+            return reply(false, "deadline", windows.count, "none")
           }
 
           // Record acceptance durably before skipWaiting(), then recheck what may have changed
@@ -414,16 +454,24 @@ self.addEventListener("message", event => {
           if (!windows.sole || Date.now() > deadline) {
             await setActivationPending(false)
             recorded = false
-            return reply(false, windows.sole ? "deadline" : "other-windows", windows.count, false)
+            return reply(false, windows.sole ? "deadline" : "other-windows", windows.count, "none")
           }
           skipped = true
-          void self.skipWaiting()
-          reply(true, "accepted", windows.count, true)
+          reassertSkipWaiting()
+          reply(true, "accepted", windows.count, "pending")
         } catch {
           if (recorded && !skipped) {
-            await setActivationPending(false).catch(() => {})
+            try {
+              await setActivationPending(false)
+              recorded = false
+            } catch {
+              // The record stays. Every document that started after the final count held, so
+              // a later version report may safely re-assert it.
+            }
           }
-          reply(false, "error", -1, skipped || (await readActivationPending()))
+          reply(false, "error", -1, skipped || recorded ? "pending" : "none")
+        } finally {
+          if (deciding) startupDecisionsInFlight--
         }
       })(),
     )

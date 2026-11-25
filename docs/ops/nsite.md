@@ -126,8 +126,19 @@ the registration's waiting worker, and new documents load the old build. These
 include a reload of the same tab or a newly opened tab. So the worker first
 writes a durable record into its own build cache (`/__budabit_startup_activation_pending__`).
 It then rechecks windows and the deadline after that write, removes the record
-if either check fails, and only then calls `skipWaiting()`. Every version reply
-and every activation reply reports `activationPending`.
+if either check fails, and only then calls `skipWaiting()`. From just before
+its final window count until it decides, the worker already reports a pending
+activation, so a document that starts during the decision holds. Every version
+reply and every activation reply reports `activationPending`, or
+`activationUnknown` when the record cannot be read.
+
+The record has no expiry. It is removed only when that worker activates, when
+a worker of the same build installs (rollback or reinstall), or by the refusal
+path before acceptance. Reset also deletes it with the caches, but auto mode
+never offers Reset. Whenever the worker reports its record outside a running
+decision, it calls `skipWaiting()` again, without waiting for it to resolve. The
+skip-waiting flag is not guaranteed to survive a browser restart, but the record
+is, and held documents ask again every 5 seconds.
 
 Before rendering, every auto-mode document inspects the shared state first,
 before any per-tab check such as an attempted build, an expected-build reload,
@@ -137,7 +148,7 @@ input, or visibility. It holds while:
 - an activation is running: a worker other than this page's controller is
   active, or one is activating for an uncontrolled page;
 - the state cannot be determined: the registration lookup (3-second bound) or
-  the worker handshake does not answer.
+  the worker handshake does not answer, or the worker cannot read its record.
 
 When none of these applies, one more check runs before the document requests
 anything. If its controller already serves another build, the document reloads
@@ -151,14 +162,14 @@ A held document shows "Finishing the app update. This tab reloads
 automatically." (or "Checking the app update…" when the state is unknown). It
 re-inspects every 5 seconds, and nothing can be typed. The activation then
 reloads it into the new build, and nothing is lost. A hold ends without
-rendering the old build only once nothing is pending or running. That covers a
-replaced worker, a refusal, and an unanswered request that was never accepted,
-so holds are not permanent. The record is cleared on activation and at every
-install of the same build (rollback or reinstall), and Reset removes it with the
-caches. A record older than 10 minutes is ignored; browsers end stuck
-service-worker events sooner than that. After 30 seconds the notice says it is
-taking longer than usual and offers "Reload this tab". In auto mode, Retry and
-Reset are never offered, because they can force other open windows to reload.
+rendering the old build only once nothing is pending, running or unknown. A
+replaced worker, a refusal, and an unanswered request that was never accepted
+therefore release it. An accepted activation does not: the hold lasts until that
+activation happens, however long that takes, and no timeout renders the old
+build. After 30 seconds the notice says it is taking longer than usual and
+offers "Reload this tab", which reloads only that tab, into the same hold. In
+auto mode, Retry and Reset are never offered, because they can force other open
+windows to reload.
 
 Otherwise the running build continues. The prepared build waits for a later
 qualifying startup, or the browser activates it once no window of the site
@@ -187,10 +198,12 @@ Limitations:
 - A waiting worker from a build without startup activation, such as a rollback
   to an older build, is never asked. Nothing is applied automatically.
 - While an accepted activation is blocked, every document of the site stays on
-  the notice, including newly opened tabs. That is the price of never exposing a
-  page that the late reload could wipe. The wait lasts until the old worker
-  finishes its pending requests. Browsers bound this to minutes, and the pending
-  record expires after 10 minutes.
+  the notice, including newly opened tabs, and the site cannot be used. The
+  wait lasts until the old worker's pending events end, and no wall-clock bound
+  is guaranteed. Chromium's own limits on that wait run on a monotonic clock,
+  which does not advance while an Android device sleeps. Other engines document
+  no limit. A hold can therefore last indefinitely. This trades availability for
+  never exposing a page that the late reload could wipe.
 
 ## Gateway findings (2026-11-25)
 
